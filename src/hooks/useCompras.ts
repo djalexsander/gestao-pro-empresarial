@@ -3,7 +3,13 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/components/auth/AuthProvider";
 
-export type CompraStatus = "rascunho" | "pendente" | "aprovada" | "recebida" | "cancelada";
+export type CompraStatus =
+  | "rascunho"
+  | "pendente"
+  | "aprovada"
+  | "recebida_parcial"
+  | "recebida"
+  | "cancelada";
 
 export type CompraItem = {
   id: string;
@@ -12,6 +18,7 @@ export type CompraItem = {
   variacao_id: string | null;
   descricao: string | null;
   quantidade: number;
+  quantidade_recebida: number;
   preco_unitario: number;
   desconto: number;
   total: number;
