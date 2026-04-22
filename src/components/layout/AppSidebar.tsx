@@ -13,6 +13,7 @@ import {
   Sparkles,
   ChevronLeft,
   Shield,
+  ShieldCheck,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -80,8 +81,8 @@ export function AppSidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: A
     ? [
         ...groups,
         {
-          label: "Sistema",
-          items: [{ to: "/admin", label: "Painel Master", icon: Shield }],
+          label: "Plataforma",
+          items: [{ to: "/admin", label: "Painel Master", icon: ShieldCheck }],
         },
       ]
     : groups;

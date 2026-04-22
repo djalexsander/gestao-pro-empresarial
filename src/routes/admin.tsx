@@ -1,17 +1,12 @@
-import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { RequireSuperAdmin } from "@/components/admin/RequireSuperAdmin";
+import { createFileRoute } from "@tanstack/react-router";
+import { MasterLayout } from "@/components/admin/MasterLayout";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
-    meta: [{ title: "Painel Master — Gestão Pro" }],
+    meta: [
+      { title: "Painel Master — Gestão Pro" },
+      { name: "robots", content: "noindex" },
+    ],
   }),
-  component: AdminLayout,
+  component: MasterLayout,
 });
-
-function AdminLayout() {
-  return (
-    <RequireSuperAdmin>
-      <Outlet />
-    </RequireSuperAdmin>
-  );
-}

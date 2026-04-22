@@ -427,6 +427,54 @@ export type Database = {
         }
         Relationships: []
       }
+      empresas: {
+        Row: {
+          bloqueada_em: string | null
+          bloqueada_motivo: string | null
+          created_at: string
+          documento: string | null
+          email: string | null
+          id: string
+          nome: string
+          observacoes: string | null
+          owner_id: string
+          plano: string
+          status: string
+          telefone: string | null
+          updated_at: string
+        }
+        Insert: {
+          bloqueada_em?: string | null
+          bloqueada_motivo?: string | null
+          created_at?: string
+          documento?: string | null
+          email?: string | null
+          id?: string
+          nome: string
+          observacoes?: string | null
+          owner_id: string
+          plano?: string
+          status?: string
+          telefone?: string | null
+          updated_at?: string
+        }
+        Update: {
+          bloqueada_em?: string | null
+          bloqueada_motivo?: string | null
+          created_at?: string
+          documento?: string | null
+          email?: string | null
+          id?: string
+          nome?: string
+          observacoes?: string | null
+          owner_id?: string
+          plano?: string
+          status?: string
+          telefone?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       estoque_movimentacoes: {
         Row: {
           compra_id: string | null
@@ -1081,6 +1129,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_delete_empresa: { Args: { _id: string }; Returns: undefined }
       admin_delete_user: { Args: { _user_id: string }; Returns: undefined }
       admin_estatisticas_globais: { Args: never; Returns: Json }
       admin_listar_audit_logs: {
@@ -1104,12 +1153,39 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      admin_listar_empresas: {
+        Args: never
+        Returns: {
+          created_at: string
+          documento: string
+          email: string
+          id: string
+          nome: string
+          observacoes: string
+          owner_id: string
+          plano: string
+          status: string
+          telefone: string
+          total_compras: number
+          total_movimentacoes: number
+          total_produtos: number
+          total_usuarios: number
+          total_vendas: number
+          updated_at: string
+          volume_compras: number
+          volume_vendas: number
+        }[]
+      }
       admin_listar_usuarios: {
         Args: never
         Returns: {
           created_at: string
           email: string
           email_confirmed: boolean
+          empresa_id: string
+          empresa_nome: string
+          empresa_plano: string
+          empresa_status: string
           last_sign_in_at: string
           roles: string[]
           total_compras: number
@@ -1117,6 +1193,20 @@ export type Database = {
           total_vendas: number
           user_id: string
         }[]
+      }
+      admin_serie_crescimento: {
+        Args: { _dias?: number }
+        Returns: {
+          data: string
+          novas_empresas: number
+          novos_usuarios: number
+          total_empresas_acum: number
+          total_usuarios_acum: number
+        }[]
+      }
+      admin_set_empresa_status: {
+        Args: { _id: string; _motivo?: string; _status: string }
+        Returns: undefined
       }
       admin_set_user_role: {
         Args: {
@@ -1126,10 +1216,23 @@ export type Database = {
         }
         Returns: undefined
       }
+      admin_upsert_empresa: {
+        Args: {
+          _documento?: string
+          _email?: string
+          _id: string
+          _nome: string
+          _observacoes?: string
+          _plano?: string
+          _telefone?: string
+        }
+        Returns: string
+      }
       calcular_saldo_estoque: {
         Args: { _produto_id: string; _variacao_id?: string }
         Returns: number
       }
+      garantir_empresa_atual: { Args: { _nome?: string }; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1147,6 +1250,15 @@ export type Database = {
           _gerar_financeiro?: boolean
         }
         Returns: string
+      }
+      registrar_audit_log: {
+        Args: {
+          _action: string
+          _metadata?: Json
+          _target_id?: string
+          _target_type?: string
+        }
+        Returns: undefined
       }
     }
     Enums: {
