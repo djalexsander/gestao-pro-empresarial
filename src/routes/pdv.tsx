@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ScannerDialog } from "@/components/scanner/ScannerDialog";
 import { FinalizarVendaDialog } from "@/components/pdv/FinalizarVendaDialog";
+import { VendaSucessoDialog } from "@/components/pdv/VendaSucessoDialog";
 import {
   buscarProdutoPorCodigo,
   type ProdutoBuscaResult,
@@ -53,6 +54,7 @@ import {
 import { useScanner } from "@/hooks/useScanner";
 import { useProdutos } from "@/hooks/useProdutos";
 import { useClientes, type ClienteLite } from "@/hooks/useClientes";
+import { useSaldosLote, type FormaPagamento, type StatusPagamento } from "@/hooks/useVendas";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
