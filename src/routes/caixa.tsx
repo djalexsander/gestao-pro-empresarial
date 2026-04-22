@@ -81,7 +81,7 @@ const MOVIMENTO_LABEL = {
 
 function CaixaPage() {
   const { user } = useAuth();
-  const { data: caixaAberto, isLoading: loadingCaixa } = useCaixaAberto();
+  const { data: caixaAberto, isLoading: loadingCaixa } = useQualquerCaixaAberto();
   const { data: resumo } = useCaixaResumo(caixaAberto?.id);
   const { data: historico = [] } = useCaixasHistorico(20);
   const { data: movimentos = [] } = useCaixaMovimentos(caixaAberto?.id);
