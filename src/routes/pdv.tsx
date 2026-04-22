@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ScanLine,
@@ -15,6 +15,8 @@ import {
   Package,
   CheckCircle2,
   Eraser,
+  LogOut,
+  ArrowLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -71,6 +73,9 @@ import {
   validarDocumento,
 } from "@/lib/documento";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { useOperador } from "@/components/auth/OperadorProvider";
+import { useTerminal } from "@/components/auth/TerminalProvider";
+import { TerminalAtualBadge } from "@/components/auth/TerminalSelector";
 import { RequirePosSession } from "@/components/auth/RequirePosSession";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -109,6 +114,8 @@ const DEFAULT_FOCUS_DELAY = 30;
 function PDVPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { operador, trocarOperador } = useOperador();
+  const { terminal } = useTerminal();
   const { data: produtos = [], isLoading: loadingProdutos } = useProdutos();
   const { data: clientes = [] } = useClientes();
 
