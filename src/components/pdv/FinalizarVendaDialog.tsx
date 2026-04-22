@@ -37,6 +37,7 @@ import {
   type FinalizarVendaItem,
   type FinalizarVendaPagamento,
 } from "@/hooks/useVendas";
+import { useHotkeys } from "@/hooks/useHotkeys";
 
 interface FinalizarVendaDialogProps {
   open: boolean;
@@ -61,6 +62,8 @@ interface FormaPagamentoOption {
   key: FormaPagamento;
   label: string;
   icon: LucideIcon;
+  /** Atalho de teclado (F1, F2, ...) */
+  shortcut: string;
   /** Se true, normalmente fica pendente (gera contas a receber) */
   pendentePorPadrao?: boolean;
   /** Permite calcular troco (apenas dinheiro) */
@@ -68,12 +71,12 @@ interface FormaPagamentoOption {
 }
 
 const FORMAS: FormaPagamentoOption[] = [
-  { key: "dinheiro", label: "Dinheiro", icon: Banknote, permiteTroco: true },
-  { key: "pix", label: "PIX", icon: Smartphone },
-  { key: "cartao_debito", label: "Débito", icon: CreditCard },
-  { key: "cartao_credito", label: "Crédito", icon: CreditCard },
-  { key: "boleto", label: "Boleto", icon: FileText, pendentePorPadrao: true },
-  { key: "outro", label: "Fiado", icon: Clock, pendentePorPadrao: true },
+  { key: "dinheiro", label: "Dinheiro", icon: Banknote, shortcut: "F1", permiteTroco: true },
+  { key: "pix", label: "PIX", icon: Smartphone, shortcut: "F2" },
+  { key: "cartao_debito", label: "Débito", icon: CreditCard, shortcut: "F3" },
+  { key: "cartao_credito", label: "Crédito", icon: CreditCard, shortcut: "F4" },
+  { key: "boleto", label: "Boleto", icon: FileText, shortcut: "F5", pendentePorPadrao: true },
+  { key: "outro", label: "Fiado", icon: Clock, shortcut: "F6", pendentePorPadrao: true },
 ];
 
 const FORMA_BY_KEY: Record<FormaPagamento, FormaPagamentoOption> = FORMAS.reduce(
@@ -129,6 +132,7 @@ export function FinalizarVendaDialog({
 }: FinalizarVendaDialogProps) {
   const [pagamentos, setPagamentos] = useState<PagamentoLinha[]>([]);
   const [obsFinal, setObsFinal] = useState("");
+  const [hotkeyFlash, setHotkeyFlash] = useState<string | null>(null);
   const ultimoValorRef = useRef<HTMLInputElement>(null);
 
   const finalizar = useFinalizarVendaPDV();
@@ -140,9 +144,18 @@ export function FinalizarVendaDialog({
       inicial.valorRecebido = total;
       setPagamentos([inicial]);
       setObsFinal("");
+      setHotkeyFlash(null);
       setTimeout(() => ultimoValorRef.current?.focus(), 50);
     }
   }, [open, total]);
+
+  // Feedback visual de atalho (300ms)
+  function flashHotkey(key: string) {
+    setHotkeyFlash(key);
+    window.setTimeout(() => {
+      setHotkeyFlash((cur) => (cur === key ? null : cur));
+    }, 350);
+  }
 
   // ============= Cálculos derivados =============
   const totalPago = useMemo(
@@ -329,6 +342,52 @@ export function FinalizarVendaDialog({
     );
   }
 
+  // ============= Atalhos de teclado =============
+  const podeConfirmar =
+    !finalizar.isPending &&
+    itens.length > 0 &&
+    !dinheiroInsuficiente &&
+    pagamentos.length > 0 &&
+    totalPago > 0;
+
+  useHotkeys(
+    [
+      // F1-F6 → trocam a forma de pagamento da ÚLTIMA linha de pagamento
+      ...FORMAS.map((f) => ({
+        key: f.shortcut,
+        allowInInputs: true,
+        handler: () => {
+          if (pagamentos.length === 0) return;
+          const ultima = pagamentos[pagamentos.length - 1];
+          setForma(ultima.uid, f.key);
+          flashHotkey(f.shortcut);
+        },
+      })),
+      {
+        key: "Enter",
+        allowInInputs: false, // Enter dentro de inputs cabe ao input
+        handler: () => {
+          if (podeConfirmar) handleConfirmar();
+        },
+      },
+      {
+        key: "Escape",
+        allowInInputs: true,
+        handler: () => {
+          if (!finalizar.isPending) onOpenChange(false);
+        },
+      },
+      {
+        key: "Backspace",
+        allowInInputs: false,
+        handler: () => {
+          if (!finalizar.isPending) onOpenChange(false);
+        },
+      },
+    ],
+    { enabled: open },
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl gap-0 overflow-hidden p-0">
@@ -336,8 +395,16 @@ export function FinalizarVendaDialog({
           <DialogTitle className="flex items-center gap-2 text-lg">
             <Receipt className="h-5 w-5 text-primary" /> Finalizar venda
           </DialogTitle>
-          <DialogDescription>
-            Distribua o total entre uma ou mais formas de pagamento.
+          <DialogDescription className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>Distribua o total entre uma ou mais formas de pagamento.</span>
+            <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+              <Kbd>F1-F6</Kbd>
+              <span>forma</span>
+              <Kbd>Enter</Kbd>
+              <span>confirmar</span>
+              <Kbd>Esc</Kbd>
+              <span>voltar</span>
+            </span>
           </DialogDescription>
         </DialogHeader>
 
@@ -402,18 +469,32 @@ export function FinalizarVendaDialog({
                     {FORMAS.map((f) => {
                       const Icon = f.icon;
                       const active = p.forma === f.key;
+                      const isLast = idx === pagamentos.length - 1;
+                      const flashing = isLast && hotkeyFlash === f.shortcut;
                       return (
                         <button
                           key={f.key}
                           type="button"
                           onClick={() => setForma(p.uid, f.key)}
+                          title={`${f.label} (${f.shortcut})`}
                           className={cn(
-                            "flex flex-col items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-medium transition-all",
+                            "relative flex flex-col items-center justify-center gap-1 rounded-md border px-1 py-2 pt-3 text-[11px] font-medium transition-all",
                             active
-                              ? "border-primary bg-primary/10 text-primary"
+                              ? "border-primary bg-primary/10 text-primary shadow-sm"
                               : "border-border bg-card hover:border-primary/40 hover:bg-muted/40",
+                            flashing && "scale-105 ring-2 ring-primary ring-offset-1 ring-offset-background",
                           )}
                         >
+                          <span
+                            className={cn(
+                              "absolute right-1 top-0.5 rounded px-1 font-mono text-[9px] leading-tight",
+                              active
+                                ? "bg-primary/20 text-primary"
+                                : "bg-muted text-muted-foreground",
+                            )}
+                          >
+                            {f.shortcut}
+                          </span>
                           <Icon className="h-4 w-4" />
                           {f.label}
                         </button>
@@ -713,6 +794,7 @@ export function FinalizarVendaDialog({
             disabled={finalizar.isPending}
           >
             <ArrowLeft className="h-4 w-4" /> Voltar
+            <Kbd className="ml-1">Esc</Kbd>
           </Button>
           <div className="flex items-center gap-2">
             <Button
@@ -725,7 +807,7 @@ export function FinalizarVendaDialog({
             </Button>
             <Button
               size="lg"
-              className="h-11 min-w-[200px]"
+              className="h-11 min-w-[220px]"
               onClick={handleConfirmar}
               disabled={
                 finalizar.isPending ||
@@ -741,6 +823,9 @@ export function FinalizarVendaDialog({
                 <CheckCircle2 className="h-4 w-4" />
               )}
               Confirmar venda
+              <Kbd className="ml-1 border-primary-foreground/30 bg-primary-foreground/15 text-primary-foreground">
+                Enter
+              </Kbd>
             </Button>
           </div>
         </div>
@@ -774,5 +859,24 @@ function SummaryRow({
       <span className="text-muted-foreground">{label}</span>
       <span className="font-medium">{children}</span>
     </div>
+  );
+}
+
+function Kbd({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <kbd
+      className={cn(
+        "inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded border border-border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground shadow-sm",
+        className,
+      )}
+    >
+      {children}
+    </kbd>
   );
 }

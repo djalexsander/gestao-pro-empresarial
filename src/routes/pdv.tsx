@@ -52,6 +52,7 @@ import {
   type ProdutoBuscaResult,
 } from "@/hooks/useProdutoCodigo";
 import { useScanner } from "@/hooks/useScanner";
+import { useHotkeys } from "@/hooks/useHotkeys";
 import { useProdutos } from "@/hooks/useProdutos";
 import { useClientes, type ClienteLite } from "@/hooks/useClientes";
 import { useSaldosLote, type FormaPagamento, type StatusPagamento } from "@/hooks/useVendas";
@@ -220,6 +221,74 @@ function PDVPage() {
   // Scanner USB global
   useScanner((scanned) => handleScanCode(scanned), { enabled: true });
 
+  // ============ Atalhos globais do PDV ============
+  const [hotkeyFlash, setHotkeyFlash] = useState<string | null>(null);
+  function flashHotkey(key: string) {
+    setHotkeyFlash(key);
+    window.setTimeout(() => {
+      setHotkeyFlash((cur) => (cur === key ? null : cur));
+    }, 350);
+  }
+
+  // F7 nova venda · F8 limpar · F9 buscar produto · F10 finalizar
+  useHotkeys(
+    [
+      {
+        key: "F7",
+        allowInInputs: true,
+        handler: () => {
+          flashHotkey("F7");
+          if (items.length > 0) {
+            setConfirmClear("clear");
+          } else {
+            scanInputRef.current?.focus();
+          }
+        },
+      },
+      {
+        key: "F8",
+        allowInInputs: true,
+        handler: () => {
+          flashHotkey("F8");
+          if (items.length > 0) setConfirmClear("clear");
+        },
+      },
+      {
+        key: "F9",
+        allowInInputs: true,
+        handler: () => {
+          flashHotkey("F9");
+          setSearchPopoverOpen(true);
+        },
+      },
+      {
+        key: "F10",
+        allowInInputs: true,
+        handler: () => {
+          flashHotkey("F10");
+          if (items.length > 0 && !finalizarOpen) finalizarVenda();
+        },
+      },
+      {
+        key: "Escape",
+        allowInInputs: false,
+        handler: () => {
+          // ESC fora de input: cancela venda (com confirmação) se houver itens
+          if (
+            items.length > 0 &&
+            !finalizarOpen &&
+            !sucessoOpen &&
+            !confirmClear &&
+            !scannerOpen
+          ) {
+            setConfirmClear("cancel");
+          }
+        },
+      },
+    ],
+    { enabled: !finalizarOpen && !sucessoOpen && !scannerOpen },
+  );
+
   function handleSubmitCode(e: React.FormEvent) {
     e.preventDefault();
     handleScanCode(code);
@@ -339,8 +408,21 @@ function PDVPage() {
                 Frente de caixa
               </Badge>
             </h1>
-            <p className="text-xs text-muted-foreground">
-              Operador: <span className="font-medium text-foreground">{user?.email ?? "—"}</span>
+            <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              <span>
+                Operador:{" "}
+                <span className="font-medium text-foreground">{user?.email ?? "—"}</span>
+              </span>
+              <span className="hidden items-center gap-1.5 sm:flex">
+                <PdvKbd flash={hotkeyFlash === "F7"}>F7</PdvKbd>
+                <span>nova</span>
+                <PdvKbd flash={hotkeyFlash === "F8"}>F8</PdvKbd>
+                <span>limpar</span>
+                <PdvKbd flash={hotkeyFlash === "F9"}>F9</PdvKbd>
+                <span>buscar</span>
+                <PdvKbd flash={hotkeyFlash === "F10"}>F10</PdvKbd>
+                <span>finalizar</span>
+              </span>
             </p>
           </div>
         </div>
@@ -635,20 +717,30 @@ function PDVPage() {
           <div className="space-y-2">
             <Button
               size="lg"
-              className="h-14 w-full text-base font-semibold"
+              className={cn(
+                "h-14 w-full text-base font-semibold",
+                hotkeyFlash === "F10" && "ring-2 ring-primary ring-offset-2 ring-offset-background",
+              )}
               onClick={finalizarVenda}
               disabled={items.length === 0}
             >
               <CheckCircle2 className="h-5 w-5" />
               Finalizar venda · {formatBRL(totals.total)}
+              <PdvKbd className="ml-1 border-primary-foreground/30 bg-primary-foreground/15 text-primary-foreground">
+                F10
+              </PdvKbd>
             </Button>
             <div className="grid grid-cols-2 gap-2">
               <Button
                 variant="outline"
                 onClick={() => setConfirmClear("clear")}
                 disabled={items.length === 0}
+                className={cn(
+                  hotkeyFlash === "F8" && "ring-2 ring-primary ring-offset-2 ring-offset-background",
+                )}
               >
                 <Eraser className="h-4 w-4" /> Limpar
+                <PdvKbd className="ml-1">F8</PdvKbd>
               </Button>
               <Button
                 variant="outline"
@@ -656,6 +748,7 @@ function PDVPage() {
                 onClick={() => setConfirmClear("cancel")}
               >
                 <X className="h-4 w-4" /> Cancelar
+                <PdvKbd className="ml-1">Esc</PdvKbd>
               </Button>
             </div>
           </div>
@@ -782,5 +875,27 @@ function EmptyItems() {
         </p>
       </div>
     </div>
+  );
+}
+
+function PdvKbd({
+  children,
+  flash,
+  className,
+}: {
+  children: React.ReactNode;
+  flash?: boolean;
+  className?: string;
+}) {
+  return (
+    <kbd
+      className={cn(
+        "inline-flex h-5 min-w-[1.4rem] items-center justify-center rounded border border-border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground shadow-sm transition-all",
+        flash && "scale-110 border-primary bg-primary/20 text-primary",
+        className,
+      )}
+    >
+      {children}
+    </kbd>
   );
 }
