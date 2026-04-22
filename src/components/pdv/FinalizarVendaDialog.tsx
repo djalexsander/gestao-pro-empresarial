@@ -406,7 +406,7 @@ export function FinalizarVendaDialog({
         },
       },
     ],
-    { enabled: open },
+    { enabled: open, scope: "modal" },
   );
 
   return (
