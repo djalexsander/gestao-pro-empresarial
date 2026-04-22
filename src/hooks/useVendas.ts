@@ -51,6 +51,8 @@ export interface FinalizarVendaInput {
   /** Múltiplas formas de pagamento. Se vazio, usa forma_pagamento como única. */
   pagamentos?: FinalizarVendaPagamento[];
   gerar_financeiro?: boolean;
+  /** ID do funcionário operador que está realizando a venda. */
+  operador_id?: string | null;
 }
 
 export function useFinalizarVendaPDV() {
@@ -71,6 +73,7 @@ export function useFinalizarVendaPDV() {
         _itens: input.itens,
         _pagamentos: input.pagamentos && input.pagamentos.length > 0 ? input.pagamentos : null,
         _gerar_financeiro: input.gerar_financeiro ?? true,
+        _operador_id: input.operador_id ?? null,
       });
       if (error) throw error;
       return data as string; // venda_id

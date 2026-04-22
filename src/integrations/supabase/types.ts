@@ -59,6 +59,7 @@ export type Database = {
           created_at: string
           id: string
           motivo: string | null
+          operador_id: string | null
           owner_id: string
           tipo: Database["public"]["Enums"]["caixa_movimento_tipo"]
           usuario_id: string | null
@@ -70,6 +71,7 @@ export type Database = {
           created_at?: string
           id?: string
           motivo?: string | null
+          operador_id?: string | null
           owner_id: string
           tipo: Database["public"]["Enums"]["caixa_movimento_tipo"]
           usuario_id?: string | null
@@ -81,6 +83,7 @@ export type Database = {
           created_at?: string
           id?: string
           motivo?: string | null
+          operador_id?: string | null
           owner_id?: string
           tipo?: Database["public"]["Enums"]["caixa_movimento_tipo"]
           usuario_id?: string | null
@@ -98,6 +101,7 @@ export type Database = {
           id: string
           observacao: string | null
           observacao_fechamento: string | null
+          operador_id: string | null
           owner_id: string
           qtd_vendas: number
           status: Database["public"]["Enums"]["caixa_status"]
@@ -124,6 +128,7 @@ export type Database = {
           id?: string
           observacao?: string | null
           observacao_fechamento?: string | null
+          operador_id?: string | null
           owner_id: string
           qtd_vendas?: number
           status?: Database["public"]["Enums"]["caixa_status"]
@@ -150,6 +155,7 @@ export type Database = {
           id?: string
           observacao?: string | null
           observacao_fechamento?: string | null
+          operador_id?: string | null
           owner_id?: string
           qtd_vendas?: number
           status?: Database["public"]["Enums"]["caixa_status"]
@@ -875,6 +881,45 @@ export type Database = {
         }
         Relationships: []
       }
+      funcionarios: {
+        Row: {
+          ativo: boolean
+          created_at: string
+          id: string
+          login: string
+          nome: string
+          owner_id: string
+          pin_hash: string
+          role: Database["public"]["Enums"]["app_role"]
+          ultimo_acesso: string | null
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string
+          id?: string
+          login: string
+          nome: string
+          owner_id: string
+          pin_hash: string
+          role?: Database["public"]["Enums"]["app_role"]
+          ultimo_acesso?: string | null
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string
+          id?: string
+          login?: string
+          nome?: string
+          owner_id?: string
+          pin_hash?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          ultimo_acesso?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       lotes_produto: {
         Row: {
           created_at: string
@@ -1268,6 +1313,7 @@ export type Database = {
           numero: string
           numero_nf: string | null
           observacoes: string | null
+          operador_id: string | null
           outros: number
           owner_id: string
           serie_nf: string | null
@@ -1296,6 +1342,7 @@ export type Database = {
           numero: string
           numero_nf?: string | null
           observacoes?: string | null
+          operador_id?: string | null
           outros?: number
           owner_id: string
           serie_nf?: string | null
@@ -1324,6 +1371,7 @@ export type Database = {
           numero?: string
           numero_nf?: string | null
           observacoes?: string | null
+          operador_id?: string | null
           outros?: number
           owner_id?: string
           serie_nf?: string | null
@@ -1351,10 +1399,19 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      abrir_caixa: {
-        Args: { _observacao?: string; _valor_inicial: number }
-        Returns: string
-      }
+      abrir_caixa:
+        | {
+            Args: { _observacao?: string; _valor_inicial: number }
+            Returns: string
+          }
+        | {
+            Args: {
+              _observacao?: string
+              _operador_id?: string
+              _valor_inicial: number
+            }
+            Returns: string
+          }
       admin_delete_empresa: { Args: { _id: string }; Returns: undefined }
       admin_delete_user: { Args: { _user_id: string }; Returns: undefined }
       admin_estatisticas_globais: { Args: never; Returns: Json }
@@ -1475,6 +1532,10 @@ export type Database = {
         }[]
       }
       caixa_aberto_atual: { Args: never; Returns: string }
+      caixa_aberto_operador: {
+        Args: { _operador_id?: string }
+        Returns: string
+      }
       caixa_registrar_movimento: {
         Args: {
           _caixa_id: string
@@ -1545,6 +1606,24 @@ export type Database = {
             }
             Returns: string
           }
+        | {
+            Args: {
+              _cliente_id: string
+              _desconto: number
+              _forma: Database["public"]["Enums"]["forma_pagamento"]
+              _gerar_financeiro?: boolean
+              _itens: Json
+              _observacao: string
+              _operador_id?: string
+              _pagamentos?: Json
+              _status_pagamento: string
+              _subtotal: number
+              _total: number
+              _troco: number
+              _valor_recebido: number
+            }
+            Returns: string
+          }
       fornecedor_metricas: {
         Args: never
         Returns: {
@@ -1553,6 +1632,35 @@ export type Database = {
           total_compras: number
           ultima_compra: string
           valor_total: number
+        }[]
+      }
+      funcionario_criar: {
+        Args: {
+          _login: string
+          _nome: string
+          _pin: string
+          _role?: Database["public"]["Enums"]["app_role"]
+        }
+        Returns: string
+      }
+      funcionario_resetar_pin: {
+        Args: { _funcionario_id: string; _novo_pin: string }
+        Returns: undefined
+      }
+      funcionario_validar_pin: {
+        Args: { _funcionario_id: string; _pin: string }
+        Returns: Json
+      }
+      funcionarios_listar: {
+        Args: never
+        Returns: {
+          ativo: boolean
+          created_at: string
+          id: string
+          login: string
+          nome: string
+          role: Database["public"]["Enums"]["app_role"]
+          ultimo_acesso: string
         }[]
       }
       garantir_empresa_atual: { Args: { _nome?: string }; Returns: string }
@@ -1607,7 +1715,13 @@ export type Database = {
       }
     }
     Enums: {
-      app_role: "admin" | "gerente" | "vendedor" | "financeiro" | "super_admin"
+      app_role:
+        | "admin"
+        | "gerente"
+        | "vendedor"
+        | "financeiro"
+        | "super_admin"
+        | "caixa"
       cadastro_status: "ativo" | "inativo"
       caixa_movimento_tipo:
         | "abertura"
@@ -1790,7 +1904,14 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "gerente", "vendedor", "financeiro", "super_admin"],
+      app_role: [
+        "admin",
+        "gerente",
+        "vendedor",
+        "financeiro",
+        "super_admin",
+        "caixa",
+      ],
       cadastro_status: ["ativo", "inativo"],
       caixa_movimento_tipo: [
         "abertura",

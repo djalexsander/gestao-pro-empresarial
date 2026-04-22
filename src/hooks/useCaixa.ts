@@ -8,6 +8,7 @@ export interface Caixa {
   id: string;
   owner_id: string;
   usuario_id: string;
+  operador_id: string | null;
   data_abertura: string;
   data_fechamento: string | null;
   valor_inicial: number;
@@ -67,22 +68,31 @@ export interface CaixaMovimento {
   motivo: string | null;
   venda_id: string | null;
   usuario_id: string | null;
+  operador_id: string | null;
   created_at: string;
 }
 
-/** Caixa aberto do usuário atual (ou null se nenhum). Atualizado a cada 15s. */
-export function useCaixaAberto() {
+/**
+ * Caixa aberto do operador atual (ou do admin se sem operador).
+ * Quando _operador_id é null, busca o caixa aberto sem operador (admin direto).
+ */
+export function useCaixaAberto(operadorId?: string | null) {
   return useQuery({
-    queryKey: ["caixa", "aberto"],
+    queryKey: ["caixa", "aberto", operadorId ?? "admin"],
     queryFn: async (): Promise<Caixa | null> => {
       const { data: uid } = await supabase.auth.getUser();
       if (!uid.user) return null;
-      const { data, error } = await supabase
+      let query = supabase
         .from("caixas")
         .select("*")
         .eq("owner_id", uid.user.id)
-        .eq("usuario_id", uid.user.id)
-        .eq("status", "aberto")
+        .eq("status", "aberto");
+      if (operadorId) {
+        query = query.eq("operador_id", operadorId);
+      } else {
+        query = query.is("operador_id", null);
+      }
+      const { data, error } = await query
         .order("data_abertura", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -100,7 +110,8 @@ export function useCaixaResumo(caixaId: string | null | undefined) {
     enabled: !!caixaId,
     queryFn: async (): Promise<CaixaResumo | null> => {
       if (!caixaId) return null;
-      const { data, error } = await supabase.rpc("caixa_resumo", {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc("caixa_resumo", {
         _caixa_id: caixaId,
       });
       if (error) throw error;
@@ -150,10 +161,16 @@ export function useCaixaMovimentos(caixaId: string | null | undefined) {
 export function useAbrirCaixa() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { valor_inicial: number; observacao?: string | null }) => {
-      const { data, error } = await supabase.rpc("abrir_caixa", {
+    mutationFn: async (input: {
+      valor_inicial: number;
+      observacao?: string | null;
+      operador_id?: string | null;
+    }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc("abrir_caixa", {
         _valor_inicial: input.valor_inicial,
-        _observacao: input.observacao ?? null,
+        _observacao: input.observacao ?? undefined,
+        _operador_id: input.operador_id ?? undefined,
       });
       if (error) throw error;
       return data as string;
@@ -175,11 +192,12 @@ export function useRegistrarMovimentoCaixa() {
       valor: number;
       motivo?: string | null;
     }) => {
-      const { data, error } = await supabase.rpc("caixa_registrar_movimento", {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc("caixa_registrar_movimento", {
         _caixa_id: input.caixa_id,
         _tipo: input.tipo,
         _valor: input.valor,
-        _motivo: input.motivo ?? null,
+        _motivo: input.motivo ?? undefined,
       });
       if (error) throw error;
       return data as string;
@@ -204,10 +222,11 @@ export function useFecharCaixa() {
       valor_informado: number;
       observacao?: string | null;
     }) => {
-      const { data, error } = await supabase.rpc("fechar_caixa", {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc("fechar_caixa", {
         _caixa_id: input.caixa_id,
         _valor_informado: input.valor_informado,
-        _observacao: input.observacao ?? null,
+        _observacao: input.observacao ?? undefined,
       });
       if (error) throw error;
       return data as { diferenca: number; valor_esperado: number };

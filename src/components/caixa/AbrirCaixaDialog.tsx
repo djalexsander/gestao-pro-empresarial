@@ -18,9 +18,11 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAberto?: (caixaId: string) => void;
+  /** ID do funcionário operando o caixa. Quando ausente, abre como admin. */
+  operadorId?: string | null;
 }
 
-export function AbrirCaixaDialog({ open, onOpenChange, onAberto }: Props) {
+export function AbrirCaixaDialog({ open, onOpenChange, onAberto, operadorId }: Props) {
   const [valor, setValor] = useState("0");
   const [observacao, setObservacao] = useState("");
   const abrir = useAbrirCaixa();
@@ -39,6 +41,7 @@ export function AbrirCaixaDialog({ open, onOpenChange, onAberto }: Props) {
     const id = await abrir.mutateAsync({
       valor_inicial: valorNum,
       observacao: observacao.trim() || null,
+      operador_id: operadorId ?? null,
     });
     onAberto?.(id);
     onOpenChange(false);
