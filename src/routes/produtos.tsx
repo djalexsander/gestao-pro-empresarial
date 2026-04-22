@@ -32,9 +32,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useCategorias, useDeleteProduto, useProdutos } from "@/hooks/useProdutos";
+import { useCategorias, useDeleteProduto, useProdutos, type TipoIdentificacao } from "@/hooks/useProdutos";
 import { useEstoqueSaldos } from "@/hooks/useEstoque";
 import { ProdutoDialog } from "@/components/produtos/ProdutoDialog";
+import { QuickCodeSearch } from "@/components/scanner";
+import { useNavigate } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/produtos")({
   head: () => ({
@@ -61,6 +63,8 @@ function ProductsPage() {
   const [search, setSearch] = useState("");
   const [categoriaFilter, setCategoriaFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [prefilledCodigo, setPrefilledCodigo] = useState<{ valor: string; tipo: TipoIdentificacao } | undefined>();
+  const navigate = useNavigate();
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -72,8 +76,13 @@ function ProductsPage() {
     });
   }, [produtos, search, categoriaFilter, statusFilter]);
 
-  function openNew() { setEditingId(null); setOpen(true); }
-  function openEdit(id: string) { setEditingId(id); setOpen(true); }
+  function openNew() { setEditingId(null); setPrefilledCodigo(undefined); setOpen(true); }
+  function openEdit(id: string) { setEditingId(id); setPrefilledCodigo(undefined); setOpen(true); }
+  function openNewWithCode(valor: string) {
+    setEditingId(null);
+    setPrefilledCodigo({ valor, tipo: "codigo_barras" });
+    setOpen(true);
+  }
 
   return (
     <div className="space-y-6">
