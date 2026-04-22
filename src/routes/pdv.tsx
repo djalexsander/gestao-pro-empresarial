@@ -691,9 +691,36 @@ function PDVPage() {
         cliente={cliente ? { id: cliente.id, nome: cliente.nome } : null}
         observacao={observacao}
         operadorEmail={user?.email}
-        onConfirmed={() => {
+        onConfirmed={({ vendaId, forma, status, troco }) => {
           setFinalizarOpen(false);
+          setVendaConcluida({
+            id: vendaId,
+            numero: null,
+            total: totals.total,
+            totalItens: totals.totalItens,
+            forma,
+            status,
+            troco,
+            cliente: cliente?.nome ?? null,
+          });
+          setSucessoOpen(true);
+          // Limpa o carrinho mas mantém cliente para próxima venda rápida
           clearVenda();
+        }}
+      />
+
+      {/* Sucesso pós-venda */}
+      <VendaSucessoDialog
+        open={sucessoOpen}
+        onOpenChange={setSucessoOpen}
+        venda={vendaConcluida}
+        onNovaVenda={() => {
+          setSucessoOpen(false);
+          setVendaConcluida(null);
+        }}
+        onVerVendas={() => {
+          setSucessoOpen(false);
+          setVendaConcluida(null);
           setCliente(null);
           navigate({ to: "/vendas" });
         }}
