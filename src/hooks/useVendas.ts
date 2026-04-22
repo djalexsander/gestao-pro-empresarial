@@ -174,6 +174,15 @@ export interface VendaDetalhe {
     produto_nome: string | null;
     sku: string | null;
   }>;
+  pagamentos: Array<{
+    id: string;
+    forma_pagamento: FormaPagamento;
+    valor: number;
+    valor_recebido: number | null;
+    troco: number | null;
+    parcelas: number | null;
+    observacao: string | null;
+  }>;
 }
 
 export function useVendaDetalhe(vendaId: string | null) {
