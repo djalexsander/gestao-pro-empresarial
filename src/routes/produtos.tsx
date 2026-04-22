@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Plus, Search, Pencil, Trash2, Loader2, PackagePlus } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Loader2, PackagePlus, ScanLine } from "lucide-react";
 import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -35,7 +35,7 @@ import {
 import { useCategorias, useDeleteProduto, useProdutos, type TipoIdentificacao } from "@/hooks/useProdutos";
 import { useEstoqueSaldos } from "@/hooks/useEstoque";
 import { ProdutoDialog } from "@/components/produtos/ProdutoDialog";
-import { QuickCodeSearch } from "@/components/scanner";
+import { QuickCodeSearch, EntradaPorCodigoDialog } from "@/components/scanner";
 import { useNavigate } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/produtos")({

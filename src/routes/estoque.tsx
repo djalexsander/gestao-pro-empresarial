@@ -226,6 +226,7 @@ function StockPage() {
       </Tabs>
 
       <MovimentacaoDialog open={open} onOpenChange={setOpen} />
+      <EntradaPorCodigoDialog open={scanOpen} onOpenChange={setScanOpen} />
     </div>
   );
 }
