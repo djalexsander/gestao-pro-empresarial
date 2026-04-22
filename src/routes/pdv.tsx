@@ -408,8 +408,21 @@ function PDVPage() {
                 Frente de caixa
               </Badge>
             </h1>
-            <p className="text-xs text-muted-foreground">
-              Operador: <span className="font-medium text-foreground">{user?.email ?? "—"}</span>
+            <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              <span>
+                Operador:{" "}
+                <span className="font-medium text-foreground">{user?.email ?? "—"}</span>
+              </span>
+              <span className="hidden items-center gap-1.5 sm:flex">
+                <PdvKbd flash={hotkeyFlash === "F7"}>F7</PdvKbd>
+                <span>nova</span>
+                <PdvKbd flash={hotkeyFlash === "F8"}>F8</PdvKbd>
+                <span>limpar</span>
+                <PdvKbd flash={hotkeyFlash === "F9"}>F9</PdvKbd>
+                <span>buscar</span>
+                <PdvKbd flash={hotkeyFlash === "F10"}>F10</PdvKbd>
+                <span>finalizar</span>
+              </span>
             </p>
           </div>
         </div>
