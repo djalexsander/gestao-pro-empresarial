@@ -582,15 +582,6 @@ function PDVPage() {
       {/* Topbar próprio do PDV (sem ERP) */}
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-card px-4 py-2 sm:px-6">
         <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleSair}
-            title="Voltar — exige fechamento do caixa"
-          >
-            <ArrowLeft className="mr-1 h-4 w-4" /> Voltar
-          </Button>
-          <div className="hidden h-6 w-px bg-border sm:block" />
           <ShoppingBag className="h-4 w-4 text-primary" />
           <span className="text-sm font-semibold">PDV — Nova Venda</span>
           <Badge variant="outline" className="hidden text-[10px] sm:inline-flex">
