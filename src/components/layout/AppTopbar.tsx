@@ -54,6 +54,8 @@ export function AppTopbar({ onMobileMenuClick }: AppTopbarProps) {
           </DropdownMenuContent>
         </DropdownMenu>
 
+        <ThemeToggle />
+
         <Button variant="ghost" size="icon" className="relative h-10 w-10">
           <Bell className="h-5 w-5" />
           <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-destructive ring-2 ring-background" />
