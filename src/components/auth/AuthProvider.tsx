@@ -27,7 +27,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (event === "SIGNED_IN" && sess?.user && lastEventUserRef.current !== sess.user.id) {
         lastEventUserRef.current = sess.user.id;
         // garante registro de empresa do usuário no primeiro acesso
-        supabase.rpc("garantir_empresa_atual", { _nome: null }).then(() => {
+        supabase.rpc("garantir_empresa_atual").then(() => {
           registrarAuditLog("auth.login", {
             target_type: "user",
             target_id: sess.user.id,

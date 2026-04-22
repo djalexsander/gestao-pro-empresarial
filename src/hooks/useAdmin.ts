@@ -214,11 +214,11 @@ export function useUpsertEmpresa() {
       const { error } = await supabase.rpc("admin_upsert_empresa", {
         _id: input.id,
         _nome: input.nome,
-        _email: input.email ?? null,
-        _telefone: input.telefone ?? null,
-        _documento: input.documento ?? null,
+        _email: input.email ?? undefined,
+        _telefone: input.telefone ?? undefined,
+        _documento: input.documento ?? undefined,
         _plano: input.plano ?? "free",
-        _observacoes: input.observacoes ?? null,
+        _observacoes: input.observacoes ?? undefined,
       });
       if (error) throw error;
     },
@@ -237,7 +237,7 @@ export function useSetEmpresaStatus() {
   return useMutation({
     mutationFn: async (input: { id: string; status: EmpresaStatus; motivo?: string }) => {
       const { error } = await supabase.rpc("admin_set_empresa_status", {
-        _id: input.id, _status: input.status, _motivo: input.motivo ?? null,
+        _id: input.id, _status: input.status, _motivo: input.motivo ?? undefined,
       });
       if (error) throw error;
     },
@@ -291,8 +291,8 @@ export async function registrarAuditLog(
   try {
     await supabase.rpc("registrar_audit_log", {
       _action: action,
-      _target_type: options?.target_type ?? null,
-      _target_id: options?.target_id ?? null,
+      _target_type: options?.target_type ?? undefined,
+      _target_id: options?.target_id ?? undefined,
       _metadata: (options?.metadata ?? {}) as never,
     });
   } catch {
