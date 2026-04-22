@@ -62,6 +62,8 @@ interface FormaPagamentoOption {
   key: FormaPagamento;
   label: string;
   icon: LucideIcon;
+  /** Atalho de teclado (F1, F2, ...) */
+  shortcut: string;
   /** Se true, normalmente fica pendente (gera contas a receber) */
   pendentePorPadrao?: boolean;
   /** Permite calcular troco (apenas dinheiro) */
@@ -69,12 +71,12 @@ interface FormaPagamentoOption {
 }
 
 const FORMAS: FormaPagamentoOption[] = [
-  { key: "dinheiro", label: "Dinheiro", icon: Banknote, permiteTroco: true },
-  { key: "pix", label: "PIX", icon: Smartphone },
-  { key: "cartao_debito", label: "Débito", icon: CreditCard },
-  { key: "cartao_credito", label: "Crédito", icon: CreditCard },
-  { key: "boleto", label: "Boleto", icon: FileText, pendentePorPadrao: true },
-  { key: "outro", label: "Fiado", icon: Clock, pendentePorPadrao: true },
+  { key: "dinheiro", label: "Dinheiro", icon: Banknote, shortcut: "F1", permiteTroco: true },
+  { key: "pix", label: "PIX", icon: Smartphone, shortcut: "F2" },
+  { key: "cartao_debito", label: "Débito", icon: CreditCard, shortcut: "F3" },
+  { key: "cartao_credito", label: "Crédito", icon: CreditCard, shortcut: "F4" },
+  { key: "boleto", label: "Boleto", icon: FileText, shortcut: "F5", pendentePorPadrao: true },
+  { key: "outro", label: "Fiado", icon: Clock, shortcut: "F6", pendentePorPadrao: true },
 ];
 
 const FORMA_BY_KEY: Record<FormaPagamento, FormaPagamentoOption> = FORMAS.reduce(
