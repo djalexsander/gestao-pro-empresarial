@@ -1355,22 +1355,40 @@ export type Database = {
         Args: { _motivo?: string; _venda_id: string }
         Returns: string
       }
-      finalizar_venda_pdv: {
-        Args: {
-          _cliente_id: string
-          _desconto: number
-          _forma: Database["public"]["Enums"]["forma_pagamento"]
-          _gerar_financeiro?: boolean
-          _itens: Json
-          _observacao: string
-          _status_pagamento: string
-          _subtotal: number
-          _total: number
-          _troco: number
-          _valor_recebido: number
-        }
-        Returns: string
-      }
+      finalizar_venda_pdv:
+        | {
+            Args: {
+              _cliente_id: string
+              _desconto: number
+              _forma: Database["public"]["Enums"]["forma_pagamento"]
+              _gerar_financeiro?: boolean
+              _itens: Json
+              _observacao: string
+              _status_pagamento: string
+              _subtotal: number
+              _total: number
+              _troco: number
+              _valor_recebido: number
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              _cliente_id: string
+              _desconto: number
+              _forma: Database["public"]["Enums"]["forma_pagamento"]
+              _gerar_financeiro?: boolean
+              _itens: Json
+              _observacao: string
+              _pagamentos?: Json
+              _status_pagamento: string
+              _subtotal: number
+              _total: number
+              _troco: number
+              _valor_recebido: number
+            }
+            Returns: string
+          }
       garantir_empresa_atual: { Args: { _nome?: string }; Returns: string }
       has_role: {
         Args: {
