@@ -92,6 +92,8 @@ interface Props {
   cliente?: Cliente | null;
   /** Quando true, mostra apenas dados essenciais e foca no fluxo rápido (PDV). */
   quickMode?: boolean;
+  /** Pré-preenche o CPF/CNPJ ao abrir um novo cadastro (PF/PJ é inferido pelo nº de dígitos). */
+  defaultDocumento?: string | null;
   /** Chamado após criar/editar com sucesso, com o cliente gravado. */
   onSaved?: (cliente: Cliente) => void;
 }
@@ -126,7 +128,14 @@ function maskCep(value: string) {
     .replace(/^(\d{5})(\d)/, "$1-$2");
 }
 
-export function ClienteDialog({ open, onOpenChange, cliente, quickMode, onSaved }: Props) {
+export function ClienteDialog({
+  open,
+  onOpenChange,
+  cliente,
+  quickMode,
+  defaultDocumento,
+  onSaved,
+}: Props) {
   const isEdit = !!cliente;
   const create = useCreateCliente();
   const update = useUpdateCliente();
@@ -158,10 +167,14 @@ export function ClienteDialog({ open, onOpenChange, cliente, quickMode, onSaved 
         observacoes: cliente.observacoes ?? "",
         status: cliente.status,
       });
+    } else if (defaultDocumento) {
+      const digits = defaultDocumento.replace(/\D+/g, "");
+      const tipo: PessoaTipo = digits.length > 11 ? "PJ" : "PF";
+      setForm({ ...empty, tipo, documento: maskDoc(digits, tipo) });
     } else {
       setForm(empty);
     }
-  }, [open, cliente]);
+  }, [open, cliente, defaultDocumento]);
 
   function update_<K extends keyof Form>(k: K, v: Form[K]) {
     setForm((prev) => ({ ...prev, [k]: v }));

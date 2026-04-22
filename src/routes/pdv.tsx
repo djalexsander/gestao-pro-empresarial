@@ -54,11 +54,22 @@ import {
 import { useScanner } from "@/hooks/useScanner";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { useProdutos } from "@/hooks/useProdutos";
-import { useClientes, type ClienteLite } from "@/hooks/useClientes";
+import {
+  useClientes,
+  checkDocumentoDuplicado,
+  type ClienteLite,
+} from "@/hooks/useClientes";
 import { useSaldosLote, type FormaPagamento, type StatusPagamento } from "@/hooks/useVendas";
 import { useSomPDV } from "@/hooks/useSomPDV";
 import { ClienteDialog } from "@/components/clientes/ClienteDialog";
-import { UserPlus } from "lucide-react";
+import { UserPlus, IdCard, AlertCircle } from "lucide-react";
+import {
+  classificarDocumento,
+  formatarDocumento,
+  maskDocumentoProgressivo,
+  somenteDigitos,
+  validarDocumento,
+} from "@/lib/documento";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -138,6 +149,87 @@ function PDVPage() {
   }>(null);
 
   const [novoClienteOpen, setNovoClienteOpen] = useState(false);
+  const [novoClienteDoc, setNovoClienteDoc] = useState<string | null>(null);
+
+  // ============ Busca por CPF/CNPJ ============
+  const [docQuery, setDocQuery] = useState("");
+  const [docLookupBusy, setDocLookupBusy] = useState(false);
+  const docInfo = validarDocumento(docQuery);
+  const docDigits = somenteDigitos(docQuery);
+  const matchLocalPorDoc = useMemo<ClienteLite | null>(() => {
+    if (!docDigits) return null;
+    return (
+      clientes.find((c) => (c.documento ?? "").replace(/\D+/g, "") === docDigits) ?? null
+    );
+  }, [clientes, docDigits]);
+
+  async function handleSelecionarPorDoc() {
+    if (!docInfo.tipo) {
+      toast.warning("Digite um CPF (11) ou CNPJ (14) completo.");
+      return;
+    }
+    if (!docInfo.valido) {
+      toast.error(`${docInfo.tipo} inválido. Confira os dígitos.`);
+      return;
+    }
+    // Hit local primeiro
+    if (matchLocalPorDoc) {
+      setCliente(matchLocalPorDoc);
+      setClientePopoverOpen(false);
+      setDocQuery("");
+      som.beep("ok");
+      toast.success(`Cliente "${matchLocalPorDoc.nome}" selecionado.`);
+      return;
+    }
+    // Fallback no servidor (caso ainda não esteja no cache local)
+    setDocLookupBusy(true);
+    try {
+      const found = await checkDocumentoDuplicado(docDigits);
+      if (found) {
+        const lite: ClienteLite = {
+          id: found.id,
+          nome: found.nome,
+          nome_fantasia: found.nome_fantasia ?? null,
+          documento: found.documento ?? null,
+        };
+        setCliente(lite);
+        setClientePopoverOpen(false);
+        setDocQuery("");
+        som.beep("ok");
+        toast.success(`Cliente "${found.nome}" selecionado.`);
+      } else {
+        som.beep("warn");
+        toast.message("Nenhum cliente com este documento.", {
+          description: "Use 'Cadastrar com este documento' para criar agora.",
+        });
+      }
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setDocLookupBusy(false);
+    }
+  }
+
+  function handleCadastrarComDoc() {
+    if (!docInfo.tipo) {
+      toast.warning("Digite um CPF (11) ou CNPJ (14) completo.");
+      return;
+    }
+    if (!docInfo.valido) {
+      toast.error(`${docInfo.tipo} inválido. Confira os dígitos.`);
+      return;
+    }
+    if (matchLocalPorDoc) {
+      setCliente(matchLocalPorDoc);
+      setClientePopoverOpen(false);
+      setDocQuery("");
+      toast.info(`Cliente já cadastrado: ${matchLocalPorDoc.nome}.`);
+      return;
+    }
+    setNovoClienteDoc(docDigits);
+    setClientePopoverOpen(false);
+    setNovoClienteOpen(true);
+  }
 
   const saldosLote = useSaldosLote();
   const som = useSomPDV();
@@ -461,9 +553,92 @@ function PDVPage() {
                 {cliente ? cliente.nome : "Cliente: Consumidor"}
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-80 p-0">
+            <PopoverContent align="end" className="w-96 p-0">
+              {/* Busca por CPF/CNPJ — antiduplicidade */}
+              <div className="space-y-2 border-b border-border bg-muted/30 p-3">
+                <label className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  <IdCard className="h-3.5 w-3.5" />
+                  Buscar por CPF / CNPJ
+                </label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={docQuery}
+                    onChange={(e) =>
+                      setDocQuery(maskDocumentoProgressivo(e.target.value))
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleSelecionarPorDoc();
+                      }
+                    }}
+                    placeholder="000.000.000-00"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    className={cn(
+                      "h-9 font-mono text-sm",
+                      docInfo.tipo && !docInfo.valido &&
+                        "border-destructive focus-visible:ring-destructive",
+                      docInfo.valido && "border-success focus-visible:ring-success",
+                    )}
+                  />
+                  <Button
+                    size="sm"
+                    type="button"
+                    onClick={handleSelecionarPorDoc}
+                    disabled={!docInfo.valido || docLookupBusy}
+                  >
+                    {docLookupBusy ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Search className="h-4 w-4" />
+                    )}
+                    Buscar
+                  </Button>
+                </div>
+
+                {/* Feedback */}
+                {docQuery && !docInfo.tipo && (
+                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <AlertCircle className="h-3 w-3" />
+                    Digite os {classificarDocumento(docQuery) === null ? "11 dígitos do CPF ou 14 do CNPJ" : ""}.
+                  </p>
+                )}
+                {docInfo.tipo && !docInfo.valido && (
+                  <p className="flex items-center gap-1.5 text-xs text-destructive">
+                    <AlertCircle className="h-3 w-3" />
+                    {docInfo.tipo} inválido — confira os dígitos.
+                  </p>
+                )}
+                {docInfo.valido && matchLocalPorDoc && (
+                  <div className="rounded-md border border-success/30 bg-success/10 p-2 text-xs">
+                    <p className="font-medium text-success">
+                      Cliente já cadastrado:
+                    </p>
+                    <p className="mt-0.5 truncate">
+                      {matchLocalPorDoc.nome}{" "}
+                      <span className="text-muted-foreground">
+                        ({formatarDocumento(matchLocalPorDoc.documento ?? "")})
+                      </span>
+                    </p>
+                  </div>
+                )}
+                {docInfo.valido && !matchLocalPorDoc && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-start gap-2"
+                    onClick={handleCadastrarComDoc}
+                  >
+                    <UserPlus className="h-4 w-4" />
+                    Cadastrar com este {docInfo.tipo}
+                  </Button>
+                )}
+              </div>
+
               <Command>
-                <CommandInput placeholder="Buscar cliente..." />
+                <CommandInput placeholder="Buscar cliente por nome..." />
                 <CommandList>
                   <CommandEmpty>Nenhum cliente.</CommandEmpty>
                   <CommandGroup>
@@ -485,11 +660,11 @@ function PDVPage() {
                         }}
                       >
                         <User className="h-4 w-4" />
-                        <div className="flex flex-col">
-                          <span>{c.nome}</span>
+                        <div className="flex min-w-0 flex-col">
+                          <span className="truncate">{c.nome}</span>
                           {c.documento && (
-                            <span className="text-xs text-muted-foreground">
-                              {c.documento}
+                            <span className="font-mono text-xs text-muted-foreground">
+                              {formatarDocumento(c.documento)}
                             </span>
                           )}
                         </div>
@@ -504,6 +679,7 @@ function PDVPage() {
                     className="w-full justify-start gap-2 text-primary hover:text-primary"
                     onClick={() => {
                       setClientePopoverOpen(false);
+                      setNovoClienteDoc(null);
                       setNovoClienteOpen(true);
                     }}
                   >
@@ -863,8 +1039,12 @@ function PDVPage() {
       {/* Cadastro rápido de cliente (PDV) */}
       <ClienteDialog
         open={novoClienteOpen}
-        onOpenChange={setNovoClienteOpen}
+        onOpenChange={(v) => {
+          setNovoClienteOpen(v);
+          if (!v) setNovoClienteDoc(null);
+        }}
         quickMode
+        defaultDocumento={novoClienteDoc}
         onSaved={(c) => {
           setCliente({
             id: c.id,
@@ -872,6 +1052,8 @@ function PDVPage() {
             nome_fantasia: c.nome_fantasia ?? null,
             documento: c.documento ?? null,
           });
+          setDocQuery("");
+          setNovoClienteDoc(null);
           toast.success(`Cliente "${c.nome}" selecionado para a venda.`);
         }}
       />
