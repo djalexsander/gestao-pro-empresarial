@@ -11,6 +11,7 @@ import {
   Users,
   BarChart3,
   Settings,
+  CircleDollarSign,
   type LucideIcon,
 } from "lucide-react";
 
@@ -58,6 +59,7 @@ export const MODULES: ModuleDef[] = [
       { to: "/estoque", label: "Estoque", icon: Boxes, description: "Movimentações e saldos" },
       { to: "/compras", label: "Compras", icon: ShoppingCart, description: "Pedidos a fornecedores" },
       { to: "/vendas", label: "Vendas", icon: Receipt, description: "Pedidos e faturamento" },
+      { to: "/caixa", label: "Caixa", icon: CircleDollarSign, description: "Abertura, operação e fechamento" },
     ],
   },
   {
