@@ -73,14 +73,12 @@ export function VendaSucessoDialog({
   venda,
   onNovaVenda,
   onVerVendas,
-  autoPrint,
 }: VendaSucessoDialogProps) {
   const { data: empresa } = useConfigEmpresa();
-  const printedFor = useRef<string | null>(null);
 
-  function handleImprimir() {
-    if (!venda) return;
-    const ok = imprimirCupom(empresa ?? null, {
+  function buildCupom() {
+    if (!venda) return null;
+    return {
       numero: venda.numero ?? null,
       data: venda.data,
       operador: venda.operador ?? null,
@@ -95,7 +93,13 @@ export function VendaSucessoDialog({
       valorRecebido: venda.valorRecebido ?? null,
       troco: venda.troco,
       observacao: venda.observacao ?? null,
-    });
+    };
+  }
+
+  function handleImprimir() {
+    const cupom = buildCupom();
+    if (!cupom) return;
+    const ok = imprimirCupom(empresa ?? null, cupom);
     if (!ok) {
       toast.error(
         "Não foi possível abrir a janela de impressão. Permita pop-ups deste site e tente novamente.",
@@ -103,15 +107,18 @@ export function VendaSucessoDialog({
     }
   }
 
-  // Auto-impressão (uma vez por venda)
-  useEffect(() => {
-    if (!open || !venda || !autoPrint) return;
-    if (printedFor.current === venda.id) return;
-    printedFor.current = venda.id;
-    const t = setTimeout(handleImprimir, 250);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, venda?.id, autoPrint, empresa?.id]);
+  function handleBaixarPdf() {
+    const cupom = buildCupom();
+    if (!cupom) return;
+    const ok = baixarCupomHtml(empresa ?? null, cupom);
+    if (ok) {
+      toast.success(
+        "Cupom baixado. Abra o arquivo e use 'Salvar como PDF' do navegador.",
+      );
+    } else {
+      toast.error("Não foi possível baixar o cupom.");
+    }
+  }
 
   if (!venda) return null;
 
