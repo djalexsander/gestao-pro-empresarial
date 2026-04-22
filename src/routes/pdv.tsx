@@ -1039,8 +1039,12 @@ function PDVPage() {
       {/* Cadastro rápido de cliente (PDV) */}
       <ClienteDialog
         open={novoClienteOpen}
-        onOpenChange={setNovoClienteOpen}
+        onOpenChange={(v) => {
+          setNovoClienteOpen(v);
+          if (!v) setNovoClienteDoc(null);
+        }}
         quickMode
+        defaultDocumento={novoClienteDoc}
         onSaved={(c) => {
           setCliente({
             id: c.id,
@@ -1048,6 +1052,8 @@ function PDVPage() {
             nome_fantasia: c.nome_fantasia ?? null,
             documento: c.documento ?? null,
           });
+          setDocQuery("");
+          setNovoClienteDoc(null);
           toast.success(`Cliente "${c.nome}" selecionado para a venda.`);
         }}
       />
