@@ -1172,12 +1172,29 @@ function PDVPage() {
           setVendaConcluida(null);
         }}
         onVerVendas={() => {
+          // PDV é ambiente isolado: não saímos para /vendas (ERP).
+          // Apenas fecha o resumo e mantém o operador no PDV.
           setSucessoOpen(false);
           setVendaConcluida(null);
           setCliente(null);
-          navigate({ to: "/vendas" });
         }}
       />
+
+      {/* Fechamento de caixa (acionado por Voltar/Encerrar) */}
+      {caixaAberto && (
+        <FecharCaixaDialog
+          open={fecharCaixaOpen}
+          onOpenChange={(open) => {
+            setFecharCaixaOpen(open);
+            if (!open) {
+              // usuário cancelou: não vai sair
+              exitAfterCloseRef.current = false;
+            }
+          }}
+          caixaId={caixaAberto.id}
+          resumo={resumoCaixa ?? null}
+        />
+      )}
 
       {/* Confirmações */}
       <AlertDialog
@@ -1192,7 +1209,7 @@ function PDVPage() {
             <AlertDialogDescription>
               {confirmClear === "clear"
                 ? "Todos os itens da venda atual serão removidos. Esta ação não pode ser desfeita."
-                : "A venda atual será descartada e você voltará para a lista de vendas."}
+                : "A venda atual será descartada. Você continuará no PDV."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
