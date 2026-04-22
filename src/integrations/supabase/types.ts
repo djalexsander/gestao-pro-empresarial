@@ -1358,6 +1358,16 @@ export type Database = {
         Args: { _motivo?: string; _venda_id: string }
         Returns: Json
       }
+      cliente_metricas: {
+        Args: { _cliente_id?: string }
+        Returns: {
+          cliente_id: string
+          ticket_medio: number
+          total_vendas: number
+          ultima_venda: string
+          valor_total: number
+        }[]
+      }
       finalizar_venda_pdv:
         | {
             Args: {
@@ -1447,6 +1457,10 @@ export type Database = {
           produto_id: string
           saldo: number
         }[]
+      }
+      venda_metricas_periodo: {
+        Args: { _data_fim?: string; _data_inicio?: string }
+        Returns: Json
       }
     }
     Enums: {
