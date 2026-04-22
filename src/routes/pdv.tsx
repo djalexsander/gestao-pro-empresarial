@@ -221,6 +221,74 @@ function PDVPage() {
   // Scanner USB global
   useScanner((scanned) => handleScanCode(scanned), { enabled: true });
 
+  // ============ Atalhos globais do PDV ============
+  const [hotkeyFlash, setHotkeyFlash] = useState<string | null>(null);
+  function flashHotkey(key: string) {
+    setHotkeyFlash(key);
+    window.setTimeout(() => {
+      setHotkeyFlash((cur) => (cur === key ? null : cur));
+    }, 350);
+  }
+
+  // F7 nova venda · F8 limpar · F9 buscar produto · F10 finalizar
+  useHotkeys(
+    [
+      {
+        key: "F7",
+        allowInInputs: true,
+        handler: () => {
+          flashHotkey("F7");
+          if (items.length > 0) {
+            setConfirmClear("clear");
+          } else {
+            scanInputRef.current?.focus();
+          }
+        },
+      },
+      {
+        key: "F8",
+        allowInInputs: true,
+        handler: () => {
+          flashHotkey("F8");
+          if (items.length > 0) setConfirmClear("clear");
+        },
+      },
+      {
+        key: "F9",
+        allowInInputs: true,
+        handler: () => {
+          flashHotkey("F9");
+          setSearchPopoverOpen(true);
+        },
+      },
+      {
+        key: "F10",
+        allowInInputs: true,
+        handler: () => {
+          flashHotkey("F10");
+          if (items.length > 0 && !finalizarOpen) finalizarVenda();
+        },
+      },
+      {
+        key: "Escape",
+        allowInInputs: false,
+        handler: () => {
+          // ESC fora de input: cancela venda (com confirmação) se houver itens
+          if (
+            items.length > 0 &&
+            !finalizarOpen &&
+            !sucessoOpen &&
+            !confirmClear &&
+            !scannerOpen
+          ) {
+            setConfirmClear("cancel");
+          }
+        },
+      },
+    ],
+    { enabled: !finalizarOpen && !sucessoOpen && !scannerOpen },
+  );
+
   function handleSubmitCode(e: React.FormEvent) {
     e.preventDefault();
     handleScanCode(code);
