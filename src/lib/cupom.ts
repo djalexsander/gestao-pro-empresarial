@@ -80,7 +80,9 @@ function fmtDate(d: Date): string {
 export function gerarCupomHtml(
   empresa: ConfigEmpresa | null,
   cupom: CupomData,
+  options: { autoPrint?: boolean } = {},
 ): string {
+  const autoPrint = options.autoPrint ?? false;
   const itensHtml = cupom.itens
     .map((it, i) => {
       const linhaTopo = `${String(i + 1).padStart(3, "0")} ${escapeHtml(it.descricao)}`;
