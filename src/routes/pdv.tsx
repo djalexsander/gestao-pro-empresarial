@@ -45,6 +45,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ScannerDialog } from "@/components/scanner/ScannerDialog";
+import { FinalizarVendaDialog } from "@/components/pdv/FinalizarVendaDialog";
 import {
   buscarProdutoPorCodigo,
   type ProdutoBuscaResult,
