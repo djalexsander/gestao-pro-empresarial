@@ -82,7 +82,6 @@ const EMPTY = {
 
 export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }: ProdutoDialogProps) {
   const isEdit = !!produtoId;
-  const { data: categorias = [] } = useCategorias();
   const { data: produto } = useProduto(produtoId ?? undefined);
   const createMut = useCreateProduto();
   const updateMut = useUpdateProduto();
