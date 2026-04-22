@@ -1,20 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Plus, Search, Filter, Download, Pencil, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { Plus, Search, Pencil, Trash2, Loader2, PackagePlus } from "lucide-react";
+import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { EmptyState } from "@/components/shared/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -30,7 +22,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatBRL, products } from "@/lib/mock-data";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useCategorias, useDeleteProduto, useProdutos } from "@/hooks/useProdutos";
+import { useEstoqueSaldos } from "@/hooks/useEstoque";
+import { ProdutoDialog } from "@/components/produtos/ProdutoDialog";
 
 export const Route = createFileRoute("/produtos")({
   head: () => ({
@@ -42,8 +46,34 @@ export const Route = createFileRoute("/produtos")({
   component: ProductsPage,
 });
 
+const formatBRL = (v: number) =>
+  v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
 function ProductsPage() {
+  const { data: produtos = [], isLoading } = useProdutos();
+  const { data: categorias = [] } = useCategorias();
+  const { data: saldos } = useEstoqueSaldos();
+  const deleteMut = useDeleteProduto();
+
   const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [categoriaFilter, setCategoriaFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return produtos.filter((p) => {
+      if (q && !p.nome.toLowerCase().includes(q) && !p.sku.toLowerCase().includes(q)) return false;
+      if (categoriaFilter !== "all" && p.categoria_id !== categoriaFilter) return false;
+      if (statusFilter !== "all" && p.status !== statusFilter) return false;
+      return true;
+    });
+  }, [produtos, search, categoriaFilter, statusFilter]);
+
+  function openNew() { setEditingId(null); setOpen(true); }
+  function openEdit(id: string) { setEditingId(id); setOpen(true); }
 
   return (
     <div className="space-y-6">
@@ -51,16 +81,9 @@ function ProductsPage() {
         title="Produtos"
         description="Catálogo de produtos da empresa."
         actions={
-          <>
-            <Button variant="outline" size="sm" className="gap-1.5">
-              <Download className="h-4 w-4" />
-              Exportar
-            </Button>
-            <Button size="sm" className="gap-1.5" onClick={() => setOpen(true)}>
-              <Plus className="h-4 w-4" />
-              Novo produto
-            </Button>
-          </>
+          <Button size="sm" className="gap-1.5" onClick={openNew}>
+            <Plus className="h-4 w-4" /> Novo produto
+          </Button>
         }
       />
 
@@ -69,142 +92,130 @@ function ProductsPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input placeholder="Buscar por SKU ou nome..." className="pl-9" />
+              <Input placeholder="Buscar por SKU ou nome..." className="pl-9"
+                value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
-            <Select defaultValue="all">
-              <SelectTrigger className="w-full sm:w-44">
-                <SelectValue />
-              </SelectTrigger>
+            <Select value={categoriaFilter} onValueChange={setCategoriaFilter}>
+              <SelectTrigger className="w-full sm:w-52"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todas categorias</SelectItem>
-                <SelectItem value="alimentos">Alimentos</SelectItem>
-                <SelectItem value="bebidas">Bebidas</SelectItem>
-                <SelectItem value="limpeza">Limpeza</SelectItem>
+                {categorias.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
-            <Select defaultValue="all">
-              <SelectTrigger className="w-full sm:w-36">
-                <SelectValue />
-              </SelectTrigger>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full sm:w-40"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos status</SelectItem>
                 <SelectItem value="ativo">Ativo</SelectItem>
                 <SelectItem value="inativo">Inativo</SelectItem>
+                <SelectItem value="descontinuado">Descontinuado</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" size="icon">
-              <Filter className="h-4 w-4" />
-            </Button>
           </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>SKU</TableHead>
-                <TableHead>Nome</TableHead>
-                <TableHead>Categoria</TableHead>
-                <TableHead className="text-right">Preço</TableHead>
-                <TableHead className="text-right">Estoque</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-20" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {products.map((p) => (
-                <TableRow key={p.sku}>
-                  <TableCell className="font-mono text-xs text-muted-foreground">{p.sku}</TableCell>
-                  <TableCell className="font-medium">{p.nome}</TableCell>
-                  <TableCell>
-                    <span className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                      {p.categoria}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right font-medium">{formatBRL(p.preco)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{p.estoque}</TableCell>
-                  <TableCell>
-                    <StatusBadge status={p.status} />
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center justify-end gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          <div className="flex items-center justify-between border-t border-border px-4 py-3 text-sm text-muted-foreground">
-            <span>Mostrando {products.length} de {products.length} produtos</span>
-            <div className="flex items-center gap-1">
-              <Button variant="outline" size="sm" disabled>
-                Anterior
-              </Button>
-              <Button variant="outline" size="sm" disabled>
-                Próximo
-              </Button>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-16 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
             </div>
-          </div>
+          ) : filtered.length === 0 ? (
+            <div className="p-6">
+              <EmptyState
+                icon={PackagePlus}
+                title={produtos.length === 0 ? "Nenhum produto cadastrado" : "Nenhum produto encontrado"}
+                description={produtos.length === 0
+                  ? "Comece cadastrando seu primeiro produto no catálogo."
+                  : "Tente ajustar os filtros de busca."}
+                action={produtos.length === 0 ? (
+                  <Button onClick={openNew} className="gap-1.5">
+                    <Plus className="h-4 w-4" /> Cadastrar produto
+                  </Button>
+                ) : undefined}
+              />
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>SKU</TableHead>
+                  <TableHead>Nome</TableHead>
+                  <TableHead>Categoria</TableHead>
+                  <TableHead className="text-right">Custo</TableHead>
+                  <TableHead className="text-right">Venda</TableHead>
+                  <TableHead className="text-right">Estoque</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="w-20" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((p) => {
+                  const saldo = Number(saldos?.get(p.id) ?? 0);
+                  const statusLabel =
+                    p.status === "ativo" ? "Ativo" :
+                    p.status === "inativo" ? "Inativo" : "Descontinuado";
+                  return (
+                    <TableRow key={p.id}>
+                      <TableCell className="font-mono text-xs text-muted-foreground">{p.sku}</TableCell>
+                      <TableCell className="font-medium">{p.nome}</TableCell>
+                      <TableCell>
+                        {p.categoria ? (
+                          <span className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                            {p.categoria.nome}
+                          </span>
+                        ) : <span className="text-xs text-muted-foreground">—</span>}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">{formatBRL(Number(p.preco_custo))}</TableCell>
+                      <TableCell className="text-right font-medium">{formatBRL(Number(p.preco_venda))}</TableCell>
+                      <TableCell className="text-right tabular-nums">{saldo}</TableCell>
+                      <TableCell><StatusBadge status={statusLabel} /></TableCell>
+                      <TableCell>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(p.id)}>
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive"
+                            onClick={() => setConfirmDelete(p.id)}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Novo produto</DialogTitle>
-            <DialogDescription>Cadastre um novo item no catálogo.</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-2">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="sku">SKU</Label>
-                <Input id="sku" placeholder="P-009" />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="cat">Categoria</Label>
-                <Select>
-                  <SelectTrigger id="cat">
-                    <SelectValue placeholder="Selecione" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="alimentos">Alimentos</SelectItem>
-                    <SelectItem value="bebidas">Bebidas</SelectItem>
-                    <SelectItem value="limpeza">Limpeza</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="nome">Nome do produto</Label>
-              <Input id="nome" placeholder="Ex: Arroz integral 1kg" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="preco">Preço de venda</Label>
-                <Input id="preco" placeholder="R$ 0,00" />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="est">Estoque inicial</Label>
-                <Input id="est" type="number" placeholder="0" />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={() => setOpen(false)}>Salvar produto</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ProdutoDialog open={open} onOpenChange={setOpen} produtoId={editingId} />
+
+      <AlertDialog open={!!confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir produto?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita. O histórico de movimentações será preservado, mas o produto será removido.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (confirmDelete) deleteMut.mutate(confirmDelete);
+                setConfirmDelete(null);
+              }}>
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

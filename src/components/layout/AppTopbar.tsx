@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 interface AppTopbarProps {
   onMobileMenuClick: () => void;
@@ -61,25 +62,31 @@ export function AppTopbar({ onMobileMenuClick }: AppTopbarProps) {
           <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-destructive ring-2 ring-background" />
         </Button>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary transition-colors hover:bg-primary/15">
-              AM
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-52">
-            <DropdownMenuLabel>
-              <p className="text-sm font-medium">Ana Martins</p>
-              <p className="text-xs text-muted-foreground">admin@empresa.com</p>
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem>Meu perfil</DropdownMenuItem>
-            <DropdownMenuItem>Configurações</DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-destructive">Sair</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <UserMenu />
       </div>
     </header>
+  );
+}
+
+function UserMenu() {
+  const { user, signOut } = useAuth();
+  const initials = (user?.user_metadata?.nome ?? user?.email ?? "?")
+    .split(" ").map((s: string) => s[0]).join("").slice(0, 2).toUpperCase();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary transition-colors hover:bg-primary/15">
+          {initials}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-52">
+        <DropdownMenuLabel>
+          <p className="text-sm font-medium truncate">{user?.user_metadata?.nome ?? "Usuário"}</p>
+          <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => signOut()} className="text-destructive">Sair</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

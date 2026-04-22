@@ -791,6 +791,7 @@ export type Database = {
           codigo_barras: string | null
           created_at: string
           descricao: string | null
+          estoque_inicial: number
           estoque_minimo: number
           id: string
           imagem_url: string | null
@@ -812,6 +813,7 @@ export type Database = {
           codigo_barras?: string | null
           created_at?: string
           descricao?: string | null
+          estoque_inicial?: number
           estoque_minimo?: number
           id?: string
           imagem_url?: string | null
@@ -833,6 +835,7 @@ export type Database = {
           codigo_barras?: string | null
           created_at?: string
           descricao?: string | null
+          estoque_inicial?: number
           estoque_minimo?: number
           id?: string
           imagem_url?: string | null
@@ -1039,6 +1042,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      calcular_saldo_estoque: {
+        Args: { _produto_id: string; _variacao_id?: string }
+        Returns: number
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
