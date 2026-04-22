@@ -138,6 +138,7 @@ export function FinalizarVendaDialog({
   const dialogContentRef = useRef<HTMLDivElement>(null);
 
   const finalizar = useFinalizarVendaPDV();
+  const { operador } = useOperador();
 
   // Reset ao abrir: começa com 1 pagamento em dinheiro cobrindo o total
   useEffect(() => {
