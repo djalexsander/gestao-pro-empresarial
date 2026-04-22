@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { FuncionariosTab } from "@/components/configuracoes/FuncionariosTab";
+import { TerminaisTab } from "@/components/configuracoes/TerminaisTab";
 
 export const Route = createFileRoute("/configuracoes")({
   head: () => ({
@@ -31,6 +32,7 @@ function SettingsPage() {
         <TabsList>
           <TabsTrigger value="empresa">Empresa</TabsTrigger>
           <TabsTrigger value="funcionarios">Funcionários</TabsTrigger>
+          <TabsTrigger value="terminais">Terminais</TabsTrigger>
           <TabsTrigger value="prefs">Preferências</TabsTrigger>
           <TabsTrigger value="integracoes">Integrações</TabsTrigger>
         </TabsList>
@@ -70,6 +72,10 @@ function SettingsPage() {
 
         <TabsContent value="funcionarios" className="mt-4">
           <FuncionariosTab />
+        </TabsContent>
+
+        <TabsContent value="terminais" className="mt-4">
+          <TerminaisTab />
         </TabsContent>
 
         <TabsContent value="prefs" className="mt-4">
