@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ScanLine,
@@ -77,6 +77,9 @@ import { useOperador } from "@/components/auth/OperadorProvider";
 import { useTerminal } from "@/components/auth/TerminalProvider";
 import { TerminalAtualBadge } from "@/components/auth/TerminalSelector";
 import { RequirePosSession } from "@/components/auth/RequirePosSession";
+import { PdvErrorBoundary } from "@/components/pdv/PdvErrorBoundary";
+import { useCaixaAberto, useCaixaResumo } from "@/hooks/useCaixa";
+import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatBRL } from "@/lib/mock-data";
@@ -93,7 +96,9 @@ export const Route = createFileRoute("/pdv")({
   }),
   component: () => (
     <RequirePosSession>
-      <PDVPage />
+      <PdvErrorBoundary>
+        <PDVPage />
+      </PdvErrorBoundary>
     </RequirePosSession>
   ),
 });
