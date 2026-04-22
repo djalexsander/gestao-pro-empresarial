@@ -193,7 +193,11 @@ function PosHomeScreen() {
         )}
       </main>
 
-      <AbrirCaixaDialog open={abrirOpen} onOpenChange={setAbrirOpen} />
+      <AbrirCaixaDialog
+        open={abrirOpen}
+        onOpenChange={setAbrirOpen}
+        operadorId={operador?.id ?? null}
+      />
       {caixaAberto && (
         <FecharCaixaDialog
           open={fecharOpen}
