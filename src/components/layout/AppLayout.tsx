@@ -1,31 +1,39 @@
-import { Outlet } from "@tanstack/react-router";
+import { Outlet, useLocation } from "@tanstack/react-router";
 import { AppSidebar, useSidebarState } from "./AppSidebar";
 import { AppTopbar } from "./AppTopbar";
+import { RequireAuth } from "@/components/auth/RequireAuth";
 import { cn } from "@/lib/utils";
 
 export function AppLayout() {
   const sidebar = useSidebarState();
+  const location = useLocation();
+
+  // /auth não deve ter sidebar/topbar nem proteção
+  if (location.pathname === "/auth") {
+    return <Outlet />;
+  }
 
   return (
-    <div className="min-h-screen w-full bg-background">
-      <AppSidebar
-        collapsed={sidebar.collapsed}
-        onToggle={sidebar.toggle}
-        mobileOpen={sidebar.mobileOpen}
-        onMobileClose={sidebar.closeMobile}
-      />
-
-      <div
-        className={cn(
-          "flex min-h-screen flex-col transition-[padding] duration-200",
-          sidebar.collapsed ? "lg:pl-[72px]" : "lg:pl-64"
-        )}
-      >
-        <AppTopbar onMobileMenuClick={sidebar.openMobile} />
-        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
-          <Outlet />
-        </main>
+    <RequireAuth>
+      <div className="min-h-screen w-full bg-background">
+        <AppSidebar
+          collapsed={sidebar.collapsed}
+          onToggle={sidebar.toggle}
+          mobileOpen={sidebar.mobileOpen}
+          onMobileClose={sidebar.closeMobile}
+        />
+        <div
+          className={cn(
+            "flex min-h-screen flex-col transition-[padding] duration-200",
+            sidebar.collapsed ? "lg:pl-[72px]" : "lg:pl-64"
+          )}
+        >
+          <AppTopbar onMobileMenuClick={sidebar.openMobile} />
+          <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
+            <Outlet />
+          </main>
+        </div>
       </div>
-    </div>
+    </RequireAuth>
   );
 }
