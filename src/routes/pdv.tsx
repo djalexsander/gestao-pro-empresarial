@@ -115,11 +115,11 @@ function PDVPage() {
 
   // Restaura foco quando abre/fecha popovers/dialogs
   useEffect(() => {
-    if (!scannerOpen && !clientePopoverOpen && !searchPopoverOpen && !confirmClear) {
+    if (!scannerOpen && !clientePopoverOpen && !searchPopoverOpen && !confirmClear && !finalizarOpen) {
       const t = setTimeout(() => scanInputRef.current?.focus(), DEFAULT_FOCUS_DELAY);
       return () => clearTimeout(t);
     }
-  }, [scannerOpen, clientePopoverOpen, searchPopoverOpen, confirmClear]);
+  }, [scannerOpen, clientePopoverOpen, searchPopoverOpen, confirmClear, finalizarOpen]);
 
   // ============ Totais ============
   const totals = useMemo(() => {
