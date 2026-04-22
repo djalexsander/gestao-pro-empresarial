@@ -58,13 +58,12 @@ function ProductsPage() {
   const deleteMut = useDeleteProduto();
 
   const [open, setOpen] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [categoriaFilter, setCategoriaFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [prefilledCodigo, setPrefilledCodigo] = useState<{ valor: string; tipo: TipoIdentificacao } | undefined>();
-  const navigate = useNavigate();
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -76,13 +75,8 @@ function ProductsPage() {
     });
   }, [produtos, search, categoriaFilter, statusFilter]);
 
-  function openNew() { setEditingId(null); setPrefilledCodigo(undefined); setOpen(true); }
-  function openEdit(id: string) { setEditingId(id); setPrefilledCodigo(undefined); setOpen(true); }
-  function openNewWithCode(valor: string) {
-    setEditingId(null);
-    setPrefilledCodigo({ valor, tipo: "codigo_barras" });
-    setOpen(true);
-  }
+  function openNew() { setEditingId(null); setOpen(true); }
+  function openEdit(id: string) { setEditingId(id); setOpen(true); }
 
   return (
     <div className="space-y-6">
