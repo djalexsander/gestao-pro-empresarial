@@ -140,7 +140,7 @@ function PDVPage() {
     if (caixaAberto) return;
     exitAfterCloseRef.current = false;
     trocarOperador();
-    navigate({ to: "/pos" });
+    navigate({ to: "/hub" });
   }, [caixaAberto, navigate, trocarOperador]);
 
   // Bloqueia fechamento da aba/janela enquanto houver caixa aberto.
@@ -161,9 +161,9 @@ function PDVPage() {
       toast.info("É necessário fechar o caixa antes de sair.");
       return;
     }
-    // sem caixa aberto (estado raro): apenas encerra operador
+    // sem caixa aberto (estado raro): apenas encerra operador e volta ao HUB
     trocarOperador();
-    navigate({ to: "/pos" });
+    navigate({ to: "/hub" });
   }
 
 
