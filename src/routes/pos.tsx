@@ -134,6 +134,13 @@ function PosHomeScreen() {
   const [abrirOpen, setAbrirOpen] = useState(false);
   const [fecharOpen, setFecharOpen] = useState(false);
 
+  // Auto-redireciona para o PDV quando o operador já tem um caixa aberto.
+  useEffect(() => {
+    if (!loadingCaixa && caixaAberto && !fecharOpen && !abrirOpen) {
+      navigate({ to: "/pdv" });
+    }
+  }, [loadingCaixa, caixaAberto, fecharOpen, abrirOpen, navigate]);
+
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <header className="flex items-center justify-between border-b border-border bg-card px-4 py-2.5 sm:px-6">
