@@ -194,18 +194,21 @@ export function useAbrirCaixa() {
       valor_inicial: number;
       observacao?: string | null;
       operador_id?: string | null;
+      terminal_id?: string | null;
     }) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await (supabase as any).rpc("abrir_caixa", {
         _valor_inicial: input.valor_inicial,
         _observacao: input.observacao ?? undefined,
         _operador_id: input.operador_id ?? undefined,
+        _terminal_id: input.terminal_id ?? undefined,
       });
       if (error) throw error;
       return data as string;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["caixa"] });
+      qc.invalidateQueries({ queryKey: ["terminais"] });
       toast.success("Caixa aberto com sucesso.");
     },
     onError: (e: Error) => toast.error(e.message),
