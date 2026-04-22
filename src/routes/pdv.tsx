@@ -122,7 +122,10 @@ function PDVPage() {
     cliente: string | null;
   }>(null);
 
+  const [novoClienteOpen, setNovoClienteOpen] = useState(false);
+
   const saldosLote = useSaldosLote();
+  const som = useSomPDV();
 
   const scanInputRef = useRef<HTMLInputElement>(null);
 
@@ -199,7 +202,10 @@ function PDVPage() {
       const found = await buscarProdutoPorCodigo(v);
       if (found) {
         if (found.status !== "ativo") {
+          som.beep("warn");
           toast.warning(`Produto "${found.nome}" está ${found.status}.`);
+        } else {
+          som.beep("ok");
         }
         addItemFromProduto({
           produto_id: found.produto_id,
@@ -210,9 +216,11 @@ function PDVPage() {
         });
         toast.success(`+ ${found.nome}`, { duration: 1200 });
       } else {
+        som.beep("error");
         toast.error(`Produto não encontrado para "${v}"`);
       }
     } catch (e) {
+      som.beep("error");
       toast.error((e as Error).message);
     } finally {
       setBusy(false);
