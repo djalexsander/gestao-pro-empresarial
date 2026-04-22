@@ -1,10 +1,9 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   ShoppingCart,
   LogOut,
-  ShieldCheck,
   Sparkles,
   ArrowRight,
   Building2,
@@ -12,10 +11,12 @@ import {
   PackageOpen,
   Receipt,
   Users,
+  Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { useIsSuperAdmin } from "@/hooks/useAdmin";
+import { AdminAuthDialog } from "@/components/auth/AdminAuthDialog";
+import { lockErp } from "@/lib/erpUnlock";
 
 export const Route = createFileRoute("/hub")({
   head: () => ({
