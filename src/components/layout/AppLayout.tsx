@@ -17,6 +17,11 @@ export function AppLayout() {
     return <Outlet />;
   }
 
+  // /hub e /pos usam layout próprio (sem sidebar do ERP).
+  if (location.pathname === "/hub" || location.pathname === "/pos") {
+    return <Outlet />;
+  }
+
   if (location.pathname === "/admin" || location.pathname.startsWith("/admin/")) {
     return <Outlet />;
   }
