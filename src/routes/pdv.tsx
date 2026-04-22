@@ -54,11 +54,22 @@ import {
 import { useScanner } from "@/hooks/useScanner";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { useProdutos } from "@/hooks/useProdutos";
-import { useClientes, type ClienteLite } from "@/hooks/useClientes";
+import {
+  useClientes,
+  checkDocumentoDuplicado,
+  type ClienteLite,
+} from "@/hooks/useClientes";
 import { useSaldosLote, type FormaPagamento, type StatusPagamento } from "@/hooks/useVendas";
 import { useSomPDV } from "@/hooks/useSomPDV";
 import { ClienteDialog } from "@/components/clientes/ClienteDialog";
-import { UserPlus } from "lucide-react";
+import { UserPlus, IdCard, AlertCircle } from "lucide-react";
+import {
+  classificarDocumento,
+  formatarDocumento,
+  maskDocumentoProgressivo,
+  somenteDigitos,
+  validarDocumento,
+} from "@/lib/documento";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
