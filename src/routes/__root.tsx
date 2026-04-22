@@ -2,6 +2,7 @@ import { Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-rou
 import { ThemeProvider, themeInitScript } from "@/components/theme/ThemeProvider";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { OperadorProvider } from "@/components/auth/OperadorProvider";
+import { TerminalProvider } from "@/components/auth/TerminalProvider";
 import { QueryProvider } from "@/components/providers/QueryProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -71,8 +72,10 @@ function RootComponent() {
       <QueryProvider>
         <AuthProvider>
           <OperadorProvider>
-            <AppLayout />
-            <Toaster richColors position="top-right" />
+            <TerminalProvider>
+              <AppLayout />
+              <Toaster richColors position="top-right" />
+            </TerminalProvider>
           </OperadorProvider>
         </AuthProvider>
       </QueryProvider>
