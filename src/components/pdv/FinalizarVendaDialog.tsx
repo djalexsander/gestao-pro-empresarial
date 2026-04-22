@@ -134,6 +134,7 @@ export function FinalizarVendaDialog({
   const [obsFinal, setObsFinal] = useState("");
   const [hotkeyFlash, setHotkeyFlash] = useState<string | null>(null);
   const ultimoValorRef = useRef<HTMLInputElement>(null);
+  const dialogContentRef = useRef<HTMLDivElement>(null);
 
   const finalizar = useFinalizarVendaPDV();
 
@@ -366,8 +367,26 @@ export function FinalizarVendaDialog({
       {
         key: "Enter",
         allowInInputs: false, // Enter dentro de inputs cabe ao input
-        handler: () => {
-          if (podeConfirmar) handleConfirmar();
+        handler: (e) => {
+          // Ignora auto-repeat de tecla pressionada
+          if (e.repeat) return;
+
+          // Só confirma se o foco estiver DENTRO do diálogo de finalização
+          // (evita conflitos com modais sobrepostos, popovers ou foco fora).
+          const dialogEl = dialogContentRef.current;
+          const active = document.activeElement as HTMLElement | null;
+          if (!dialogEl) return;
+          if (active && !dialogEl.contains(active)) return;
+
+          // Não dispara se o foco estiver em um botão (deixa o click nativo agir)
+          if (active && (active.tagName === "BUTTON" || active.getAttribute("role") === "button")) {
+            return;
+          }
+
+          // Só confirma se a venda estiver válida
+          if (!podeConfirmar) return;
+
+          handleConfirmar();
         },
       },
       {
@@ -390,7 +409,7 @@ export function FinalizarVendaDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl gap-0 overflow-hidden p-0">
+      <DialogContent ref={dialogContentRef} className="max-w-4xl gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b border-border bg-muted/30 px-6 py-4">
           <DialogTitle className="flex items-center gap-2 text-lg">
             <Receipt className="h-5 w-5 text-primary" /> Finalizar venda
