@@ -404,7 +404,13 @@ function PDVPage() {
         },
       },
     ],
-    { enabled: !finalizarOpen && !sucessoOpen && !scannerOpen },
+    {
+      // Escopo "page": atalhos do PDV ficam suspensos automaticamente
+      // enquanto qualquer modal (Finalizar, Sucesso, Scanner) estiver no
+      // topo do stack. Os guards abaixo são redundância defensiva.
+      enabled: !finalizarOpen && !sucessoOpen && !scannerOpen,
+      scope: "page",
+    },
   );
 
   function handleSubmitCode(e: React.FormEvent) {
