@@ -201,6 +201,7 @@ function ProductsPage() {
       </Card>
 
       <ProdutoDialog open={open} onOpenChange={setOpen} produtoId={editingId} />
+      <EntradaPorCodigoDialog open={scanOpen} onOpenChange={setScanOpen} />
 
       <AlertDialog open={!!confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(null)}>
         <AlertDialogContent>
