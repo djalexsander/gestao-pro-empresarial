@@ -1063,7 +1063,6 @@ function PDVPage() {
         open={sucessoOpen}
         onOpenChange={setSucessoOpen}
         venda={vendaConcluida}
-        autoPrint
         onNovaVenda={() => {
           setSucessoOpen(false);
           setVendaConcluida(null);
