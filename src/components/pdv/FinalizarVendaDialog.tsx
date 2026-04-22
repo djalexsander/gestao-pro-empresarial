@@ -12,6 +12,8 @@ import {
   Receipt,
   Wallet,
   ArrowRightLeft,
+  Plus,
+  Trash2,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -33,6 +35,7 @@ import {
   type FormaPagamento,
   type StatusPagamento,
   type FinalizarVendaItem,
+  type FinalizarVendaPagamento,
 } from "@/hooks/useVendas";
 
 interface FinalizarVendaDialogProps {
@@ -58,19 +61,33 @@ interface FormaPagamentoOption {
   key: FormaPagamento;
   label: string;
   icon: LucideIcon;
-  defaultStatus: StatusPagamento;
-  /** Forma que tipicamente fica pendente / gera contas a receber */
+  /** Se true, normalmente fica pendente (gera contas a receber) */
   pendentePorPadrao?: boolean;
+  /** Permite calcular troco (apenas dinheiro) */
+  permiteTroco?: boolean;
 }
 
 const FORMAS: FormaPagamentoOption[] = [
-  { key: "dinheiro", label: "Dinheiro", icon: Banknote, defaultStatus: "pago" },
-  { key: "pix", label: "PIX", icon: Smartphone, defaultStatus: "pago" },
-  { key: "cartao_debito", label: "Débito", icon: CreditCard, defaultStatus: "pago" },
-  { key: "cartao_credito", label: "Crédito", icon: CreditCard, defaultStatus: "pago" },
-  { key: "boleto", label: "Boleto", icon: FileText, defaultStatus: "pendente", pendentePorPadrao: true },
-  { key: "outro", label: "Fiado / Pendente", icon: Clock, defaultStatus: "pendente", pendentePorPadrao: true },
+  { key: "dinheiro", label: "Dinheiro", icon: Banknote, permiteTroco: true },
+  { key: "pix", label: "PIX", icon: Smartphone },
+  { key: "cartao_debito", label: "Débito", icon: CreditCard },
+  { key: "cartao_credito", label: "Crédito", icon: CreditCard },
+  { key: "boleto", label: "Boleto", icon: FileText, pendentePorPadrao: true },
+  { key: "outro", label: "Fiado", icon: Clock, pendentePorPadrao: true },
 ];
+
+const FORMA_BY_KEY: Record<FormaPagamento, FormaPagamentoOption> = FORMAS.reduce(
+  (acc, f) => {
+    acc[f.key] = f;
+    return acc;
+  },
+  {} as Record<FormaPagamento, FormaPagamentoOption>,
+);
+
+// Para formas não listadas no PDV, fornece um fallback seguro
+function getFormaInfo(key: FormaPagamento): FormaPagamentoOption {
+  return FORMA_BY_KEY[key] ?? { key, label: key, icon: Wallet };
+}
 
 const STATUS_COLORS: Record<StatusPagamento, string> = {
   pago: "bg-success/15 text-success border-success/30",
@@ -78,6 +95,24 @@ const STATUS_COLORS: Record<StatusPagamento, string> = {
   parcial: "bg-primary/15 text-primary border-primary/30",
   cancelado: "bg-destructive/15 text-destructive border-destructive/30",
 };
+
+interface PagamentoLinha {
+  uid: string;
+  forma: FormaPagamento;
+  valor: number;
+  valorRecebido: number; // só relevante para dinheiro
+  parcelas: number; // só relevante para crédito
+}
+
+function novoPagamento(forma: FormaPagamento, valor: number): PagamentoLinha {
+  return {
+    uid: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    forma,
+    valor: Math.max(0, Number(valor.toFixed(2))),
+    valorRecebido: 0,
+    parcelas: 1,
+  };
+}
 
 export function FinalizarVendaDialog({
   open,
@@ -92,72 +127,179 @@ export function FinalizarVendaDialog({
   operadorEmail,
   onConfirmed,
 }: FinalizarVendaDialogProps) {
-  const [forma, setForma] = useState<FormaPagamento>("dinheiro");
-  const [statusPagamento, setStatusPagamento] = useState<StatusPagamento>("pago");
-  const [valorRecebidoStr, setValorRecebidoStr] = useState("");
-  const [parcelas, setParcelas] = useState(1);
+  const [pagamentos, setPagamentos] = useState<PagamentoLinha[]>([]);
   const [obsFinal, setObsFinal] = useState("");
-  const valorInputRef = useRef<HTMLInputElement>(null);
+  const ultimoValorRef = useRef<HTMLInputElement>(null);
 
   const finalizar = useFinalizarVendaPDV();
 
-  // Reset ao abrir
+  // Reset ao abrir: começa com 1 pagamento em dinheiro cobrindo o total
   useEffect(() => {
     if (open) {
-      setForma("dinheiro");
-      setStatusPagamento("pago");
-      setValorRecebidoStr(total.toFixed(2));
-      setParcelas(1);
+      const inicial = novoPagamento("dinheiro", total);
+      inicial.valorRecebido = total;
+      setPagamentos([inicial]);
       setObsFinal("");
-      setTimeout(() => valorInputRef.current?.focus(), 50);
+      setTimeout(() => ultimoValorRef.current?.focus(), 50);
     }
   }, [open, total]);
 
-  const formaSelecionada = useMemo(
-    () => FORMAS.find((f) => f.key === forma) ?? FORMAS[0],
-    [forma],
+  // ============= Cálculos derivados =============
+  const totalPago = useMemo(
+    () => pagamentos.reduce((acc, p) => acc + (Number(p.valor) || 0), 0),
+    [pagamentos],
   );
 
-  // Quando muda a forma, ajusta status default
-  function selectForma(key: FormaPagamento) {
-    setForma(key);
-    const def = FORMAS.find((f) => f.key === key)?.defaultStatus ?? "pago";
-    setStatusPagamento(def);
+  const totalRecebidoDinheiro = useMemo(
+    () =>
+      pagamentos
+        .filter((p) => p.forma === "dinheiro")
+        .reduce((acc, p) => acc + (Number(p.valorRecebido) || 0), 0),
+    [pagamentos],
+  );
+
+  const valorDinheiroDevido = useMemo(
+    () =>
+      pagamentos
+        .filter((p) => p.forma === "dinheiro")
+        .reduce((acc, p) => acc + (Number(p.valor) || 0), 0),
+    [pagamentos],
+  );
+
+  const trocoTotal = useMemo(
+    () => Math.max(0, totalRecebidoDinheiro - valorDinheiroDevido),
+    [totalRecebidoDinheiro, valorDinheiroDevido],
+  );
+
+  const restante = useMemo(
+    () => Number((total - totalPago).toFixed(2)),
+    [total, totalPago],
+  );
+
+  const dinheiroInsuficiente = useMemo(() => {
+    // Só bloqueia se houve pagamento em dinheiro e o recebido é menor que o devido
+    return (
+      valorDinheiroDevido > 0 && totalRecebidoDinheiro < valorDinheiroDevido - 0.005
+    );
+  }, [valorDinheiroDevido, totalRecebidoDinheiro]);
+
+  // ============= Status de pagamento automático =============
+  // pago: totalPago >= total e dinheiro suficiente
+  // parcial: 0 < totalPago < total
+  // pendente: totalPago == 0 ou somente formas "pendentePorPadrao" cobrindo
+  const statusPagamento: StatusPagamento = useMemo(() => {
+    if (Math.abs(totalPago - total) < 0.005 && !dinheiroInsuficiente) {
+      // Se TODAS as linhas são "pendentePorPadrao" (boleto/fiado), considera pendente
+      const todasPendentes =
+        pagamentos.length > 0 &&
+        pagamentos.every((p) => getFormaInfo(p.forma).pendentePorPadrao);
+      return todasPendentes ? "pendente" : "pago";
+    }
+    if (totalPago > 0 && totalPago < total) return "parcial";
+    if (totalPago === 0) return "pendente";
+    return "pago";
+  }, [totalPago, total, pagamentos, dinheiroInsuficiente]);
+
+  // Forma "principal" = a de maior valor (apenas para o card de resumo)
+  const formaPrincipal: FormaPagamento = useMemo(() => {
+    if (pagamentos.length === 0) return "dinheiro";
+    return [...pagamentos].sort((a, b) => b.valor - a.valor)[0].forma;
+  }, [pagamentos]);
+
+  // ============= Handlers de manipulação =============
+  function addPagamento() {
+    // O novo pagamento entra cobrindo o restante (se houver)
+    const valorSugerido = Math.max(0, restante);
+    setPagamentos((prev) => [...prev, novoPagamento("pix", valorSugerido)]);
+    setTimeout(() => ultimoValorRef.current?.focus(), 50);
   }
 
-  const valorRecebido = useMemo(() => {
-    const n = Number(valorRecebidoStr.replace(",", "."));
-    return isNaN(n) ? 0 : n;
-  }, [valorRecebidoStr]);
+  function removePagamento(uid: string) {
+    setPagamentos((prev) => prev.filter((p) => p.uid !== uid));
+  }
 
-  const troco = useMemo(() => {
-    if (forma !== "dinheiro") return 0;
-    return Math.max(0, valorRecebido - total);
-  }, [forma, valorRecebido, total]);
+  function updatePagamento(uid: string, patch: Partial<PagamentoLinha>) {
+    setPagamentos((prev) =>
+      prev.map((p) => (p.uid === uid ? { ...p, ...patch } : p)),
+    );
+  }
 
-  const valorFaltante = useMemo(() => {
-    return Math.max(0, total - valorRecebido);
-  }, [total, valorRecebido]);
+  function setForma(uid: string, forma: FormaPagamento) {
+    setPagamentos((prev) =>
+      prev.map((p) => {
+        if (p.uid !== uid) return p;
+        const next: PagamentoLinha = { ...p, forma };
+        // Se virou dinheiro e não tem valor recebido, sugere o próprio valor
+        if (forma === "dinheiro" && (!p.valorRecebido || p.valorRecebido < p.valor)) {
+          next.valorRecebido = p.valor;
+        }
+        if (forma !== "cartao_credito") next.parcelas = 1;
+        return next;
+      }),
+    );
+  }
 
-  // Avisos por forma
-  const dinheiroInsuficiente = forma === "dinheiro" && valorRecebido < total && statusPagamento === "pago";
+  function setValor(uid: string, valor: number) {
+    const v = Math.max(0, isNaN(valor) ? 0 : valor);
+    setPagamentos((prev) =>
+      prev.map((p) => {
+        if (p.uid !== uid) return p;
+        const next = { ...p, valor: v };
+        // Para dinheiro, se o recebido era exatamente o valor antigo, sincroniza
+        if (p.forma === "dinheiro" && Math.abs(p.valorRecebido - p.valor) < 0.005) {
+          next.valorRecebido = v;
+        }
+        return next;
+      }),
+    );
+  }
 
+  function distribuirRestante(uid: string) {
+    const r = restante;
+    if (r <= 0) return;
+    setPagamentos((prev) =>
+      prev.map((p) =>
+        p.uid === uid
+          ? {
+              ...p,
+              valor: Number((p.valor + r).toFixed(2)),
+              valorRecebido:
+                p.forma === "dinheiro"
+                  ? Number((p.valor + r).toFixed(2))
+                  : p.valorRecebido,
+            }
+          : p,
+      ),
+    );
+  }
+
+  // ============= Confirmar =============
   function handleConfirmar() {
-    if (itens.length === 0) {
+    if (itens.length === 0) return;
+    if (dinheiroInsuficiente) return;
+    if (pagamentos.length === 0) return;
+    // Aceita pagar exatamente o total ou menos (parcial). Mais que o total só faz sentido em dinheiro (troco).
+    if (totalPago > total + 0.005 && valorDinheiroDevido === 0) {
       return;
     }
-    if (dinheiroInsuficiente) {
-      return;
+    if (totalPago < total - 0.005) {
+      // Parcial — segue normalmente, mas o sistema gera lançamento pendente
     }
 
-    const isDinheiro = forma === "dinheiro";
-    const valorRecebidoFinal = isDinheiro
-      ? valorRecebido
-      : statusPagamento === "parcial"
-        ? valorRecebido
-        : statusPagamento === "pago"
-          ? total
-          : 0;
+    const pagamentosPayload: FinalizarVendaPagamento[] = pagamentos.map((p) => {
+      const isDinheiro = p.forma === "dinheiro";
+      const trocoLinha = isDinheiro
+        ? Math.max(0, p.valorRecebido - p.valor)
+        : 0;
+      return {
+        forma_pagamento: p.forma,
+        valor: Number(p.valor.toFixed(2)),
+        valor_recebido: isDinheiro ? Number(p.valorRecebido.toFixed(2)) : null,
+        troco: isDinheiro ? Number(trocoLinha.toFixed(2)) : null,
+        parcelas: p.forma === "cartao_credito" ? p.parcelas : 1,
+        observacao: null,
+      };
+    });
 
     finalizar.mutate(
       {
@@ -165,189 +307,281 @@ export function FinalizarVendaDialog({
         subtotal,
         desconto,
         total,
-        forma_pagamento: forma,
+        // Mantém compat. com a coluna `vendas.forma_pagamento` — usa a principal
+        forma_pagamento: formaPrincipal,
         status_pagamento: statusPagamento,
-        valor_recebido: valorRecebidoFinal || null,
-        troco: isDinheiro ? troco : null,
+        valor_recebido: totalRecebidoDinheiro || null,
+        troco: trocoTotal || null,
         observacao: [observacao, obsFinal].filter(Boolean).join(" — ") || null,
         itens,
+        pagamentos: pagamentosPayload,
       },
       {
         onSuccess: (vendaId) => {
           onConfirmed({
             vendaId,
-            forma,
+            forma: formaPrincipal,
             status: statusPagamento,
-            troco: isDinheiro ? troco : 0,
+            troco: trocoTotal,
           });
         },
       },
     );
   }
 
-  const podeParcial =
-    forma !== "dinheiro" && valorRecebido > 0 && valorRecebido < total;
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl gap-0 overflow-hidden p-0">
+      <DialogContent className="max-w-4xl gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b border-border bg-muted/30 px-6 py-4">
           <DialogTitle className="flex items-center gap-2 text-lg">
             <Receipt className="h-5 w-5 text-primary" /> Finalizar venda
           </DialogTitle>
           <DialogDescription>
-            Confirme a forma de pagamento para concluir a operação no PDV.
+            Distribua o total entre uma ou mais formas de pagamento.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-0 md:grid-cols-[1fr_320px]">
-          {/* ============ Esquerda — pagamento ============ */}
-          <div className="space-y-5 p-6">
-            {/* Formas de pagamento */}
-            <div>
-              <Label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Forma de pagamento
+        <div className="grid gap-0 md:grid-cols-[1fr_340px]">
+          {/* ============ Esquerda — pagamentos ============ */}
+          <div className="max-h-[65vh] space-y-4 overflow-y-auto p-6">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Pagamentos ({pagamentos.length})
               </Label>
-              <div className="grid grid-cols-3 gap-2">
-                {FORMAS.map((f) => {
-                  const Icon = f.icon;
-                  const active = forma === f.key;
-                  return (
-                    <button
-                      key={f.key}
-                      type="button"
-                      onClick={() => selectForma(f.key)}
-                      className={cn(
-                        "flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 px-3 py-3 text-sm font-medium transition-all",
-                        active
-                          ? "border-primary bg-primary/10 text-primary shadow-sm"
-                          : "border-border bg-card hover:border-primary/40 hover:bg-muted/40",
-                      )}
-                    >
-                      <Icon className="h-5 w-5" />
-                      {f.label}
-                    </button>
-                  );
-                })}
-              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={addPagamento}
+                disabled={finalizar.isPending}
+                className="gap-1"
+              >
+                <Plus className="h-3.5 w-3.5" /> Adicionar pagamento
+              </Button>
             </div>
 
-            {/* Status */}
-            <div>
-              <Label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Status do pagamento
-              </Label>
-              <div className="flex flex-wrap gap-2">
-                {(["pago", "pendente", "parcial"] as StatusPagamento[]).map((s) => {
-                  const disabled = s === "parcial" && !podeParcial && forma !== "dinheiro";
-                  return (
-                    <button
-                      key={s}
-                      type="button"
-                      disabled={disabled}
-                      onClick={() => setStatusPagamento(s)}
-                      className={cn(
-                        "rounded-md border px-3 py-1.5 text-sm font-medium capitalize transition-colors",
-                        statusPagamento === s
-                          ? STATUS_COLORS[s]
-                          : "border-border bg-card text-muted-foreground hover:bg-muted/40",
-                        disabled && "cursor-not-allowed opacity-40",
-                      )}
-                    >
-                      {s}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Valor recebido / troco */}
-            {(forma === "dinheiro" || statusPagamento === "parcial") && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="valor-recebido" className="mb-1.5 block text-xs">
-                    Valor recebido
-                  </Label>
-                  <div className="relative">
-                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                      R$
-                    </span>
-                    <Input
-                      id="valor-recebido"
-                      ref={valorInputRef}
-                      value={valorRecebidoStr}
-                      onChange={(e) => setValorRecebidoStr(e.target.value)}
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      className="h-12 pl-9 font-mono text-lg tabular-nums"
-                    />
+            {pagamentos.map((p, idx) => {
+              const info = getFormaInfo(p.forma);
+              const isDinheiro = p.forma === "dinheiro";
+              const isCredito = p.forma === "cartao_credito";
+              const trocoLinha = isDinheiro
+                ? Math.max(0, p.valorRecebido - p.valor)
+                : 0;
+              const faltaLinha = isDinheiro
+                ? Math.max(0, p.valor - p.valorRecebido)
+                : 0;
+              return (
+                <div
+                  key={p.uid}
+                  className="rounded-lg border border-border bg-card/40 p-3 shadow-sm"
+                >
+                  <div className="mb-2 flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 text-xs text-primary">
+                        {idx + 1}
+                      </span>
+                      <info.icon className="h-4 w-4 text-muted-foreground" />
+                      <span>{info.label}</span>
+                    </div>
+                    {pagamentos.length > 1 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-destructive hover:text-destructive"
+                        onClick={() => removePagamento(p.uid)}
+                        disabled={finalizar.isPending}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                   </div>
-                </div>
-                <div>
-                  <Label className="mb-1.5 block text-xs">
-                    {forma === "dinheiro" ? "Troco" : "Restante"}
-                  </Label>
+
+                  {/* Seletor de forma */}
+                  <div className="mb-3 grid grid-cols-6 gap-1.5">
+                    {FORMAS.map((f) => {
+                      const Icon = f.icon;
+                      const active = p.forma === f.key;
+                      return (
+                        <button
+                          key={f.key}
+                          type="button"
+                          onClick={() => setForma(p.uid, f.key)}
+                          className={cn(
+                            "flex flex-col items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-medium transition-all",
+                            active
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border bg-card hover:border-primary/40 hover:bg-muted/40",
+                          )}
+                        >
+                          <Icon className="h-4 w-4" />
+                          {f.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Valor + (recebido / parcelas) */}
                   <div
                     className={cn(
-                      "flex h-12 items-center rounded-md border px-3 font-mono text-lg font-semibold tabular-nums",
-                      forma === "dinheiro"
-                        ? troco > 0
-                          ? "border-success/40 bg-success/10 text-success"
-                          : "border-border bg-muted/30 text-muted-foreground"
-                        : valorFaltante > 0
-                          ? "border-warning/40 bg-warning/10 text-warning"
-                          : "border-border bg-muted/30 text-muted-foreground",
+                      "grid gap-2",
+                      isDinheiro || isCredito
+                        ? "grid-cols-[1fr_1fr_auto]"
+                        : "grid-cols-[1fr_auto]",
                     )}
                   >
-                    {formatBRL(forma === "dinheiro" ? troco : valorFaltante)}
-                  </div>
-                </div>
-              </div>
-            )}
+                    <div>
+                      <Label className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground">
+                        Valor
+                      </Label>
+                      <div className="relative">
+                        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                          R$
+                        </span>
+                        <Input
+                          ref={idx === pagamentos.length - 1 ? ultimoValorRef : undefined}
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={p.valor === 0 ? "" : p.valor}
+                          onChange={(e) =>
+                            setValor(p.uid, parseFloat(e.target.value))
+                          }
+                          className="h-10 pl-9 font-mono tabular-nums"
+                        />
+                      </div>
+                    </div>
 
-            {/* Atalhos de cédula para dinheiro */}
-            {forma === "dinheiro" && (
+                    {isDinheiro && (
+                      <div>
+                        <Label className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground">
+                          Recebido
+                        </Label>
+                        <div className="relative">
+                          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                            R$
+                          </span>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={p.valorRecebido === 0 ? "" : p.valorRecebido}
+                            onChange={(e) =>
+                              updatePagamento(p.uid, {
+                                valorRecebido: Math.max(
+                                  0,
+                                  parseFloat(e.target.value) || 0,
+                                ),
+                              })
+                            }
+                            className="h-10 pl-9 font-mono tabular-nums"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {isCredito && (
+                      <div>
+                        <Label className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground">
+                          Parcelas
+                        </Label>
+                        <select
+                          value={p.parcelas}
+                          onChange={(e) =>
+                            updatePagamento(p.uid, {
+                              parcelas: Number(e.target.value),
+                            })
+                          }
+                          className="h-10 w-full rounded-md border border-input bg-background px-2 text-sm"
+                        >
+                          {[1, 2, 3, 4, 6, 10, 12].map((n) => (
+                            <option key={n} value={n}>
+                              {n}x
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {restante > 0.005 && (
+                      <div className="flex items-end">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-10 whitespace-nowrap text-xs"
+                          onClick={() => distribuirRestante(p.uid)}
+                          title={`Adiciona o restante de ${formatBRL(restante)}`}
+                        >
+                          + {formatBRL(restante)}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Feedback por linha */}
+                  {isDinheiro && (
+                    <div className="mt-2 flex items-center justify-between text-xs">
+                      {trocoLinha > 0 && (
+                        <span className="font-medium text-success">
+                          Troco: {formatBRL(trocoLinha)}
+                        </span>
+                      )}
+                      {faltaLinha > 0 && (
+                        <span className="font-medium text-destructive">
+                          Falta: {formatBRL(faltaLinha)}
+                        </span>
+                      )}
+                      {trocoLinha === 0 && faltaLinha === 0 && (
+                        <span className="text-muted-foreground">Valor exato</span>
+                      )}
+                    </div>
+                  )}
+                  {isCredito && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {p.parcelas}x de{" "}
+                      <span className="font-medium tabular-nums text-foreground">
+                        {formatBRL(p.valor / Math.max(1, p.parcelas))}
+                      </span>
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Atalhos rápidos de divisão */}
+            {pagamentos.length === 1 && total > 0 && (
               <div className="flex flex-wrap gap-1.5">
-                {[total, 50, 100, 200, 500].map((v, i) => (
+                <span className="text-xs text-muted-foreground">Dividir:</span>
+                {[2, 3].map((n) => (
                   <Button
-                    key={i}
+                    key={n}
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-8 text-xs"
-                    onClick={() => setValorRecebidoStr(v.toFixed(2))}
+                    className="h-7 text-xs"
+                    onClick={() => {
+                      const parte = Number((total / n).toFixed(2));
+                      const linhas: PagamentoLinha[] = [];
+                      let acumulado = 0;
+                      for (let i = 0; i < n; i++) {
+                        const v =
+                          i === n - 1
+                            ? Number((total - acumulado).toFixed(2))
+                            : parte;
+                        acumulado += v;
+                        const forma: FormaPagamento =
+                          i === 0 ? "dinheiro" : i === 1 ? "pix" : "cartao_debito";
+                        const linha = novoPagamento(forma, v);
+                        if (forma === "dinheiro") linha.valorRecebido = v;
+                        linhas.push(linha);
+                      }
+                      setPagamentos(linhas);
+                    }}
                   >
-                    {i === 0 ? "Exato" : `R$ ${v}`}
+                    {n}x partes iguais
                   </Button>
                 ))}
-              </div>
-            )}
-
-            {/* Parcelas para crédito */}
-            {forma === "cartao_credito" && (
-              <div>
-                <Label className="mb-1.5 block text-xs">Parcelas</Label>
-                <div className="flex gap-1.5">
-                  {[1, 2, 3, 6, 12].map((p) => (
-                    <Button
-                      key={p}
-                      type="button"
-                      variant={parcelas === p ? "default" : "outline"}
-                      size="sm"
-                      className="h-9 w-12"
-                      onClick={() => setParcelas(p)}
-                    >
-                      {p}x
-                    </Button>
-                  ))}
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {parcelas}x de{" "}
-                  <span className="font-medium tabular-nums text-foreground">
-                    {formatBRL(total / parcelas)}
-                  </span>
-                </p>
               </div>
             )}
 
@@ -399,13 +633,37 @@ export function FinalizarVendaDialog({
                 </p>
               </div>
 
-              {forma === "dinheiro" && troco > 0 && statusPagamento === "pago" && (
+              <div className="rounded-lg border border-border bg-card/60 p-3 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Distribuído</span>
+                  <span className="font-mono font-semibold tabular-nums">
+                    {formatBRL(totalPago)}
+                  </span>
+                </div>
+                <div className="mt-1 flex items-center justify-between">
+                  <span className="text-muted-foreground">Restante</span>
+                  <span
+                    className={cn(
+                      "font-mono font-semibold tabular-nums",
+                      Math.abs(restante) < 0.005
+                        ? "text-success"
+                        : restante > 0
+                          ? "text-warning"
+                          : "text-destructive",
+                    )}
+                  >
+                    {formatBRL(restante)}
+                  </span>
+                </div>
+              </div>
+
+              {trocoTotal > 0 && (
                 <div className="rounded-lg border-2 border-success/40 bg-success/10 p-3 text-success">
                   <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide">
                     <ArrowRightLeft className="h-3.5 w-3.5" /> Troco para o cliente
                   </p>
                   <p className="font-mono text-2xl font-bold tabular-nums">
-                    {formatBRL(troco)}
+                    {formatBRL(trocoTotal)}
                   </p>
                 </div>
               )}
@@ -414,7 +672,7 @@ export function FinalizarVendaDialog({
                 <p className="flex items-center gap-1.5">
                   <Wallet className="h-3.5 w-3.5" />
                   <span>
-                    {formaSelecionada.label} ·{" "}
+                    Status:{" "}
                     <Badge
                       variant="outline"
                       className={cn("capitalize", STATUS_COLORS[statusPagamento])}
@@ -423,10 +681,25 @@ export function FinalizarVendaDialog({
                     </Badge>
                   </span>
                 </p>
-                {cliente && <p>Cliente: <span className="text-foreground">{cliente.nome}</span></p>}
+                {cliente && (
+                  <p>
+                    Cliente:{" "}
+                    <span className="text-foreground">{cliente.nome}</span>
+                  </p>
+                )}
                 {!cliente && <p>Cliente: Consumidor</p>}
-                {operadorEmail && <p>Operador: <span className="text-foreground">{operadorEmail}</span></p>}
-                <p>Data: <span className="text-foreground">{new Date().toLocaleString("pt-BR")}</span></p>
+                {operadorEmail && (
+                  <p>
+                    Operador:{" "}
+                    <span className="text-foreground">{operadorEmail}</span>
+                  </p>
+                )}
+                <p>
+                  Data:{" "}
+                  <span className="text-foreground">
+                    {new Date().toLocaleString("pt-BR")}
+                  </span>
+                </p>
               </div>
             </div>
           </aside>
@@ -457,7 +730,9 @@ export function FinalizarVendaDialog({
               disabled={
                 finalizar.isPending ||
                 itens.length === 0 ||
-                dinheiroInsuficiente
+                dinheiroInsuficiente ||
+                pagamentos.length === 0 ||
+                totalPago <= 0
               }
             >
               {finalizar.isPending ? (
@@ -472,7 +747,14 @@ export function FinalizarVendaDialog({
 
         {dinheiroInsuficiente && (
           <div className="border-t border-destructive/30 bg-destructive/10 px-6 py-2 text-center text-xs font-medium text-destructive">
-            Valor recebido é menor que o total. Ajuste o valor ou marque o pagamento como parcial/pendente.
+            Há pagamento em dinheiro com valor recebido menor que o devido. Ajuste
+            o valor recebido.
+          </div>
+        )}
+        {!dinheiroInsuficiente && restante > 0.005 && (
+          <div className="border-t border-warning/30 bg-warning/10 px-6 py-2 text-center text-xs font-medium text-warning">
+            Restam {formatBRL(restante)} a distribuir. A venda será registrada
+            como <strong>parcial</strong>.
           </div>
         )}
       </DialogContent>
@@ -480,11 +762,17 @@ export function FinalizarVendaDialog({
   );
 }
 
-function SummaryRow({ label, children }: { label: string; children: React.ReactNode }) {
+function SummaryRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex items-center justify-between">
       <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium tabular-nums">{children}</span>
+      <span className="font-medium">{children}</span>
     </div>
   );
 }
