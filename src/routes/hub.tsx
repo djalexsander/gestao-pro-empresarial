@@ -1,4 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useEffect } from "react";
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -31,11 +32,13 @@ function HubPage() {
   const { data: isSuperAdmin } = useIsSuperAdmin();
   const navigate = useNavigate();
 
-  if (loading) return null;
-  if (!user) {
-    navigate({ to: "/auth", search: { redirect: "/hub" } });
-    return null;
-  }
+  useEffect(() => {
+    if (!loading && !user) {
+      navigate({ to: "/auth", search: { redirect: "/hub" } });
+    }
+  }, [loading, user, navigate]);
+
+  if (loading || !user) return null;
 
   const nome =
     (user.user_metadata?.nome as string | undefined) ??
