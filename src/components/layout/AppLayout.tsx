@@ -13,6 +13,11 @@ export function AppLayout() {
     return <Outlet />;
   }
 
+  // /admin/* usa o MasterLayout próprio (sidebar e topbar dedicados)
+  if (location.pathname === "/admin" || location.pathname.startsWith("/admin/")) {
+    return <Outlet />;
+  }
+
   return (
     <RequireAuth>
       <div className="min-h-screen w-full bg-background">

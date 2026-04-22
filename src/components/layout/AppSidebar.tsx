@@ -80,8 +80,8 @@ export function AppSidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: A
     ? [
         ...groups,
         {
-          label: "Sistema",
-          items: [{ to: "/admin", label: "Painel Master", icon: Shield }],
+          label: "Plataforma",
+          items: [{ to: "/admin", label: "Painel Master", icon: ShieldCheck }],
         },
       ]
     : groups;
