@@ -136,6 +136,23 @@ export function AppMenubar({ activeModule, onModuleSelect }: AppMenubarProps) {
         </DropdownMenuContent>
       </DropdownMenu>
 
+      {/* Nova Venda — atalho de PDV */}
+      <Link
+        to="/pdv"
+        className={cn(
+          "ml-1 flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[13px] font-medium transition-colors",
+          location.pathname === "/pdv"
+            ? "bg-primary text-primary-foreground hover:bg-primary/90"
+            : "bg-primary/15 text-primary hover:bg-primary/25",
+        )}
+        title="Abrir frente de caixa (PDV)"
+      >
+        <ShoppingBag className="h-3.5 w-3.5" />
+        Nova Venda
+      </Link>
+
+      <div className="mx-1 hidden h-5 w-px bg-sidebar-border sm:block" />
+
       {/* Module tabs */}
       <nav className="flex items-center gap-0.5">
         {MODULES.map((mod) => {
