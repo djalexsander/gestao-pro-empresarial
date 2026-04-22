@@ -616,6 +616,32 @@ function PDVPage() {
         }}
       />
 
+      {/* Finalização da venda */}
+      <FinalizarVendaDialog
+        open={finalizarOpen}
+        onOpenChange={setFinalizarOpen}
+        itens={items.map((it) => ({
+          produto_id: it.produto_id,
+          quantidade: it.quantidade,
+          preco_unitario: it.preco_unitario,
+          desconto: it.desconto,
+          descricao: it.nome,
+        }))}
+        subtotal={totals.subtotal}
+        desconto={totals.descontoTotal}
+        total={totals.total}
+        totalItens={totals.totalItens}
+        cliente={cliente ? { id: cliente.id, nome: cliente.nome } : null}
+        observacao={observacao}
+        operadorEmail={user?.email}
+        onConfirmed={() => {
+          setFinalizarOpen(false);
+          clearVenda();
+          setCliente(null);
+          navigate({ to: "/vendas" });
+        }}
+      />
+
       {/* Confirmações */}
       <AlertDialog
         open={confirmClear !== null}
