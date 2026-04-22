@@ -2,6 +2,7 @@ import { Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { RequireAdminLike } from "@/components/auth/RequireRole";
+import { RequireErpUnlock } from "@/components/auth/RequireErpUnlock";
 import { AppMenubar } from "./AppMenubar";
 import { AppToolbar } from "./AppToolbar";
 import { ContextSidebar } from "./ContextSidebar";
@@ -28,15 +29,24 @@ export function AppLayout() {
     return <Outlet />;
   }
 
+  // /admin também exige unlock prévio (acesso administrativo).
   if (location.pathname === "/admin" || location.pathname.startsWith("/admin/")) {
-    return <Outlet />;
+    return (
+      <RequireAuth>
+        <RequireErpUnlock>
+          <Outlet />
+        </RequireErpUnlock>
+      </RequireAuth>
+    );
   }
 
   return (
     <RequireAuth>
-      <RequireAdminLike>
-        <AppShell />
-      </RequireAdminLike>
+      <RequireErpUnlock>
+        <RequireAdminLike>
+          <AppShell />
+        </RequireAdminLike>
+      </RequireErpUnlock>
     </RequireAuth>
   );
 }
