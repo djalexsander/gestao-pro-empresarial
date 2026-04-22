@@ -38,6 +38,7 @@ import {
   type FinalizarVendaPagamento,
 } from "@/hooks/useVendas";
 import { useHotkeys } from "@/hooks/useHotkeys";
+import { useOperador } from "@/components/auth/OperadorProvider";
 
 interface FinalizarVendaDialogProps {
   open: boolean;
