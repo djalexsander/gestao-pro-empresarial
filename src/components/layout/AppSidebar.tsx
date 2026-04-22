@@ -19,6 +19,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useIsSuperAdmin } from "@/hooks/useAdmin";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 interface NavItem {
   to: string;
@@ -76,6 +77,19 @@ export function AppSidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: A
   const location = useLocation();
   const currentPath = location.pathname;
   const { data: isSuperAdmin } = useIsSuperAdmin();
+  const { user } = useAuth();
+
+  const displayName =
+    (user?.user_metadata?.nome as string | undefined) ||
+    (user?.user_metadata?.full_name as string | undefined) ||
+    (user?.email ? user.email.split("@")[0] : "Usuário");
+  const displayEmail = user?.email ?? "";
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((n) => n[0]?.toUpperCase() ?? "")
+    .join("") || "U";
 
   const allGroups: NavGroup[] = isSuperAdmin
     ? [
@@ -174,12 +188,12 @@ export function AppSidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: A
             )}
           >
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sidebar-accent text-sm font-semibold text-sidebar-accent-foreground">
-              AM
+              {initials}
             </div>
             {!collapsed && (
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">Ana Martins</p>
-                <p className="truncate text-xs text-sidebar-foreground/60">admin@empresa.com</p>
+                <p className="truncate text-sm font-medium">{displayName}</p>
+                <p className="truncate text-xs text-sidebar-foreground/60">{displayEmail}</p>
               </div>
             )}
           </div>
