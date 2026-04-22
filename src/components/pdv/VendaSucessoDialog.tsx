@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import type { StatusPagamento, FormaPagamento } from "@/hooks/useVendas";
 import { useConfigEmpresa } from "@/hooks/useConfigEmpresa";
 import { imprimirCupom, baixarCupomHtml, type CupomItem } from "@/lib/cupom";
+import { useHotkeys } from "@/hooks/useHotkeys";
 
 interface VendaSucessoDialogProps {
   open: boolean;
