@@ -87,8 +87,8 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[90vh] max-w-lg flex-col p-0">
+        <DialogHeader className="shrink-0 border-b border-border px-6 pb-4 pt-6">
           <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
             <PowerOff className="h-6 w-6" />
           </div>
@@ -98,7 +98,8 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
           {/* Resumo do caixa */}
           <div className="rounded-lg border border-border bg-muted/30 p-4">
             <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -208,7 +209,9 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
             )}
           </div>
 
-          <DialogFooter>
+          </div>
+
+          <DialogFooter className="shrink-0 border-t border-border bg-background px-6 py-4">
             <Button
               type="button"
               variant="outline"
