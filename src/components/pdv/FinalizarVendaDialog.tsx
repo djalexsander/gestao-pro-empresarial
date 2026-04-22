@@ -395,8 +395,16 @@ export function FinalizarVendaDialog({
           <DialogTitle className="flex items-center gap-2 text-lg">
             <Receipt className="h-5 w-5 text-primary" /> Finalizar venda
           </DialogTitle>
-          <DialogDescription>
-            Distribua o total entre uma ou mais formas de pagamento.
+          <DialogDescription className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>Distribua o total entre uma ou mais formas de pagamento.</span>
+            <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+              <Kbd>F1-F6</Kbd>
+              <span>forma</span>
+              <Kbd>Enter</Kbd>
+              <span>confirmar</span>
+              <Kbd>Esc</Kbd>
+              <span>voltar</span>
+            </span>
           </DialogDescription>
         </DialogHeader>
 
