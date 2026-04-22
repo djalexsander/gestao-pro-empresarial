@@ -9,8 +9,16 @@
 
 const KEY = "erp_unlocked_user_id";
 
+function canUseSessionStorage() {
+  return typeof window !== "undefined" && typeof window.sessionStorage !== "undefined";
+}
+
+export function isErpUnlockReady(): boolean {
+  return canUseSessionStorage();
+}
+
 export function isErpUnlocked(userId: string | null | undefined): boolean {
-  if (!userId || typeof window === "undefined") return false;
+  if (!userId || !canUseSessionStorage()) return false;
   try {
     return sessionStorage.getItem(KEY) === userId;
   } catch {
@@ -19,7 +27,7 @@ export function isErpUnlocked(userId: string | null | undefined): boolean {
 }
 
 export function unlockErp(userId: string) {
-  if (typeof window === "undefined") return;
+  if (!canUseSessionStorage()) return;
   try {
     sessionStorage.setItem(KEY, userId);
   } catch {
@@ -28,7 +36,7 @@ export function unlockErp(userId: string) {
 }
 
 export function lockErp() {
-  if (typeof window === "undefined") return;
+  if (!canUseSessionStorage()) return;
   try {
     sessionStorage.removeItem(KEY);
   } catch {

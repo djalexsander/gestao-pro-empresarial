@@ -1,6 +1,6 @@
 import { Navigate } from "@tanstack/react-router";
 import { useAuth } from "./AuthProvider";
-import { isErpUnlocked } from "@/lib/erpUnlock";
+import { isErpUnlockReady, isErpUnlocked } from "@/lib/erpUnlock";
 
 /**
  * Guarda extra para o ERP: além de exigir sessão (RequireAuth), exige
@@ -11,8 +11,9 @@ import { isErpUnlocked } from "@/lib/erpUnlock";
  */
 export function RequireErpUnlock({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
+  const unlockReady = isErpUnlockReady();
 
-  if (loading) {
+  if (loading || !unlockReady) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
