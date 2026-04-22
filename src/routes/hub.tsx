@@ -41,9 +41,7 @@ function HubPage() {
   if (loading || !user) return null;
 
   const nome =
-    (user.user_metadata?.nome as string | undefined) ??
-    user.email?.split("@")[0] ??
-    "Usuário";
+    (user.user_metadata?.nome as string | undefined) ?? user.email?.split("@")[0] ?? "Usuário";
 
   return (
     <div className="relative min-h-screen w-full overflow-hidden bg-[oklch(0.14_0.04_265)] text-white">
@@ -70,9 +68,7 @@ function HubPage() {
           </div>
           <div>
             <p className="text-sm font-bold tracking-tight">Gestão Pro</p>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-white/45">
-              ERP Empresarial
-            </p>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-white/45">ERP Empresarial</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -100,8 +96,7 @@ function HubPage() {
             </span>
           </h1>
           <p className="mt-3 text-sm text-white/55 sm:text-base">
-            Escolha o ambiente para continuar. Você pode alternar entre eles a
-            qualquer momento.
+            Escolha o ambiente para continuar. Você pode alternar entre eles a qualquer momento.
           </p>
         </div>
 
@@ -120,9 +115,7 @@ function HubPage() {
               </div>
 
               <div className="flex items-center gap-2">
-                <h2 className="text-2xl font-bold tracking-tight">
-                  Entrar no Sistema
-                </h2>
+                <h2 className="text-2xl font-bold tracking-tight">Entrar no Sistema</h2>
                 <span
                   className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white/70"
                   title="Requer autenticação administrativa"
@@ -134,8 +127,8 @@ function HubPage() {
                 ERP Completo
               </p>
               <p className="mt-3 text-sm leading-relaxed text-white/60">
-                Acesso ao painel administrativo: vendas, compras, estoque,
-                financeiro, relatórios e configurações.
+                Acesso ao painel administrativo: vendas, compras, estoque, financeiro, relatórios e
+                configurações.
               </p>
 
               <ul className="mt-5 grid grid-cols-2 gap-2 text-xs text-white/55">
@@ -172,15 +165,13 @@ function HubPage() {
                 <ShoppingCart className="h-7 w-7 text-white" />
               </div>
 
-              <h2 className="text-2xl font-bold tracking-tight">
-                Abrir Caixa / PDV
-              </h2>
+              <h2 className="text-2xl font-bold tracking-tight">Abrir Caixa / PDV</h2>
               <p className="mt-1 text-xs uppercase tracking-[0.18em] text-emerald-300">
                 Frente de Caixa
               </p>
               <p className="mt-3 text-sm leading-relaxed text-white/60">
-                Ambiente operacional para o operador: identificação por PIN,
-                abertura de caixa, vendas no balcão e fechamento.
+                Ambiente operacional para o operador: identificação por PIN, abertura de caixa,
+                vendas no balcão e fechamento.
               </p>
 
               <ul className="mt-5 grid grid-cols-2 gap-2 text-xs text-white/55">
@@ -188,8 +179,7 @@ function HubPage() {
                   <Users className="h-3.5 w-3.5 text-white/40" /> Operador + PIN
                 </li>
                 <li className="flex items-center gap-1.5">
-                  <PackageOpen className="h-3.5 w-3.5 text-white/40" /> Abrir
-                  caixa
+                  <PackageOpen className="h-3.5 w-3.5 text-white/40" /> Abrir caixa
                 </li>
                 <li className="flex items-center gap-1.5">
                   <ShoppingCart className="h-3.5 w-3.5 text-white/40" /> Vender
