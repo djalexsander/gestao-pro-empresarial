@@ -53,6 +53,123 @@ export type Database = {
         }
         Relationships: []
       }
+      caixa_movimentos: {
+        Row: {
+          caixa_id: string
+          created_at: string
+          id: string
+          motivo: string | null
+          owner_id: string
+          tipo: Database["public"]["Enums"]["caixa_movimento_tipo"]
+          usuario_id: string | null
+          valor: number
+          venda_id: string | null
+        }
+        Insert: {
+          caixa_id: string
+          created_at?: string
+          id?: string
+          motivo?: string | null
+          owner_id: string
+          tipo: Database["public"]["Enums"]["caixa_movimento_tipo"]
+          usuario_id?: string | null
+          valor: number
+          venda_id?: string | null
+        }
+        Update: {
+          caixa_id?: string
+          created_at?: string
+          id?: string
+          motivo?: string | null
+          owner_id?: string
+          tipo?: Database["public"]["Enums"]["caixa_movimento_tipo"]
+          usuario_id?: string | null
+          valor?: number
+          venda_id?: string | null
+        }
+        Relationships: []
+      }
+      caixas: {
+        Row: {
+          created_at: string
+          data_abertura: string
+          data_fechamento: string | null
+          diferenca: number | null
+          id: string
+          observacao: string | null
+          observacao_fechamento: string | null
+          owner_id: string
+          qtd_vendas: number
+          status: Database["public"]["Enums"]["caixa_status"]
+          total_boleto: number
+          total_credito: number
+          total_debito: number
+          total_dinheiro: number
+          total_outros: number
+          total_pix: number
+          total_sangrias: number
+          total_suprimentos: number
+          total_vendas: number
+          updated_at: string
+          usuario_id: string
+          valor_esperado: number | null
+          valor_informado: number | null
+          valor_inicial: number
+        }
+        Insert: {
+          created_at?: string
+          data_abertura?: string
+          data_fechamento?: string | null
+          diferenca?: number | null
+          id?: string
+          observacao?: string | null
+          observacao_fechamento?: string | null
+          owner_id: string
+          qtd_vendas?: number
+          status?: Database["public"]["Enums"]["caixa_status"]
+          total_boleto?: number
+          total_credito?: number
+          total_debito?: number
+          total_dinheiro?: number
+          total_outros?: number
+          total_pix?: number
+          total_sangrias?: number
+          total_suprimentos?: number
+          total_vendas?: number
+          updated_at?: string
+          usuario_id: string
+          valor_esperado?: number | null
+          valor_informado?: number | null
+          valor_inicial?: number
+        }
+        Update: {
+          created_at?: string
+          data_abertura?: string
+          data_fechamento?: string | null
+          diferenca?: number | null
+          id?: string
+          observacao?: string | null
+          observacao_fechamento?: string | null
+          owner_id?: string
+          qtd_vendas?: number
+          status?: Database["public"]["Enums"]["caixa_status"]
+          total_boleto?: number
+          total_credito?: number
+          total_debito?: number
+          total_dinheiro?: number
+          total_outros?: number
+          total_pix?: number
+          total_sangrias?: number
+          total_suprimentos?: number
+          total_vendas?: number
+          updated_at?: string
+          usuario_id?: string
+          valor_esperado?: number | null
+          valor_informado?: number | null
+          valor_inicial?: number
+        }
+        Relationships: []
+      }
       categorias_financeiras: {
         Row: {
           ativo: boolean
@@ -1138,6 +1255,7 @@ export type Database = {
       }
       vendas: {
         Row: {
+          caixa_id: string | null
           cliente_id: string | null
           created_at: string
           data_emissao: string
@@ -1163,6 +1281,7 @@ export type Database = {
           vendedor_id: string | null
         }
         Insert: {
+          caixa_id?: string | null
           cliente_id?: string | null
           created_at?: string
           data_emissao?: string
@@ -1190,6 +1309,7 @@ export type Database = {
           vendedor_id?: string | null
         }
         Update: {
+          caixa_id?: string | null
           cliente_id?: string | null
           created_at?: string
           data_emissao?: string
@@ -1231,6 +1351,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      abrir_caixa: {
+        Args: { _observacao?: string; _valor_inicial: number }
+        Returns: string
+      }
       admin_delete_empresa: { Args: { _id: string }; Returns: undefined }
       admin_delete_user: { Args: { _user_id: string }; Returns: undefined }
       admin_estatisticas_globais: { Args: never; Returns: Json }
@@ -1350,6 +1474,17 @@ export type Database = {
           unidade: string
         }[]
       }
+      caixa_aberto_atual: { Args: never; Returns: string }
+      caixa_registrar_movimento: {
+        Args: {
+          _caixa_id: string
+          _motivo?: string
+          _tipo: string
+          _valor: number
+        }
+        Returns: string
+      }
+      caixa_resumo: { Args: { _caixa_id: string }; Returns: Json }
       calcular_saldo_estoque: {
         Args: { _produto_id: string; _variacao_id?: string }
         Returns: number
@@ -1367,6 +1502,14 @@ export type Database = {
           ultima_venda: string
           valor_total: number
         }[]
+      }
+      fechar_caixa: {
+        Args: {
+          _caixa_id: string
+          _observacao?: string
+          _valor_informado: number
+        }
+        Returns: Json
       }
       finalizar_venda_pdv:
         | {
@@ -1466,6 +1609,13 @@ export type Database = {
     Enums: {
       app_role: "admin" | "gerente" | "vendedor" | "financeiro" | "super_admin"
       cadastro_status: "ativo" | "inativo"
+      caixa_movimento_tipo:
+        | "abertura"
+        | "venda"
+        | "sangria"
+        | "suprimento"
+        | "fechamento"
+      caixa_status: "aberto" | "fechado"
       categoria_financeira_tipo: "receita" | "despesa"
       compra_status:
         | "rascunho"
@@ -1642,6 +1792,14 @@ export const Constants = {
     Enums: {
       app_role: ["admin", "gerente", "vendedor", "financeiro", "super_admin"],
       cadastro_status: ["ativo", "inativo"],
+      caixa_movimento_tipo: [
+        "abertura",
+        "venda",
+        "sangria",
+        "suprimento",
+        "fechamento",
+      ],
+      caixa_status: ["aberto", "fechado"],
       categoria_financeira_tipo: ["receita", "despesa"],
       compra_status: [
         "rascunho",
