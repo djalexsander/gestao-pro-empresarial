@@ -330,6 +330,7 @@ export function FinalizarVendaDialog({
         observacao: [observacao, obsFinal].filter(Boolean).join(" — ") || null,
         itens,
         pagamentos: pagamentosPayload,
+        operador_id: operador?.id ?? null,
       },
       {
         onSuccess: (vendaId) => {
