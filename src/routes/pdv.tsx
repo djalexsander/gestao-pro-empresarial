@@ -837,8 +837,8 @@ function PDVPage() {
           setCliente({
             id: c.id,
             nome: c.nome,
+            nome_fantasia: c.nome_fantasia ?? null,
             documento: c.documento ?? null,
-            tipo: c.tipo,
           });
           toast.success(`Cliente "${c.nome}" selecionado para a venda.`);
         }}
