@@ -61,6 +61,7 @@ export type Database = {
           motivo: string | null
           operador_id: string | null
           owner_id: string
+          terminal_id: string | null
           tipo: Database["public"]["Enums"]["caixa_movimento_tipo"]
           usuario_id: string | null
           valor: number
@@ -73,6 +74,7 @@ export type Database = {
           motivo?: string | null
           operador_id?: string | null
           owner_id: string
+          terminal_id?: string | null
           tipo: Database["public"]["Enums"]["caixa_movimento_tipo"]
           usuario_id?: string | null
           valor: number
@@ -85,6 +87,7 @@ export type Database = {
           motivo?: string | null
           operador_id?: string | null
           owner_id?: string
+          terminal_id?: string | null
           tipo?: Database["public"]["Enums"]["caixa_movimento_tipo"]
           usuario_id?: string | null
           valor?: number
@@ -105,6 +108,7 @@ export type Database = {
           owner_id: string
           qtd_vendas: number
           status: Database["public"]["Enums"]["caixa_status"]
+          terminal_id: string | null
           total_boleto: number
           total_credito: number
           total_debito: number
@@ -132,6 +136,7 @@ export type Database = {
           owner_id: string
           qtd_vendas?: number
           status?: Database["public"]["Enums"]["caixa_status"]
+          terminal_id?: string | null
           total_boleto?: number
           total_credito?: number
           total_debito?: number
@@ -159,6 +164,7 @@ export type Database = {
           owner_id?: string
           qtd_vendas?: number
           status?: Database["public"]["Enums"]["caixa_status"]
+          terminal_id?: string | null
           total_boleto?: number
           total_credito?: number
           total_debito?: number
@@ -1161,6 +1167,45 @@ export type Database = {
           },
         ]
       }
+      terminais: {
+        Row: {
+          ativo: boolean
+          created_at: string
+          descricao: string | null
+          id: string
+          identificador_dispositivo: string | null
+          nome: string
+          owner_id: string
+          pareamento_token: string | null
+          ultimo_uso: string | null
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          identificador_dispositivo?: string | null
+          nome: string
+          owner_id: string
+          pareamento_token?: string | null
+          ultimo_uso?: string | null
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          identificador_dispositivo?: string | null
+          nome?: string
+          owner_id?: string
+          pareamento_token?: string | null
+          ultimo_uso?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -1320,6 +1365,7 @@ export type Database = {
           status: Database["public"]["Enums"]["venda_status"]
           status_pagamento: string
           subtotal: number
+          terminal_id: string | null
           total: number
           troco: number | null
           updated_at: string
@@ -1349,6 +1395,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["venda_status"]
           status_pagamento?: string
           subtotal?: number
+          terminal_id?: string | null
           total?: number
           troco?: number | null
           updated_at?: string
@@ -1378,6 +1425,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["venda_status"]
           status_pagamento?: string
           subtotal?: number
+          terminal_id?: string | null
           total?: number
           troco?: number | null
           updated_at?: string
@@ -1408,6 +1456,15 @@ export type Database = {
             Args: {
               _observacao?: string
               _operador_id?: string
+              _valor_inicial: number
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              _observacao?: string
+              _operador_id?: string
+              _terminal_id?: string
               _valor_inicial: number
             }
             Returns: string
@@ -1707,6 +1764,29 @@ export type Database = {
         Returns: {
           produto_id: string
           saldo: number
+        }[]
+      }
+      terminais_listar: {
+        Args: never
+        Returns: {
+          ativo: boolean
+          caixa_aberto_id: string
+          created_at: string
+          descricao: string
+          id: string
+          identificador_dispositivo: string
+          nome: string
+          pareamento_token: string
+          ultimo_uso: string
+        }[]
+      }
+      terminal_gerar_token: { Args: { _terminal_id: string }; Returns: string }
+      terminal_resolver: {
+        Args: { _identificador?: string; _token?: string }
+        Returns: {
+          ativo: boolean
+          id: string
+          nome: string
         }[]
       }
       venda_metricas_periodo: {
