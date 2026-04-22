@@ -264,11 +264,46 @@ function PDVPage() {
     navigate({ to: "/vendas" });
   }
 
-  function finalizarVenda() {
+  async function finalizarVenda() {
     if (items.length === 0) {
       toast.warning("Adicione ao menos um item à venda.");
       return;
     }
+
+    // ============ Validação de estoque ============
+    try {
+      const ids = Array.from(new Set(items.map((it) => it.produto_id)));
+      const saldos = await saldosLote.mutateAsync(ids);
+      const req = new Map<string, number>();
+      for (const it of items) {
+        req.set(it.produto_id, (req.get(it.produto_id) ?? 0) + it.quantidade);
+      }
+      const insuficientes: string[] = [];
+      for (const [pid, qty] of req.entries()) {
+        const saldo = saldos.get(pid) ?? 0;
+        if (saldo < qty) {
+          const it = items.find((i) => i.produto_id === pid);
+          insuficientes.push(
+            `${it?.nome ?? pid} (saldo ${saldo}, pedido ${qty})`,
+          );
+        }
+      }
+      if (insuficientes.length > 0) {
+        const msg = "Estoque insuficiente:\n• " + insuficientes.join("\n• ");
+        const ok = window.confirm(
+          msg + "\n\nDeseja continuar mesmo assim? O estoque ficará negativo.",
+        );
+        if (!ok) {
+          toast.warning("Venda não finalizada — estoque insuficiente.");
+          return;
+        }
+        toast.warning("Atenção: venda gerará estoque negativo.");
+      }
+    } catch (e) {
+      toast.error(`Falha ao validar estoque: ${(e as Error).message}`);
+      return;
+    }
+
     setFinalizarOpen(true);
   }
 
