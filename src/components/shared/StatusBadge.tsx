@@ -50,7 +50,7 @@ export function StatusBadge({ status, tone, className }: StatusBadgeProps) {
           resolved === "neutral" && "bg-muted-foreground"
         )}
       />
-      {status}
+      {labelMap[status] ?? status}
     </span>
   );
 }
