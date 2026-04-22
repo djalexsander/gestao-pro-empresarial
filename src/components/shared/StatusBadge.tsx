@@ -22,6 +22,24 @@ const statusMap: Record<string, Tone> = {
   Crítico: "danger",
   Esgotado: "danger",
   Inativo: "neutral",
+  // enum values do banco (lowercase)
+  ativo: "success",
+  inativo: "neutral",
+  rascunho: "neutral",
+  pendente: "warning",
+  aprovada: "info",
+  recebida: "success",
+  cancelada: "danger",
+};
+
+const labelMap: Record<string, string> = {
+  ativo: "Ativo",
+  inativo: "Inativo",
+  rascunho: "Rascunho",
+  pendente: "Pendente",
+  aprovada: "Aprovada",
+  recebida: "Recebida",
+  cancelada: "Cancelada",
 };
 
 interface StatusBadgeProps {
@@ -50,7 +68,7 @@ export function StatusBadge({ status, tone, className }: StatusBadgeProps) {
           resolved === "neutral" && "bg-muted-foreground"
         )}
       />
-      {status}
+      {labelMap[status] ?? status}
     </span>
   );
 }

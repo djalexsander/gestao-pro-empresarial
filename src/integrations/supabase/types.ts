@@ -1053,6 +1053,16 @@ export type Database = {
         }
         Returns: boolean
       }
+      receber_compra: {
+        Args: {
+          _categoria_id?: string
+          _compra_id: string
+          _data_recebimento?: string
+          _data_vencimento?: string
+          _gerar_financeiro?: boolean
+        }
+        Returns: string
+      }
     }
     Enums: {
       app_role: "admin" | "gerente" | "vendedor" | "financeiro"

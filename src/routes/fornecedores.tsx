@@ -1,5 +1,6 @@
+import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Plus, Search, Pencil } from "lucide-react";
+import { Plus, Search, Pencil, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { suppliers } from "@/lib/mock-data";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useDeleteFornecedor, useFornecedores, type Fornecedor } from "@/hooks/useFornecedores";
+import { FornecedorDialog } from "@/components/fornecedores/FornecedorDialog";
 
 export const Route = createFileRoute("/fornecedores")({
   head: () => ({
@@ -26,13 +38,33 @@ export const Route = createFileRoute("/fornecedores")({
 });
 
 function SuppliersPage() {
+  const { data: fornecedores = [], isLoading } = useFornecedores();
+  const deleteMut = useDeleteFornecedor();
+
+  const [busca, setBusca] = useState("");
+  const [editing, setEditing] = useState<Fornecedor | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [removendo, setRemovendo] = useState<Fornecedor | null>(null);
+
+  const filtrados = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    if (!q) return fornecedores;
+    return fornecedores.filter(
+      (f) =>
+        f.razao_social.toLowerCase().includes(q) ||
+        f.nome_fantasia?.toLowerCase().includes(q) ||
+        f.documento?.toLowerCase().includes(q) ||
+        f.email?.toLowerCase().includes(q)
+    );
+  }, [fornecedores, busca]);
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Fornecedores"
         description="Cadastre e gerencie seus parceiros comerciais."
         actions={
-          <Button size="sm" className="gap-1.5">
+          <Button size="sm" className="gap-1.5" onClick={() => { setEditing(null); setDialogOpen(true); }}>
             <Plus className="h-4 w-4" />
             Novo fornecedor
           </Button>
@@ -43,7 +75,12 @@ function SuppliersPage() {
         <CardContent className="p-4">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input placeholder="Buscar por nome ou CNPJ..." className="pl-9" />
+            <Input
+              placeholder="Buscar por nome, documento ou e-mail..."
+              className="pl-9"
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+            />
           </div>
         </CardContent>
       </Card>
@@ -53,30 +90,58 @@ function SuppliersPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Código</TableHead>
-                <TableHead>Razão social</TableHead>
-                <TableHead>CNPJ</TableHead>
+                <TableHead>Razão social / Nome</TableHead>
+                <TableHead>Documento</TableHead>
                 <TableHead>E-mail</TableHead>
-                <TableHead>Cidade</TableHead>
+                <TableHead>Telefone</TableHead>
+                <TableHead>Cidade/UF</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="w-12" />
+                <TableHead className="w-24" />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {suppliers.map((s) => (
-                <TableRow key={s.id}>
-                  <TableCell className="font-mono text-xs text-muted-foreground">{s.id}</TableCell>
-                  <TableCell className="font-medium">{s.nome}</TableCell>
-                  <TableCell className="text-muted-foreground">{s.documento}</TableCell>
-                  <TableCell className="text-muted-foreground">{s.email}</TableCell>
-                  <TableCell className="text-muted-foreground">{s.cidade}</TableCell>
+              {isLoading && (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                    Carregando...
+                  </TableCell>
+                </TableRow>
+              )}
+              {!isLoading && filtrados.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-10">
+                    Nenhum fornecedor cadastrado.
+                  </TableCell>
+                </TableRow>
+              )}
+              {filtrados.map((f) => (
+                <TableRow key={f.id}>
                   <TableCell>
-                    <StatusBadge status={s.status} />
+                    <div className="font-medium">{f.razao_social}</div>
+                    {f.nome_fantasia && (
+                      <div className="text-xs text-muted-foreground">{f.nome_fantasia}</div>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground font-mono text-xs">{f.documento ?? "—"}</TableCell>
+                  <TableCell className="text-muted-foreground">{f.email ?? "—"}</TableCell>
+                  <TableCell className="text-muted-foreground">{f.telefone ?? "—"}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {[f.cidade, f.estado].filter(Boolean).join(" / ") || "—"}
                   </TableCell>
                   <TableCell>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
+                    <StatusBadge status={f.status} />
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center justify-end gap-1">
+                      <Button variant="ghost" size="icon" className="h-8 w-8"
+                        onClick={() => { setEditing(f); setDialogOpen(true); }}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive"
+                        onClick={() => setRemovendo(f)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -84,6 +149,32 @@ function SuppliersPage() {
           </Table>
         </CardContent>
       </Card>
+
+      <FornecedorDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        fornecedor={editing}
+      />
+
+      <AlertDialog open={!!removendo} onOpenChange={(o) => !o && setRemovendo(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover fornecedor?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja remover <strong>{removendo?.razao_social}</strong>? Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (removendo) deleteMut.mutate(removendo.id); setRemovendo(null); }}
+            >
+              Remover
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
