@@ -824,18 +824,35 @@ function PDVPage() {
         cliente={cliente ? { id: cliente.id, nome: cliente.nome } : null}
         observacao={observacao}
         operadorEmail={user?.email}
-        onConfirmed={({ vendaId, forma, status, troco }) => {
+        onConfirmed={({ vendaId, forma, status, troco, valorRecebido }) => {
           setFinalizarOpen(false);
           som.beep("ok");
           setVendaConcluida({
             id: vendaId,
             numero: null,
             total: totals.total,
+            subtotal: totals.subtotal,
+            desconto: totals.descontoTotal,
             totalItens: totals.totalItens,
             forma,
             status,
             troco,
-            cliente: cliente?.nome ?? null,
+            valorRecebido: valorRecebido || null,
+            cliente: cliente
+              ? { nome: cliente.nome, documento: cliente.documento ?? null }
+              : null,
+            operador: user?.email ?? null,
+            observacao: observacao || null,
+            itens: items.map((it) => ({
+              descricao: it.nome,
+              sku: it.sku,
+              quantidade: it.quantidade,
+              unidade: it.unidade,
+              preco_unitario: it.preco_unitario,
+              desconto: it.desconto,
+              total: Math.max(0, it.preco_unitario * it.quantidade - it.desconto),
+            })),
+            data: new Date(),
           });
           setSucessoOpen(true);
           // Limpa o carrinho mas mantém cliente para próxima venda rápida
@@ -864,6 +881,7 @@ function PDVPage() {
         open={sucessoOpen}
         onOpenChange={setSucessoOpen}
         venda={vendaConcluida}
+        autoPrint
         onNovaVenda={() => {
           setSucessoOpen(false);
           setVendaConcluida(null);
