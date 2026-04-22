@@ -12,10 +12,12 @@ import {
   Settings,
   Sparkles,
   ChevronLeft,
+  Shield,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { useIsSuperAdmin } from "@/hooks/useAdmin";
 
 interface NavItem {
   to: string;
@@ -116,7 +118,7 @@ export function AppSidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: A
 
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto px-3 py-4">
-          {groups.map((group) => (
+          {allGroups.map((group) => (
             <div key={group.label} className="mb-5">
               {!collapsed && (
                 <p className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">
