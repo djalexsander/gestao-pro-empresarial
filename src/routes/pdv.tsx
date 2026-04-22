@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ScanLine,
@@ -15,6 +15,8 @@ import {
   Package,
   CheckCircle2,
   Eraser,
+  LogOut,
+  ArrowLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -71,6 +73,9 @@ import {
   validarDocumento,
 } from "@/lib/documento";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { useOperador } from "@/components/auth/OperadorProvider";
+import { useTerminal } from "@/components/auth/TerminalProvider";
+import { TerminalAtualBadge } from "@/components/auth/TerminalSelector";
 import { RequirePosSession } from "@/components/auth/RequirePosSession";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -109,6 +114,8 @@ const DEFAULT_FOCUS_DELAY = 30;
 function PDVPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { operador, trocarOperador } = useOperador();
+  const { terminal } = useTerminal();
   const { data: produtos = [], isLoading: loadingProdutos } = useProdutos();
   const { data: clientes = [] } = useClientes();
 
@@ -523,8 +530,49 @@ function PDVPage() {
 
   // ============ Render ============
   return (
-    <div className="flex h-[calc(100vh-7.5rem)] flex-col gap-4">
-      {/* Header */}
+    <div className="flex h-screen flex-col bg-background">
+      {/* Topbar próprio do PDV (sem ERP) */}
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-card px-4 py-2 sm:px-6">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            asChild
+            title="Voltar para a tela do operador"
+          >
+            <Link to="/pos">
+              <ArrowLeft className="mr-1 h-4 w-4" /> Voltar
+            </Link>
+          </Button>
+          <div className="hidden h-6 w-px bg-border sm:block" />
+          <ShoppingBag className="h-4 w-4 text-primary" />
+          <span className="text-sm font-semibold">PDV — Nova Venda</span>
+          <Badge variant="outline" className="hidden text-[10px] sm:inline-flex">
+            Frente de caixa
+          </Badge>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <TerminalAtualBadge />
+          <Badge variant="secondary" className="gap-1">
+            <User className="h-3 w-3" />
+            {operador?.nome ?? user?.email ?? "—"}
+          </Badge>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              trocarOperador();
+              navigate({ to: "/pos" });
+            }}
+            title="Encerrar sessão do operador"
+          >
+            <LogOut className="mr-1 h-4 w-4" /> Encerrar
+          </Button>
+        </div>
+      </header>
+
+      <div className="flex min-h-0 flex-1 flex-col gap-4 px-4 py-4 sm:px-6">
+      {/* Header da venda */}
       <div className="flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/15 text-primary">
@@ -540,7 +588,9 @@ function PDVPage() {
             <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <span>
                 Operador:{" "}
-                <span className="font-medium text-foreground">{user?.email ?? "—"}</span>
+                <span className="font-medium text-foreground">
+                  {operador?.nome ?? user?.email ?? "—"}
+                </span>
               </span>
               <span className="hidden items-center gap-1.5 sm:flex">
                 <PdvKbd flash={hotkeyFlash === "F7"}>F7</PdvKbd>
@@ -1116,6 +1166,7 @@ function PDVPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      </div>
     </div>
   );
 }
