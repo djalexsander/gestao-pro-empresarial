@@ -19,6 +19,7 @@ import { Route as EstoqueRouteImport } from './routes/estoque'
 import { Route as ConfiguracoesRouteImport } from './routes/configuracoes'
 import { Route as ComprasRouteImport } from './routes/compras'
 import { Route as ClientesRouteImport } from './routes/clientes'
+import { Route as CaixaRouteImport } from './routes/caixa'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
@@ -78,6 +79,11 @@ const ClientesRoute = ClientesRouteImport.update({
   path: '/clientes',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CaixaRoute = CaixaRouteImport.update({
+  id: '/caixa',
+  path: '/caixa',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
@@ -123,6 +129,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
+  '/caixa': typeof CaixaRoute
   '/clientes': typeof ClientesRoute
   '/compras': typeof ComprasRoute
   '/configuracoes': typeof ConfiguracoesRoute
@@ -142,6 +149,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/caixa': typeof CaixaRoute
   '/clientes': typeof ClientesRoute
   '/compras': typeof ComprasRoute
   '/configuracoes': typeof ConfiguracoesRoute
@@ -163,6 +171,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
+  '/caixa': typeof CaixaRoute
   '/clientes': typeof ClientesRoute
   '/compras': typeof ComprasRoute
   '/configuracoes': typeof ConfiguracoesRoute
@@ -185,6 +194,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/auth'
+    | '/caixa'
     | '/clientes'
     | '/compras'
     | '/configuracoes'
@@ -204,6 +214,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/auth'
+    | '/caixa'
     | '/clientes'
     | '/compras'
     | '/configuracoes'
@@ -224,6 +235,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/auth'
+    | '/caixa'
     | '/clientes'
     | '/compras'
     | '/configuracoes'
@@ -245,6 +257,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRouteWithChildren
   AuthRoute: typeof AuthRoute
+  CaixaRoute: typeof CaixaRoute
   ClientesRoute: typeof ClientesRoute
   ComprasRoute: typeof ComprasRoute
   ConfiguracoesRoute: typeof ConfiguracoesRoute
@@ -329,6 +342,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ClientesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/caixa': {
+      id: '/caixa'
+      path: '/caixa'
+      fullPath: '/caixa'
+      preLoaderRoute: typeof CaixaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/auth': {
       id: '/auth'
       path: '/auth'
@@ -410,6 +430,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRouteWithChildren,
   AuthRoute: AuthRoute,
+  CaixaRoute: CaixaRoute,
   ClientesRoute: ClientesRoute,
   ComprasRoute: ComprasRoute,
   ConfiguracoesRoute: ConfiguracoesRoute,
