@@ -37,6 +37,7 @@ import {
   type FinalizarVendaItem,
   type FinalizarVendaPagamento,
 } from "@/hooks/useVendas";
+import { useHotkeys } from "@/hooks/useHotkeys";
 
 interface FinalizarVendaDialogProps {
   open: boolean;
