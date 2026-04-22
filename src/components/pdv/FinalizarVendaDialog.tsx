@@ -55,6 +55,7 @@ interface FinalizarVendaDialogProps {
     forma: FormaPagamento;
     status: StatusPagamento;
     troco: number;
+    valorRecebido: number;
   }) => void;
 }
 
@@ -337,6 +338,7 @@ export function FinalizarVendaDialog({
             forma: formaPrincipal,
             status: statusPagamento,
             troco: trocoTotal,
+            valorRecebido: totalRecebidoDinheiro,
           });
         },
       },

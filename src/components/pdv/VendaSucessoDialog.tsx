@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -15,10 +16,14 @@ import {
   Plus,
   ListChecks,
   ArrowRightLeft,
+  Printer,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatBRL } from "@/lib/mock-data";
+import { toast } from "sonner";
 import type { StatusPagamento, FormaPagamento } from "@/hooks/useVendas";
+import { useConfigEmpresa } from "@/hooks/useConfigEmpresa";
+import { imprimirCupom, type CupomItem } from "@/lib/cupom";
 
 interface VendaSucessoDialogProps {
   open: boolean;
@@ -27,14 +32,23 @@ interface VendaSucessoDialogProps {
     id: string;
     numero?: string | null;
     total: number;
+    subtotal: number;
+    desconto: number;
     totalItens: number;
     forma: FormaPagamento;
     status: StatusPagamento;
     troco: number;
-    cliente: string | null;
+    valorRecebido?: number | null;
+    cliente: { nome: string; documento?: string | null } | null;
+    operador?: string | null;
+    observacao?: string | null;
+    itens: CupomItem[];
+    data: Date;
   } | null;
   onNovaVenda: () => void;
   onVerVendas: () => void;
+  /** Quando true, imprime automaticamente assim que o diálogo abre. */
+  autoPrint?: boolean;
 }
 
 const STATUS_BADGE: Record<StatusPagamento, string> = {
@@ -61,7 +75,46 @@ export function VendaSucessoDialog({
   venda,
   onNovaVenda,
   onVerVendas,
+  autoPrint,
 }: VendaSucessoDialogProps) {
+  const { data: empresa } = useConfigEmpresa();
+  const printedFor = useRef<string | null>(null);
+
+  function handleImprimir() {
+    if (!venda) return;
+    const ok = imprimirCupom(empresa ?? null, {
+      numero: venda.numero ?? null,
+      data: venda.data,
+      operador: venda.operador ?? null,
+      cliente: venda.cliente,
+      itens: venda.itens,
+      subtotal: venda.subtotal,
+      desconto: venda.desconto,
+      total: venda.total,
+      totalItens: venda.totalItens,
+      forma: venda.forma,
+      status: venda.status,
+      valorRecebido: venda.valorRecebido ?? null,
+      troco: venda.troco,
+      observacao: venda.observacao ?? null,
+    });
+    if (!ok) {
+      toast.error(
+        "Não foi possível abrir a janela de impressão. Permita pop-ups deste site e tente novamente.",
+      );
+    }
+  }
+
+  // Auto-impressão (uma vez por venda)
+  useEffect(() => {
+    if (!open || !venda || !autoPrint) return;
+    if (printedFor.current === venda.id) return;
+    printedFor.current = venda.id;
+    const t = setTimeout(handleImprimir, 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, venda?.id, autoPrint, empresa?.id]);
+
   if (!venda) return null;
 
   return (
@@ -78,7 +131,6 @@ export function VendaSucessoDialog({
         </DialogHeader>
 
         <div className="space-y-4 p-6">
-          {/* Total + número */}
           <div className="rounded-lg border border-border bg-muted/30 p-4 text-center">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">
               Total da venda
@@ -99,7 +151,6 @@ export function VendaSucessoDialog({
             </div>
           </div>
 
-          {/* Troco quando aplicável */}
           {venda.troco > 0 && (
             <div className="flex items-center justify-between rounded-md border-2 border-success/40 bg-success/10 p-3 text-success">
               <span className="flex items-center gap-1.5 text-sm font-medium">
@@ -111,7 +162,6 @@ export function VendaSucessoDialog({
             </div>
           )}
 
-          {/* Confirmações */}
           <ul className="space-y-2 text-sm">
             <ConfirmRow
               icon={Package}
@@ -140,10 +190,18 @@ export function VendaSucessoDialog({
               <ConfirmRow
                 icon={CheckCircle2}
                 label="Cliente"
-                detail={venda.cliente}
+                detail={venda.cliente.nome}
               />
             )}
           </ul>
+
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={handleImprimir}
+          >
+            <Printer className="h-4 w-4" /> Imprimir cupom
+          </Button>
         </div>
 
         <div className="grid grid-cols-2 gap-2 border-t border-border bg-muted/20 p-4">
