@@ -37,7 +37,7 @@ import { AbrirCaixaDialog } from "@/components/caixa/AbrirCaixaDialog";
 import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
 import { MovimentoCaixaDialog } from "@/components/caixa/MovimentoCaixaDialog";
 import {
-  useCaixaAberto,
+  useQualquerCaixaAberto,
   useCaixaResumo,
   useCaixasHistorico,
   useCaixaMovimentos,
@@ -81,7 +81,7 @@ const MOVIMENTO_LABEL = {
 
 function CaixaPage() {
   const { user } = useAuth();
-  const { data: caixaAberto, isLoading: loadingCaixa } = useCaixaAberto();
+  const { data: caixaAberto, isLoading: loadingCaixa } = useQualquerCaixaAberto();
   const { data: resumo } = useCaixaResumo(caixaAberto?.id);
   const { data: historico = [] } = useCaixasHistorico(20);
   const { data: movimentos = [] } = useCaixaMovimentos(caixaAberto?.id);
