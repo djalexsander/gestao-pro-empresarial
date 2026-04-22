@@ -115,11 +115,26 @@ function PDVPage() {
     id: string;
     numero: string | null;
     total: number;
+    subtotal: number;
+    desconto: number;
     totalItens: number;
     forma: FormaPagamento;
     status: StatusPagamento;
     troco: number;
-    cliente: string | null;
+    valorRecebido: number | null;
+    cliente: { nome: string; documento?: string | null } | null;
+    operador: string | null;
+    observacao: string | null;
+    itens: Array<{
+      descricao: string;
+      sku: string;
+      quantidade: number;
+      unidade: string;
+      preco_unitario: number;
+      desconto: number;
+      total: number;
+    }>;
+    data: Date;
   }>(null);
 
   const [novoClienteOpen, setNovoClienteOpen] = useState(false);
