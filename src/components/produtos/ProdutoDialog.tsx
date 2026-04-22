@@ -200,18 +200,11 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="cat">Categoria</Label>
-                <Select
-                  value={form.categoria_id || "none"}
-                  onValueChange={(v) => setForm({ ...form, categoria_id: v === "none" ? "" : v })}
-                >
-                  <SelectTrigger id="cat"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Sem categoria</SelectItem>
-                    {categorias.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <CategoriaCombobox
+                  id="cat"
+                  value={form.categoria_id}
+                  onChange={(catId) => setForm({ ...form, categoria_id: catId })}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="marca">Marca</Label>
