@@ -94,10 +94,10 @@ function PurchasesPage() {
       />
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Total de pedidos" value={stats.total} icon={ShoppingCart} />
-        <StatCard label="Em aberto" value={stats.pendentes} icon={Clock} tone="warning" />
-        <StatCard label="Recebidas" value={stats.recebidas} icon={PackageCheck} tone="success" />
-        <StatCard label="Canceladas" value={stats.canceladas} icon={Ban} tone="danger" />
+        <StatCard label="Total de pedidos" value={String(stats.total)} icon={ShoppingCart} />
+        <StatCard label="Em aberto" value={String(stats.pendentes)} icon={Clock} iconTone="warning" />
+        <StatCard label="Recebidas" value={String(stats.recebidas)} icon={PackageCheck} iconTone="success" />
+        <StatCard label="Canceladas" value={String(stats.canceladas)} icon={Ban} iconTone="danger" />
       </div>
 
       <Card>
