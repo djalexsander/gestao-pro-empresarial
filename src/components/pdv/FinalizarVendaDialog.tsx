@@ -461,18 +461,32 @@ export function FinalizarVendaDialog({
                     {FORMAS.map((f) => {
                       const Icon = f.icon;
                       const active = p.forma === f.key;
+                      const isLast = idx === pagamentos.length - 1;
+                      const flashing = isLast && hotkeyFlash === f.shortcut;
                       return (
                         <button
                           key={f.key}
                           type="button"
                           onClick={() => setForma(p.uid, f.key)}
+                          title={`${f.label} (${f.shortcut})`}
                           className={cn(
-                            "flex flex-col items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-medium transition-all",
+                            "relative flex flex-col items-center justify-center gap-1 rounded-md border px-1 py-2 pt-3 text-[11px] font-medium transition-all",
                             active
-                              ? "border-primary bg-primary/10 text-primary"
+                              ? "border-primary bg-primary/10 text-primary shadow-sm"
                               : "border-border bg-card hover:border-primary/40 hover:bg-muted/40",
+                            flashing && "scale-105 ring-2 ring-primary ring-offset-1 ring-offset-background",
                           )}
                         >
+                          <span
+                            className={cn(
+                              "absolute right-1 top-0.5 rounded px-1 font-mono text-[9px] leading-tight",
+                              active
+                                ? "bg-primary/20 text-primary"
+                                : "bg-muted text-muted-foreground",
+                            )}
+                          >
+                            {f.shortcut}
+                          </span>
                           <Icon className="h-4 w-4" />
                           {f.label}
                         </button>
