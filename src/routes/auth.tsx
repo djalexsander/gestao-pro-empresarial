@@ -225,10 +225,10 @@ function AuthPage() {
                 </TabsList>
 
                 <TabsContent value="signin" className="mt-6">
-                  <SignInForm redirect={redirect ?? "/hub"} />
+                  <SignInForm redirect={destino} />
                 </TabsContent>
                 <TabsContent value="signup" className="mt-6">
-                  <SignUpForm redirect={redirect ?? "/hub"} />
+                  <SignUpForm redirect={destino} />
                 </TabsContent>
               </Tabs>
             </div>
