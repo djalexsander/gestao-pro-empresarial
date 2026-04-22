@@ -23,7 +23,6 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  useCategorias,
   useCreateProduto,
   useCreateVariacao,
   useDeleteVariacao,
@@ -33,6 +32,7 @@ import {
   type TipoIdentificacao,
 } from "@/hooks/useProdutos";
 import { CodeInput, QrPreview } from "@/components/scanner";
+import { CategoriaCombobox } from "@/components/produtos/CategoriaCombobox";
 import {
   useAddProdutoCodigo,
   useDeleteProdutoCodigo,
@@ -82,7 +82,6 @@ const EMPTY = {
 
 export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }: ProdutoDialogProps) {
   const isEdit = !!produtoId;
-  const { data: categorias = [] } = useCategorias();
   const { data: produto } = useProduto(produtoId ?? undefined);
   const createMut = useCreateProduto();
   const updateMut = useUpdateProduto();
@@ -201,18 +200,11 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="cat">Categoria</Label>
-                <Select
-                  value={form.categoria_id || "none"}
-                  onValueChange={(v) => setForm({ ...form, categoria_id: v === "none" ? "" : v })}
-                >
-                  <SelectTrigger id="cat"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Sem categoria</SelectItem>
-                    {categorias.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <CategoriaCombobox
+                  id="cat"
+                  value={form.categoria_id}
+                  onChange={(catId) => setForm({ ...form, categoria_id: catId })}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="marca">Marca</Label>
