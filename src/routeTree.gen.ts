@@ -27,9 +27,14 @@ import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminUsuariosRouteImport } from './routes/admin.usuarios'
+import { Route as AdminPlanosRouteImport } from './routes/admin.planos'
+import { Route as AdminPagamentosRouteImport } from './routes/admin.pagamentos'
+import { Route as AdminModulosRouteImport } from './routes/admin.modulos'
 import { Route as AdminEstatisticasRouteImport } from './routes/admin.estatisticas'
 import { Route as AdminEmpresasRouteImport } from './routes/admin.empresas'
+import { Route as AdminConfigComercialRouteImport } from './routes/admin.config-comercial'
 import { Route as AdminAuditoriaRouteImport } from './routes/admin.auditoria'
+import { Route as AdminAssinaturasRouteImport } from './routes/admin.assinaturas'
 
 const VendasRoute = VendasRouteImport.update({
   id: '/vendas',
@@ -121,6 +126,21 @@ const AdminUsuariosRoute = AdminUsuariosRouteImport.update({
   path: '/usuarios',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminPlanosRoute = AdminPlanosRouteImport.update({
+  id: '/planos',
+  path: '/planos',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminPagamentosRoute = AdminPagamentosRouteImport.update({
+  id: '/pagamentos',
+  path: '/pagamentos',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminModulosRoute = AdminModulosRouteImport.update({
+  id: '/modulos',
+  path: '/modulos',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminEstatisticasRoute = AdminEstatisticasRouteImport.update({
   id: '/estatisticas',
   path: '/estatisticas',
@@ -131,9 +151,19 @@ const AdminEmpresasRoute = AdminEmpresasRouteImport.update({
   path: '/empresas',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminConfigComercialRoute = AdminConfigComercialRouteImport.update({
+  id: '/config-comercial',
+  path: '/config-comercial',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminAuditoriaRoute = AdminAuditoriaRouteImport.update({
   id: '/auditoria',
   path: '/auditoria',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminAssinaturasRoute = AdminAssinaturasRouteImport.update({
+  id: '/assinaturas',
+  path: '/assinaturas',
   getParentRoute: () => AdminRoute,
 } as any)
 
@@ -154,9 +184,14 @@ export interface FileRoutesByFullPath {
   '/produtos': typeof ProdutosRoute
   '/relatorios': typeof RelatoriosRoute
   '/vendas': typeof VendasRoute
+  '/admin/assinaturas': typeof AdminAssinaturasRoute
   '/admin/auditoria': typeof AdminAuditoriaRoute
+  '/admin/config-comercial': typeof AdminConfigComercialRoute
   '/admin/empresas': typeof AdminEmpresasRoute
   '/admin/estatisticas': typeof AdminEstatisticasRoute
+  '/admin/modulos': typeof AdminModulosRoute
+  '/admin/pagamentos': typeof AdminPagamentosRoute
+  '/admin/planos': typeof AdminPlanosRoute
   '/admin/usuarios': typeof AdminUsuariosRoute
   '/admin/': typeof AdminIndexRoute
 }
@@ -176,9 +211,14 @@ export interface FileRoutesByTo {
   '/produtos': typeof ProdutosRoute
   '/relatorios': typeof RelatoriosRoute
   '/vendas': typeof VendasRoute
+  '/admin/assinaturas': typeof AdminAssinaturasRoute
   '/admin/auditoria': typeof AdminAuditoriaRoute
+  '/admin/config-comercial': typeof AdminConfigComercialRoute
   '/admin/empresas': typeof AdminEmpresasRoute
   '/admin/estatisticas': typeof AdminEstatisticasRoute
+  '/admin/modulos': typeof AdminModulosRoute
+  '/admin/pagamentos': typeof AdminPagamentosRoute
+  '/admin/planos': typeof AdminPlanosRoute
   '/admin/usuarios': typeof AdminUsuariosRoute
   '/admin': typeof AdminIndexRoute
 }
@@ -200,9 +240,14 @@ export interface FileRoutesById {
   '/produtos': typeof ProdutosRoute
   '/relatorios': typeof RelatoriosRoute
   '/vendas': typeof VendasRoute
+  '/admin/assinaturas': typeof AdminAssinaturasRoute
   '/admin/auditoria': typeof AdminAuditoriaRoute
+  '/admin/config-comercial': typeof AdminConfigComercialRoute
   '/admin/empresas': typeof AdminEmpresasRoute
   '/admin/estatisticas': typeof AdminEstatisticasRoute
+  '/admin/modulos': typeof AdminModulosRoute
+  '/admin/pagamentos': typeof AdminPagamentosRoute
+  '/admin/planos': typeof AdminPlanosRoute
   '/admin/usuarios': typeof AdminUsuariosRoute
   '/admin/': typeof AdminIndexRoute
 }
@@ -225,9 +270,14 @@ export interface FileRouteTypes {
     | '/produtos'
     | '/relatorios'
     | '/vendas'
+    | '/admin/assinaturas'
     | '/admin/auditoria'
+    | '/admin/config-comercial'
     | '/admin/empresas'
     | '/admin/estatisticas'
+    | '/admin/modulos'
+    | '/admin/pagamentos'
+    | '/admin/planos'
     | '/admin/usuarios'
     | '/admin/'
   fileRoutesByTo: FileRoutesByTo
@@ -247,9 +297,14 @@ export interface FileRouteTypes {
     | '/produtos'
     | '/relatorios'
     | '/vendas'
+    | '/admin/assinaturas'
     | '/admin/auditoria'
+    | '/admin/config-comercial'
     | '/admin/empresas'
     | '/admin/estatisticas'
+    | '/admin/modulos'
+    | '/admin/pagamentos'
+    | '/admin/planos'
     | '/admin/usuarios'
     | '/admin'
   id:
@@ -270,9 +325,14 @@ export interface FileRouteTypes {
     | '/produtos'
     | '/relatorios'
     | '/vendas'
+    | '/admin/assinaturas'
     | '/admin/auditoria'
+    | '/admin/config-comercial'
     | '/admin/empresas'
     | '/admin/estatisticas'
+    | '/admin/modulos'
+    | '/admin/pagamentos'
+    | '/admin/planos'
     | '/admin/usuarios'
     | '/admin/'
   fileRoutesById: FileRoutesById
@@ -424,6 +484,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminUsuariosRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/planos': {
+      id: '/admin/planos'
+      path: '/planos'
+      fullPath: '/admin/planos'
+      preLoaderRoute: typeof AdminPlanosRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/pagamentos': {
+      id: '/admin/pagamentos'
+      path: '/pagamentos'
+      fullPath: '/admin/pagamentos'
+      preLoaderRoute: typeof AdminPagamentosRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/modulos': {
+      id: '/admin/modulos'
+      path: '/modulos'
+      fullPath: '/admin/modulos'
+      preLoaderRoute: typeof AdminModulosRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/estatisticas': {
       id: '/admin/estatisticas'
       path: '/estatisticas'
@@ -438,6 +519,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminEmpresasRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/config-comercial': {
+      id: '/admin/config-comercial'
+      path: '/config-comercial'
+      fullPath: '/admin/config-comercial'
+      preLoaderRoute: typeof AdminConfigComercialRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/auditoria': {
       id: '/admin/auditoria'
       path: '/auditoria'
@@ -445,21 +533,38 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminAuditoriaRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/assinaturas': {
+      id: '/admin/assinaturas'
+      path: '/assinaturas'
+      fullPath: '/admin/assinaturas'
+      preLoaderRoute: typeof AdminAssinaturasRouteImport
+      parentRoute: typeof AdminRoute
+    }
   }
 }
 
 interface AdminRouteChildren {
+  AdminAssinaturasRoute: typeof AdminAssinaturasRoute
   AdminAuditoriaRoute: typeof AdminAuditoriaRoute
+  AdminConfigComercialRoute: typeof AdminConfigComercialRoute
   AdminEmpresasRoute: typeof AdminEmpresasRoute
   AdminEstatisticasRoute: typeof AdminEstatisticasRoute
+  AdminModulosRoute: typeof AdminModulosRoute
+  AdminPagamentosRoute: typeof AdminPagamentosRoute
+  AdminPlanosRoute: typeof AdminPlanosRoute
   AdminUsuariosRoute: typeof AdminUsuariosRoute
   AdminIndexRoute: typeof AdminIndexRoute
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
+  AdminAssinaturasRoute: AdminAssinaturasRoute,
   AdminAuditoriaRoute: AdminAuditoriaRoute,
+  AdminConfigComercialRoute: AdminConfigComercialRoute,
   AdminEmpresasRoute: AdminEmpresasRoute,
   AdminEstatisticasRoute: AdminEstatisticasRoute,
+  AdminModulosRoute: AdminModulosRoute,
+  AdminPagamentosRoute: AdminPagamentosRoute,
+  AdminPlanosRoute: AdminPlanosRoute,
   AdminUsuariosRoute: AdminUsuariosRoute,
   AdminIndexRoute: AdminIndexRoute,
 }

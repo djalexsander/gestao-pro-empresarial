@@ -8,6 +8,11 @@ import {
   ShieldCheck,
   ChevronLeft,
   ArrowLeftRight,
+  Package2,
+  Puzzle,
+  CreditCard,
+  Wallet,
+  Settings2,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -23,6 +28,16 @@ const groups: NavGroup[] = [
       { to: "/admin", label: "Visão geral", icon: LayoutDashboard },
       { to: "/admin/empresas", label: "Empresas", icon: Building2 },
       { to: "/admin/usuarios", label: "Usuários", icon: UserCog },
+    ],
+  },
+  {
+    label: "Comercial",
+    items: [
+      { to: "/admin/planos", label: "Planos", icon: Package2 },
+      { to: "/admin/modulos", label: "Módulos", icon: Puzzle },
+      { to: "/admin/assinaturas", label: "Assinaturas", icon: CreditCard },
+      { to: "/admin/pagamentos", label: "Pagamentos", icon: Wallet },
+      { to: "/admin/config-comercial", label: "Configurações", icon: Settings2 },
     ],
   },
   {
