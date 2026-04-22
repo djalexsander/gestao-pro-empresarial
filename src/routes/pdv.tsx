@@ -512,9 +512,9 @@ function PDVPage() {
   }
 
   function cancelVenda() {
+    // Cancelar venda NUNCA sai do PDV — apenas limpa o que foi montado.
     clearVenda();
     setCliente(null);
-    navigate({ to: "/vendas" });
   }
 
   async function finalizarVenda() {
@@ -585,12 +585,10 @@ function PDVPage() {
           <Button
             variant="ghost"
             size="sm"
-            asChild
-            title="Voltar para a tela do operador"
+            onClick={handleSair}
+            title="Voltar — exige fechamento do caixa"
           >
-            <Link to="/pos">
-              <ArrowLeft className="mr-1 h-4 w-4" /> Voltar
-            </Link>
+            <ArrowLeft className="mr-1 h-4 w-4" /> Voltar
           </Button>
           <div className="hidden h-6 w-px bg-border sm:block" />
           <ShoppingBag className="h-4 w-4 text-primary" />
@@ -608,11 +606,8 @@ function PDVPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              trocarOperador();
-              navigate({ to: "/pos" });
-            }}
-            title="Encerrar sessão do operador"
+            onClick={handleSair}
+            title="Encerrar operador — exige fechamento do caixa"
           >
             <LogOut className="mr-1 h-4 w-4" /> Encerrar
           </Button>
