@@ -367,8 +367,26 @@ export function FinalizarVendaDialog({
       {
         key: "Enter",
         allowInInputs: false, // Enter dentro de inputs cabe ao input
-        handler: () => {
-          if (podeConfirmar) handleConfirmar();
+        handler: (e) => {
+          // Ignora auto-repeat de tecla pressionada
+          if (e.repeat) return;
+
+          // Só confirma se o foco estiver DENTRO do diálogo de finalização
+          // (evita conflitos com modais sobrepostos, popovers ou foco fora).
+          const dialogEl = dialogContentRef.current;
+          const active = document.activeElement as HTMLElement | null;
+          if (!dialogEl) return;
+          if (active && !dialogEl.contains(active)) return;
+
+          // Não dispara se o foco estiver em um botão (deixa o click nativo agir)
+          if (active && (active.tagName === "BUTTON" || active.getAttribute("role") === "button")) {
+            return;
+          }
+
+          // Só confirma se a venda estiver válida
+          if (!podeConfirmar) return;
+
+          handleConfirmar();
         },
       },
       {
