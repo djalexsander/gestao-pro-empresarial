@@ -98,13 +98,7 @@ function SettingsPage() {
                 </div>
                 <Switch defaultChecked />
               </div>
-              <div className="flex items-center justify-between rounded-lg border border-border p-4">
-                <div>
-                  <p className="font-medium">Tema escuro</p>
-                  <p className="text-sm text-muted-foreground">Use interface em modo escuro.</p>
-                </div>
-                <Switch />
-              </div>
+              <DarkModeSwitchRow />
             </CardContent>
           </Card>
         </TabsContent>
