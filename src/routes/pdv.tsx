@@ -877,3 +877,25 @@ function EmptyItems() {
     </div>
   );
 }
+
+function PdvKbd({
+  children,
+  flash,
+  className,
+}: {
+  children: React.ReactNode;
+  flash?: boolean;
+  className?: string;
+}) {
+  return (
+    <kbd
+      className={cn(
+        "inline-flex h-5 min-w-[1.4rem] items-center justify-center rounded border border-border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground shadow-sm transition-all",
+        flash && "scale-110 border-primary bg-primary/20 text-primary",
+        className,
+      )}
+    >
+      {children}
+    </kbd>
+  );
+}
