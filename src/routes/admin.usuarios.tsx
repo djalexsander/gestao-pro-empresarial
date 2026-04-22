@@ -139,6 +139,18 @@ function AdminUsersPage() {
                       </div>
                     </TableCell>
                     <TableCell>
+                      {u.empresa_nome ? (
+                        <div>
+                          <div className="text-sm font-medium">{u.empresa_nome}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {u.empresa_status} · {u.empresa_plano}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-xs italic text-muted-foreground">sem empresa</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
                       <div className="flex flex-wrap gap-1">
                         {u.roles.length === 0 ? (
                           <span className="text-xs text-muted-foreground italic">sem papel</span>
@@ -165,7 +177,6 @@ function AdminUsersPage() {
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{u.total_produtos}</TableCell>
                     <TableCell className="text-right tabular-nums">{u.total_vendas}</TableCell>
-                    <TableCell className="text-right tabular-nums">{u.total_compras}</TableCell>
                     <TableCell>
                       <div className="flex items-center justify-end gap-1">
                         <Button
