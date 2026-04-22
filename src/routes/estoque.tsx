@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ArrowDownUp, AlertTriangle, Boxes, PackageX, Search, History, Loader2 } from "lucide-react";
+import { ArrowDownUp, AlertTriangle, Boxes, PackageX, Search, History, Loader2, ScanLine } from "lucide-react";
 import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -20,6 +20,7 @@ import {
 import { useProdutos } from "@/hooks/useProdutos";
 import { useEstoqueSaldos, useMovimentacoes } from "@/hooks/useEstoque";
 import { MovimentacaoDialog } from "@/components/estoque/MovimentacaoDialog";
+import { EntradaPorCodigoDialog } from "@/components/scanner";
 
 export const Route = createFileRoute("/estoque")({
   head: () => ({
@@ -43,6 +44,7 @@ function StockPage() {
   const { data: saldos } = useEstoqueSaldos();
   const { data: movs = [] } = useMovimentacoes();
   const [open, setOpen] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
   const [search, setSearch] = useState("");
 
   const items = useMemo(() => {
@@ -72,9 +74,14 @@ function StockPage() {
         title="Estoque"
         description="Acompanhe os níveis de estoque e o histórico de movimentações."
         actions={
-          <Button size="sm" className="gap-1.5" onClick={() => setOpen(true)}>
-            <ArrowDownUp className="h-4 w-4" /> Nova movimentação
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setScanOpen(true)}>
+              <ScanLine className="h-4 w-4" /> Entrada por leitura
+            </Button>
+            <Button size="sm" className="gap-1.5" onClick={() => setOpen(true)}>
+              <ArrowDownUp className="h-4 w-4" /> Nova movimentação
+            </Button>
+          </div>
         }
       />
 
