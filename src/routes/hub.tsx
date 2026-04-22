@@ -16,7 +16,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { AdminAuthDialog } from "@/components/auth/AdminAuthDialog";
-import { lockErp } from "@/lib/erpUnlock";
 
 export const Route = createFileRoute("/hub")({
   head: () => ({
@@ -38,12 +37,6 @@ function HubPage() {
       navigate({ to: "/auth", search: { redirect: "/hub" } });
     }
   }, [loading, user, navigate]);
-
-  // Sempre que o usuário aterrissa no Hub, o ERP volta a ficar travado.
-  // Para entrar de novo, precisa reconfirmar credenciais.
-  useEffect(() => {
-    lockErp();
-  }, []);
 
   if (loading || !user) return null;
 
@@ -87,7 +80,6 @@ function HubPage() {
             variant="ghost"
             size="sm"
             onClick={() => {
-              lockErp();
               signOut();
             }}
             className="text-white/70 hover:bg-white/10 hover:text-white"
