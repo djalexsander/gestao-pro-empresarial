@@ -32,11 +32,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useCategorias, useDeleteProduto, useProdutos, type TipoIdentificacao } from "@/hooks/useProdutos";
+import { useCategorias, useDeleteProduto, useProdutos } from "@/hooks/useProdutos";
 import { useEstoqueSaldos } from "@/hooks/useEstoque";
 import { ProdutoDialog } from "@/components/produtos/ProdutoDialog";
-import { QuickCodeSearch, EntradaPorCodigoDialog } from "@/components/scanner";
-import { useNavigate } from "@tanstack/react-router";
+import { EntradaPorCodigoDialog } from "@/components/scanner";
 
 export const Route = createFileRoute("/produtos")({
   head: () => ({
