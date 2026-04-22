@@ -103,6 +103,7 @@ function PDVPage() {
   const [lastAddedKey, setLastAddedKey] = useState<string | null>(null);
   const [searchPopoverOpen, setSearchPopoverOpen] = useState(false);
   const [manualQuery, setManualQuery] = useState("");
+  const [finalizarOpen, setFinalizarOpen] = useState(false);
 
   const scanInputRef = useRef<HTMLInputElement>(null);
 
