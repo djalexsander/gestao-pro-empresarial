@@ -1681,6 +1681,25 @@ export type Database = {
             }
             Returns: string
           }
+        | {
+            Args: {
+              _cliente_id: string
+              _desconto: number
+              _forma: Database["public"]["Enums"]["forma_pagamento"]
+              _gerar_financeiro?: boolean
+              _itens: Json
+              _observacao: string
+              _operador_id?: string
+              _pagamentos?: Json
+              _status_pagamento: string
+              _subtotal: number
+              _terminal_id?: string
+              _total: number
+              _troco: number
+              _valor_recebido: number
+            }
+            Returns: string
+          }
       fornecedor_metricas: {
         Args: never
         Returns: {
