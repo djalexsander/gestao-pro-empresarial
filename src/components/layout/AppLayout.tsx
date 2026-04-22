@@ -1,6 +1,7 @@
 import { Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { RequireAuth } from "@/components/auth/RequireAuth";
+import { RequireAdminLike } from "@/components/auth/RequireRole";
 import { AppMenubar } from "./AppMenubar";
 import { AppToolbar } from "./AppToolbar";
 import { ContextSidebar } from "./ContextSidebar";
@@ -28,7 +29,9 @@ export function AppLayout() {
 
   return (
     <RequireAuth>
-      <AppShell />
+      <RequireAdminLike>
+        <AppShell />
+      </RequireAdminLike>
     </RequireAuth>
   );
 }

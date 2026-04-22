@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -105,6 +106,34 @@ export function useCaixaAberto(operadorId?: string | null) {
 
 /** Resumo ao vivo do caixa (totais por forma de pagamento). */
 export function useCaixaResumo(caixaId: string | null | undefined) {
+  const qc = useQueryClient();
+
+  // Realtime: invalida o resumo quando vendas/movimentos do caixa mudam.
+  useEffect(() => {
+    if (!caixaId) return;
+    const channel = supabase
+      .channel(`caixa-resumo-${caixaId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "caixa_movimentos", filter: `caixa_id=eq.${caixaId}` },
+        () => {
+          qc.invalidateQueries({ queryKey: ["caixa", "resumo", caixaId] });
+          qc.invalidateQueries({ queryKey: ["caixa", "movimentos", caixaId] });
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "vendas", filter: `caixa_id=eq.${caixaId}` },
+        () => {
+          qc.invalidateQueries({ queryKey: ["caixa", "resumo", caixaId] });
+        },
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [caixaId, qc]);
+
   return useQuery({
     queryKey: ["caixa", "resumo", caixaId],
     enabled: !!caixaId,
