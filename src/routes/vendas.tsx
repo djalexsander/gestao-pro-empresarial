@@ -1,11 +1,29 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { Plus, Search, Eye, X, Loader2, ShoppingBag } from "lucide-react";
+import {
+  Plus,
+  Search,
+  Eye,
+  X,
+  Loader2,
+  ShoppingBag,
+  Receipt,
+  TrendingUp,
+  AlertCircle,
+} from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { StatCard } from "@/components/shared/StatCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -15,7 +33,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatBRL } from "@/lib/mock-data";
-import { useVendas, type VendaListItem } from "@/hooks/useVendas";
+import {
+  useVendaMetricasPeriodo,
+  useVendas,
+  type VendaListItem,
+} from "@/hooks/useVendas";
+import { useClientesFull } from "@/hooks/useClientes";
 import { CancelarVendaDialog } from "@/components/vendas/CancelarVendaDialog";
 import { DetalheVendaDialog } from "@/components/vendas/DetalheVendaDialog";
 import { cn } from "@/lib/utils";
@@ -48,22 +71,76 @@ const FORMA_LABEL: Record<string, string> = {
   outro: "Fiado",
 };
 
+type Periodo = "hoje" | "7d" | "30d" | "mes" | "todos";
+
+function rangeFromPeriodo(p: Periodo): { inicio: string; fim: string } {
+  const today = new Date();
+  const fim = today.toISOString().slice(0, 10);
+  let inicioDate = new Date(today);
+  if (p === "hoje") {
+    // mantem
+  } else if (p === "7d") {
+    inicioDate.setDate(today.getDate() - 6);
+  } else if (p === "30d") {
+    inicioDate.setDate(today.getDate() - 29);
+  } else if (p === "mes") {
+    inicioDate = new Date(today.getFullYear(), today.getMonth(), 1);
+  } else {
+    inicioDate = new Date(2000, 0, 1);
+  }
+  return { inicio: inicioDate.toISOString().slice(0, 10), fim };
+}
+
 function SalesPage() {
   const navigate = useNavigate();
   const { data: vendas = [], isLoading } = useVendas();
+  const { data: clientes = [] } = useClientesFull();
   const [query, setQuery] = useState("");
+  const [periodo, setPeriodo] = useState<Periodo>("hoje");
+  const [statusPgto, setStatusPgto] = useState<string>("todos");
+  const [forma, setForma] = useState<string>("todos");
+  const [clienteFiltro, setClienteFiltro] = useState<string>("todos");
   const [cancelar, setCancelar] = useState<VendaListItem | null>(null);
   const [detalheId, setDetalheId] = useState<string | null>(null);
 
+  const { inicio, fim } = useMemo(() => rangeFromPeriodo(periodo), [periodo]);
+  const { data: metricas } = useVendaMetricasPeriodo(inicio, fim);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return vendas;
-    return vendas.filter(
-      (v) =>
+    return vendas.filter((v) => {
+      // Período
+      if (periodo !== "todos") {
+        if (v.data_emissao < inicio || v.data_emissao > fim) return false;
+      }
+      // Status pagto
+      if (statusPgto !== "todos" && v.status_pagamento !== statusPgto) return false;
+      // Forma
+      if (forma !== "todos" && v.forma_pagamento !== forma) return false;
+      // Cliente
+      if (clienteFiltro !== "todos") {
+        if (clienteFiltro === "_sem") {
+          if (v.cliente_id) return false;
+        } else if (v.cliente_id !== clienteFiltro) {
+          return false;
+        }
+      }
+      // Busca textual
+      if (!q) return true;
+      return (
         v.numero.toLowerCase().includes(q) ||
-        (v.cliente_nome ?? "").toLowerCase().includes(q),
-    );
-  }, [vendas, query]);
+        (v.cliente_nome ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [vendas, query, periodo, inicio, fim, statusPgto, forma, clienteFiltro]);
+
+  const periodoLabel = useMemo(() => {
+    if (periodo === "hoje") return "hoje";
+    if (periodo === "7d") return "últimos 7 dias";
+    if (periodo === "30d") return "últimos 30 dias";
+    if (periodo === "mes") return "este mês";
+    return "todo período";
+  }, [periodo]);
 
   return (
     <div className="space-y-6">
@@ -82,9 +159,48 @@ function SalesPage() {
         }
       />
 
+      {/* Métricas do período */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          label={`Vendas (${periodoLabel})`}
+          value={(metricas?.qtd_vendas ?? 0).toString()}
+          hint={
+            metricas?.qtd_canceladas
+              ? `${metricas.qtd_canceladas} canceladas`
+              : undefined
+          }
+          icon={ShoppingBag}
+          iconTone="primary"
+        />
+        <StatCard
+          label="Faturamento"
+          value={formatBRL(metricas?.total_vendido ?? 0)}
+          icon={Receipt}
+          iconTone="success"
+        />
+        <StatCard
+          label="Ticket médio"
+          value={formatBRL(metricas?.ticket_medio ?? 0)}
+          icon={TrendingUp}
+          iconTone="info"
+        />
+        <StatCard
+          label="A receber"
+          value={formatBRL(metricas?.valor_pendente ?? 0)}
+          hint={
+            metricas?.qtd_pendentes
+              ? `${metricas.qtd_pendentes} pendentes`
+              : "tudo recebido"
+          }
+          icon={AlertCircle}
+          iconTone="warning"
+        />
+      </div>
+
+      {/* Filtros */}
       <Card>
-        <CardContent className="p-4">
-          <div className="relative">
+        <CardContent className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="relative lg:col-span-2">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Buscar por número ou cliente..."
@@ -93,6 +209,59 @@ function SalesPage() {
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
+          <Select value={periodo} onValueChange={(v) => setPeriodo(v as Periodo)}>
+            <SelectTrigger>
+              <SelectValue placeholder="Período" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="hoje">Hoje</SelectItem>
+              <SelectItem value="7d">Últimos 7 dias</SelectItem>
+              <SelectItem value="30d">Últimos 30 dias</SelectItem>
+              <SelectItem value="mes">Este mês</SelectItem>
+              <SelectItem value="todos">Todo período</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={statusPgto} onValueChange={setStatusPgto}>
+            <SelectTrigger>
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos status</SelectItem>
+              <SelectItem value="pago">Pago</SelectItem>
+              <SelectItem value="pendente">Pendente</SelectItem>
+              <SelectItem value="parcial">Parcial</SelectItem>
+              <SelectItem value="cancelado">Cancelado</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={forma} onValueChange={setForma}>
+            <SelectTrigger>
+              <SelectValue placeholder="Forma pgto" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todas formas</SelectItem>
+              <SelectItem value="dinheiro">Dinheiro</SelectItem>
+              <SelectItem value="pix">PIX</SelectItem>
+              <SelectItem value="cartao_debito">Débito</SelectItem>
+              <SelectItem value="cartao_credito">Crédito</SelectItem>
+              <SelectItem value="boleto">Boleto</SelectItem>
+              <SelectItem value="transferencia">Transferência</SelectItem>
+              <SelectItem value="outro">Fiado</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={clienteFiltro} onValueChange={setClienteFiltro}>
+            <SelectTrigger className="lg:col-span-2">
+              <SelectValue placeholder="Cliente" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos os clientes</SelectItem>
+              <SelectItem value="_sem">Sem cliente (Consumidor)</SelectItem>
+              {clientes.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.nome}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </CardContent>
       </Card>
 
@@ -214,7 +383,6 @@ function SalesPage() {
             : null
         }
         onCancelled={() => {
-          // Fechado pelo botão "Concluir" no resumo — apenas reseta seleção
           setCancelar(null);
         }}
       />
