@@ -1,10 +1,9 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   ShoppingCart,
   LogOut,
-  ShieldCheck,
   Sparkles,
   ArrowRight,
   Building2,
@@ -12,10 +11,12 @@ import {
   PackageOpen,
   Receipt,
   Users,
+  Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { useIsSuperAdmin } from "@/hooks/useAdmin";
+import { AdminAuthDialog } from "@/components/auth/AdminAuthDialog";
+import { lockErp } from "@/lib/erpUnlock";
 
 export const Route = createFileRoute("/hub")({
   head: () => ({
@@ -29,14 +30,20 @@ export const Route = createFileRoute("/hub")({
 
 function HubPage() {
   const { user, loading, signOut } = useAuth();
-  const { data: isSuperAdmin } = useIsSuperAdmin();
   const navigate = useNavigate();
+  const [adminAuthOpen, setAdminAuthOpen] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
       navigate({ to: "/auth", search: { redirect: "/hub" } });
     }
   }, [loading, user, navigate]);
+
+  // Sempre que o usuário aterrissa no Hub, o ERP volta a ficar travado.
+  // Para entrar de novo, precisa reconfirmar credenciais.
+  useEffect(() => {
+    lockErp();
+  }, []);
 
   if (loading || !user) return null;
 
@@ -76,22 +83,13 @@ function HubPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {isSuperAdmin && (
-            <Button
-              asChild
-              variant="ghost"
-              size="sm"
-              className="text-white/70 hover:bg-white/10 hover:text-white"
-            >
-              <Link to="/admin">
-                <ShieldCheck className="mr-1 h-4 w-4" /> Master
-              </Link>
-            </Button>
-          )}
           <Button
             variant="ghost"
             size="sm"
-            onClick={signOut}
+            onClick={() => {
+              lockErp();
+              signOut();
+            }}
             className="text-white/70 hover:bg-white/10 hover:text-white"
           >
             <LogOut className="mr-1 h-4 w-4" /> Sair
@@ -116,10 +114,11 @@ function HubPage() {
         </div>
 
         <div className="grid w-full max-w-5xl gap-5 sm:grid-cols-2 animate-in fade-in slide-in-from-bottom-6 duration-700">
-          {/* Card ERP */}
-          <Link
-            to="/"
-            className="group relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] p-7 backdrop-blur-xl transition-all hover:-translate-y-1 hover:border-white/25 hover:bg-white/[0.07] hover:shadow-2xl hover:shadow-[oklch(0.55_0.22_270)]/20 sm:p-8"
+          {/* Card ERP — exige reautenticação por dialog */}
+          <button
+            type="button"
+            onClick={() => setAdminAuthOpen(true)}
+            className="group relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] p-7 text-left backdrop-blur-xl transition-all hover:-translate-y-1 hover:border-white/25 hover:bg-white/[0.07] hover:shadow-2xl hover:shadow-[oklch(0.55_0.22_270)]/20 sm:p-8"
           >
             <div className="pointer-events-none absolute -top-20 -right-20 h-56 w-56 rounded-full bg-[oklch(0.65_0.22_275)]/25 blur-3xl transition-opacity group-hover:opacity-100" />
 
@@ -128,9 +127,17 @@ function HubPage() {
                 <LayoutDashboard className="h-7 w-7 text-white" />
               </div>
 
-              <h2 className="text-2xl font-bold tracking-tight">
-                Entrar no Sistema
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-2xl font-bold tracking-tight">
+                  Entrar no Sistema
+                </h2>
+                <span
+                  className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white/70"
+                  title="Requer autenticação administrativa"
+                >
+                  <Lock className="h-3 w-3" /> Senha
+                </span>
+              </div>
               <p className="mt-1 text-xs uppercase tracking-[0.18em] text-[oklch(0.78_0.16_280)]">
                 ERP Completo
               </p>
@@ -155,11 +162,11 @@ function HubPage() {
               </ul>
 
               <div className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-white/80 transition-colors group-hover:text-white">
-                Acessar agora
+                Confirmar credenciais
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
               </div>
             </div>
-          </Link>
+          </button>
 
           {/* Card PDV */}
           <Link
@@ -212,6 +219,8 @@ function HubPage() {
           Logado como <span className="font-medium text-white/60">{user.email}</span>
         </p>
       </main>
+
+      <AdminAuthDialog open={adminAuthOpen} onOpenChange={setAdminAuthOpen} />
     </div>
   );
 }

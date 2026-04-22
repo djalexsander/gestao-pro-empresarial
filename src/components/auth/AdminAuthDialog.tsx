@@ -1,0 +1,210 @@
+import { useEffect, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { Eye, EyeOff, Lock, Loader2, ShieldCheck, Mail } from "lucide-react";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/components/auth/AuthProvider";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { unlockErp } from "@/lib/erpUnlock";
+
+interface Props {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+/**
+ * Dialog de reconfirmação para acesso ao ERP.
+ *
+ * Mesmo com sessão ativa, exige login + senha de um usuário
+ * com role admin / gerente / super_admin. Operadores de caixa
+ * são bloqueados.
+ */
+export function AdminAuthDialog({ open, onOpenChange }: Props) {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPwd, setShowPwd] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  // Pré-preenche o e-mail com a sessão atual (apenas conveniência;
+  // pode ser alterado para fazer login com outra conta admin).
+  useEffect(() => {
+    if (open) {
+      setEmail(user?.email ?? "");
+      setPassword("");
+      setShowPwd(false);
+    }
+  }, [open, user?.email]);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!email.trim() || !password) return;
+    setBusy(true);
+
+    try {
+      // 1) Reautenticação obrigatória (não confia na sessão existente).
+      const { data: signInData, error: signInError } =
+        await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
+
+      if (signInError || !signInData.user) {
+        toast.error(
+          signInError?.message === "Invalid login credentials"
+            ? "E-mail ou senha inválidos."
+            : signInError?.message ?? "Não foi possível autenticar.",
+        );
+        setBusy(false);
+        return;
+      }
+
+      const authedUserId = signInData.user.id;
+
+      // 2) Verifica papel: somente admin/gerente/super_admin entram no ERP.
+      const { data: roles, error: rolesError } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", authedUserId);
+
+      if (rolesError) {
+        toast.error("Falha ao validar permissões.");
+        setBusy(false);
+        return;
+      }
+
+      const roleList = (roles ?? []).map((r) => r.role as string);
+      const hasErpAccess =
+        roleList.length === 0 || // primeiro usuário (sem roles) é tratado como admin
+        roleList.includes("super_admin") ||
+        roleList.includes("admin") ||
+        roleList.includes("gerente");
+
+      const isCaixaOnly =
+        roleList.includes("caixa") && !hasErpAccess;
+
+      if (isCaixaOnly || !hasErpAccess) {
+        toast.error(
+          "Acesso negado. Esta conta não tem permissão para acessar o ERP.",
+        );
+        setBusy(false);
+        return;
+      }
+
+      // 3) Libera acesso e navega para o ERP.
+      unlockErp(authedUserId);
+      toast.success("Acesso autorizado.");
+      onOpenChange(false);
+      navigate({ to: "/" });
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Erro inesperado ao autenticar.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !busy && onOpenChange(v)}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
+            <ShieldCheck className="h-6 w-6 text-primary" />
+          </div>
+          <DialogTitle>Acesso ao ERP</DialogTitle>
+          <DialogDescription>
+            Por segurança, confirme suas credenciais administrativas para
+            entrar no sistema. Apenas contas com perfil <strong>admin</strong> ou{" "}
+            <strong>gerente</strong> podem acessar.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={onSubmit} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="admin-email">E-mail</Label>
+            <div className="relative">
+              <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="admin-email"
+                type="email"
+                required
+                autoComplete="email"
+                placeholder="admin@empresa.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="pl-10"
+                disabled={busy}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="admin-password">Senha</Label>
+            <div className="relative">
+              <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="admin-password"
+                type={showPwd ? "text" : "password"}
+                required
+                autoComplete="current-password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="pl-10 pr-10"
+                disabled={busy}
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={() => setShowPwd((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                aria-label={showPwd ? "Ocultar senha" : "Mostrar senha"}
+                tabIndex={-1}
+              >
+                {showPwd ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => onOpenChange(false)}
+              disabled={busy}
+            >
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={busy || !email || !password}>
+              {busy ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Autenticando...
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="h-4 w-4" /> Entrar no ERP
+                </>
+              )}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}

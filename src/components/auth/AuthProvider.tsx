@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { registrarAuditLog } from "@/hooks/useAdmin";
+import { lockErp } from "@/lib/erpUnlock";
 
 interface AuthContextValue {
   user: User | null;
@@ -58,6 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         target_type: "user", target_id: uid, metadata: { email },
       });
     }
+    lockErp();
     await supabase.auth.signOut();
   };
 
