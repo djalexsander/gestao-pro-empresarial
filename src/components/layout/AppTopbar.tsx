@@ -9,6 +9,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
 interface AppTopbarProps {
   onMobileMenuClick: () => void;
@@ -52,6 +53,8 @@ export function AppTopbar({ onMobileMenuClick }: AppTopbarProps) {
             <DropdownMenuItem>Novo fornecedor</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        <ThemeToggle />
 
         <Button variant="ghost" size="icon" className="relative h-10 w-10">
           <Bell className="h-5 w-5" />

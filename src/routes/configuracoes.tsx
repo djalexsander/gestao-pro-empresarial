@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useTheme } from "@/components/theme/ThemeProvider";
 
 export const Route = createFileRoute("/configuracoes")({
   head: () => ({
@@ -97,13 +98,7 @@ function SettingsPage() {
                 </div>
                 <Switch defaultChecked />
               </div>
-              <div className="flex items-center justify-between rounded-lg border border-border p-4">
-                <div>
-                  <p className="font-medium">Tema escuro</p>
-                  <p className="text-sm text-muted-foreground">Use interface em modo escuro.</p>
-                </div>
-                <Switch />
-              </div>
+              <DarkModeSwitchRow />
             </CardContent>
           </Card>
         </TabsContent>
@@ -119,6 +114,26 @@ function SettingsPage() {
           </Card>
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+function DarkModeSwitchRow() {
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-border p-4">
+      <div>
+        <p className="font-medium">Tema escuro</p>
+        <p className="text-sm text-muted-foreground">
+          Use a interface em modo escuro. A preferência fica salva neste navegador.
+        </p>
+      </div>
+      <Switch
+        checked={isDark}
+        onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
+        aria-label="Alternar tema escuro"
+      />
     </div>
   );
 }
