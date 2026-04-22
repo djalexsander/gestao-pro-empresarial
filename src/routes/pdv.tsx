@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ScanLine,
@@ -77,6 +77,9 @@ import { useOperador } from "@/components/auth/OperadorProvider";
 import { useTerminal } from "@/components/auth/TerminalProvider";
 import { TerminalAtualBadge } from "@/components/auth/TerminalSelector";
 import { RequirePosSession } from "@/components/auth/RequirePosSession";
+import { PdvErrorBoundary } from "@/components/pdv/PdvErrorBoundary";
+import { useCaixaAberto, useCaixaResumo } from "@/hooks/useCaixa";
+import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatBRL } from "@/lib/mock-data";
@@ -93,7 +96,9 @@ export const Route = createFileRoute("/pdv")({
   }),
   component: () => (
     <RequirePosSession>
-      <PDVPage />
+      <PdvErrorBoundary>
+        <PDVPage />
+      </PdvErrorBoundary>
     </RequirePosSession>
   ),
 });
@@ -118,6 +123,49 @@ function PDVPage() {
   const { terminal } = useTerminal();
   const { data: produtos = [], isLoading: loadingProdutos } = useProdutos();
   const { data: clientes = [] } = useClientes();
+  const { data: caixaAberto } = useCaixaAberto(operador?.id ?? null);
+  const { data: resumoCaixa } = useCaixaResumo(caixaAberto?.id);
+
+  // Modal de fechamento de caixa (acionado por Voltar/Encerrar).
+  // exitAfterClose = quando o caixa for fechado com sucesso, encerra a sessão
+  // do operador e volta para /pos. Usado nos botões Voltar e Encerrar.
+  const [fecharCaixaOpen, setFecharCaixaOpen] = useState(false);
+  const exitAfterCloseRef = useRef(false);
+
+  // Quando o caixa some (foi fechado), saímos do PDV de volta para /pos
+  // se o usuário tinha pedido para sair. Isso roda depois que o React Query
+  // invalida o cache em useFecharCaixa.
+  useEffect(() => {
+    if (!exitAfterCloseRef.current) return;
+    if (caixaAberto) return;
+    exitAfterCloseRef.current = false;
+    trocarOperador();
+    navigate({ to: "/pos" });
+  }, [caixaAberto, navigate, trocarOperador]);
+
+  // Bloqueia fechamento da aba/janela enquanto houver caixa aberto.
+  useEffect(() => {
+    if (!caixaAberto) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [caixaAberto]);
+
+  function handleSair() {
+    if (caixaAberto) {
+      exitAfterCloseRef.current = true;
+      setFecharCaixaOpen(true);
+      toast.info("É necessário fechar o caixa antes de sair.");
+      return;
+    }
+    // sem caixa aberto (estado raro): apenas encerra operador
+    trocarOperador();
+    navigate({ to: "/pos" });
+  }
+
 
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -464,9 +512,9 @@ function PDVPage() {
   }
 
   function cancelVenda() {
+    // Cancelar venda NUNCA sai do PDV — apenas limpa o que foi montado.
     clearVenda();
     setCliente(null);
-    navigate({ to: "/vendas" });
   }
 
   async function finalizarVenda() {
@@ -537,12 +585,10 @@ function PDVPage() {
           <Button
             variant="ghost"
             size="sm"
-            asChild
-            title="Voltar para a tela do operador"
+            onClick={handleSair}
+            title="Voltar — exige fechamento do caixa"
           >
-            <Link to="/pos">
-              <ArrowLeft className="mr-1 h-4 w-4" /> Voltar
-            </Link>
+            <ArrowLeft className="mr-1 h-4 w-4" /> Voltar
           </Button>
           <div className="hidden h-6 w-px bg-border sm:block" />
           <ShoppingBag className="h-4 w-4 text-primary" />
@@ -560,11 +606,8 @@ function PDVPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              trocarOperador();
-              navigate({ to: "/pos" });
-            }}
-            title="Encerrar sessão do operador"
+            onClick={handleSair}
+            title="Encerrar operador — exige fechamento do caixa"
           >
             <LogOut className="mr-1 h-4 w-4" /> Encerrar
           </Button>
@@ -1129,12 +1172,29 @@ function PDVPage() {
           setVendaConcluida(null);
         }}
         onVerVendas={() => {
+          // PDV é ambiente isolado: não saímos para /vendas (ERP).
+          // Apenas fecha o resumo e mantém o operador no PDV.
           setSucessoOpen(false);
           setVendaConcluida(null);
           setCliente(null);
-          navigate({ to: "/vendas" });
         }}
       />
+
+      {/* Fechamento de caixa (acionado por Voltar/Encerrar) */}
+      {caixaAberto && (
+        <FecharCaixaDialog
+          open={fecharCaixaOpen}
+          onOpenChange={(open) => {
+            setFecharCaixaOpen(open);
+            if (!open) {
+              // usuário cancelou: não vai sair
+              exitAfterCloseRef.current = false;
+            }
+          }}
+          caixaId={caixaAberto.id}
+          resumo={resumoCaixa ?? null}
+        />
+      )}
 
       {/* Confirmações */}
       <AlertDialog
@@ -1149,7 +1209,7 @@ function PDVPage() {
             <AlertDialogDescription>
               {confirmClear === "clear"
                 ? "Todos os itens da venda atual serão removidos. Esta ação não pode ser desfeita."
-                : "A venda atual será descartada e você voltará para a lista de vendas."}
+                : "A venda atual será descartada. Você continuará no PDV."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
