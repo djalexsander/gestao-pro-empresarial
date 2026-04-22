@@ -1,6 +1,7 @@
 import { Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import { ThemeProvider, themeInitScript } from "@/components/theme/ThemeProvider";
 import { AuthProvider } from "@/components/auth/AuthProvider";
+import { OperadorProvider } from "@/components/auth/OperadorProvider";
 import { QueryProvider } from "@/components/providers/QueryProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -69,8 +70,10 @@ function RootComponent() {
     <ThemeProvider>
       <QueryProvider>
         <AuthProvider>
-          <AppLayout />
-          <Toaster richColors position="top-right" />
+          <OperadorProvider>
+            <AppLayout />
+            <Toaster richColors position="top-right" />
+          </OperadorProvider>
         </AuthProvider>
       </QueryProvider>
     </ThemeProvider>

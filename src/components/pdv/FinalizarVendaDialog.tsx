@@ -38,6 +38,7 @@ import {
   type FinalizarVendaPagamento,
 } from "@/hooks/useVendas";
 import { useHotkeys } from "@/hooks/useHotkeys";
+import { useOperador } from "@/components/auth/OperadorProvider";
 
 interface FinalizarVendaDialogProps {
   open: boolean;
@@ -138,6 +139,7 @@ export function FinalizarVendaDialog({
   const dialogContentRef = useRef<HTMLDivElement>(null);
 
   const finalizar = useFinalizarVendaPDV();
+  const { operador } = useOperador();
 
   // Reset ao abrir: começa com 1 pagamento em dinheiro cobrindo o total
   useEffect(() => {
@@ -330,6 +332,7 @@ export function FinalizarVendaDialog({
         observacao: [observacao, obsFinal].filter(Boolean).join(" — ") || null,
         itens,
         pagamentos: pagamentosPayload,
+        operador_id: operador?.id ?? null,
       },
       {
         onSuccess: (vendaId) => {

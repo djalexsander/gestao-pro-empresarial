@@ -12,7 +12,9 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as VendasRouteImport } from './routes/vendas'
 import { Route as RelatoriosRouteImport } from './routes/relatorios'
 import { Route as ProdutosRouteImport } from './routes/produtos'
+import { Route as PosRouteImport } from './routes/pos'
 import { Route as PdvRouteImport } from './routes/pdv'
+import { Route as HubRouteImport } from './routes/hub'
 import { Route as FornecedoresRouteImport } from './routes/fornecedores'
 import { Route as FinanceiroRouteImport } from './routes/financeiro'
 import { Route as EstoqueRouteImport } from './routes/estoque'
@@ -44,9 +46,19 @@ const ProdutosRoute = ProdutosRouteImport.update({
   path: '/produtos',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PosRoute = PosRouteImport.update({
+  id: '/pos',
+  path: '/pos',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PdvRoute = PdvRouteImport.update({
   id: '/pdv',
   path: '/pdv',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HubRoute = HubRouteImport.update({
+  id: '/hub',
+  path: '/hub',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FornecedoresRoute = FornecedoresRouteImport.update({
@@ -136,7 +148,9 @@ export interface FileRoutesByFullPath {
   '/estoque': typeof EstoqueRoute
   '/financeiro': typeof FinanceiroRoute
   '/fornecedores': typeof FornecedoresRoute
+  '/hub': typeof HubRoute
   '/pdv': typeof PdvRoute
+  '/pos': typeof PosRoute
   '/produtos': typeof ProdutosRoute
   '/relatorios': typeof RelatoriosRoute
   '/vendas': typeof VendasRoute
@@ -156,7 +170,9 @@ export interface FileRoutesByTo {
   '/estoque': typeof EstoqueRoute
   '/financeiro': typeof FinanceiroRoute
   '/fornecedores': typeof FornecedoresRoute
+  '/hub': typeof HubRoute
   '/pdv': typeof PdvRoute
+  '/pos': typeof PosRoute
   '/produtos': typeof ProdutosRoute
   '/relatorios': typeof RelatoriosRoute
   '/vendas': typeof VendasRoute
@@ -178,7 +194,9 @@ export interface FileRoutesById {
   '/estoque': typeof EstoqueRoute
   '/financeiro': typeof FinanceiroRoute
   '/fornecedores': typeof FornecedoresRoute
+  '/hub': typeof HubRoute
   '/pdv': typeof PdvRoute
+  '/pos': typeof PosRoute
   '/produtos': typeof ProdutosRoute
   '/relatorios': typeof RelatoriosRoute
   '/vendas': typeof VendasRoute
@@ -201,7 +219,9 @@ export interface FileRouteTypes {
     | '/estoque'
     | '/financeiro'
     | '/fornecedores'
+    | '/hub'
     | '/pdv'
+    | '/pos'
     | '/produtos'
     | '/relatorios'
     | '/vendas'
@@ -221,7 +241,9 @@ export interface FileRouteTypes {
     | '/estoque'
     | '/financeiro'
     | '/fornecedores'
+    | '/hub'
     | '/pdv'
+    | '/pos'
     | '/produtos'
     | '/relatorios'
     | '/vendas'
@@ -242,7 +264,9 @@ export interface FileRouteTypes {
     | '/estoque'
     | '/financeiro'
     | '/fornecedores'
+    | '/hub'
     | '/pdv'
+    | '/pos'
     | '/produtos'
     | '/relatorios'
     | '/vendas'
@@ -264,7 +288,9 @@ export interface RootRouteChildren {
   EstoqueRoute: typeof EstoqueRoute
   FinanceiroRoute: typeof FinanceiroRoute
   FornecedoresRoute: typeof FornecedoresRoute
+  HubRoute: typeof HubRoute
   PdvRoute: typeof PdvRoute
+  PosRoute: typeof PosRoute
   ProdutosRoute: typeof ProdutosRoute
   RelatoriosRoute: typeof RelatoriosRoute
   VendasRoute: typeof VendasRoute
@@ -293,11 +319,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProdutosRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/pos': {
+      id: '/pos'
+      path: '/pos'
+      fullPath: '/pos'
+      preLoaderRoute: typeof PosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/pdv': {
       id: '/pdv'
       path: '/pdv'
       fullPath: '/pdv'
       preLoaderRoute: typeof PdvRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/hub': {
+      id: '/hub'
+      path: '/hub'
+      fullPath: '/hub'
+      preLoaderRoute: typeof HubRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/fornecedores': {
@@ -437,7 +477,9 @@ const rootRouteChildren: RootRouteChildren = {
   EstoqueRoute: EstoqueRoute,
   FinanceiroRoute: FinanceiroRoute,
   FornecedoresRoute: FornecedoresRoute,
+  HubRoute: HubRoute,
   PdvRoute: PdvRoute,
+  PosRoute: PosRoute,
   ProdutosRoute: ProdutosRoute,
   RelatoriosRoute: RelatoriosRoute,
   VendasRoute: VendasRoute,
