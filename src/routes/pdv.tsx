@@ -149,6 +149,87 @@ function PDVPage() {
   }>(null);
 
   const [novoClienteOpen, setNovoClienteOpen] = useState(false);
+  const [novoClienteDoc, setNovoClienteDoc] = useState<string | null>(null);
+
+  // ============ Busca por CPF/CNPJ ============
+  const [docQuery, setDocQuery] = useState("");
+  const [docLookupBusy, setDocLookupBusy] = useState(false);
+  const docInfo = validarDocumento(docQuery);
+  const docDigits = somenteDigitos(docQuery);
+  const matchLocalPorDoc = useMemo<ClienteLite | null>(() => {
+    if (!docDigits) return null;
+    return (
+      clientes.find((c) => (c.documento ?? "").replace(/\D+/g, "") === docDigits) ?? null
+    );
+  }, [clientes, docDigits]);
+
+  async function handleSelecionarPorDoc() {
+    if (!docInfo.tipo) {
+      toast.warning("Digite um CPF (11) ou CNPJ (14) completo.");
+      return;
+    }
+    if (!docInfo.valido) {
+      toast.error(`${docInfo.tipo} inválido. Confira os dígitos.`);
+      return;
+    }
+    // Hit local primeiro
+    if (matchLocalPorDoc) {
+      setCliente(matchLocalPorDoc);
+      setClientePopoverOpen(false);
+      setDocQuery("");
+      som.beep("ok");
+      toast.success(`Cliente "${matchLocalPorDoc.nome}" selecionado.`);
+      return;
+    }
+    // Fallback no servidor (caso ainda não esteja no cache local)
+    setDocLookupBusy(true);
+    try {
+      const found = await checkDocumentoDuplicado(docDigits);
+      if (found) {
+        const lite: ClienteLite = {
+          id: found.id,
+          nome: found.nome,
+          nome_fantasia: found.nome_fantasia ?? null,
+          documento: found.documento ?? null,
+        };
+        setCliente(lite);
+        setClientePopoverOpen(false);
+        setDocQuery("");
+        som.beep("ok");
+        toast.success(`Cliente "${found.nome}" selecionado.`);
+      } else {
+        som.beep("warn");
+        toast.message("Nenhum cliente com este documento.", {
+          description: "Use 'Cadastrar com este documento' para criar agora.",
+        });
+      }
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setDocLookupBusy(false);
+    }
+  }
+
+  function handleCadastrarComDoc() {
+    if (!docInfo.tipo) {
+      toast.warning("Digite um CPF (11) ou CNPJ (14) completo.");
+      return;
+    }
+    if (!docInfo.valido) {
+      toast.error(`${docInfo.tipo} inválido. Confira os dígitos.`);
+      return;
+    }
+    if (matchLocalPorDoc) {
+      setCliente(matchLocalPorDoc);
+      setClientePopoverOpen(false);
+      setDocQuery("");
+      toast.info(`Cliente já cadastrado: ${matchLocalPorDoc.nome}.`);
+      return;
+    }
+    setNovoClienteDoc(docDigits);
+    setClientePopoverOpen(false);
+    setNovoClienteOpen(true);
+  }
 
   const saldosLote = useSaldosLote();
   const som = useSomPDV();
