@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as VendasRouteImport } from './routes/vendas'
 import { Route as RelatoriosRouteImport } from './routes/relatorios'
 import { Route as ProdutosRouteImport } from './routes/produtos'
+import { Route as PdvRouteImport } from './routes/pdv'
 import { Route as FornecedoresRouteImport } from './routes/fornecedores'
 import { Route as FinanceiroRouteImport } from './routes/financeiro'
 import { Route as EstoqueRouteImport } from './routes/estoque'
@@ -40,6 +41,11 @@ const RelatoriosRoute = RelatoriosRouteImport.update({
 const ProdutosRoute = ProdutosRouteImport.update({
   id: '/produtos',
   path: '/produtos',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PdvRoute = PdvRouteImport.update({
+  id: '/pdv',
+  path: '/pdv',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FornecedoresRoute = FornecedoresRouteImport.update({
@@ -123,6 +129,7 @@ export interface FileRoutesByFullPath {
   '/estoque': typeof EstoqueRoute
   '/financeiro': typeof FinanceiroRoute
   '/fornecedores': typeof FornecedoresRoute
+  '/pdv': typeof PdvRoute
   '/produtos': typeof ProdutosRoute
   '/relatorios': typeof RelatoriosRoute
   '/vendas': typeof VendasRoute
@@ -141,6 +148,7 @@ export interface FileRoutesByTo {
   '/estoque': typeof EstoqueRoute
   '/financeiro': typeof FinanceiroRoute
   '/fornecedores': typeof FornecedoresRoute
+  '/pdv': typeof PdvRoute
   '/produtos': typeof ProdutosRoute
   '/relatorios': typeof RelatoriosRoute
   '/vendas': typeof VendasRoute
@@ -161,6 +169,7 @@ export interface FileRoutesById {
   '/estoque': typeof EstoqueRoute
   '/financeiro': typeof FinanceiroRoute
   '/fornecedores': typeof FornecedoresRoute
+  '/pdv': typeof PdvRoute
   '/produtos': typeof ProdutosRoute
   '/relatorios': typeof RelatoriosRoute
   '/vendas': typeof VendasRoute
@@ -182,6 +191,7 @@ export interface FileRouteTypes {
     | '/estoque'
     | '/financeiro'
     | '/fornecedores'
+    | '/pdv'
     | '/produtos'
     | '/relatorios'
     | '/vendas'
@@ -200,6 +210,7 @@ export interface FileRouteTypes {
     | '/estoque'
     | '/financeiro'
     | '/fornecedores'
+    | '/pdv'
     | '/produtos'
     | '/relatorios'
     | '/vendas'
@@ -219,6 +230,7 @@ export interface FileRouteTypes {
     | '/estoque'
     | '/financeiro'
     | '/fornecedores'
+    | '/pdv'
     | '/produtos'
     | '/relatorios'
     | '/vendas'
@@ -239,6 +251,7 @@ export interface RootRouteChildren {
   EstoqueRoute: typeof EstoqueRoute
   FinanceiroRoute: typeof FinanceiroRoute
   FornecedoresRoute: typeof FornecedoresRoute
+  PdvRoute: typeof PdvRoute
   ProdutosRoute: typeof ProdutosRoute
   RelatoriosRoute: typeof RelatoriosRoute
   VendasRoute: typeof VendasRoute
@@ -265,6 +278,13 @@ declare module '@tanstack/react-router' {
       path: '/produtos'
       fullPath: '/produtos'
       preLoaderRoute: typeof ProdutosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pdv': {
+      id: '/pdv'
+      path: '/pdv'
+      fullPath: '/pdv'
+      preLoaderRoute: typeof PdvRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/fornecedores': {
@@ -396,6 +416,7 @@ const rootRouteChildren: RootRouteChildren = {
   EstoqueRoute: EstoqueRoute,
   FinanceiroRoute: FinanceiroRoute,
   FornecedoresRoute: FornecedoresRoute,
+  PdvRoute: PdvRoute,
   ProdutosRoute: ProdutosRoute,
   RelatoriosRoute: RelatoriosRoute,
   VendasRoute: VendasRoute,

@@ -13,6 +13,7 @@ import {
   History,
   LogOut,
   ChevronDown,
+  ShoppingBag,
 } from "lucide-react";
 import {
   DropdownMenu,
