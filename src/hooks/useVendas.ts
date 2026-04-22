@@ -28,6 +28,15 @@ export interface FinalizarVendaItem {
   descricao?: string | null;
 }
 
+export interface FinalizarVendaPagamento {
+  forma_pagamento: FormaPagamento;
+  valor: number;
+  valor_recebido?: number | null;
+  troco?: number | null;
+  parcelas?: number | null;
+  observacao?: string | null;
+}
+
 export interface FinalizarVendaInput {
   cliente_id: string | null;
   subtotal: number;
@@ -39,6 +48,8 @@ export interface FinalizarVendaInput {
   troco: number | null;
   observacao: string | null;
   itens: FinalizarVendaItem[];
+  /** Múltiplas formas de pagamento. Se vazio, usa forma_pagamento como única. */
+  pagamentos?: FinalizarVendaPagamento[];
   gerar_financeiro?: boolean;
 }
 
@@ -58,6 +69,7 @@ export function useFinalizarVendaPDV() {
         _troco: input.troco,
         _observacao: input.observacao,
         _itens: input.itens,
+        _pagamentos: input.pagamentos && input.pagamentos.length > 0 ? input.pagamentos : null,
         _gerar_financeiro: input.gerar_financeiro ?? true,
       });
       if (error) throw error;
