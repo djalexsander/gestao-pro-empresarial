@@ -188,12 +188,12 @@ export function AppSidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: A
             )}
           >
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sidebar-accent text-sm font-semibold text-sidebar-accent-foreground">
-              AM
+              {initials}
             </div>
             {!collapsed && (
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">Ana Martins</p>
-                <p className="truncate text-xs text-sidebar-foreground/60">admin@empresa.com</p>
+                <p className="truncate text-sm font-medium">{displayName}</p>
+                <p className="truncate text-xs text-sidebar-foreground/60">{displayEmail}</p>
               </div>
             )}
           </div>
