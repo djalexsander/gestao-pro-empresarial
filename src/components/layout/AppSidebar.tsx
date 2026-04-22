@@ -74,6 +74,17 @@ interface AppSidebarProps {
 export function AppSidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: AppSidebarProps) {
   const location = useLocation();
   const currentPath = location.pathname;
+  const { data: isSuperAdmin } = useIsSuperAdmin();
+
+  const allGroups: NavGroup[] = isSuperAdmin
+    ? [
+        ...groups,
+        {
+          label: "Sistema",
+          items: [{ to: "/admin", label: "Painel Master", icon: Shield }],
+        },
+      ]
+    : groups;
 
   return (
     <>
