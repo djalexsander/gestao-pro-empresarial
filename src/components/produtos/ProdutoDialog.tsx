@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, AlertTriangle, QrCode } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -22,7 +22,6 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Switch } from "@/components/ui/switch";
 import {
   useCategorias,
   useCreateProduto,
@@ -31,11 +30,23 @@ import {
   useProduto,
   useUpdateProduto,
   type ProdutoInput,
+  type TipoIdentificacao,
 } from "@/hooks/useProdutos";
+import { CodeInput, QrPreview } from "@/components/scanner";
+import {
+  useAddProdutoCodigo,
+  useDeleteProdutoCodigo,
+  useProdutoCodigos,
+  type CodigoTipo,
+} from "@/hooks/useProdutoCodigo";
 
 const produtoSchema = z.object({
   sku: z.string().trim().min(1, "SKU obrigatório").max(50),
-  codigo_barras: z.string().trim().max(50).optional().or(z.literal("")),
+  codigo_barras: z.string().trim().max(80).optional().or(z.literal("")),
+  qr_code: z.string().trim().max(500).optional().or(z.literal("")),
+  codigo_interno: z.string().trim().max(50).optional().or(z.literal("")),
+  tipo_identificacao_principal: z.enum(["sku", "codigo_barras", "qr_code", "codigo_interno"]),
+  observacao_tecnica: z.string().trim().max(1000).optional().or(z.literal("")),
   nome: z.string().trim().min(2, "Nome muito curto").max(200),
   descricao: z.string().trim().max(2000).optional().or(z.literal("")),
   marca: z.string().trim().max(100).optional().or(z.literal("")),
@@ -52,38 +63,41 @@ const produtoSchema = z.object({
 interface ProdutoDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  produtoId?: string | null; // null/undefined => criação
+  produtoId?: string | null;
+  /** Pré-preenche um código ao abrir em modo criação */
+  prefilledCodigo?: { valor: string; tipo: TipoIdentificacao };
 }
 
-export function ProdutoDialog({ open, onOpenChange, produtoId }: ProdutoDialogProps) {
+const EMPTY = {
+  sku: "", codigo_barras: "", qr_code: "", codigo_interno: "",
+  tipo_identificacao_principal: "sku" as TipoIdentificacao,
+  observacao_tecnica: "",
+  nome: "", descricao: "", marca: "",
+  unidade: "UN", categoria_id: "" as string,
+  preco_custo: 0, preco_venda: 0,
+  estoque_minimo: 0, estoque_inicial: 0,
+  status: "ativo" as "ativo" | "inativo" | "descontinuado",
+  ncm: "",
+};
+
+export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }: ProdutoDialogProps) {
   const isEdit = !!produtoId;
   const { data: categorias = [] } = useCategorias();
   const { data: produto } = useProduto(produtoId ?? undefined);
   const createMut = useCreateProduto();
   const updateMut = useUpdateProduto();
 
-  const [form, setForm] = useState({
-    sku: "",
-    codigo_barras: "",
-    nome: "",
-    descricao: "",
-    marca: "",
-    unidade: "UN",
-    categoria_id: "" as string,
-    preco_custo: 0,
-    preco_venda: 0,
-    estoque_minimo: 0,
-    estoque_inicial: 0,
-    status: "ativo" as "ativo" | "inativo" | "descontinuado",
-    ncm: "",
-  });
+  const [form, setForm] = useState(EMPTY);
 
-  // Hidrata formulário ao abrir / mudar produto
   useEffect(() => {
     if (open && produto) {
       setForm({
         sku: produto.sku,
         codigo_barras: produto.codigo_barras ?? "",
+        qr_code: produto.qr_code ?? "",
+        codigo_interno: produto.codigo_interno ?? "",
+        tipo_identificacao_principal: produto.tipo_identificacao_principal ?? "sku",
+        observacao_tecnica: produto.observacao_tecnica ?? "",
         nome: produto.nome,
         descricao: produto.descricao ?? "",
         marca: produto.marca ?? "",
@@ -98,19 +112,26 @@ export function ProdutoDialog({ open, onOpenChange, produtoId }: ProdutoDialogPr
       });
     }
     if (open && !produtoId) {
-      setForm({
-        sku: "", codigo_barras: "", nome: "", descricao: "", marca: "",
-        unidade: "UN", categoria_id: "", preco_custo: 0, preco_venda: 0,
-        estoque_minimo: 0, estoque_inicial: 0, status: "ativo", ncm: "",
-      });
+      const base = { ...EMPTY };
+      if (prefilledCodigo) {
+        base.tipo_identificacao_principal = prefilledCodigo.tipo;
+        if (prefilledCodigo.tipo === "codigo_barras") base.codigo_barras = prefilledCodigo.valor;
+        else if (prefilledCodigo.tipo === "qr_code") base.qr_code = prefilledCodigo.valor;
+        else if (prefilledCodigo.tipo === "codigo_interno") base.codigo_interno = prefilledCodigo.valor;
+        else base.sku = prefilledCodigo.valor;
+      }
+      setForm(base);
     }
-  }, [open, produto, produtoId]);
+  }, [open, produto, produtoId, prefilledCodigo]);
 
   const margem = useMemo(() => {
     if (!form.preco_venda) return 0;
     if (!form.preco_custo) return 100;
     return ((form.preco_venda - form.preco_custo) / form.preco_venda) * 100;
   }, [form.preco_custo, form.preco_venda]);
+
+  const semCodigo =
+    !form.codigo_barras.trim() && !form.qr_code.trim() && !form.codigo_interno.trim();
 
   async function handleSubmit() {
     const parsed = produtoSchema.safeParse({
@@ -124,6 +145,10 @@ export function ProdutoDialog({ open, onOpenChange, produtoId }: ProdutoDialogPr
     const payload: ProdutoInput = {
       sku: parsed.data.sku,
       codigo_barras: parsed.data.codigo_barras || null,
+      qr_code: parsed.data.qr_code || null,
+      codigo_interno: parsed.data.codigo_interno || null,
+      tipo_identificacao_principal: parsed.data.tipo_identificacao_principal,
+      observacao_tecnica: parsed.data.observacao_tecnica || null,
       nome: parsed.data.nome,
       descricao: parsed.data.descricao || null,
       marca: parsed.data.marca || null,
@@ -143,16 +168,14 @@ export function ProdutoDialog({ open, onOpenChange, produtoId }: ProdutoDialogPr
         await createMut.mutateAsync(payload);
       }
       onOpenChange(false);
-    } catch {
-      // toast já mostrado pelo hook
-    }
+    } catch {/* toast já mostrado pelo hook */}
   }
 
   const busy = createMut.isPending || updateMut.isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEdit ? "Editar produto" : "Novo produto"}</DialogTitle>
           <DialogDescription>
@@ -163,23 +186,13 @@ export function ProdutoDialog({ open, onOpenChange, produtoId }: ProdutoDialogPr
         <Tabs defaultValue="dados">
           <TabsList>
             <TabsTrigger value="dados">Dados gerais</TabsTrigger>
+            <TabsTrigger value="codigos">Códigos</TabsTrigger>
             <TabsTrigger value="precos">Preços e estoque</TabsTrigger>
             {isEdit && <TabsTrigger value="variacoes">Variações</TabsTrigger>}
           </TabsList>
 
+          {/* ============== DADOS ============== */}
           <TabsContent value="dados" className="mt-4 space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="sku">SKU *</Label>
-                <Input id="sku" value={form.sku}
-                  onChange={(e) => setForm({ ...form, sku: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="ean">Código de barras</Label>
-                <Input id="ean" value={form.codigo_barras}
-                  onChange={(e) => setForm({ ...form, codigo_barras: e.target.value })} />
-              </div>
-            </div>
             <div className="space-y-1.5">
               <Label htmlFor="nome">Nome *</Label>
               <Input id="nome" value={form.nome}
@@ -238,6 +251,98 @@ export function ProdutoDialog({ open, onOpenChange, produtoId }: ProdutoDialogPr
             </div>
           </TabsContent>
 
+          {/* ============== CÓDIGOS ============== */}
+          <TabsContent value="codigos" className="mt-4 space-y-4">
+            {semCodigo && (
+              <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning-foreground">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                <p>
+                  Nenhum código de identificação informado. Recomendamos cadastrar pelo menos um
+                  (código de barras, QR Code ou código interno) para agilizar buscas e vendas.
+                </p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="sku">SKU *</Label>
+                <Input id="sku" value={form.sku} className="font-mono"
+                  onChange={(e) => setForm({ ...form, sku: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="cint">Código interno</Label>
+                <Input id="cint" value={form.codigo_interno} className="font-mono"
+                  onChange={(e) => setForm({ ...form, codigo_interno: e.target.value })} />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="ean">Código de barras</Label>
+              <CodeInput
+                id="ean"
+                value={form.codigo_barras}
+                onChange={(v) => setForm({ ...form, codigo_barras: v })}
+                scannerMode="barcode"
+                buttonIcon="barcode"
+                placeholder="EAN-13, Code-128, etc."
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="qr">QR Code</Label>
+              <CodeInput
+                id="qr"
+                value={form.qr_code}
+                onChange={(v) => setForm({ ...form, qr_code: v })}
+                scannerMode="qrcode"
+                buttonIcon="qrcode"
+                placeholder="Conteúdo do QR Code"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 rounded-lg border border-border p-4">
+              <div className="space-y-2">
+                <Label>Tipo principal de identificação</Label>
+                <Select
+                  value={form.tipo_identificacao_principal}
+                  onValueChange={(v) => setForm({ ...form, tipo_identificacao_principal: v as TipoIdentificacao })}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sku">SKU</SelectItem>
+                    <SelectItem value="codigo_barras">Código de barras</SelectItem>
+                    <SelectItem value="qr_code">QR Code</SelectItem>
+                    <SelectItem value="codigo_interno">Código interno</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Define qual código aparece em destaque nas telas de venda e estoque.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-center">
+                {form.qr_code.trim() ? (
+                  <QrPreview value={form.qr_code} size={140} filename={`qr-${form.sku || "produto"}.png`} />
+                ) : (
+                  <div className="flex flex-col items-center gap-2 text-center text-xs text-muted-foreground">
+                    <QrCode className="h-8 w-8 opacity-40" />
+                    Preencha o campo QR Code para visualizar
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="obs-tec">Observação técnica</Label>
+              <Textarea id="obs-tec" rows={2} value={form.observacao_tecnica}
+                placeholder="Notas internas sobre identificação, embalagem, leitura, etc."
+                onChange={(e) => setForm({ ...form, observacao_tecnica: e.target.value })} />
+            </div>
+
+            {isEdit && produtoId && <CodigosAdicionais produtoId={produtoId} />}
+          </TabsContent>
+
+          {/* ============== PREÇOS ============== */}
           <TabsContent value="precos" className="mt-4 space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
@@ -298,18 +403,84 @@ export function ProdutoDialog({ open, onOpenChange, produtoId }: ProdutoDialogPr
   );
 }
 
+// ================ Códigos adicionais (tabela auxiliar) ================
+function CodigosAdicionais({ produtoId }: { produtoId: string }) {
+  const { data: codigos = [] } = useProdutoCodigos(produtoId);
+  const addMut = useAddProdutoCodigo();
+  const delMut = useDeleteProdutoCodigo();
+  const [novo, setNovo] = useState({ tipo: "alternativo" as CodigoTipo, valor: "" });
+
+  return (
+    <div className="space-y-2 rounded-lg border border-border p-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium">Códigos adicionais</p>
+          <p className="text-xs text-muted-foreground">Embalagens, lotes, códigos antigos, etc.</p>
+        </div>
+      </div>
+
+      {codigos.length > 0 && (
+        <ul className="space-y-1.5">
+          {codigos.map((c) => (
+            <li key={c.id} className="flex items-center gap-2 rounded-md bg-muted/40 px-2 py-1.5">
+              <span className="rounded bg-background px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                {c.tipo_codigo}
+              </span>
+              <span className="flex-1 truncate font-mono text-sm">{c.valor_codigo}</span>
+              <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive"
+                onClick={() => delMut.mutate({ id: c.id, produto_id: produtoId })}>
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="flex items-center gap-2 pt-1">
+        <Select value={novo.tipo} onValueChange={(v) => setNovo({ ...novo, tipo: v as CodigoTipo })}>
+          <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="codigo_barras">Código de barras</SelectItem>
+            <SelectItem value="qr_code">QR Code</SelectItem>
+            <SelectItem value="sku">SKU</SelectItem>
+            <SelectItem value="interno">Interno</SelectItem>
+            <SelectItem value="alternativo">Alternativo</SelectItem>
+          </SelectContent>
+        </Select>
+        <CodeInput
+          value={novo.valor}
+          onChange={(v) => setNovo({ ...novo, valor: v })}
+          scannerMode={novo.tipo === "qr_code" ? "qrcode" : "any"}
+          buttonIcon={novo.tipo === "qr_code" ? "qrcode" : "barcode"}
+          containerClassName="flex-1"
+          placeholder="Escaneie ou digite o código"
+        />
+        <Button size="sm" disabled={!novo.valor.trim() || addMut.isPending}
+          onClick={async () => {
+            try {
+              await addMut.mutateAsync({
+                produto_id: produtoId,
+                tipo_codigo: novo.tipo,
+                valor_codigo: novo.valor.trim(),
+              });
+              setNovo({ tipo: "alternativo", valor: "" });
+            } catch {/* toast pelo hook */}
+          }}>
+          Adicionar
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ================ Variações (mantido) ================
 function VariacoesEditor({ produtoId }: { produtoId: string }) {
   const { data: produto } = useProduto(produtoId);
   const createMut = useCreateVariacao();
   const deleteMut = useDeleteVariacao();
   const [adding, setAdding] = useState(false);
   const [nova, setNova] = useState({
-    sku: "",
-    nome: "",
-    cor: "",
-    tamanho: "",
-    preco_venda: "",
-    preco_custo: "",
+    sku: "", nome: "", cor: "", tamanho: "", preco_venda: "", preco_custo: "",
   });
 
   async function handleAdd() {
@@ -373,26 +544,18 @@ function VariacoesEditor({ produtoId }: { produtoId: string }) {
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Tamanho</Label>
-              <Input value={nova.tamanho} onChange={(e) => setNova({ ...nova, tamanho: e.target.value })} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Cor</Label>
-              <Input value={nova.cor} onChange={(e) => setNova({ ...nova, cor: e.target.value })} />
-            </div>
+            <div className="space-y-1.5"><Label>Tamanho</Label>
+              <Input value={nova.tamanho} onChange={(e) => setNova({ ...nova, tamanho: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label>Cor</Label>
+              <Input value={nova.cor} onChange={(e) => setNova({ ...nova, cor: e.target.value })} /></div>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Custo (opcional)</Label>
+            <div className="space-y-1.5"><Label>Custo (opcional)</Label>
               <Input type="number" min={0} step="0.01" value={nova.preco_custo}
-                onChange={(e) => setNova({ ...nova, preco_custo: e.target.value })} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Venda (opcional)</Label>
+                onChange={(e) => setNova({ ...nova, preco_custo: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label>Venda (opcional)</Label>
               <Input type="number" min={0} step="0.01" value={nova.preco_venda}
-                onChange={(e) => setNova({ ...nova, preco_venda: e.target.value })} />
-            </div>
+                onChange={(e) => setNova({ ...nova, preco_venda: e.target.value })} /></div>
           </div>
           <div className="flex gap-2">
             <Button size="sm" onClick={handleAdd} disabled={createMut.isPending}>Adicionar</Button>
