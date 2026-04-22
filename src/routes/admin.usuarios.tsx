@@ -94,12 +94,12 @@ function AdminUsersPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>E-mail</TableHead>
+                <TableHead>Empresa</TableHead>
                 <TableHead>Papéis</TableHead>
                 <TableHead>Cadastro</TableHead>
                 <TableHead>Último acesso</TableHead>
                 <TableHead className="text-right">Produtos</TableHead>
                 <TableHead className="text-right">Vendas</TableHead>
-                <TableHead className="text-right">Compras</TableHead>
                 <TableHead className="w-32" />
               </TableRow>
             </TableHeader>
