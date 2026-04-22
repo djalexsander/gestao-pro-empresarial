@@ -213,7 +213,10 @@ function SalesPage() {
             ? { id: cancelar.id, numero: cancelar.numero, total: cancelar.total }
             : null
         }
-        onCancelled={() => setCancelar(null)}
+        onCancelled={() => {
+          // Fechado pelo botão "Concluir" no resumo — apenas reseta seleção
+          setCancelar(null);
+        }}
       />
 
       <DetalheVendaDialog

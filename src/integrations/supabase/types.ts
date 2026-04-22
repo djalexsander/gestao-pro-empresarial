@@ -1353,7 +1353,7 @@ export type Database = {
       }
       cancelar_venda: {
         Args: { _motivo?: string; _venda_id: string }
-        Returns: string
+        Returns: Json
       }
       finalizar_venda_pdv:
         | {
