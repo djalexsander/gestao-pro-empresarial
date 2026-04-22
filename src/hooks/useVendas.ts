@@ -290,6 +290,40 @@ export interface CancelarVendaResumo {
   }>;
 }
 
+// =============== Métricas do dia / período ===============
+export interface VendaMetricas {
+  qtd_vendas: number;
+  qtd_canceladas: number;
+  total_vendido: number;
+  ticket_medio: number;
+  qtd_pendentes: number;
+  valor_pendente: number;
+}
+
+export function useVendaMetricasPeriodo(dataInicio: string, dataFim: string) {
+  return useQuery({
+    queryKey: ["vendas", "metricas", dataInicio, dataFim],
+    queryFn: async (): Promise<VendaMetricas> => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc("venda_metricas_periodo", {
+        _data_inicio: dataInicio,
+        _data_fim: dataFim,
+      });
+      if (error) throw error;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = (data ?? {}) as any;
+      return {
+        qtd_vendas: Number(d.qtd_vendas) || 0,
+        qtd_canceladas: Number(d.qtd_canceladas) || 0,
+        total_vendido: Number(d.total_vendido) || 0,
+        ticket_medio: Number(d.ticket_medio) || 0,
+        qtd_pendentes: Number(d.qtd_pendentes) || 0,
+        valor_pendente: Number(d.valor_pendente) || 0,
+      };
+    },
+  });
+}
+
 export function useCancelarVenda() {
   const qc = useQueryClient();
   return useMutation({
