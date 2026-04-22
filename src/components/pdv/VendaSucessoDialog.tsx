@@ -47,8 +47,6 @@ interface VendaSucessoDialogProps {
   } | null;
   onNovaVenda: () => void;
   onVerVendas: () => void;
-  /** Quando true, imprime automaticamente assim que o diálogo abre. */
-  autoPrint?: boolean;
 }
 
 const STATUS_BADGE: Record<StatusPagamento, string> = {
