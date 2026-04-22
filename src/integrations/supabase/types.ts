@@ -493,6 +493,41 @@ export type Database = {
           },
         ]
       }
+      config_comercial: {
+        Row: {
+          dias_trial: number
+          id: boolean
+          permitir_modulos_no_trial: boolean
+          plano_padrao_id: string | null
+          updated_at: string
+          valor_padrao_sistema: number
+        }
+        Insert: {
+          dias_trial?: number
+          id?: boolean
+          permitir_modulos_no_trial?: boolean
+          plano_padrao_id?: string | null
+          updated_at?: string
+          valor_padrao_sistema?: number
+        }
+        Update: {
+          dias_trial?: number
+          id?: boolean
+          permitir_modulos_no_trial?: boolean
+          plano_padrao_id?: string | null
+          updated_at?: string
+          valor_padrao_sistema?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "config_comercial_plano_padrao_id_fkey"
+            columns: ["plano_padrao_id"]
+            isOneToOne: false
+            referencedRelation: "planos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       configuracoes_empresa: {
         Row: {
           bairro: string | null
@@ -558,6 +593,108 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      empresa_assinaturas: {
+        Row: {
+          created_at: string
+          data_expiracao: string | null
+          data_inicio: string
+          empresa_id: string
+          id: string
+          observacoes: string | null
+          plano_id: string | null
+          status: Database["public"]["Enums"]["assinatura_status"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          data_expiracao?: string | null
+          data_inicio?: string
+          empresa_id: string
+          id?: string
+          observacoes?: string | null
+          plano_id?: string | null
+          status?: Database["public"]["Enums"]["assinatura_status"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          data_expiracao?: string | null
+          data_inicio?: string
+          empresa_id?: string
+          id?: string
+          observacoes?: string | null
+          plano_id?: string | null
+          status?: Database["public"]["Enums"]["assinatura_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_assinaturas_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: true
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "empresa_assinaturas_plano_id_fkey"
+            columns: ["plano_id"]
+            isOneToOne: false
+            referencedRelation: "planos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      empresa_modulos: {
+        Row: {
+          created_at: string
+          data_expiracao: string | null
+          data_inicio: string
+          empresa_id: string
+          id: string
+          modulo_id: string
+          observacoes: string | null
+          status: Database["public"]["Enums"]["empresa_modulo_status"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          data_expiracao?: string | null
+          data_inicio?: string
+          empresa_id: string
+          id?: string
+          modulo_id: string
+          observacoes?: string | null
+          status?: Database["public"]["Enums"]["empresa_modulo_status"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          data_expiracao?: string | null
+          data_inicio?: string
+          empresa_id?: string
+          id?: string
+          modulo_id?: string
+          observacoes?: string | null
+          status?: Database["public"]["Enums"]["empresa_modulo_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_modulos_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "empresa_modulos_modulo_id_fkey"
+            columns: ["modulo_id"]
+            isOneToOne: false
+            referencedRelation: "modulos"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       empresas: {
         Row: {
@@ -988,6 +1125,163 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      modulos: {
+        Row: {
+          aplica_restricao: boolean
+          ativo: boolean
+          chave: string
+          created_at: string
+          descricao: string | null
+          id: string
+          nome: string
+          ordem: number
+          updated_at: string
+          valor: number
+        }
+        Insert: {
+          aplica_restricao?: boolean
+          ativo?: boolean
+          chave: string
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          nome: string
+          ordem?: number
+          updated_at?: string
+          valor?: number
+        }
+        Update: {
+          aplica_restricao?: boolean
+          ativo?: boolean
+          chave?: string
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          nome?: string
+          ordem?: number
+          updated_at?: string
+          valor?: number
+        }
+        Relationships: []
+      }
+      pagamentos: {
+        Row: {
+          created_at: string
+          data_pagamento: string | null
+          data_vencimento: string | null
+          descricao: string | null
+          empresa_id: string
+          forma_pagamento: string | null
+          id: string
+          modulo_id: string | null
+          observacoes: string | null
+          plano_id: string | null
+          referencia_tipo: Database["public"]["Enums"]["pagamento_referencia"]
+          registrado_por: string | null
+          status: Database["public"]["Enums"]["pagamento_status"]
+          updated_at: string
+          valor: number
+        }
+        Insert: {
+          created_at?: string
+          data_pagamento?: string | null
+          data_vencimento?: string | null
+          descricao?: string | null
+          empresa_id: string
+          forma_pagamento?: string | null
+          id?: string
+          modulo_id?: string | null
+          observacoes?: string | null
+          plano_id?: string | null
+          referencia_tipo?: Database["public"]["Enums"]["pagamento_referencia"]
+          registrado_por?: string | null
+          status?: Database["public"]["Enums"]["pagamento_status"]
+          updated_at?: string
+          valor?: number
+        }
+        Update: {
+          created_at?: string
+          data_pagamento?: string | null
+          data_vencimento?: string | null
+          descricao?: string | null
+          empresa_id?: string
+          forma_pagamento?: string | null
+          id?: string
+          modulo_id?: string | null
+          observacoes?: string | null
+          plano_id?: string | null
+          referencia_tipo?: Database["public"]["Enums"]["pagamento_referencia"]
+          registrado_por?: string | null
+          status?: Database["public"]["Enums"]["pagamento_status"]
+          updated_at?: string
+          valor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pagamentos_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pagamentos_modulo_id_fkey"
+            columns: ["modulo_id"]
+            isOneToOne: false
+            referencedRelation: "modulos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pagamentos_plano_id_fkey"
+            columns: ["plano_id"]
+            isOneToOne: false
+            referencedRelation: "planos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      planos: {
+        Row: {
+          ativo: boolean
+          created_at: string
+          descricao: string | null
+          id: string
+          limite_produtos: number | null
+          limite_usuarios: number | null
+          nome: string
+          ordem: number
+          tipo_cobranca: Database["public"]["Enums"]["plano_tipo_cobranca"]
+          updated_at: string
+          valor: number
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          limite_produtos?: number | null
+          limite_usuarios?: number | null
+          nome: string
+          ordem?: number
+          tipo_cobranca?: Database["public"]["Enums"]["plano_tipo_cobranca"]
+          updated_at?: string
+          valor?: number
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          limite_produtos?: number | null
+          limite_usuarios?: number | null
+          nome?: string
+          ordem?: number
+          tipo_cobranca?: Database["public"]["Enums"]["plano_tipo_cobranca"]
+          updated_at?: string
+          valor?: number
+        }
+        Relationships: []
       }
       produto_codigos: {
         Row: {
@@ -1470,8 +1764,49 @@ export type Database = {
             Returns: string
           }
       admin_delete_empresa: { Args: { _id: string }; Returns: undefined }
+      admin_delete_modulo: { Args: { _id: string }; Returns: undefined }
+      admin_delete_pagamento: { Args: { _id: string }; Returns: undefined }
+      admin_delete_plano: { Args: { _id: string }; Returns: undefined }
       admin_delete_user: { Args: { _user_id: string }; Returns: undefined }
       admin_estatisticas_globais: { Args: never; Returns: Json }
+      admin_get_config_comercial: {
+        Args: never
+        Returns: {
+          dias_trial: number
+          id: boolean
+          permitir_modulos_no_trial: boolean
+          plano_padrao_id: string | null
+          updated_at: string
+          valor_padrao_sistema: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "config_comercial"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      admin_listar_assinaturas: {
+        Args: never
+        Returns: {
+          data_expiracao: string
+          data_inicio: string
+          dias_restantes: number
+          empresa_id: string
+          empresa_nome: string
+          empresa_status: string
+          id: string
+          modulos_ativos: number
+          observacoes: string
+          plano_id: string
+          plano_nome: string
+          plano_tipo: string
+          plano_valor: number
+          status: Database["public"]["Enums"]["assinatura_status"]
+          status_efetivo: string
+          updated_at: string
+        }[]
+      }
       admin_listar_audit_logs: {
         Args: { _limit?: number }
         Returns: {
@@ -1492,6 +1827,23 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      admin_listar_empresa_modulos: {
+        Args: { _empresa_id?: string }
+        Returns: {
+          aplica_restricao: boolean
+          data_expiracao: string
+          data_inicio: string
+          empresa_id: string
+          empresa_nome: string
+          id: string
+          modulo_chave: string
+          modulo_id: string
+          modulo_nome: string
+          modulo_valor: number
+          observacoes: string
+          status: Database["public"]["Enums"]["empresa_modulo_status"]
+        }[]
       }
       admin_listar_empresas: {
         Args: never
@@ -1516,6 +1868,70 @@ export type Database = {
           volume_vendas: number
         }[]
       }
+      admin_listar_modulos: {
+        Args: never
+        Returns: {
+          aplica_restricao: boolean
+          ativo: boolean
+          chave: string
+          created_at: string
+          descricao: string | null
+          id: string
+          nome: string
+          ordem: number
+          updated_at: string
+          valor: number
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "modulos"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      admin_listar_pagamentos: {
+        Args: { _empresa_id?: string }
+        Returns: {
+          created_at: string
+          data_pagamento: string
+          data_vencimento: string
+          descricao: string
+          empresa_id: string
+          empresa_nome: string
+          forma_pagamento: string
+          id: string
+          modulo_id: string
+          modulo_nome: string
+          observacoes: string
+          plano_id: string
+          plano_nome: string
+          referencia_tipo: Database["public"]["Enums"]["pagamento_referencia"]
+          status: Database["public"]["Enums"]["pagamento_status"]
+          valor: number
+        }[]
+      }
+      admin_listar_planos: {
+        Args: never
+        Returns: {
+          ativo: boolean
+          created_at: string
+          descricao: string | null
+          id: string
+          limite_produtos: number | null
+          limite_usuarios: number | null
+          nome: string
+          ordem: number
+          tipo_cobranca: Database["public"]["Enums"]["plano_tipo_cobranca"]
+          updated_at: string
+          valor: number
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "planos"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       admin_listar_usuarios: {
         Args: never
         Returns: {
@@ -1534,6 +1950,27 @@ export type Database = {
           user_id: string
         }[]
       }
+      admin_registrar_pagamento: {
+        Args: {
+          _data_pagamento: string
+          _data_vencimento: string
+          _descricao: string
+          _empresa_id: string
+          _forma_pagamento: string
+          _id: string
+          _modulo_id: string
+          _observacoes: string
+          _plano_id: string
+          _referencia_tipo: string
+          _status: string
+          _valor: number
+        }
+        Returns: string
+      }
+      admin_remover_empresa_modulo: {
+        Args: { _id: string }
+        Returns: undefined
+      }
       admin_serie_crescimento: {
         Args: { _dias?: number }
         Returns: {
@@ -1543,6 +1980,37 @@ export type Database = {
           total_empresas_acum: number
           total_usuarios_acum: number
         }[]
+      }
+      admin_set_assinatura: {
+        Args: {
+          _data_expiracao: string
+          _data_inicio: string
+          _empresa_id: string
+          _observacoes: string
+          _plano_id: string
+          _status: string
+        }
+        Returns: string
+      }
+      admin_set_config_comercial: {
+        Args: {
+          _dias_trial: number
+          _permitir_modulos_no_trial: boolean
+          _plano_padrao_id: string
+          _valor_padrao_sistema: number
+        }
+        Returns: undefined
+      }
+      admin_set_empresa_modulo: {
+        Args: {
+          _data_expiracao: string
+          _data_inicio: string
+          _empresa_id: string
+          _modulo_id: string
+          _observacoes: string
+          _status: string
+        }
+        Returns: string
       }
       admin_set_empresa_status: {
         Args: { _id: string; _motivo?: string; _status: string }
@@ -1567,6 +2035,37 @@ export type Database = {
           _telefone?: string
         }
         Returns: string
+      }
+      admin_upsert_modulo: {
+        Args: {
+          _aplica_restricao: boolean
+          _ativo: boolean
+          _chave: string
+          _descricao: string
+          _id: string
+          _nome: string
+          _ordem: number
+          _valor: number
+        }
+        Returns: string
+      }
+      admin_upsert_plano: {
+        Args: {
+          _ativo: boolean
+          _descricao: string
+          _id: string
+          _limite_produtos: number
+          _limite_usuarios: number
+          _nome: string
+          _ordem: number
+          _tipo_cobranca: string
+          _valor: number
+        }
+        Returns: string
+      }
+      assinatura_status_efetivo: {
+        Args: { _empresa_id: string }
+        Returns: Json
       }
       buscar_produto_por_codigo: {
         Args: { _codigo: string }
@@ -1748,6 +2247,7 @@ export type Database = {
         Returns: boolean
       }
       is_super_admin: { Args: { _user_id?: string }; Returns: boolean }
+      minha_assinatura_status: { Args: never; Returns: Json }
       receber_compra: {
         Args: {
           _categoria_id?: string
@@ -1821,6 +2321,7 @@ export type Database = {
         | "financeiro"
         | "super_admin"
         | "caixa"
+      assinatura_status: "trial" | "ativo" | "vencido" | "cancelado"
       cadastro_status: "ativo" | "inativo"
       caixa_movimento_tipo:
         | "abertura"
@@ -1837,6 +2338,7 @@ export type Database = {
         | "recebida_parcial"
         | "recebida"
         | "cancelada"
+      empresa_modulo_status: "ativo" | "pendente" | "cancelado"
       forma_pagamento:
         | "dinheiro"
         | "pix"
@@ -1867,7 +2369,10 @@ export type Database = {
         | "ajuste"
         | "devolucao"
         | "transferencia"
+      pagamento_referencia: "plano" | "modulo" | "outro"
+      pagamento_status: "pago" | "pendente" | "atrasado" | "cancelado"
       pessoa_tipo: "PF" | "PJ"
+      plano_tipo_cobranca: "mensal" | "anual" | "vitalicio"
       produto_status: "ativo" | "inativo" | "descontinuado"
       venda_status:
         | "rascunho"
@@ -2011,6 +2516,7 @@ export const Constants = {
         "super_admin",
         "caixa",
       ],
+      assinatura_status: ["trial", "ativo", "vencido", "cancelado"],
       cadastro_status: ["ativo", "inativo"],
       caixa_movimento_tipo: [
         "abertura",
@@ -2029,6 +2535,7 @@ export const Constants = {
         "recebida",
         "cancelada",
       ],
+      empresa_modulo_status: ["ativo", "pendente", "cancelado"],
       forma_pagamento: [
         "dinheiro",
         "pix",
@@ -2063,7 +2570,10 @@ export const Constants = {
         "devolucao",
         "transferencia",
       ],
+      pagamento_referencia: ["plano", "modulo", "outro"],
+      pagamento_status: ["pago", "pendente", "atrasado", "cancelado"],
       pessoa_tipo: ["PF", "PJ"],
+      plano_tipo_cobranca: ["mensal", "anual", "vitalicio"],
       produto_status: ["ativo", "inativo", "descontinuado"],
       venda_status: [
         "rascunho",
