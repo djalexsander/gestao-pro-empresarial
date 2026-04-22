@@ -3,7 +3,13 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/components/auth/AuthProvider";
 
-export type CompraStatus = "rascunho" | "pendente" | "aprovada" | "recebida" | "cancelada";
+export type CompraStatus =
+  | "rascunho"
+  | "pendente"
+  | "aprovada"
+  | "recebida_parcial"
+  | "recebida"
+  | "cancelada";
 
 export type CompraItem = {
   id: string;
@@ -12,6 +18,7 @@ export type CompraItem = {
   variacao_id: string | null;
   descricao: string | null;
   quantidade: number;
+  quantidade_recebida: number;
   preco_unitario: number;
   desconto: number;
   total: number;
@@ -258,6 +265,101 @@ export function useDeleteCompra() {
       toast.success("Compra excluída.");
     },
     onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+// ============ Recebimento parcial / item-a-item ============
+
+export type ReceberItemInput = {
+  item_id: string;
+  quantidade: number;
+};
+
+export function useReceberCompraItens() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: {
+      compra_id: string;
+      itens: ReceberItemInput[];
+      data_recebimento?: string;
+      gerar_financeiro?: boolean;
+      data_vencimento?: string | null;
+    }) => {
+      const itensValidos = params.itens.filter((i) => i.quantidade > 0);
+      if (itensValidos.length === 0) {
+        throw new Error("Informe ao menos uma quantidade para receber.");
+      }
+      const args: {
+        _compra_id: string;
+        _itens: ReceberItemInput[];
+        _data_recebimento: string;
+        _gerar_financeiro: boolean;
+        _data_vencimento?: string;
+      } = {
+        _compra_id: params.compra_id,
+        _itens: itensValidos,
+        _data_recebimento: params.data_recebimento ?? new Date().toISOString().slice(0, 10),
+        _gerar_financeiro: params.gerar_financeiro ?? true,
+      };
+      if (params.data_vencimento) args._data_vencimento = params.data_vencimento;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc("receber_compra_itens", args);
+      if (error) throw error;
+      return data as {
+        compra_id: string;
+        status: CompraStatus;
+        pendente_total: number;
+        recebido_total: number;
+        itens_recebidos: number;
+      };
+    },
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["compras"] });
+      qc.invalidateQueries({ queryKey: ["compra"] });
+      qc.invalidateQueries({ queryKey: ["estoque-saldos"] });
+      qc.invalidateQueries({ queryKey: ["movimentacoes"] });
+      qc.invalidateQueries({ queryKey: ["financeiro-lancamentos"] });
+      qc.invalidateQueries({ queryKey: ["fornecedor-metricas"] });
+      if (res.status === "recebida") {
+        toast.success("Compra totalmente recebida — estoque e financeiro atualizados.");
+      } else {
+        toast.success(`Recebimento parcial registrado (${res.itens_recebidos} item(ns)).`);
+      }
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+// ============ Métricas por fornecedor ============
+
+export type FornecedorMetrica = {
+  fornecedor_id: string;
+  total_compras: number;
+  valor_total: number;
+  ultima_compra: string | null;
+  compras_em_aberto: number;
+};
+
+export function useFornecedorMetricas() {
+  return useQuery({
+    queryKey: ["fornecedor-metricas"],
+    queryFn: async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc("fornecedor_metricas");
+      if (error) throw error;
+      const rows = (data ?? []) as FornecedorMetrica[];
+      const map = new Map<string, FornecedorMetrica>();
+      for (const r of rows) {
+        map.set(r.fornecedor_id, {
+          ...r,
+          total_compras: Number(r.total_compras ?? 0),
+          valor_total: Number(r.valor_total ?? 0),
+          compras_em_aberto: Number(r.compras_em_aberto ?? 0),
+        });
+      }
+      return map;
+    },
+    staleTime: 30_000,
   });
 }
 

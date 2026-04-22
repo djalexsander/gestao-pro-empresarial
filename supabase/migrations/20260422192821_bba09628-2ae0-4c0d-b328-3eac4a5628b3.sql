@@ -1,0 +1,1 @@
+ALTER TYPE public.compra_status ADD VALUE IF NOT EXISTS 'recebida_parcial' BEFORE 'recebida';

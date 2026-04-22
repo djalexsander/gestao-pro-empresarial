@@ -1,6 +1,17 @@
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Plus, Search, Eye, Trash2, ShoppingCart, Clock, PackageCheck, Ban } from "lucide-react";
+import {
+  Plus,
+  Search,
+  Eye,
+  Trash2,
+  ShoppingCart,
+  Clock,
+  PackageCheck,
+  Ban,
+  CircleDollarSign,
+  X,
+} from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { StatCard } from "@/components/shared/StatCard";
@@ -33,6 +44,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useCompras, useDeleteCompra, type CompraStatus } from "@/hooks/useCompras";
+import { useFornecedores } from "@/hooks/useFornecedores";
 import { CompraDialog } from "@/components/compras/CompraDialog";
 import { CompraDetailDialog } from "@/components/compras/CompraDetailDialog";
 
@@ -49,12 +61,18 @@ export const Route = createFileRoute("/compras")({
 const fmtBRL = (n: number) =>
   n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
+const STATUS_EM_ABERTO: CompraStatus[] = ["rascunho", "pendente", "aprovada", "recebida_parcial"];
+
 function PurchasesPage() {
   const { data: compras = [], isLoading } = useCompras();
+  const { data: fornecedores = [] } = useFornecedores();
   const deleteMut = useDeleteCompra();
 
   const [busca, setBusca] = useState("");
   const [statusFiltro, setStatusFiltro] = useState<CompraStatus | "todos">("todos");
+  const [fornecedorFiltro, setFornecedorFiltro] = useState<string>("todos");
+  const [dataIni, setDataIni] = useState<string>("");
+  const [dataFim, setDataFim] = useState<string>("");
   const [novaOpen, setNovaOpen] = useState(false);
   const [detalheId, setDetalheId] = useState<string | null>(null);
   const [removendoId, setRemovendoId] = useState<string | null>(null);
@@ -63,6 +81,12 @@ function PurchasesPage() {
     const q = busca.trim().toLowerCase();
     return compras.filter((c) => {
       if (statusFiltro !== "todos" && c.status !== statusFiltro) return false;
+      if (fornecedorFiltro !== "todos") {
+        if (fornecedorFiltro === "sem" && c.fornecedor_id) return false;
+        if (fornecedorFiltro !== "sem" && c.fornecedor_id !== fornecedorFiltro) return false;
+      }
+      if (dataIni && c.data_emissao < dataIni) return false;
+      if (dataFim && c.data_emissao > dataFim) return false;
       if (!q) return true;
       return (
         c.numero.toLowerCase().includes(q) ||
@@ -70,21 +94,34 @@ function PurchasesPage() {
         c.fornecedor?.nome_fantasia?.toLowerCase().includes(q)
       );
     });
-  }, [compras, busca, statusFiltro]);
+  }, [compras, busca, statusFiltro, fornecedorFiltro, dataIni, dataFim]);
 
   const stats = useMemo(() => {
-    const total = compras.length;
-    const pendentes = compras.filter((c) => c.status === "pendente" || c.status === "rascunho" || c.status === "aprovada").length;
-    const recebidas = compras.filter((c) => c.status === "recebida").length;
-    const canceladas = compras.filter((c) => c.status === "cancelada").length;
-    return { total, pendentes, recebidas, canceladas };
-  }, [compras]);
+    const total = filtradas.length;
+    const emAberto = filtradas.filter((c) => STATUS_EM_ABERTO.includes(c.status)).length;
+    const recebidas = filtradas.filter((c) => c.status === "recebida").length;
+    const valorAberto = filtradas
+      .filter((c) => STATUS_EM_ABERTO.includes(c.status))
+      .reduce((acc, c) => acc + Number(c.total ?? 0), 0);
+    return { total, emAberto, recebidas, valorAberto };
+  }, [filtradas]);
+
+  const limparFiltros = () => {
+    setBusca("");
+    setStatusFiltro("todos");
+    setFornecedorFiltro("todos");
+    setDataIni("");
+    setDataFim("");
+  };
+
+  const filtroAtivo =
+    busca || statusFiltro !== "todos" || fornecedorFiltro !== "todos" || dataIni || dataFim;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Compras"
-        description="Pedidos de compra e recebimento de mercadorias."
+        description="Pedidos de compra, recebimento parcial e atualização automática de estoque."
         actions={
           <Button size="sm" className="gap-1.5" onClick={() => setNovaOpen(true)}>
             <Plus className="h-4 w-4" />
@@ -95,33 +132,80 @@ function PurchasesPage() {
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Total de pedidos" value={String(stats.total)} icon={ShoppingCart} />
-        <StatCard label="Em aberto" value={String(stats.pendentes)} icon={Clock} iconTone="warning" />
+        <StatCard label="Em aberto" value={String(stats.emAberto)} icon={Clock} iconTone="warning" />
         <StatCard label="Recebidas" value={String(stats.recebidas)} icon={PackageCheck} iconTone="success" />
-        <StatCard label="Canceladas" value={String(stats.canceladas)} icon={Ban} iconTone="danger" />
+        <StatCard
+          label="Valor em aberto"
+          value={fmtBRL(stats.valorAberto)}
+          icon={CircleDollarSign}
+          iconTone="warning"
+        />
       </div>
 
       <Card>
-        <CardContent className="p-4 flex flex-col gap-3 sm:flex-row">
-          <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Buscar pedido ou fornecedor..."
-              className="pl-9"
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-            />
+        <CardContent className="p-4 space-y-3">
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Buscar pedido ou fornecedor..."
+                className="pl-9"
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+              />
+            </div>
+            <Select
+              value={statusFiltro}
+              onValueChange={(v) => setStatusFiltro(v as CompraStatus | "todos")}
+            >
+              <SelectTrigger className="sm:w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos os status</SelectItem>
+                <SelectItem value="rascunho">Rascunho</SelectItem>
+                <SelectItem value="pendente">Pendente</SelectItem>
+                <SelectItem value="aprovada">Aprovada</SelectItem>
+                <SelectItem value="recebida_parcial">Recebida parcial</SelectItem>
+                <SelectItem value="recebida">Recebida</SelectItem>
+                <SelectItem value="cancelada">Cancelada</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-          <Select value={statusFiltro} onValueChange={(v) => setStatusFiltro(v as CompraStatus | "todos")}>
-            <SelectTrigger className="sm:w-48"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos os status</SelectItem>
-              <SelectItem value="rascunho">Rascunho</SelectItem>
-              <SelectItem value="pendente">Pendente</SelectItem>
-              <SelectItem value="aprovada">Aprovada</SelectItem>
-              <SelectItem value="recebida">Recebida</SelectItem>
-              <SelectItem value="cancelada">Cancelada</SelectItem>
-            </SelectContent>
-          </Select>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Select value={fornecedorFiltro} onValueChange={setFornecedorFiltro}>
+              <SelectTrigger>
+                <SelectValue placeholder="Fornecedor" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos os fornecedores</SelectItem>
+                <SelectItem value="sem">Sem fornecedor</SelectItem>
+                {fornecedores.map((f) => (
+                  <SelectItem key={f.id} value={f.id}>
+                    {f.nome_fantasia || f.razao_social}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              type="date"
+              value={dataIni}
+              onChange={(e) => setDataIni(e.target.value)}
+              placeholder="De"
+            />
+            <Input
+              type="date"
+              value={dataFim}
+              onChange={(e) => setDataFim(e.target.value)}
+              placeholder="Até"
+            />
+            {filtroAtivo && (
+              <Button variant="ghost" size="sm" onClick={limparFiltros} className="gap-1.5">
+                <X className="h-3.5 w-3.5" /> Limpar filtros
+              </Button>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -154,26 +238,45 @@ function PurchasesPage() {
                 </TableRow>
               )}
               {filtradas.map((c) => (
-                <TableRow key={c.id} className="cursor-pointer hover:bg-muted/30" onClick={() => setDetalheId(c.id)}>
+                <TableRow
+                  key={c.id}
+                  className="cursor-pointer hover:bg-muted/30"
+                  onClick={() => setDetalheId(c.id)}
+                >
                   <TableCell className="font-mono text-xs">{c.numero}</TableCell>
                   <TableCell className="font-medium">
-                    {c.fornecedor
-                      ? c.fornecedor.nome_fantasia || c.fornecedor.razao_social
-                      : <span className="text-muted-foreground italic">—</span>}
+                    {c.fornecedor ? (
+                      c.fornecedor.nome_fantasia || c.fornecedor.razao_social
+                    ) : (
+                      <span className="text-muted-foreground italic">—</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {new Date(c.data_emissao).toLocaleDateString("pt-BR")}
                   </TableCell>
-                  <TableCell className="text-right font-medium tabular-nums">{fmtBRL(Number(c.total))}</TableCell>
-                  <TableCell><StatusBadge status={c.status} /></TableCell>
+                  <TableCell className="text-right font-medium tabular-nums">
+                    {fmtBRL(Number(c.total))}
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge status={c.status} />
+                  </TableCell>
                   <TableCell>
                     <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setDetalheId(c.id)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => setDetalheId(c.id)}
+                      >
                         <Eye className="h-3.5 w-3.5" />
                       </Button>
-                      {c.status !== "recebida" && (
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive"
-                          onClick={() => setRemovendoId(c.id)}>
+                      {c.status !== "recebida" && c.status !== "recebida_parcial" && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive"
+                          onClick={() => setRemovendoId(c.id)}
+                        >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       )}
@@ -198,14 +301,18 @@ function PurchasesPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir compra?</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta ação remove o pedido e seus itens. Não é possível excluir compras já recebidas.
+              Esta ação remove o pedido e seus itens. Não é possível excluir compras já recebidas
+              (totais ou parciais).
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => { if (removendoId) deleteMut.mutate(removendoId); setRemovendoId(null); }}
+              onClick={() => {
+                if (removendoId) deleteMut.mutate(removendoId);
+                setRemovendoId(null);
+              }}
             >
               Excluir
             </AlertDialogAction>

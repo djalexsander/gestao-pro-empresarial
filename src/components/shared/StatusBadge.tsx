@@ -28,6 +28,7 @@ const statusMap: Record<string, Tone> = {
   rascunho: "neutral",
   pendente: "warning",
   aprovada: "info",
+  recebida_parcial: "info",
   recebida: "success",
   cancelada: "danger",
 };
@@ -38,6 +39,7 @@ const labelMap: Record<string, string> = {
   rascunho: "Rascunho",
   pendente: "Pendente",
   aprovada: "Aprovada",
+  recebida_parcial: "Recebida parcial",
   recebida: "Recebida",
   cancelada: "Cancelada",
 };

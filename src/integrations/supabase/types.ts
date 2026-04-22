@@ -225,6 +225,7 @@ export type Database = {
           preco_unitario: number
           produto_id: string
           quantidade: number
+          quantidade_recebida: number
           total: number
           updated_at: string
           variacao_id: string | null
@@ -240,6 +241,7 @@ export type Database = {
           preco_unitario?: number
           produto_id: string
           quantidade: number
+          quantidade_recebida?: number
           total?: number
           updated_at?: string
           variacao_id?: string | null
@@ -255,6 +257,7 @@ export type Database = {
           preco_unitario?: number
           produto_id?: string
           quantidade?: number
+          quantidade_recebida?: number
           total?: number
           updated_at?: string
           variacao_id?: string | null
@@ -1389,6 +1392,16 @@ export type Database = {
             }
             Returns: string
           }
+      fornecedor_metricas: {
+        Args: never
+        Returns: {
+          compras_em_aberto: number
+          fornecedor_id: string
+          total_compras: number
+          ultima_compra: string
+          valor_total: number
+        }[]
+      }
       garantir_empresa_atual: { Args: { _nome?: string }; Returns: string }
       has_role: {
         Args: {
@@ -1407,6 +1420,17 @@ export type Database = {
           _gerar_financeiro?: boolean
         }
         Returns: string
+      }
+      receber_compra_itens: {
+        Args: {
+          _categoria_id?: string
+          _compra_id: string
+          _data_recebimento?: string
+          _data_vencimento?: string
+          _gerar_financeiro?: boolean
+          _itens: Json
+        }
+        Returns: Json
       }
       registrar_audit_log: {
         Args: {
@@ -1433,6 +1457,7 @@ export type Database = {
         | "rascunho"
         | "pendente"
         | "aprovada"
+        | "recebida_parcial"
         | "recebida"
         | "cancelada"
       forma_pagamento:
@@ -1608,6 +1633,7 @@ export const Constants = {
         "rascunho",
         "pendente",
         "aprovada",
+        "recebida_parcial",
         "recebida",
         "cancelada",
       ],
