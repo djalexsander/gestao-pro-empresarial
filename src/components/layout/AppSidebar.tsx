@@ -19,6 +19,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useIsSuperAdmin } from "@/hooks/useAdmin";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 interface NavItem {
   to: string;
