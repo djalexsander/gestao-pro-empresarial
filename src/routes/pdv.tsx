@@ -247,8 +247,7 @@ function PDVPage() {
       toast.warning("Adicione ao menos um item à venda.");
       return;
     }
-    // Próxima etapa de pagamento será implementada depois.
-    toast.success("Venda pronta para finalização — etapa de pagamento em breve.");
+    setFinalizarOpen(true);
   }
 
   // ============ Busca manual ============
