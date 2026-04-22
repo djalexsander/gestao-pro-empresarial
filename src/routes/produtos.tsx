@@ -83,9 +83,14 @@ function ProductsPage() {
         title="Produtos"
         description="Catálogo de produtos da empresa."
         actions={
-          <Button size="sm" className="gap-1.5" onClick={openNew}>
-            <Plus className="h-4 w-4" /> Novo produto
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setScanOpen(true)}>
+              <ScanLine className="h-4 w-4" /> Entrada por leitura
+            </Button>
+            <Button size="sm" className="gap-1.5" onClick={openNew}>
+              <Plus className="h-4 w-4" /> Novo produto
+            </Button>
+          </div>
         }
       />
 
