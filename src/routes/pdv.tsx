@@ -56,6 +56,9 @@ import { useHotkeys } from "@/hooks/useHotkeys";
 import { useProdutos } from "@/hooks/useProdutos";
 import { useClientes, type ClienteLite } from "@/hooks/useClientes";
 import { useSaldosLote, type FormaPagamento, type StatusPagamento } from "@/hooks/useVendas";
+import { useSomPDV } from "@/hooks/useSomPDV";
+import { ClienteDialog } from "@/components/clientes/ClienteDialog";
+import { UserPlus } from "lucide-react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -119,7 +122,10 @@ function PDVPage() {
     cliente: string | null;
   }>(null);
 
+  const [novoClienteOpen, setNovoClienteOpen] = useState(false);
+
   const saldosLote = useSaldosLote();
+  const som = useSomPDV();
 
   const scanInputRef = useRef<HTMLInputElement>(null);
 
@@ -196,7 +202,10 @@ function PDVPage() {
       const found = await buscarProdutoPorCodigo(v);
       if (found) {
         if (found.status !== "ativo") {
+          som.beep("warn");
           toast.warning(`Produto "${found.nome}" está ${found.status}.`);
+        } else {
+          som.beep("ok");
         }
         addItemFromProduto({
           produto_id: found.produto_id,
@@ -207,9 +216,11 @@ function PDVPage() {
         });
         toast.success(`+ ${found.nome}`, { duration: 1200 });
       } else {
+        som.beep("error");
         toast.error(`Produto não encontrado para "${v}"`);
       }
     } catch (e) {
+      som.beep("error");
       toast.error((e as Error).message);
     } finally {
       setBusy(false);
