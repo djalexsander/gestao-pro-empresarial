@@ -46,7 +46,12 @@ interface FinalizarVendaDialogProps {
   cliente: { id: string; nome: string } | null;
   observacao: string;
   operadorEmail?: string | null;
-  onConfirmed: (vendaId: string) => void;
+  onConfirmed: (result: {
+    vendaId: string;
+    forma: FormaPagamento;
+    status: StatusPagamento;
+    troco: number;
+  }) => void;
 }
 
 interface FormaPagamentoOption {
@@ -169,7 +174,12 @@ export function FinalizarVendaDialog({
       },
       {
         onSuccess: (vendaId) => {
-          onConfirmed(vendaId);
+          onConfirmed({
+            vendaId,
+            forma,
+            status: statusPagamento,
+            troco: isDinheiro ? troco : 0,
+          });
         },
       },
     );

@@ -1351,6 +1351,10 @@ export type Database = {
         Args: { _produto_id: string; _variacao_id?: string }
         Returns: number
       }
+      cancelar_venda: {
+        Args: { _motivo?: string; _venda_id: string }
+        Returns: string
+      }
       finalizar_venda_pdv: {
         Args: {
           _cliente_id: string
@@ -1394,6 +1398,13 @@ export type Database = {
           _target_type?: string
         }
         Returns: undefined
+      }
+      saldos_estoque_lote: {
+        Args: { _produto_ids: string[] }
+        Returns: {
+          produto_id: string
+          saldo: number
+        }[]
       }
     }
     Enums: {

@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ScannerDialog } from "@/components/scanner/ScannerDialog";
 import { FinalizarVendaDialog } from "@/components/pdv/FinalizarVendaDialog";
+import { VendaSucessoDialog } from "@/components/pdv/VendaSucessoDialog";
 import {
   buscarProdutoPorCodigo,
   type ProdutoBuscaResult,
@@ -53,6 +54,7 @@ import {
 import { useScanner } from "@/hooks/useScanner";
 import { useProdutos } from "@/hooks/useProdutos";
 import { useClientes, type ClienteLite } from "@/hooks/useClientes";
+import { useSaldosLote, type FormaPagamento, type StatusPagamento } from "@/hooks/useVendas";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -104,6 +106,19 @@ function PDVPage() {
   const [searchPopoverOpen, setSearchPopoverOpen] = useState(false);
   const [manualQuery, setManualQuery] = useState("");
   const [finalizarOpen, setFinalizarOpen] = useState(false);
+  const [sucessoOpen, setSucessoOpen] = useState(false);
+  const [vendaConcluida, setVendaConcluida] = useState<null | {
+    id: string;
+    numero: string | null;
+    total: number;
+    totalItens: number;
+    forma: FormaPagamento;
+    status: StatusPagamento;
+    troco: number;
+    cliente: string | null;
+  }>(null);
+
+  const saldosLote = useSaldosLote();
 
   const scanInputRef = useRef<HTMLInputElement>(null);
 
@@ -115,11 +130,18 @@ function PDVPage() {
 
   // Restaura foco quando abre/fecha popovers/dialogs
   useEffect(() => {
-    if (!scannerOpen && !clientePopoverOpen && !searchPopoverOpen && !confirmClear && !finalizarOpen) {
+    if (
+      !scannerOpen &&
+      !clientePopoverOpen &&
+      !searchPopoverOpen &&
+      !confirmClear &&
+      !finalizarOpen &&
+      !sucessoOpen
+    ) {
       const t = setTimeout(() => scanInputRef.current?.focus(), DEFAULT_FOCUS_DELAY);
       return () => clearTimeout(t);
     }
-  }, [scannerOpen, clientePopoverOpen, searchPopoverOpen, confirmClear, finalizarOpen]);
+  }, [scannerOpen, clientePopoverOpen, searchPopoverOpen, confirmClear, finalizarOpen, sucessoOpen]);
 
   // ============ Totais ============
   const totals = useMemo(() => {
@@ -242,11 +264,46 @@ function PDVPage() {
     navigate({ to: "/vendas" });
   }
 
-  function finalizarVenda() {
+  async function finalizarVenda() {
     if (items.length === 0) {
       toast.warning("Adicione ao menos um item à venda.");
       return;
     }
+
+    // ============ Validação de estoque ============
+    try {
+      const ids = Array.from(new Set(items.map((it) => it.produto_id)));
+      const saldos = await saldosLote.mutateAsync(ids);
+      const req = new Map<string, number>();
+      for (const it of items) {
+        req.set(it.produto_id, (req.get(it.produto_id) ?? 0) + it.quantidade);
+      }
+      const insuficientes: string[] = [];
+      for (const [pid, qty] of req.entries()) {
+        const saldo = saldos.get(pid) ?? 0;
+        if (saldo < qty) {
+          const it = items.find((i) => i.produto_id === pid);
+          insuficientes.push(
+            `${it?.nome ?? pid} (saldo ${saldo}, pedido ${qty})`,
+          );
+        }
+      }
+      if (insuficientes.length > 0) {
+        const msg = "Estoque insuficiente:\n• " + insuficientes.join("\n• ");
+        const ok = window.confirm(
+          msg + "\n\nDeseja continuar mesmo assim? O estoque ficará negativo.",
+        );
+        if (!ok) {
+          toast.warning("Venda não finalizada — estoque insuficiente.");
+          return;
+        }
+        toast.warning("Atenção: venda gerará estoque negativo.");
+      }
+    } catch (e) {
+      toast.error(`Falha ao validar estoque: ${(e as Error).message}`);
+      return;
+    }
+
     setFinalizarOpen(true);
   }
 
@@ -634,9 +691,36 @@ function PDVPage() {
         cliente={cliente ? { id: cliente.id, nome: cliente.nome } : null}
         observacao={observacao}
         operadorEmail={user?.email}
-        onConfirmed={() => {
+        onConfirmed={({ vendaId, forma, status, troco }) => {
           setFinalizarOpen(false);
+          setVendaConcluida({
+            id: vendaId,
+            numero: null,
+            total: totals.total,
+            totalItens: totals.totalItens,
+            forma,
+            status,
+            troco,
+            cliente: cliente?.nome ?? null,
+          });
+          setSucessoOpen(true);
+          // Limpa o carrinho mas mantém cliente para próxima venda rápida
           clearVenda();
+        }}
+      />
+
+      {/* Sucesso pós-venda */}
+      <VendaSucessoDialog
+        open={sucessoOpen}
+        onOpenChange={setSucessoOpen}
+        venda={vendaConcluida}
+        onNovaVenda={() => {
+          setSucessoOpen(false);
+          setVendaConcluida(null);
+        }}
+        onVerVendas={() => {
+          setSucessoOpen(false);
+          setVendaConcluida(null);
           setCliente(null);
           navigate({ to: "/vendas" });
         }}
