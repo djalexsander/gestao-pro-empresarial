@@ -200,13 +200,20 @@ export function VendaSucessoDialog({
             )}
           </ul>
 
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={handleImprimir}
-          >
-            <Printer className="h-4 w-4" /> Imprimir cupom
-          </Button>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant="outline"
+              onClick={handleImprimir}
+            >
+              <Printer className="h-4 w-4" /> Imprimir
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleBaixarPdf}
+            >
+              <Download className="h-4 w-4" /> Baixar PDF
+            </Button>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-2 border-t border-border bg-muted/20 p-4">
