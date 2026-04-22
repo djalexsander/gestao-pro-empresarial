@@ -482,6 +482,20 @@ function PDVPage() {
                     ))}
                   </CommandGroup>
                 </CommandList>
+                <div className="border-t border-border p-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start gap-2 text-primary hover:text-primary"
+                    onClick={() => {
+                      setClientePopoverOpen(false);
+                      setNovoClienteOpen(true);
+                    }}
+                  >
+                    <UserPlus className="h-4 w-4" />
+                    Cadastrar novo cliente
+                  </Button>
+                </div>
               </Command>
             </PopoverContent>
           </Popover>
@@ -797,6 +811,7 @@ function PDVPage() {
         operadorEmail={user?.email}
         onConfirmed={({ vendaId, forma, status, troco }) => {
           setFinalizarOpen(false);
+          som.beep("ok");
           setVendaConcluida({
             id: vendaId,
             numero: null,
@@ -810,6 +825,22 @@ function PDVPage() {
           setSucessoOpen(true);
           // Limpa o carrinho mas mantém cliente para próxima venda rápida
           clearVenda();
+        }}
+      />
+
+      {/* Cadastro rápido de cliente (PDV) */}
+      <ClienteDialog
+        open={novoClienteOpen}
+        onOpenChange={setNovoClienteOpen}
+        quickMode
+        onSaved={(c) => {
+          setCliente({
+            id: c.id,
+            nome: c.nome,
+            nome_fantasia: c.nome_fantasia ?? null,
+            documento: c.documento ?? null,
+          });
+          toast.success(`Cliente "${c.nome}" selecionado para a venda.`);
         }}
       />
 
