@@ -53,6 +53,8 @@ export interface FinalizarVendaInput {
   gerar_financeiro?: boolean;
   /** ID do funcionário operador que está realizando a venda. */
   operador_id?: string | null;
+  /** ID do terminal físico (PDV) onde a venda ocorreu. */
+  terminal_id?: string | null;
 }
 
 export function useFinalizarVendaPDV() {
@@ -74,6 +76,7 @@ export function useFinalizarVendaPDV() {
         _pagamentos: input.pagamentos && input.pagamentos.length > 0 ? input.pagamentos : null,
         _gerar_financeiro: input.gerar_financeiro ?? true,
         _operador_id: input.operador_id ?? null,
+        _terminal_id: input.terminal_id ?? null,
       });
       if (error) throw error;
       return data as string; // venda_id

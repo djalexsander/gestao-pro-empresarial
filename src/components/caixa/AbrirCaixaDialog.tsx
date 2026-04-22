@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Power, Loader2 } from "lucide-react";
 import { useAbrirCaixa } from "@/hooks/useCaixa";
+import { useTerminal } from "@/components/auth/TerminalProvider";
 
 interface Props {
   open: boolean;
@@ -20,12 +21,16 @@ interface Props {
   onAberto?: (caixaId: string) => void;
   /** ID do funcionário operando o caixa. Quando ausente, abre como admin. */
   operadorId?: string | null;
+  /** Força um terminal específico (PDV). Se ausente, usa o terminal global selecionado. */
+  terminalId?: string | null;
 }
 
-export function AbrirCaixaDialog({ open, onOpenChange, onAberto, operadorId }: Props) {
+export function AbrirCaixaDialog({ open, onOpenChange, onAberto, operadorId, terminalId }: Props) {
   const [valor, setValor] = useState("0");
   const [observacao, setObservacao] = useState("");
   const abrir = useAbrirCaixa();
+  const { terminal } = useTerminal();
+  const terminalEfetivo = terminalId ?? terminal?.id ?? null;
 
   useEffect(() => {
     if (open) {
@@ -42,6 +47,7 @@ export function AbrirCaixaDialog({ open, onOpenChange, onAberto, operadorId }: P
       valor_inicial: valorNum,
       observacao: observacao.trim() || null,
       operador_id: operadorId ?? null,
+      terminal_id: terminalEfetivo,
     });
     onAberto?.(id);
     onOpenChange(false);
@@ -61,6 +67,11 @@ export function AbrirCaixaDialog({ open, onOpenChange, onAberto, operadorId }: P
         </DialogHeader>
 
         <form onSubmit={handleConfirmar} className="space-y-4">
+          {terminal && (
+            <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              Terminal: <span className="font-medium text-foreground">{terminal.nome}</span>
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="valor-inicial">Valor inicial (troco)</Label>
             <div className="relative">
