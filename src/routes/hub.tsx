@@ -30,14 +30,20 @@ export const Route = createFileRoute("/hub")({
 
 function HubPage() {
   const { user, loading, signOut } = useAuth();
-  const { data: isSuperAdmin } = useIsSuperAdmin();
   const navigate = useNavigate();
+  const [adminAuthOpen, setAdminAuthOpen] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
       navigate({ to: "/auth", search: { redirect: "/hub" } });
     }
   }, [loading, user, navigate]);
+
+  // Sempre que o usuário aterrissa no Hub, o ERP volta a ficar travado.
+  // Para entrar de novo, precisa reconfirmar credenciais.
+  useEffect(() => {
+    lockErp();
+  }, []);
 
   if (loading || !user) return null;
 
@@ -77,22 +83,13 @@ function HubPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {isSuperAdmin && (
-            <Button
-              asChild
-              variant="ghost"
-              size="sm"
-              className="text-white/70 hover:bg-white/10 hover:text-white"
-            >
-              <Link to="/admin">
-                <ShieldCheck className="mr-1 h-4 w-4" /> Master
-              </Link>
-            </Button>
-          )}
           <Button
             variant="ghost"
             size="sm"
-            onClick={signOut}
+            onClick={() => {
+              lockErp();
+              signOut();
+            }}
             className="text-white/70 hover:bg-white/10 hover:text-white"
           >
             <LogOut className="mr-1 h-4 w-4" /> Sair
