@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTheme } from "@/components/theme/ThemeProvider";
+import { FuncionariosTab } from "@/components/configuracoes/FuncionariosTab";
 
 export const Route = createFileRoute("/configuracoes")({
   head: () => ({
@@ -29,7 +30,7 @@ function SettingsPage() {
       <Tabs defaultValue="empresa">
         <TabsList>
           <TabsTrigger value="empresa">Empresa</TabsTrigger>
-          <TabsTrigger value="usuarios">Usuários</TabsTrigger>
+          <TabsTrigger value="funcionarios">Funcionários</TabsTrigger>
           <TabsTrigger value="prefs">Preferências</TabsTrigger>
           <TabsTrigger value="integracoes">Integrações</TabsTrigger>
         </TabsList>
@@ -67,15 +68,8 @@ function SettingsPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="usuarios" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Usuários do sistema</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">Cadastro e permissões de usuários em breve.</p>
-            </CardContent>
-          </Card>
+        <TabsContent value="funcionarios" className="mt-4">
+          <FuncionariosTab />
         </TabsContent>
 
         <TabsContent value="prefs" className="mt-4">
