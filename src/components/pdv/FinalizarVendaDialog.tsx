@@ -409,7 +409,7 @@ export function FinalizarVendaDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl gap-0 overflow-hidden p-0">
+      <DialogContent ref={dialogContentRef} className="max-w-4xl gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b border-border bg-muted/30 px-6 py-4">
           <DialogTitle className="flex items-center gap-2 text-lg">
             <Receipt className="h-5 w-5 text-primary" /> Finalizar venda
