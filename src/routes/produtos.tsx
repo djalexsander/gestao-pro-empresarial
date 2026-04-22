@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Plus, Search, Pencil, Trash2, Loader2, PackagePlus } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Loader2, PackagePlus, ScanLine } from "lucide-react";
 import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -32,11 +32,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useCategorias, useDeleteProduto, useProdutos, type TipoIdentificacao } from "@/hooks/useProdutos";
+import { useCategorias, useDeleteProduto, useProdutos } from "@/hooks/useProdutos";
 import { useEstoqueSaldos } from "@/hooks/useEstoque";
 import { ProdutoDialog } from "@/components/produtos/ProdutoDialog";
-import { QuickCodeSearch } from "@/components/scanner";
-import { useNavigate } from "@tanstack/react-router";
+import { EntradaPorCodigoDialog } from "@/components/scanner";
 
 export const Route = createFileRoute("/produtos")({
   head: () => ({
@@ -58,13 +57,12 @@ function ProductsPage() {
   const deleteMut = useDeleteProduto();
 
   const [open, setOpen] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [categoriaFilter, setCategoriaFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [prefilledCodigo, setPrefilledCodigo] = useState<{ valor: string; tipo: TipoIdentificacao } | undefined>();
-  const navigate = useNavigate();
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -76,13 +74,8 @@ function ProductsPage() {
     });
   }, [produtos, search, categoriaFilter, statusFilter]);
 
-  function openNew() { setEditingId(null); setPrefilledCodigo(undefined); setOpen(true); }
-  function openEdit(id: string) { setEditingId(id); setPrefilledCodigo(undefined); setOpen(true); }
-  function openNewWithCode(valor: string) {
-    setEditingId(null);
-    setPrefilledCodigo({ valor, tipo: "codigo_barras" });
-    setOpen(true);
-  }
+  function openNew() { setEditingId(null); setOpen(true); }
+  function openEdit(id: string) { setEditingId(id); setOpen(true); }
 
   return (
     <div className="space-y-6">
@@ -90,9 +83,14 @@ function ProductsPage() {
         title="Produtos"
         description="Catálogo de produtos da empresa."
         actions={
-          <Button size="sm" className="gap-1.5" onClick={openNew}>
-            <Plus className="h-4 w-4" /> Novo produto
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setScanOpen(true)}>
+              <ScanLine className="h-4 w-4" /> Entrada por leitura
+            </Button>
+            <Button size="sm" className="gap-1.5" onClick={openNew}>
+              <Plus className="h-4 w-4" /> Novo produto
+            </Button>
+          </div>
         }
       />
 
@@ -203,6 +201,7 @@ function ProductsPage() {
       </Card>
 
       <ProdutoDialog open={open} onOpenChange={setOpen} produtoId={editingId} />
+      <EntradaPorCodigoDialog open={scanOpen} onOpenChange={setScanOpen} />
 
       <AlertDialog open={!!confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(null)}>
         <AlertDialogContent>
