@@ -50,11 +50,8 @@ function HubPage() {
       </div>
 
       <div className="grid w-full max-w-3xl gap-4 sm:grid-cols-2">
-        <Card
-          asChild
-          className="group cursor-pointer p-6 transition-all hover:border-primary hover:shadow-lg"
-        >
-          <Link to="/">
+        <Link to="/" className="group">
+          <Card className="cursor-pointer p-6 transition-all group-hover:border-primary group-hover:shadow-lg">
             <div className="flex flex-col items-center text-center">
               <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground">
                 <LayoutDashboard className="h-8 w-8" />
@@ -68,14 +65,11 @@ function HubPage() {
                 Administrador / Gerente
               </p>
             </div>
-          </Link>
-        </Card>
+          </Card>
+        </Link>
 
-        <Card
-          asChild
-          className="group cursor-pointer p-6 transition-all hover:border-primary hover:shadow-lg"
-        >
-          <Link to="/pos">
+        <Link to="/pos" className="group">
+          <Card className="cursor-pointer p-6 transition-all group-hover:border-primary group-hover:shadow-lg">
             <div className="flex flex-col items-center text-center">
               <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground">
                 <ShoppingCart className="h-8 w-8" />
@@ -89,8 +83,8 @@ function HubPage() {
                 Operador de caixa
               </p>
             </div>
-          </Link>
-        </Card>
+          </Card>
+        </Link>
       </div>
 
       <p className="mt-10 text-xs text-muted-foreground">

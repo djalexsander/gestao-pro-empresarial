@@ -18,7 +18,7 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { useOperador } from "@/components/auth/OperadorProvider";
 import { OperadorPinSelector } from "@/components/auth/OperadorPinDialog";
 import { useIsSuperAdmin } from "@/hooks/useAdmin";
-import { useCaixaAberto } from "@/hooks/useCaixa";
+import { useCaixaAberto, useCaixaResumo } from "@/hooks/useCaixa";
 import { AbrirCaixaDialog } from "@/components/caixa/AbrirCaixaDialog";
 import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
 
