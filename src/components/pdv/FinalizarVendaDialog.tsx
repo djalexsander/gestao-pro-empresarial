@@ -132,6 +132,7 @@ export function FinalizarVendaDialog({
 }: FinalizarVendaDialogProps) {
   const [pagamentos, setPagamentos] = useState<PagamentoLinha[]>([]);
   const [obsFinal, setObsFinal] = useState("");
+  const [hotkeyFlash, setHotkeyFlash] = useState<string | null>(null);
   const ultimoValorRef = useRef<HTMLInputElement>(null);
 
   const finalizar = useFinalizarVendaPDV();
@@ -143,9 +144,18 @@ export function FinalizarVendaDialog({
       inicial.valorRecebido = total;
       setPagamentos([inicial]);
       setObsFinal("");
+      setHotkeyFlash(null);
       setTimeout(() => ultimoValorRef.current?.focus(), 50);
     }
   }, [open, total]);
+
+  // Feedback visual de atalho (300ms)
+  function flashHotkey(key: string) {
+    setHotkeyFlash(key);
+    window.setTimeout(() => {
+      setHotkeyFlash((cur) => (cur === key ? null : cur));
+    }, 350);
+  }
 
   // ============= Cálculos derivados =============
   const totalPago = useMemo(
