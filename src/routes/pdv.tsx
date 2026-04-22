@@ -717,20 +717,30 @@ function PDVPage() {
           <div className="space-y-2">
             <Button
               size="lg"
-              className="h-14 w-full text-base font-semibold"
+              className={cn(
+                "h-14 w-full text-base font-semibold",
+                hotkeyFlash === "F10" && "ring-2 ring-primary ring-offset-2 ring-offset-background",
+              )}
               onClick={finalizarVenda}
               disabled={items.length === 0}
             >
               <CheckCircle2 className="h-5 w-5" />
               Finalizar venda · {formatBRL(totals.total)}
+              <PdvKbd className="ml-1 border-primary-foreground/30 bg-primary-foreground/15 text-primary-foreground">
+                F10
+              </PdvKbd>
             </Button>
             <div className="grid grid-cols-2 gap-2">
               <Button
                 variant="outline"
                 onClick={() => setConfirmClear("clear")}
                 disabled={items.length === 0}
+                className={cn(
+                  hotkeyFlash === "F8" && "ring-2 ring-primary ring-offset-2 ring-offset-background",
+                )}
               >
                 <Eraser className="h-4 w-4" /> Limpar
+                <PdvKbd className="ml-1">F8</PdvKbd>
               </Button>
               <Button
                 variant="outline"
@@ -738,6 +748,7 @@ function PDVPage() {
                 onClick={() => setConfirmClear("cancel")}
               >
                 <X className="h-4 w-4" /> Cancelar
+                <PdvKbd className="ml-1">Esc</PdvKbd>
               </Button>
             </div>
           </div>
