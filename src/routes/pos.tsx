@@ -86,7 +86,8 @@ function PosHomeScreen() {
   const { signOut } = useAuth();
   const { operador, trocarOperador } = useOperador();
   const { data: isSuperAdmin } = useIsSuperAdmin();
-  const { data: caixaAberto, isLoading: loadingCaixa } = useCaixaAberto();
+  const { data: caixaAberto, isLoading: loadingCaixa } = useCaixaAberto(operador?.id ?? null);
+  const { data: resumoCaixa } = useCaixaResumo(caixaAberto?.id);
   const [abrirOpen, setAbrirOpen] = useState(false);
   const [fecharOpen, setFecharOpen] = useState(false);
 
@@ -198,6 +199,7 @@ function PosHomeScreen() {
           open={fecharOpen}
           onOpenChange={setFecharOpen}
           caixaId={caixaAberto.id}
+          resumo={resumoCaixa ?? null}
         />
       )}
     </div>
