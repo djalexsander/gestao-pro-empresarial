@@ -117,3 +117,23 @@ function SettingsPage() {
     </div>
   );
 }
+
+function DarkModeSwitchRow() {
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-border p-4">
+      <div>
+        <p className="font-medium">Tema escuro</p>
+        <p className="text-sm text-muted-foreground">
+          Use a interface em modo escuro. A preferência fica salva neste navegador.
+        </p>
+      </div>
+      <Switch
+        checked={isDark}
+        onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
+        aria-label="Alternar tema escuro"
+      />
+    </div>
+  );
+}
