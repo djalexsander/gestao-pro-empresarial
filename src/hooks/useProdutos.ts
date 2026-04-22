@@ -3,10 +3,16 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/components/auth/AuthProvider";
 
+export type TipoIdentificacao = "sku" | "codigo_barras" | "qr_code" | "codigo_interno";
+
 export type Produto = {
   id: string;
   sku: string;
   codigo_barras: string | null;
+  qr_code: string | null;
+  codigo_interno: string | null;
+  tipo_identificacao_principal: TipoIdentificacao;
+  observacao_tecnica: string | null;
   nome: string;
   descricao: string | null;
   marca: string | null;
@@ -114,6 +120,10 @@ export function useProduto(id: string | undefined) {
 export type ProdutoInput = {
   sku: string;
   codigo_barras?: string | null;
+  qr_code?: string | null;
+  codigo_interno?: string | null;
+  tipo_identificacao_principal?: TipoIdentificacao;
+  observacao_tecnica?: string | null;
   nome: string;
   descricao?: string | null;
   marca?: string | null;
@@ -127,18 +137,33 @@ export type ProdutoInput = {
   ncm?: string | null;
 };
 
+function prettifyProdutoError(msg: string): string {
+  const m = msg.toLowerCase();
+  if (m.includes("produtos_owner_codigo_barras_unique"))
+    return "Este código de barras já está cadastrado em outro produto.";
+  if (m.includes("produtos_owner_qr_code_unique"))
+    return "Este QR Code já está cadastrado em outro produto.";
+  if (m.includes("produtos_owner_sku_unique"))
+    return "Este SKU já está cadastrado em outro produto.";
+  if (m.includes("produtos_owner_codigo_interno_unique"))
+    return "Este código interno já está cadastrado em outro produto.";
+  return msg;
+}
+
 export function useCreateProduto() {
   const qc = useQueryClient();
   const { user } = useAuth();
   return useMutation({
     mutationFn: async (input: ProdutoInput) => {
       if (!user) throw new Error("Não autenticado");
+      // Cast: types gerados ainda não conhecem campos novos (qr_code, codigo_interno, etc.)
       const { data, error } = await supabase
         .from("produtos")
-        .insert({ ...input, owner_id: user.id })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .insert({ ...input, owner_id: user.id } as any)
         .select()
         .single();
-      if (error) throw error;
+      if (error) throw new Error(prettifyProdutoError(error.message));
       return data;
     },
     onSuccess: () => {
@@ -156,11 +181,12 @@ export function useUpdateProduto() {
     mutationFn: async ({ id, ...input }: ProdutoInput & { id: string }) => {
       const { data, error } = await supabase
         .from("produtos")
-        .update(input)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .update(input as any)
         .eq("id", id)
         .select()
         .single();
-      if (error) throw error;
+      if (error) throw new Error(prettifyProdutoError(error.message));
       return data;
     },
     onSuccess: (_d, vars) => {
