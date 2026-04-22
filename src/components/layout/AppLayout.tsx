@@ -11,6 +11,7 @@ import { findModuleByPath, type ModuleKey } from "./navigation";
 import { useIsSuperAdmin } from "@/hooks/useAdmin";
 import { Link } from "@tanstack/react-router";
 import { ShieldCheck } from "lucide-react";
+import { AssinaturaBanner } from "./AssinaturaBanner";
 
 export function AppLayout() {
   const location = useLocation();
@@ -68,6 +69,7 @@ function AppShell() {
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-background">
+      <AssinaturaBanner />
       <div className="flex items-center">
         <div className="flex-1">
           <AppMenubar activeModule={activeModule} onModuleSelect={setActiveModule} />
