@@ -1,11 +1,9 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
   ShoppingCart,
   LogOut,
   PackageOpen,
-  ArrowLeftRight,
-  LayoutDashboard,
   Loader2,
   Receipt,
 } from "lucide-react";
@@ -13,12 +11,10 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { RequireAuth } from "@/components/auth/RequireAuth";
-import { useAuth } from "@/components/auth/AuthProvider";
 import { useOperador } from "@/components/auth/OperadorProvider";
 import { useTerminal } from "@/components/auth/TerminalProvider";
 import { OperadorPinSelector } from "@/components/auth/OperadorPinDialog";
 import { TerminalSelector, TerminalAtualBadge } from "@/components/auth/TerminalSelector";
-import { useIsSuperAdmin } from "@/hooks/useAdmin";
 import { useCaixaAberto, useCaixaResumo } from "@/hooks/useCaixa";
 import { AbrirCaixaDialog } from "@/components/caixa/AbrirCaixaDialog";
 import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
@@ -51,7 +47,7 @@ function PosShell() {
 }
 
 function PosTerminalScreen() {
-  const { signOut } = useAuth();
+  const navigate = useNavigate();
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <header className="flex items-center justify-between border-b border-border bg-card px-6 py-3">
@@ -60,13 +56,13 @@ function PosTerminalScreen() {
           <span className="font-semibold">Gestão Pro · PDV</span>
         </div>
         <div className="flex gap-2">
-          <Button variant="ghost" size="sm" asChild>
-            <Link to="/hub">
-              <ArrowLeftRight className="mr-1 h-4 w-4" /> Voltar ao Hub
-            </Link>
-          </Button>
-          <Button variant="ghost" size="sm" onClick={signOut}>
-            <LogOut className="mr-1 h-4 w-4" /> Sair
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate({ to: "/hub" })}
+            title="Voltar para a tela inicial"
+          >
+            <LogOut className="mr-1 h-4 w-4" /> Voltar ao Hub
           </Button>
         </div>
       </header>
@@ -86,8 +82,7 @@ function PosTerminalScreen() {
 }
 
 function PosLoginScreen() {
-  const { signOut } = useAuth();
-  const { data: isSuperAdmin } = useIsSuperAdmin();
+  const navigate = useNavigate();
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <header className="flex items-center justify-between border-b border-border bg-card px-6 py-3">
@@ -97,15 +92,13 @@ function PosLoginScreen() {
           <TerminalAtualBadge />
         </div>
         <div className="flex gap-2">
-          {isSuperAdmin && (
-            <Button variant="ghost" size="sm" asChild>
-              <Link to="/">
-                <LayoutDashboard className="mr-1 h-4 w-4" /> Voltar ao Admin
-              </Link>
-            </Button>
-          )}
-          <Button variant="ghost" size="sm" onClick={signOut}>
-            <LogOut className="mr-1 h-4 w-4" /> Sair
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate({ to: "/hub" })}
+            title="Voltar para a tela inicial"
+          >
+            <LogOut className="mr-1 h-4 w-4" /> Voltar ao Hub
           </Button>
         </div>
       </header>
@@ -128,7 +121,6 @@ function PosLoginScreen() {
 function PosHomeScreen() {
   const navigate = useNavigate();
   const { operador, trocarOperador } = useOperador();
-  const { data: isSuperAdmin } = useIsSuperAdmin();
   const { data: caixaAberto, isLoading: loadingCaixa } = useCaixaAberto(operador?.id ?? null);
   const { data: resumoCaixa } = useCaixaResumo(caixaAberto?.id);
   const [abrirOpen, setAbrirOpen] = useState(false);
@@ -140,6 +132,14 @@ function PosHomeScreen() {
       navigate({ to: "/pdv" });
     }
   }, [loadingCaixa, caixaAberto, fecharOpen, abrirOpen, navigate]);
+
+  function handleEncerrarSessao() {
+    // Encerra o operador atual e volta para a tela HUB.
+    // NUNCA leva direto para o ERP — operador deve passar pelo HUB
+    // (que exige login admin para entrar no ERP).
+    trocarOperador();
+    navigate({ to: "/hub" });
+  }
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -162,18 +162,11 @@ function PosHomeScreen() {
           ) : (
             <Badge variant="secondary">Caixa fechado</Badge>
           )}
-          {isSuperAdmin && (
-            <Button variant="ghost" size="sm" asChild>
-              <Link to="/">
-                <LayoutDashboard className="mr-1 h-4 w-4" /> Admin
-              </Link>
-            </Button>
-          )}
           <Button
             variant="outline"
             size="sm"
-            onClick={trocarOperador}
-            title="Encerrar sessão do operador (volta para seleção de operador)"
+            onClick={handleEncerrarSessao}
+            title="Encerrar sessão do operador e voltar para a tela inicial"
           >
             <LogOut className="mr-1 h-4 w-4" /> Encerrar sessão
           </Button>
