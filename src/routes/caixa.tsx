@@ -37,7 +37,7 @@ import { AbrirCaixaDialog } from "@/components/caixa/AbrirCaixaDialog";
 import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
 import { MovimentoCaixaDialog } from "@/components/caixa/MovimentoCaixaDialog";
 import {
-  useCaixaAberto,
+  useQualquerCaixaAberto,
   useCaixaResumo,
   useCaixasHistorico,
   useCaixaMovimentos,
