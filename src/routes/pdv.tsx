@@ -106,6 +106,19 @@ function PDVPage() {
   const [searchPopoverOpen, setSearchPopoverOpen] = useState(false);
   const [manualQuery, setManualQuery] = useState("");
   const [finalizarOpen, setFinalizarOpen] = useState(false);
+  const [sucessoOpen, setSucessoOpen] = useState(false);
+  const [vendaConcluida, setVendaConcluida] = useState<null | {
+    id: string;
+    numero: string | null;
+    total: number;
+    totalItens: number;
+    forma: FormaPagamento;
+    status: StatusPagamento;
+    troco: number;
+    cliente: string | null;
+  }>(null);
+
+  const saldosLote = useSaldosLote();
 
   const scanInputRef = useRef<HTMLInputElement>(null);
 
