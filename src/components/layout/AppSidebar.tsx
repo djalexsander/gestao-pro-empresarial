@@ -77,6 +77,19 @@ export function AppSidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: A
   const location = useLocation();
   const currentPath = location.pathname;
   const { data: isSuperAdmin } = useIsSuperAdmin();
+  const { user } = useAuth();
+
+  const displayName =
+    (user?.user_metadata?.nome as string | undefined) ||
+    (user?.user_metadata?.full_name as string | undefined) ||
+    (user?.email ? user.email.split("@")[0] : "Usuário");
+  const displayEmail = user?.email ?? "";
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((n) => n[0]?.toUpperCase() ?? "")
+    .join("") || "U";
 
   const allGroups: NavGroup[] = isSuperAdmin
     ? [
