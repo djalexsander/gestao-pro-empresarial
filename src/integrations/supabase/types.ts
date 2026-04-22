@@ -1094,12 +1094,52 @@ export type Database = {
           },
         ]
       }
+      venda_pagamentos: {
+        Row: {
+          created_at: string
+          forma_pagamento: Database["public"]["Enums"]["forma_pagamento"]
+          id: string
+          observacao: string | null
+          owner_id: string
+          parcelas: number | null
+          troco: number | null
+          valor: number
+          valor_recebido: number | null
+          venda_id: string
+        }
+        Insert: {
+          created_at?: string
+          forma_pagamento: Database["public"]["Enums"]["forma_pagamento"]
+          id?: string
+          observacao?: string | null
+          owner_id: string
+          parcelas?: number | null
+          troco?: number | null
+          valor: number
+          valor_recebido?: number | null
+          venda_id: string
+        }
+        Update: {
+          created_at?: string
+          forma_pagamento?: Database["public"]["Enums"]["forma_pagamento"]
+          id?: string
+          observacao?: string | null
+          owner_id?: string
+          parcelas?: number | null
+          troco?: number | null
+          valor?: number
+          valor_recebido?: number | null
+          venda_id?: string
+        }
+        Relationships: []
+      }
       vendas: {
         Row: {
           cliente_id: string | null
           created_at: string
           data_emissao: string
           data_entrega: string | null
+          data_finalizacao: string | null
           desconto: number
           forma_pagamento: Database["public"]["Enums"]["forma_pagamento"] | null
           frete: number
@@ -1111,9 +1151,12 @@ export type Database = {
           owner_id: string
           serie_nf: string | null
           status: Database["public"]["Enums"]["venda_status"]
+          status_pagamento: string
           subtotal: number
           total: number
+          troco: number | null
           updated_at: string
+          valor_recebido: number | null
           vendedor_id: string | null
         }
         Insert: {
@@ -1121,6 +1164,7 @@ export type Database = {
           created_at?: string
           data_emissao?: string
           data_entrega?: string | null
+          data_finalizacao?: string | null
           desconto?: number
           forma_pagamento?:
             | Database["public"]["Enums"]["forma_pagamento"]
@@ -1134,9 +1178,12 @@ export type Database = {
           owner_id: string
           serie_nf?: string | null
           status?: Database["public"]["Enums"]["venda_status"]
+          status_pagamento?: string
           subtotal?: number
           total?: number
+          troco?: number | null
           updated_at?: string
+          valor_recebido?: number | null
           vendedor_id?: string | null
         }
         Update: {
@@ -1144,6 +1191,7 @@ export type Database = {
           created_at?: string
           data_emissao?: string
           data_entrega?: string | null
+          data_finalizacao?: string | null
           desconto?: number
           forma_pagamento?:
             | Database["public"]["Enums"]["forma_pagamento"]
@@ -1157,9 +1205,12 @@ export type Database = {
           owner_id?: string
           serie_nf?: string | null
           status?: Database["public"]["Enums"]["venda_status"]
+          status_pagamento?: string
           subtotal?: number
           total?: number
+          troco?: number | null
           updated_at?: string
+          valor_recebido?: number | null
           vendedor_id?: string | null
         }
         Relationships: [
@@ -1299,6 +1350,22 @@ export type Database = {
       calcular_saldo_estoque: {
         Args: { _produto_id: string; _variacao_id?: string }
         Returns: number
+      }
+      finalizar_venda_pdv: {
+        Args: {
+          _cliente_id: string
+          _desconto: number
+          _forma: Database["public"]["Enums"]["forma_pagamento"]
+          _gerar_financeiro?: boolean
+          _itens: Json
+          _observacao: string
+          _status_pagamento: string
+          _subtotal: number
+          _total: number
+          _troco: number
+          _valor_recebido: number
+        }
+        Returns: string
       }
       garantir_empresa_atual: { Args: { _nome?: string }; Returns: string }
       has_role: {

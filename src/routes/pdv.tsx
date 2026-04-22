@@ -45,6 +45,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ScannerDialog } from "@/components/scanner/ScannerDialog";
+import { FinalizarVendaDialog } from "@/components/pdv/FinalizarVendaDialog";
 import {
   buscarProdutoPorCodigo,
   type ProdutoBuscaResult,
@@ -102,6 +103,7 @@ function PDVPage() {
   const [lastAddedKey, setLastAddedKey] = useState<string | null>(null);
   const [searchPopoverOpen, setSearchPopoverOpen] = useState(false);
   const [manualQuery, setManualQuery] = useState("");
+  const [finalizarOpen, setFinalizarOpen] = useState(false);
 
   const scanInputRef = useRef<HTMLInputElement>(null);
 
@@ -113,11 +115,11 @@ function PDVPage() {
 
   // Restaura foco quando abre/fecha popovers/dialogs
   useEffect(() => {
-    if (!scannerOpen && !clientePopoverOpen && !searchPopoverOpen && !confirmClear) {
+    if (!scannerOpen && !clientePopoverOpen && !searchPopoverOpen && !confirmClear && !finalizarOpen) {
       const t = setTimeout(() => scanInputRef.current?.focus(), DEFAULT_FOCUS_DELAY);
       return () => clearTimeout(t);
     }
-  }, [scannerOpen, clientePopoverOpen, searchPopoverOpen, confirmClear]);
+  }, [scannerOpen, clientePopoverOpen, searchPopoverOpen, confirmClear, finalizarOpen]);
 
   // ============ Totais ============
   const totals = useMemo(() => {
@@ -245,8 +247,7 @@ function PDVPage() {
       toast.warning("Adicione ao menos um item à venda.");
       return;
     }
-    // Próxima etapa de pagamento será implementada depois.
-    toast.success("Venda pronta para finalização — etapa de pagamento em breve.");
+    setFinalizarOpen(true);
   }
 
   // ============ Busca manual ============
@@ -612,6 +613,32 @@ function PDVPage() {
         onResult={(scanned) => {
           setScannerOpen(false);
           handleScanCode(scanned);
+        }}
+      />
+
+      {/* Finalização da venda */}
+      <FinalizarVendaDialog
+        open={finalizarOpen}
+        onOpenChange={setFinalizarOpen}
+        itens={items.map((it) => ({
+          produto_id: it.produto_id,
+          quantidade: it.quantidade,
+          preco_unitario: it.preco_unitario,
+          desconto: it.desconto,
+          descricao: it.nome,
+        }))}
+        subtotal={totals.subtotal}
+        desconto={totals.descontoTotal}
+        total={totals.total}
+        totalItens={totals.totalItens}
+        cliente={cliente ? { id: cliente.id, nome: cliente.nome } : null}
+        observacao={observacao}
+        operadorEmail={user?.email}
+        onConfirmed={() => {
+          setFinalizarOpen(false);
+          clearVenda();
+          setCliente(null);
+          navigate({ to: "/vendas" });
         }}
       />
 
