@@ -1,4 +1,5 @@
-import { Bell, Menu, Plus, Search } from "lucide-react";
+import { Bell, Menu, Plus, Search, ShoppingCart } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -37,6 +38,23 @@ export function AppTopbar({ onMobileMenuClick }: AppTopbarProps) {
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        <Button
+          asChild
+          variant="outline"
+          className="hidden sm:inline-flex h-10 gap-1.5 border-primary/40 text-primary hover:bg-primary hover:text-primary-foreground"
+        >
+          <Link to="/pos">
+            <ShoppingCart className="h-4 w-4" />
+            Abrir PDV
+          </Link>
+        </Button>
+
+        <Button asChild variant="outline" size="icon" className="sm:hidden h-10 w-10 border-primary/40 text-primary">
+          <Link to="/pos" aria-label="Abrir PDV">
+            <ShoppingCart className="h-5 w-5" />
+          </Link>
+        </Button>
+
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button className="hidden sm:inline-flex h-10 gap-1.5">
