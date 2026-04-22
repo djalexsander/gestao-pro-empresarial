@@ -106,7 +106,7 @@ export function useAdminPlanos() {
   return useQuery({
     queryKey: ["admin-planos"],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("admin_listar_planos");
+      const { data, error } = await (supabase.rpc as any)("admin_listar_planos");
       if (error) throw error;
       return (data ?? []) as Plano[];
     },
@@ -127,7 +127,7 @@ export function useUpsertPlano() {
       ativo: boolean;
       ordem?: number;
     }) => {
-      const { error } = await supabase.rpc("admin_upsert_plano", {
+      const { error } = await (supabase.rpc as any)("admin_upsert_plano", {
         _id: input.id,
         _nome: input.nome,
         _descricao: input.descricao ?? null,
@@ -153,7 +153,7 @@ export function useDeletePlano() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.rpc("admin_delete_plano", { _id: id });
+      const { error } = await (supabase.rpc as any)("admin_delete_plano", { _id: id });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -171,7 +171,7 @@ export function useAdminModulos() {
   return useQuery({
     queryKey: ["admin-modulos"],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("admin_listar_modulos");
+      const { data, error } = await (supabase.rpc as any)("admin_listar_modulos");
       if (error) throw error;
       return (data ?? []) as Modulo[];
     },
@@ -191,7 +191,7 @@ export function useUpsertModulo() {
       aplica_restricao: boolean;
       ordem?: number;
     }) => {
-      const { error } = await supabase.rpc("admin_upsert_modulo", {
+      const { error } = await (supabase.rpc as any)("admin_upsert_modulo", {
         _id: input.id,
         _nome: input.nome,
         _chave: input.chave,
@@ -215,7 +215,7 @@ export function useDeleteModulo() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.rpc("admin_delete_modulo", { _id: id });
+      const { error } = await (supabase.rpc as any)("admin_delete_modulo", { _id: id });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -233,7 +233,7 @@ export function useAdminAssinaturas() {
   return useQuery({
     queryKey: ["admin-assinaturas"],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("admin_listar_assinaturas");
+      const { data, error } = await (supabase.rpc as any)("admin_listar_assinaturas");
       if (error) throw error;
       return (data ?? []) as AssinaturaRow[];
     },
@@ -251,7 +251,7 @@ export function useSetAssinatura() {
       data_expiracao?: string | null;
       observacoes?: string | null;
     }) => {
-      const { error } = await supabase.rpc("admin_set_assinatura", {
+      const { error } = await (supabase.rpc as any)("admin_set_assinatura", {
         _empresa_id: input.empresa_id,
         _plano_id: input.plano_id,
         _status: input.status,
@@ -276,7 +276,7 @@ export function useEmpresaModulos(empresaId?: string | null) {
   return useQuery({
     queryKey: ["admin-empresa-modulos", empresaId ?? "all"],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("admin_listar_empresa_modulos", {
+      const { data, error } = await (supabase.rpc as any)("admin_listar_empresa_modulos", {
         _empresa_id: empresaId ?? null,
       });
       if (error) throw error;
@@ -296,7 +296,7 @@ export function useSetEmpresaModulo() {
       data_expiracao?: string | null;
       observacoes?: string | null;
     }) => {
-      const { error } = await supabase.rpc("admin_set_empresa_modulo", {
+      const { error } = await (supabase.rpc as any)("admin_set_empresa_modulo", {
         _empresa_id: input.empresa_id,
         _modulo_id: input.modulo_id,
         _status: input.status,
@@ -319,7 +319,7 @@ export function useRemoverEmpresaModulo() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.rpc("admin_remover_empresa_modulo", { _id: id });
+      const { error } = await (supabase.rpc as any)("admin_remover_empresa_modulo", { _id: id });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -338,7 +338,7 @@ export function useAdminPagamentos(empresaId?: string | null) {
   return useQuery({
     queryKey: ["admin-pagamentos", empresaId ?? "all"],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("admin_listar_pagamentos", {
+      const { data, error } = await (supabase.rpc as any)("admin_listar_pagamentos", {
         _empresa_id: empresaId ?? null,
       });
       if (error) throw error;
@@ -364,7 +364,7 @@ export function useUpsertPagamento() {
       data_pagamento?: string | null;
       observacoes?: string | null;
     }) => {
-      const { error } = await supabase.rpc("admin_registrar_pagamento", {
+      const { error } = await (supabase.rpc as any)("admin_registrar_pagamento", {
         _id: input.id,
         _empresa_id: input.empresa_id,
         _referencia_tipo: input.referencia_tipo,
@@ -392,7 +392,7 @@ export function useDeletePagamento() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.rpc("admin_delete_pagamento", { _id: id });
+      const { error } = await (supabase.rpc as any)("admin_delete_pagamento", { _id: id });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -410,7 +410,7 @@ export function useConfigComercial() {
   return useQuery({
     queryKey: ["admin-config-comercial"],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("admin_get_config_comercial");
+      const { data, error } = await (supabase.rpc as any)("admin_get_config_comercial");
       if (error) throw error;
       return data as unknown as ConfigComercial;
     },
@@ -426,7 +426,7 @@ export function useSetConfigComercial() {
       plano_padrao_id: string | null;
       valor_padrao_sistema: number;
     }) => {
-      const { error } = await supabase.rpc("admin_set_config_comercial", {
+      const { error } = await (supabase.rpc as any)("admin_set_config_comercial", {
         _dias_trial: input.dias_trial,
         _permitir_modulos_no_trial: input.permitir_modulos_no_trial,
         _plano_padrao_id: input.plano_padrao_id,
@@ -460,7 +460,7 @@ export function useMinhaAssinatura() {
     queryKey: ["minha-assinatura"],
     staleTime: 60_000,
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("minha_assinatura_status");
+      const { data, error } = await (supabase.rpc as any)("minha_assinatura_status");
       if (error) throw error;
       return data as unknown as MinhaAssinatura;
     },
