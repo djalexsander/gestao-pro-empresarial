@@ -1,5 +1,6 @@
 import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { ThemeProvider, themeInitScript } from "@/components/theme/ThemeProvider";
 
 import appCss from "../styles.css?url";
 
@@ -39,6 +40,10 @@ export const Route = createRootRoute({
       { name: "twitter:card", content: "summary" },
     ],
     links: [{ rel: "stylesheet", href: appCss }],
+    scripts: [
+      // Aplica o tema antes da hidratação para evitar flash claro/escuro.
+      { children: themeInitScript },
+    ],
   }),
   shellComponent: RootShell,
   component: RootComponent,
@@ -47,7 +52,7 @@ export const Route = createRootRoute({
 
 function RootShell({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pt-BR">
+    <html lang="pt-BR" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
@@ -60,5 +65,9 @@ function RootShell({ children }: { children: React.ReactNode }) {
 }
 
 function RootComponent() {
-  return <AppLayout />;
+  return (
+    <ThemeProvider>
+      <AppLayout />
+    </ThemeProvider>
+  );
 }
