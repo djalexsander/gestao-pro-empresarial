@@ -1,4 +1,3 @@
-import { useEffect, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -17,13 +16,14 @@ import {
   ListChecks,
   ArrowRightLeft,
   Printer,
+  Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatBRL } from "@/lib/mock-data";
 import { toast } from "sonner";
 import type { StatusPagamento, FormaPagamento } from "@/hooks/useVendas";
 import { useConfigEmpresa } from "@/hooks/useConfigEmpresa";
-import { imprimirCupom, type CupomItem } from "@/lib/cupom";
+import { imprimirCupom, baixarCupomHtml, type CupomItem } from "@/lib/cupom";
 
 interface VendaSucessoDialogProps {
   open: boolean;
