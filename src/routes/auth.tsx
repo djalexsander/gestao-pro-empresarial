@@ -92,7 +92,7 @@ function AuthPage() {
   const { redirect } = Route.useSearch();
 
   if (loading) return null;
-  if (user) return <Navigate to={redirect ?? "/"} />;
+  if (user) return <Navigate to={redirect ?? "/hub"} />;
 
   return (
     <div className="relative min-h-screen w-full overflow-hidden bg-[oklch(0.14_0.04_265)] text-white">
