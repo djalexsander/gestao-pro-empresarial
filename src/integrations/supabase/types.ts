@@ -1433,6 +1433,7 @@ export type Database = {
         | "rascunho"
         | "pendente"
         | "aprovada"
+        | "recebida_parcial"
         | "recebida"
         | "cancelada"
       forma_pagamento:
@@ -1608,6 +1609,7 @@ export const Constants = {
         "rascunho",
         "pendente",
         "aprovada",
+        "recebida_parcial",
         "recebida",
         "cancelada",
       ],
