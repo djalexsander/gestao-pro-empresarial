@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import type { StatusPagamento, FormaPagamento } from "@/hooks/useVendas";
 import { useConfigEmpresa } from "@/hooks/useConfigEmpresa";
 import { imprimirCupom, baixarCupomHtml, type CupomItem } from "@/lib/cupom";
+import { useHotkeys } from "@/hooks/useHotkeys";
 
 interface VendaSucessoDialogProps {
   open: boolean;
@@ -120,6 +121,19 @@ export function VendaSucessoDialog({
     }
   }
 
+  // Atalhos contextuais: ativos APENAS enquanto o dialog está aberto.
+  // Cleanup automático ao fechar libera os atalhos para o resto do sistema.
+  useHotkeys(
+    [
+      { key: "F11", handler: handleImprimir },
+      { key: "p", ctrl: true, handler: handleImprimir, allowInInputs: true },
+      { key: "Enter", handler: () => onNovaVenda() },
+      { key: "Escape", handler: () => onOpenChange(false) },
+      { key: "v", handler: () => onVerVendas() },
+    ],
+    { enabled: open && !!venda },
+  );
+
   if (!venda) return null;
 
   return (
@@ -201,16 +215,11 @@ export function VendaSucessoDialog({
           </ul>
 
           <div className="grid grid-cols-2 gap-2">
-            <Button
-              variant="outline"
-              onClick={handleImprimir}
-            >
+            <Button variant="outline" onClick={handleImprimir}>
               <Printer className="h-4 w-4" /> Imprimir
+              <Kbd>F11</Kbd>
             </Button>
-            <Button
-              variant="outline"
-              onClick={handleBaixarPdf}
-            >
+            <Button variant="outline" onClick={handleBaixarPdf}>
               <Download className="h-4 w-4" /> Baixar PDF
             </Button>
           </div>
@@ -219,13 +228,40 @@ export function VendaSucessoDialog({
         <div className="grid grid-cols-2 gap-2 border-t border-border bg-muted/20 p-4">
           <Button variant="outline" onClick={onVerVendas}>
             <ListChecks className="h-4 w-4" /> Ver vendas
+            <Kbd>V</Kbd>
           </Button>
           <Button onClick={onNovaVenda} autoFocus>
             <Plus className="h-4 w-4" /> Nova venda
+            <Kbd variant="primary">Enter</Kbd>
           </Button>
+        </div>
+
+        <div className="border-t border-border bg-muted/10 px-4 py-2 text-center text-[10px] uppercase tracking-wide text-muted-foreground">
+          Esc fechar · Ctrl+P imprimir
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function Kbd({
+  children,
+  variant = "default",
+}: {
+  children: React.ReactNode;
+  variant?: "default" | "primary";
+}) {
+  return (
+    <kbd
+      className={cn(
+        "ml-1 rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold leading-none",
+        variant === "primary"
+          ? "border-primary-foreground/30 bg-primary-foreground/15 text-primary-foreground"
+          : "border-border bg-muted text-muted-foreground",
+      )}
+    >
+      {children}
+    </kbd>
   );
 }
 
