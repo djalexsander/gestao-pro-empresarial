@@ -553,9 +553,92 @@ function PDVPage() {
                 {cliente ? cliente.nome : "Cliente: Consumidor"}
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-80 p-0">
+            <PopoverContent align="end" className="w-96 p-0">
+              {/* Busca por CPF/CNPJ — antiduplicidade */}
+              <div className="space-y-2 border-b border-border bg-muted/30 p-3">
+                <label className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  <IdCard className="h-3.5 w-3.5" />
+                  Buscar por CPF / CNPJ
+                </label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={docQuery}
+                    onChange={(e) =>
+                      setDocQuery(maskDocumentoProgressivo(e.target.value))
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleSelecionarPorDoc();
+                      }
+                    }}
+                    placeholder="000.000.000-00"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    className={cn(
+                      "h-9 font-mono text-sm",
+                      docInfo.tipo && !docInfo.valido &&
+                        "border-destructive focus-visible:ring-destructive",
+                      docInfo.valido && "border-success focus-visible:ring-success",
+                    )}
+                  />
+                  <Button
+                    size="sm"
+                    type="button"
+                    onClick={handleSelecionarPorDoc}
+                    disabled={!docInfo.valido || docLookupBusy}
+                  >
+                    {docLookupBusy ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Search className="h-4 w-4" />
+                    )}
+                    Buscar
+                  </Button>
+                </div>
+
+                {/* Feedback */}
+                {docQuery && !docInfo.tipo && (
+                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <AlertCircle className="h-3 w-3" />
+                    Digite os {classificarDocumento(docQuery) === null ? "11 dígitos do CPF ou 14 do CNPJ" : ""}.
+                  </p>
+                )}
+                {docInfo.tipo && !docInfo.valido && (
+                  <p className="flex items-center gap-1.5 text-xs text-destructive">
+                    <AlertCircle className="h-3 w-3" />
+                    {docInfo.tipo} inválido — confira os dígitos.
+                  </p>
+                )}
+                {docInfo.valido && matchLocalPorDoc && (
+                  <div className="rounded-md border border-success/30 bg-success/10 p-2 text-xs">
+                    <p className="font-medium text-success">
+                      Cliente já cadastrado:
+                    </p>
+                    <p className="mt-0.5 truncate">
+                      {matchLocalPorDoc.nome}{" "}
+                      <span className="text-muted-foreground">
+                        ({formatarDocumento(matchLocalPorDoc.documento ?? "")})
+                      </span>
+                    </p>
+                  </div>
+                )}
+                {docInfo.valido && !matchLocalPorDoc && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-start gap-2"
+                    onClick={handleCadastrarComDoc}
+                  >
+                    <UserPlus className="h-4 w-4" />
+                    Cadastrar com este {docInfo.tipo}
+                  </Button>
+                )}
+              </div>
+
               <Command>
-                <CommandInput placeholder="Buscar cliente..." />
+                <CommandInput placeholder="Buscar cliente por nome..." />
                 <CommandList>
                   <CommandEmpty>Nenhum cliente.</CommandEmpty>
                   <CommandGroup>
@@ -577,11 +660,11 @@ function PDVPage() {
                         }}
                       >
                         <User className="h-4 w-4" />
-                        <div className="flex flex-col">
-                          <span>{c.nome}</span>
+                        <div className="flex min-w-0 flex-col">
+                          <span className="truncate">{c.nome}</span>
                           {c.documento && (
-                            <span className="text-xs text-muted-foreground">
-                              {c.documento}
+                            <span className="font-mono text-xs text-muted-foreground">
+                              {formatarDocumento(c.documento)}
                             </span>
                           )}
                         </div>
@@ -596,6 +679,7 @@ function PDVPage() {
                     className="w-full justify-start gap-2 text-primary hover:text-primary"
                     onClick={() => {
                       setClientePopoverOpen(false);
+                      setNovoClienteDoc(null);
                       setNovoClienteOpen(true);
                     }}
                   >
