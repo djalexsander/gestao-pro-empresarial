@@ -219,6 +219,8 @@ function HubPage() {
           Logado como <span className="font-medium text-white/60">{user.email}</span>
         </p>
       </main>
+
+      <AdminAuthDialog open={adminAuthOpen} onOpenChange={setAdminAuthOpen} />
     </div>
   );
 }
