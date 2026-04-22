@@ -1489,7 +1489,7 @@ export type Database = {
         | "recebido"
         | "vencido"
         | "cancelado"
-      lancamento_tipo: "receita" | "despesa"
+      lancamento_tipo: "receita" | "despesa" | "receber" | "pagar"
       movimentacao_origem:
         | "compra"
         | "venda"
@@ -1668,7 +1668,7 @@ export const Constants = {
         "vencido",
         "cancelado",
       ],
-      lancamento_tipo: ["receita", "despesa"],
+      lancamento_tipo: ["receita", "despesa", "receber", "pagar"],
       movimentacao_origem: [
         "compra",
         "venda",

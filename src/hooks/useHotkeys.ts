@@ -49,8 +49,11 @@ export function useHotkeys(
 
       const inInput = isInInput(e.target);
 
+      if (!e.key) return;
+      const eventKey = e.key.toLowerCase();
       for (const hk of ref.current) {
-        if (hk.key.toLowerCase() !== e.key.toLowerCase()) continue;
+        if (!hk?.key) continue;
+        if (hk.key.toLowerCase() !== eventKey) continue;
         if (inInput && !hk.allowInInputs) continue;
         if (hk.preventDefault !== false) e.preventDefault();
         hk.handler(e);
