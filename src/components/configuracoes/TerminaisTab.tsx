@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from "@/components/ui/card";
@@ -217,13 +217,14 @@ function TerminalDialog({
   const atualizar = useAtualizarTerminal();
   const editing = !!terminal;
 
-  // Reset on open
-  useState(() => undefined);
-  if (open && terminal && nome === "" && descricao === "" && identificador === "") {
-    setNome(terminal.nome);
-    setDescricao(terminal.descricao ?? "");
-    setIdentificador(terminal.identificador_dispositivo ?? "");
-  }
+  // Sincroniza form sempre que abrir/trocar terminal
+  useEffect(() => {
+    if (open) {
+      setNome(terminal?.nome ?? "");
+      setDescricao(terminal?.descricao ?? "");
+      setIdentificador(terminal?.identificador_dispositivo ?? "");
+    }
+  }, [open, terminal]);
 
   function reset() {
     setNome(""); setDescricao(""); setIdentificador("");
