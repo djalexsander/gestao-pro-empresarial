@@ -208,6 +208,15 @@ export function useVendaDetalhe(vendaId: string | null) {
         .eq("venda_id", vendaId);
       if (e2) throw e2;
 
+      const { data: pagamentos, error: e3 } = await supabase
+        .from("venda_pagamentos")
+        .select(
+          "id, forma_pagamento, valor, valor_recebido, troco, parcelas, observacao",
+        )
+        .eq("venda_id", vendaId)
+        .order("created_at", { ascending: true });
+      if (e3) throw e3;
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const vAny = v as any;
       return {
@@ -236,6 +245,16 @@ export function useVendaDetalhe(vendaId: string | null) {
           total: Number(i.total) || 0,
           produto_nome: i.produto?.nome ?? null,
           sku: i.produto?.sku ?? null,
+        })),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        pagamentos: (pagamentos ?? []).map((p: any) => ({
+          id: p.id,
+          forma_pagamento: p.forma_pagamento,
+          valor: Number(p.valor) || 0,
+          valor_recebido: p.valor_recebido != null ? Number(p.valor_recebido) : null,
+          troco: p.troco != null ? Number(p.troco) : null,
+          parcelas: p.parcelas != null ? Number(p.parcelas) : null,
+          observacao: p.observacao,
         })),
       };
     },
