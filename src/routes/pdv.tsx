@@ -71,6 +71,7 @@ import {
   validarDocumento,
 } from "@/lib/documento";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { RequirePosSession } from "@/components/auth/RequirePosSession";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatBRL } from "@/lib/mock-data";
@@ -85,7 +86,11 @@ export const Route = createFileRoute("/pdv")({
       },
     ],
   }),
-  component: PDVPage,
+  component: () => (
+    <RequirePosSession>
+      <PDVPage />
+    </RequirePosSession>
+  ),
 });
 
 interface VendaItem {

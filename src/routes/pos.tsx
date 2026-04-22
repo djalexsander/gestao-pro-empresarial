@@ -1,9 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ShoppingCart,
   LogOut,
-  UserCog,
   PackageOpen,
   ArrowLeftRight,
   LayoutDashboard,
@@ -134,6 +133,13 @@ function PosHomeScreen() {
   const { data: resumoCaixa } = useCaixaResumo(caixaAberto?.id);
   const [abrirOpen, setAbrirOpen] = useState(false);
   const [fecharOpen, setFecharOpen] = useState(false);
+
+  // Auto-redireciona para o PDV quando o operador já tem um caixa aberto.
+  useEffect(() => {
+    if (!loadingCaixa && caixaAberto && !fecharOpen && !abrirOpen) {
+      navigate({ to: "/pdv" });
+    }
+  }, [loadingCaixa, caixaAberto, fecharOpen, abrirOpen, navigate]);
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
