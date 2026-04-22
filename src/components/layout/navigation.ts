@@ -1,0 +1,111 @@
+import {
+  LayoutDashboard,
+  Package,
+  Boxes,
+  ShoppingCart,
+  Receipt,
+  Wallet,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Truck,
+  Users,
+  BarChart3,
+  Settings,
+  type LucideIcon,
+} from "lucide-react";
+
+export type ModuleKey =
+  | "principal"
+  | "operacional"
+  | "financeiro"
+  | "cadastros"
+  | "analise";
+
+export interface ModuleItem {
+  to: string;
+  label: string;
+  icon: LucideIcon;
+  description?: string;
+}
+
+export interface ModuleDef {
+  key: ModuleKey;
+  label: string;
+  /** Quando o módulo só tem 1 item, clicar no menu superior leva direto para a rota */
+  directRoute?: string;
+  items: ModuleItem[];
+}
+
+export const MODULES: ModuleDef[] = [
+  {
+    key: "principal",
+    label: "Principal",
+    directRoute: "/",
+    items: [
+      {
+        to: "/",
+        label: "Dashboard",
+        icon: LayoutDashboard,
+        description: "Visão geral do negócio",
+      },
+    ],
+  },
+  {
+    key: "operacional",
+    label: "Operacional",
+    items: [
+      { to: "/produtos", label: "Produtos", icon: Package, description: "Catálogo e cadastro" },
+      { to: "/estoque", label: "Estoque", icon: Boxes, description: "Movimentações e saldos" },
+      { to: "/compras", label: "Compras", icon: ShoppingCart, description: "Pedidos a fornecedores" },
+      { to: "/vendas", label: "Vendas", icon: Receipt, description: "Pedidos e faturamento" },
+    ],
+  },
+  {
+    key: "financeiro",
+    label: "Financeiro",
+    items: [
+      { to: "/financeiro", label: "Financeiro", icon: Wallet, description: "Visão geral" },
+      {
+        to: "/financeiro?tipo=pagar",
+        label: "Contas a pagar",
+        icon: ArrowUpFromLine,
+        description: "Despesas e fornecedores",
+      },
+      {
+        to: "/financeiro?tipo=receber",
+        label: "Contas a receber",
+        icon: ArrowDownToLine,
+        description: "Recebíveis de clientes",
+      },
+    ],
+  },
+  {
+    key: "cadastros",
+    label: "Cadastros",
+    items: [
+      { to: "/fornecedores", label: "Fornecedores", icon: Truck, description: "Parceiros e compras" },
+      { to: "/clientes", label: "Clientes", icon: Users, description: "Base de clientes" },
+    ],
+  },
+  {
+    key: "analise",
+    label: "Análise",
+    items: [
+      { to: "/relatorios", label: "Relatórios", icon: BarChart3, description: "Indicadores e exports" },
+      { to: "/configuracoes", label: "Configurações", icon: Settings, description: "Ajustes do sistema" },
+    ],
+  },
+];
+
+/** Descobre qual módulo está ativo a partir do pathname atual */
+export function findModuleByPath(pathname: string): ModuleDef {
+  if (pathname === "/" || pathname === "") return MODULES[0];
+  // Match por prefixo de rota base
+  for (const mod of MODULES) {
+    for (const item of mod.items) {
+      const base = item.to.split("?")[0];
+      if (base !== "/" && pathname.startsWith(base)) return mod;
+    }
+  }
+  return MODULES[0];
+}
