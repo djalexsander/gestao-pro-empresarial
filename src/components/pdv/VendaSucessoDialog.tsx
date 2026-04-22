@@ -121,6 +121,19 @@ export function VendaSucessoDialog({
     }
   }
 
+  // Atalhos contextuais: ativos APENAS enquanto o dialog está aberto.
+  // Cleanup automático ao fechar libera os atalhos para o resto do sistema.
+  useHotkeys(
+    [
+      { key: "F11", handler: handleImprimir },
+      { key: "p", ctrl: true, handler: handleImprimir, allowInInputs: true },
+      { key: "Enter", handler: () => onNovaVenda() },
+      { key: "Escape", handler: () => onOpenChange(false) },
+      { key: "v", handler: () => onVerVendas() },
+    ],
+    { enabled: open && !!venda },
+  );
+
   if (!venda) return null;
 
   return (
