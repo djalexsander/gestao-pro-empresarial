@@ -45,6 +45,7 @@ import {
 import { formatBRL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { useFuncionarios } from "@/hooks/useFuncionarios";
 
 export const Route = createFileRoute("/caixa")({
   head: () => ({
@@ -85,6 +86,11 @@ function CaixaPage() {
   const { data: resumo } = useCaixaResumo(caixaAberto?.id);
   const { data: historico = [] } = useCaixasHistorico(20);
   const { data: movimentos = [] } = useCaixaMovimentos(caixaAberto?.id);
+  const { data: funcionarios = [] } = useFuncionarios();
+
+  const operadorNome = caixaAberto?.operador_id
+    ? funcionarios.find((f) => f.id === caixaAberto.operador_id)?.nome ?? "Operador"
+    : user?.email ?? "—";
 
   const [abrirOpen, setAbrirOpen] = useState(false);
   const [fecharOpen, setFecharOpen] = useState(false);
@@ -154,7 +160,7 @@ function CaixaPage() {
           {/* Cabeçalho do turno */}
           <Card>
             <CardContent className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
-              <InfoCol label="Operador" value={user?.email ?? "—"} icon={CircleDollarSign} />
+              <InfoCol label="Operador" value={operadorNome} icon={CircleDollarSign} />
               <InfoCol
                 label="Aberto em"
                 value={formatDateTime(caixaAberto.data_abertura)}
