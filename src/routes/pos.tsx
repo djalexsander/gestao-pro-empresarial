@@ -128,7 +128,6 @@ function PosLoginScreen() {
 
 function PosHomeScreen() {
   const navigate = useNavigate();
-  const { signOut } = useAuth();
   const { operador, trocarOperador } = useOperador();
   const { data: isSuperAdmin } = useIsSuperAdmin();
   const { data: caixaAberto, isLoading: loadingCaixa } = useCaixaAberto(operador?.id ?? null);
@@ -159,16 +158,18 @@ function PosHomeScreen() {
           )}
           {isSuperAdmin && (
             <Button variant="ghost" size="sm" asChild>
-              <Link to="/hub">
-                <LayoutDashboard className="mr-1 h-4 w-4" /> Hub
+              <Link to="/">
+                <LayoutDashboard className="mr-1 h-4 w-4" /> Admin
               </Link>
             </Button>
           )}
-          <Button variant="ghost" size="sm" onClick={trocarOperador}>
-            <UserCog className="mr-1 h-4 w-4" /> Trocar
-          </Button>
-          <Button variant="ghost" size="sm" onClick={signOut}>
-            <LogOut className="mr-1 h-4 w-4" />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={trocarOperador}
+            title="Encerrar sessão do operador (volta para seleção de operador)"
+          >
+            <LogOut className="mr-1 h-4 w-4" /> Encerrar sessão
           </Button>
         </div>
       </header>
@@ -238,6 +239,7 @@ function PosHomeScreen() {
         open={abrirOpen}
         onOpenChange={setAbrirOpen}
         operadorId={operador?.id ?? null}
+        onAberto={() => navigate({ to: "/pdv" })}
       />
       {caixaAberto && (
         <FecharCaixaDialog
