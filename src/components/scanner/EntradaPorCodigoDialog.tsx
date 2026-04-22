@@ -10,7 +10,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   Sparkles,
-  X,
   ArrowLeft,
   Boxes,
 } from "lucide-react";
@@ -696,5 +695,3 @@ function EntryNewForm({
   );
 }
 
-/* unused import-friendly export to avoid tree-shaking warnings during dev */
-export const _X = X;
