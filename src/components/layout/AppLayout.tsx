@@ -18,8 +18,13 @@ export function AppLayout() {
     return <Outlet />;
   }
 
-  // /hub e /pos usam layout próprio (sem sidebar do ERP).
-  if (location.pathname === "/hub" || location.pathname === "/pos") {
+  // /hub, /pos e /pdv usam layout próprio (sem sidebar/menubar do ERP).
+  // O PDV é ambiente isolado de operação de caixa.
+  if (
+    location.pathname === "/hub" ||
+    location.pathname === "/pos" ||
+    location.pathname === "/pdv"
+  ) {
     return <Outlet />;
   }
 
