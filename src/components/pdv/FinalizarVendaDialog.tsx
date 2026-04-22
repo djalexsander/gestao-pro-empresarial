@@ -174,7 +174,12 @@ export function FinalizarVendaDialog({
       },
       {
         onSuccess: (vendaId) => {
-          onConfirmed(vendaId);
+          onConfirmed({
+            vendaId,
+            forma,
+            status: statusPagamento,
+            troco: isDinheiro ? troco : 0,
+          });
         },
       },
     );
