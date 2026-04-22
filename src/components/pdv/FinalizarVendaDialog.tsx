@@ -794,6 +794,7 @@ export function FinalizarVendaDialog({
             disabled={finalizar.isPending}
           >
             <ArrowLeft className="h-4 w-4" /> Voltar
+            <Kbd className="ml-1">Esc</Kbd>
           </Button>
           <div className="flex items-center gap-2">
             <Button
@@ -806,7 +807,7 @@ export function FinalizarVendaDialog({
             </Button>
             <Button
               size="lg"
-              className="h-11 min-w-[200px]"
+              className="h-11 min-w-[220px]"
               onClick={handleConfirmar}
               disabled={
                 finalizar.isPending ||
@@ -822,6 +823,9 @@ export function FinalizarVendaDialog({
                 <CheckCircle2 className="h-4 w-4" />
               )}
               Confirmar venda
+              <Kbd className="ml-1 border-primary-foreground/30 bg-primary-foreground/15 text-primary-foreground">
+                Enter
+              </Kbd>
             </Button>
           </div>
         </div>
