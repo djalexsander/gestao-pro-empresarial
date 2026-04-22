@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/components/auth/AuthProvider";
 
-export type CompraStatus = "rascunho" | "pedido" | "recebida" | "cancelada";
+export type CompraStatus = "rascunho" | "pendente" | "aprovada" | "recebida" | "cancelada";
 
 export type CompraItem = {
   id: string;
@@ -141,13 +141,23 @@ export function useCreateCompra() {
           observacoes: input.observacoes ?? null,
           subtotal,
           total,
-          status: "pedido",
+          status: "pendente",
         })
         .select()
         .single();
       if (error) throw error;
 
-      const itensPayload = input.itens.map((it) => ({
+      const itensPayload: Array<{
+        owner_id: string;
+        compra_id: string;
+        produto_id: string;
+        variacao_id: string | null;
+        descricao: string | null;
+        quantidade: number;
+        preco_unitario: number;
+        desconto: number;
+        total: number;
+      }> = input.itens.map((it) => ({
         owner_id: user.id,
         compra_id: compra.id,
         produto_id: it.produto_id,
@@ -209,13 +219,18 @@ export function useReceberCompra() {
       gerar_financeiro?: boolean;
       data_vencimento?: string | null;
     }) => {
-      const { data, error } = await supabase.rpc("receber_compra", {
+      const args: {
+        _compra_id: string;
+        _data_recebimento: string;
+        _gerar_financeiro: boolean;
+        _data_vencimento?: string;
+      } = {
         _compra_id: id,
         _data_recebimento: data_recebimento ?? new Date().toISOString().slice(0, 10),
         _gerar_financeiro: gerar_financeiro ?? true,
-        _data_vencimento: data_vencimento ?? null,
-        _categoria_id: null,
-      });
+      };
+      if (data_vencimento) args._data_vencimento = data_vencimento;
+      const { data, error } = await supabase.rpc("receber_compra", args);
       if (error) throw error;
       return data;
     },
