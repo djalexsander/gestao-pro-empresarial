@@ -16,7 +16,9 @@ import { Badge } from "@/components/ui/badge";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useOperador } from "@/components/auth/OperadorProvider";
+import { useTerminal } from "@/components/auth/TerminalProvider";
 import { OperadorPinSelector } from "@/components/auth/OperadorPinDialog";
+import { TerminalSelector, TerminalAtualBadge } from "@/components/auth/TerminalSelector";
 import { useIsSuperAdmin } from "@/hooks/useAdmin";
 import { useCaixaAberto, useCaixaResumo } from "@/hooks/useCaixa";
 import { AbrirCaixaDialog } from "@/components/caixa/AbrirCaixaDialog";
@@ -38,11 +40,50 @@ export const Route = createFileRoute("/pos")({
 
 function PosShell() {
   const { operador } = useOperador();
+  const { terminal } = useTerminal();
 
+  if (!terminal) {
+    return <PosTerminalScreen />;
+  }
   if (!operador) {
     return <PosLoginScreen />;
   }
   return <PosHomeScreen />;
+}
+
+function PosTerminalScreen() {
+  const { signOut } = useAuth();
+  return (
+    <div className="flex min-h-screen flex-col bg-background">
+      <header className="flex items-center justify-between border-b border-border bg-card px-6 py-3">
+        <div className="flex items-center gap-2">
+          <ShoppingCart className="h-5 w-5 text-primary" />
+          <span className="font-semibold">Gestão Pro · PDV</span>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="ghost" size="sm" asChild>
+            <Link to="/hub">
+              <ArrowLeftRight className="mr-1 h-4 w-4" /> Voltar ao Hub
+            </Link>
+          </Button>
+          <Button variant="ghost" size="sm" onClick={signOut}>
+            <LogOut className="mr-1 h-4 w-4" /> Sair
+          </Button>
+        </div>
+      </header>
+      <main className="flex flex-1 items-center justify-center p-6">
+        <Card className="w-full max-w-2xl p-6 sm:p-8">
+          <div className="mb-6 text-center">
+            <h1 className="text-2xl font-bold">Identificar terminal</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Escolha qual caixa físico este dispositivo representa.
+            </p>
+          </div>
+          <TerminalSelector />
+        </Card>
+      </main>
+    </div>
+  );
 }
 
 function PosLoginScreen() {
@@ -53,6 +94,7 @@ function PosLoginScreen() {
         <div className="flex items-center gap-2">
           <ShoppingCart className="h-5 w-5 text-primary" />
           <span className="font-semibold">Gestão Pro · PDV</span>
+          <TerminalAtualBadge />
         </div>
         <div className="flex gap-2">
           <Button variant="ghost" size="sm" asChild>
