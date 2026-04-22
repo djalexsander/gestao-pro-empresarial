@@ -52,6 +52,7 @@ import {
   type ProdutoBuscaResult,
 } from "@/hooks/useProdutoCodigo";
 import { useScanner } from "@/hooks/useScanner";
+import { useHotkeys } from "@/hooks/useHotkeys";
 import { useProdutos } from "@/hooks/useProdutos";
 import { useClientes, type ClienteLite } from "@/hooks/useClientes";
 import { useSaldosLote, type FormaPagamento, type StatusPagamento } from "@/hooks/useVendas";
