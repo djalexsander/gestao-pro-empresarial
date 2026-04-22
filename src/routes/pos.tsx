@@ -151,6 +151,7 @@ function PosHomeScreen() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
+          <TerminalAtualBadge />
           {caixaAberto ? (
             <Badge variant="default" className="bg-emerald-600 hover:bg-emerald-600">
               Caixa aberto
