@@ -67,6 +67,11 @@ export function AbrirCaixaDialog({ open, onOpenChange, onAberto, operadorId, ter
         </DialogHeader>
 
         <form onSubmit={handleConfirmar} className="space-y-4">
+          {terminal && (
+            <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              Terminal: <span className="font-medium text-foreground">{terminal.nome}</span>
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="valor-inicial">Valor inicial (troco)</Label>
             <div className="relative">
