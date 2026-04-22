@@ -462,7 +462,7 @@ function PDVPage() {
                         key={it.key}
                         className={cn(
                           "grid grid-cols-[1fr_120px_140px_140px_44px] items-center gap-2 border-b border-border/60 px-4 py-3 transition-colors",
-                          lastAddedKey === it.key && "animate-pulse-once bg-success/5",
+                          lastAddedKey === it.key && "bg-success/10 animate-in fade-in",
                         )}
                       >
                         <div className="min-w-0">
