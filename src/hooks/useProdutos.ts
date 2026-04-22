@@ -3,10 +3,16 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/components/auth/AuthProvider";
 
+export type TipoIdentificacao = "sku" | "codigo_barras" | "qr_code" | "codigo_interno";
+
 export type Produto = {
   id: string;
   sku: string;
   codigo_barras: string | null;
+  qr_code: string | null;
+  codigo_interno: string | null;
+  tipo_identificacao_principal: TipoIdentificacao;
+  observacao_tecnica: string | null;
   nome: string;
   descricao: string | null;
   marca: string | null;
@@ -114,6 +120,10 @@ export function useProduto(id: string | undefined) {
 export type ProdutoInput = {
   sku: string;
   codigo_barras?: string | null;
+  qr_code?: string | null;
+  codigo_interno?: string | null;
+  tipo_identificacao_principal?: TipoIdentificacao;
+  observacao_tecnica?: string | null;
   nome: string;
   descricao?: string | null;
   marca?: string | null;
