@@ -23,7 +23,6 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  useCategorias,
   useCreateProduto,
   useCreateVariacao,
   useDeleteVariacao,
@@ -33,6 +32,7 @@ import {
   type TipoIdentificacao,
 } from "@/hooks/useProdutos";
 import { CodeInput, QrPreview } from "@/components/scanner";
+import { CategoriaCombobox } from "@/components/produtos/CategoriaCombobox";
 import {
   useAddProdutoCodigo,
   useDeleteProdutoCodigo,
