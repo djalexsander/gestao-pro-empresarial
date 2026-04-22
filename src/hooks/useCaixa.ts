@@ -104,6 +104,32 @@ export function useCaixaAberto(operadorId?: string | null) {
   });
 }
 
+/**
+ * Qualquer caixa aberto do dono — usado no painel admin /caixa, que precisa
+ * enxergar caixas abertos por operadores no PDV (e não só os do próprio admin).
+ * Retorna o mais recente em aberto.
+ */
+export function useQualquerCaixaAberto() {
+  return useQuery({
+    queryKey: ["caixa", "aberto", "qualquer"],
+    queryFn: async (): Promise<Caixa | null> => {
+      const { data: uid } = await supabase.auth.getUser();
+      if (!uid.user) return null;
+      const { data, error } = await supabase
+        .from("caixas")
+        .select("*")
+        .eq("owner_id", uid.user.id)
+        .eq("status", "aberto")
+        .order("data_abertura", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return (data as Caixa | null) ?? null;
+    },
+    staleTime: 10_000,
+  });
+}
+
 /** Resumo ao vivo do caixa (totais por forma de pagamento). */
 export function useCaixaResumo(caixaId: string | null | undefined) {
   const qc = useQueryClient();
