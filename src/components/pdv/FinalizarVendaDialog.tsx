@@ -134,6 +134,7 @@ export function FinalizarVendaDialog({
   const [obsFinal, setObsFinal] = useState("");
   const [hotkeyFlash, setHotkeyFlash] = useState<string | null>(null);
   const ultimoValorRef = useRef<HTMLInputElement>(null);
+  const dialogContentRef = useRef<HTMLDivElement>(null);
 
   const finalizar = useFinalizarVendaPDV();
 
