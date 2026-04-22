@@ -123,6 +123,49 @@ function PDVPage() {
   const { terminal } = useTerminal();
   const { data: produtos = [], isLoading: loadingProdutos } = useProdutos();
   const { data: clientes = [] } = useClientes();
+  const { data: caixaAberto } = useCaixaAberto(operador?.id ?? null);
+  const { data: resumoCaixa } = useCaixaResumo(caixaAberto?.id);
+
+  // Modal de fechamento de caixa (acionado por Voltar/Encerrar).
+  // exitAfterClose = quando o caixa for fechado com sucesso, encerra a sessão
+  // do operador e volta para /pos. Usado nos botões Voltar e Encerrar.
+  const [fecharCaixaOpen, setFecharCaixaOpen] = useState(false);
+  const exitAfterCloseRef = useRef(false);
+
+  // Quando o caixa some (foi fechado), saímos do PDV de volta para /pos
+  // se o usuário tinha pedido para sair. Isso roda depois que o React Query
+  // invalida o cache em useFecharCaixa.
+  useEffect(() => {
+    if (!exitAfterCloseRef.current) return;
+    if (caixaAberto) return;
+    exitAfterCloseRef.current = false;
+    trocarOperador();
+    navigate({ to: "/pos" });
+  }, [caixaAberto, navigate, trocarOperador]);
+
+  // Bloqueia fechamento da aba/janela enquanto houver caixa aberto.
+  useEffect(() => {
+    if (!caixaAberto) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [caixaAberto]);
+
+  function handleSair() {
+    if (caixaAberto) {
+      exitAfterCloseRef.current = true;
+      setFecharCaixaOpen(true);
+      toast.info("É necessário fechar o caixa antes de sair.");
+      return;
+    }
+    // sem caixa aberto (estado raro): apenas encerra operador
+    trocarOperador();
+    navigate({ to: "/pos" });
+  }
+
 
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
