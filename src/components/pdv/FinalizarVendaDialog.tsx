@@ -342,6 +342,52 @@ export function FinalizarVendaDialog({
     );
   }
 
+  // ============= Atalhos de teclado =============
+  const podeConfirmar =
+    !finalizar.isPending &&
+    itens.length > 0 &&
+    !dinheiroInsuficiente &&
+    pagamentos.length > 0 &&
+    totalPago > 0;
+
+  useHotkeys(
+    [
+      // F1-F6 → trocam a forma de pagamento da ÚLTIMA linha de pagamento
+      ...FORMAS.map((f) => ({
+        key: f.shortcut,
+        allowInInputs: true,
+        handler: () => {
+          if (pagamentos.length === 0) return;
+          const ultima = pagamentos[pagamentos.length - 1];
+          setForma(ultima.uid, f.key);
+          flashHotkey(f.shortcut);
+        },
+      })),
+      {
+        key: "Enter",
+        allowInInputs: false, // Enter dentro de inputs cabe ao input
+        handler: () => {
+          if (podeConfirmar) handleConfirmar();
+        },
+      },
+      {
+        key: "Escape",
+        allowInInputs: true,
+        handler: () => {
+          if (!finalizar.isPending) onOpenChange(false);
+        },
+      },
+      {
+        key: "Backspace",
+        allowInInputs: false,
+        handler: () => {
+          if (!finalizar.isPending) onOpenChange(false);
+        },
+      },
+    ],
+    { enabled: open },
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl gap-0 overflow-hidden p-0">
