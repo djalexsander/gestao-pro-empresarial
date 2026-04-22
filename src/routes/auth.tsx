@@ -91,8 +91,13 @@ function AuthPage() {
   const { user, loading } = useAuth();
   const { redirect } = Route.useSearch();
 
+  // Após login, sempre passamos pelo /hub para o usuário escolher entre
+  // ERP e PDV. Só respeitamos `redirect` se for explicitamente para o /pos
+  // (caso o operador tenha sido redirecionado de uma rota do PDV).
+  const destino = redirect && redirect.startsWith("/pos") ? redirect : "/hub";
+
   if (loading) return null;
-  if (user) return <Navigate to={redirect ?? "/hub"} />;
+  if (user) return <Navigate to={destino} />;
 
   return (
     <div className="relative min-h-screen w-full overflow-hidden bg-[oklch(0.14_0.04_265)] text-white">
