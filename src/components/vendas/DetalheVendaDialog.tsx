@@ -141,6 +141,53 @@ export function DetalheVendaDialog({
               </div>
             </div>
 
+            {/* Pagamentos */}
+            {data.pagamentos.length > 0 && (
+              <div>
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Pagamentos ({data.pagamentos.length})
+                </p>
+                <div className="overflow-hidden rounded-md border border-border">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+                      <tr>
+                        <th className="px-3 py-2 text-left">Forma</th>
+                        <th className="px-3 py-2 text-right">Valor</th>
+                        <th className="px-3 py-2 text-right">Recebido</th>
+                        <th className="px-3 py-2 text-right">Troco</th>
+                        <th className="px-3 py-2 text-center">Parcelas</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.pagamentos.map((p) => (
+                        <tr key={p.id} className="border-t border-border/60">
+                          <td className="px-3 py-2 capitalize">
+                            {p.forma_pagamento.replace(/_/g, " ")}
+                          </td>
+                          <td className="px-3 py-2 text-right font-medium tabular-nums">
+                            {formatBRL(p.valor)}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                            {p.valor_recebido != null ? formatBRL(p.valor_recebido) : "—"}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums">
+                            {p.troco && p.troco > 0 ? (
+                              <span className="text-success">{formatBRL(p.troco)}</span>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-center tabular-nums text-muted-foreground">
+                            {p.parcelas && p.parcelas > 1 ? `${p.parcelas}x` : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
             {data.observacoes && (
               <div className="rounded-md border border-border bg-muted/20 p-3 text-xs text-muted-foreground whitespace-pre-wrap">
                 {data.observacoes}
