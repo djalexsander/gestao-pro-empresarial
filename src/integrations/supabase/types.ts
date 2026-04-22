@@ -818,6 +818,42 @@ export type Database = {
           },
         ]
       }
+      produto_codigos: {
+        Row: {
+          created_at: string
+          id: string
+          observacao: string | null
+          owner_id: string
+          produto_id: string
+          tipo_codigo: string
+          updated_at: string
+          valor_codigo: string
+          variacao_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          observacao?: string | null
+          owner_id: string
+          produto_id: string
+          tipo_codigo: string
+          updated_at?: string
+          valor_codigo: string
+          variacao_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          observacao?: string | null
+          owner_id?: string
+          produto_id?: string
+          tipo_codigo?: string
+          updated_at?: string
+          valor_codigo?: string
+          variacao_id?: string | null
+        }
+        Relationships: []
+      }
       produto_variacoes: {
         Row: {
           ativo: boolean
@@ -876,6 +912,7 @@ export type Database = {
           categoria_id: string | null
           cest: string | null
           codigo_barras: string | null
+          codigo_interno: string | null
           created_at: string
           descricao: string | null
           estoque_inicial: number
@@ -885,12 +922,15 @@ export type Database = {
           marca: string | null
           ncm: string | null
           nome: string
+          observacao_tecnica: string | null
           origem: string | null
           owner_id: string
           preco_custo: number
           preco_venda: number
+          qr_code: string | null
           sku: string
           status: Database["public"]["Enums"]["produto_status"]
+          tipo_identificacao_principal: string
           unidade: string
           updated_at: string
         }
@@ -898,6 +938,7 @@ export type Database = {
           categoria_id?: string | null
           cest?: string | null
           codigo_barras?: string | null
+          codigo_interno?: string | null
           created_at?: string
           descricao?: string | null
           estoque_inicial?: number
@@ -907,12 +948,15 @@ export type Database = {
           marca?: string | null
           ncm?: string | null
           nome: string
+          observacao_tecnica?: string | null
           origem?: string | null
           owner_id: string
           preco_custo?: number
           preco_venda?: number
+          qr_code?: string | null
           sku: string
           status?: Database["public"]["Enums"]["produto_status"]
+          tipo_identificacao_principal?: string
           unidade?: string
           updated_at?: string
         }
@@ -920,6 +964,7 @@ export type Database = {
           categoria_id?: string | null
           cest?: string | null
           codigo_barras?: string | null
+          codigo_interno?: string | null
           created_at?: string
           descricao?: string | null
           estoque_inicial?: number
@@ -929,12 +974,15 @@ export type Database = {
           marca?: string | null
           ncm?: string | null
           nome?: string
+          observacao_tecnica?: string | null
           origem?: string | null
           owner_id?: string
           preco_custo?: number
           preco_venda?: number
+          qr_code?: string | null
           sku?: string
           status?: Database["public"]["Enums"]["produto_status"]
+          tipo_identificacao_principal?: string
           unidade?: string
           updated_at?: string
         }
@@ -1227,6 +1275,26 @@ export type Database = {
           _telefone?: string
         }
         Returns: string
+      }
+      buscar_produto_por_codigo: {
+        Args: { _codigo: string }
+        Returns: {
+          categoria_id: string
+          categoria_nome: string
+          codigo_barras: string
+          codigo_interno: string
+          fonte: string
+          nome: string
+          preco_custo: number
+          preco_venda: number
+          produto_id: string
+          qr_code: string
+          saldo_estoque: number
+          sku: string
+          status: Database["public"]["Enums"]["produto_status"]
+          tipo_identificacao_principal: string
+          unidade: string
+        }[]
       }
       calcular_saldo_estoque: {
         Args: { _produto_id: string; _variacao_id?: string }
