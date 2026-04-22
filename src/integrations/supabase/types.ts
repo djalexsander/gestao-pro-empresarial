@@ -14,6 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
+      audit_logs: {
+        Row: {
+          action: string
+          actor_email: string | null
+          actor_id: string | null
+          created_at: string
+          id: string
+          ip_address: string | null
+          metadata: Json | null
+          target_id: string | null
+          target_type: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_email?: string | null
+          actor_id?: string | null
+          created_at?: string
+          id?: string
+          ip_address?: string | null
+          metadata?: Json | null
+          target_id?: string | null
+          target_type?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_email?: string | null
+          actor_id?: string | null
+          created_at?: string
+          id?: string
+          ip_address?: string | null
+          metadata?: Json | null
+          target_id?: string | null
+          target_type?: string | null
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
       categorias_financeiras: {
         Row: {
           ativo: boolean
@@ -1042,6 +1081,51 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_delete_user: { Args: { _user_id: string }; Returns: undefined }
+      admin_estatisticas_globais: { Args: never; Returns: Json }
+      admin_listar_audit_logs: {
+        Args: { _limit?: number }
+        Returns: {
+          action: string
+          actor_email: string | null
+          actor_id: string | null
+          created_at: string
+          id: string
+          ip_address: string | null
+          metadata: Json | null
+          target_id: string | null
+          target_type: string | null
+          user_agent: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "audit_logs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      admin_listar_usuarios: {
+        Args: never
+        Returns: {
+          created_at: string
+          email: string
+          email_confirmed: boolean
+          last_sign_in_at: string
+          roles: string[]
+          total_compras: number
+          total_produtos: number
+          total_vendas: number
+          user_id: string
+        }[]
+      }
+      admin_set_user_role: {
+        Args: {
+          _grant?: boolean
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: undefined
+      }
       calcular_saldo_estoque: {
         Args: { _produto_id: string; _variacao_id?: string }
         Returns: number
@@ -1053,6 +1137,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_super_admin: { Args: { _user_id?: string }; Returns: boolean }
       receber_compra: {
         Args: {
           _categoria_id?: string
