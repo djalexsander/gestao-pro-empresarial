@@ -80,7 +80,9 @@ function fmtDate(d: Date): string {
 export function gerarCupomHtml(
   empresa: ConfigEmpresa | null,
   cupom: CupomData,
+  options: { autoPrint?: boolean } = {},
 ): string {
+  const autoPrint = options.autoPrint ?? false;
   const itensHtml = cupom.itens
     .map((it, i) => {
       const linhaTopo = `${String(i + 1).padStart(3, "0")} ${escapeHtml(it.descricao)}`;
@@ -249,7 +251,9 @@ export function gerarCupomHtml(
   </div>
 
   <script>
+    var AUTO_PRINT = ${autoPrint ? "true" : "false"};
     window.addEventListener('load', function () {
+      if (!AUTO_PRINT) return;
       setTimeout(function () {
         try { window.focus(); window.print(); } catch (e) {}
       }, 150);
@@ -262,16 +266,44 @@ export function gerarCupomHtml(
 </html>`;
 }
 
-/** Abre uma nova janela e dispara a impressão do cupom. */
+/** Abre uma nova janela e dispara a impressão do cupom (chama window.print()). */
 export function imprimirCupom(
   empresa: ConfigEmpresa | null,
   cupom: CupomData,
 ): boolean {
-  const html = gerarCupomHtml(empresa, cupom);
+  const html = gerarCupomHtml(empresa, cupom, { autoPrint: true });
   const win = window.open("", "_blank", "width=420,height=720");
   if (!win) return false;
   win.document.open();
   win.document.write(html);
   win.document.close();
   return true;
+}
+
+/**
+ * Baixa o cupom como um arquivo HTML autônomo.
+ * O usuário pode abrir e usar "Salvar como PDF" do navegador, ou imprimir depois.
+ */
+export function baixarCupomHtml(
+  empresa: ConfigEmpresa | null,
+  cupom: CupomData,
+): boolean {
+  try {
+    const html = gerarCupomHtml(empresa, cupom, { autoPrint: false });
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const safeNumero = (cupom.numero ?? "cupom")
+      .toString()
+      .replace(/[^a-zA-Z0-9_-]+/g, "_");
+    a.href = url;
+    a.download = `cupom_${safeNumero}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return true;
+  } catch {
+    return false;
+  }
 }
