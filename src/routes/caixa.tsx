@@ -120,6 +120,56 @@ function CaixaPage() {
   const [dataFim, setDataFim] = useState("");
   const [diasAbertos, setDiasAbertos] = useState<Record<string, boolean>>({});
 
+  // Agrupamento do histórico por data (com filtros)
+  const historicoFiltrado = useMemo(() => {
+    const q = buscaHist.trim().toLowerCase();
+    return historico.filter((c) => {
+      const dia = c.data_abertura.slice(0, 10);
+      if (dataInicio && dia < dataInicio) return false;
+      if (dataFim && dia > dataFim) return false;
+      if (!q) return true;
+      const operador = c.operador_id
+        ? funcionarios.find((f) => f.id === c.operador_id)?.nome?.toLowerCase() ?? ""
+        : "";
+      return (
+        operador.includes(q) ||
+        (c.observacao ?? "").toLowerCase().includes(q) ||
+        c.status.toLowerCase().includes(q)
+      );
+    });
+  }, [historico, buscaHist, dataInicio, dataFim, funcionarios]);
+
+  const gruposPorDia = useMemo(() => {
+    const mapa = new Map<string, Caixa[]>();
+    for (const c of historicoFiltrado) {
+      const dia = c.data_abertura.slice(0, 10);
+      if (!mapa.has(dia)) mapa.set(dia, []);
+      mapa.get(dia)!.push(c);
+    }
+    return Array.from(mapa.entries())
+      .map(([dia, caixas]) => {
+        const totalVendas = caixas.reduce((s, c) => s + (Number(c.total_vendas) || 0), 0);
+        const totalQtd = caixas.reduce((s, c) => s + (Number(c.qtd_vendas) || 0), 0);
+        const abertos = caixas.filter((c) => c.status === "aberto").length;
+        return { dia, caixas, totalVendas, totalQtd, abertos };
+      })
+      .sort((a, b) => (a.dia < b.dia ? 1 : -1));
+  }, [historicoFiltrado]);
+
+  function toggleDia(dia: string) {
+    setDiasAbertos((prev) => ({ ...prev, [dia]: !prev[dia] }));
+  }
+
+  function formatarDia(dia: string) {
+    const d = new Date(dia + "T00:00:00");
+    return d.toLocaleDateString("pt-BR", {
+      weekday: "long",
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+    });
+  }
+
   if (loadingCaixa) {
     return (
       <div className="flex h-64 items-center justify-center">
