@@ -88,12 +88,14 @@ function RootComponent() {
     <ThemeProvider>
       <QueryProvider>
         <AuthProvider>
-          <OperadorProvider>
-            <TerminalProvider>
-              <AppLayout />
-              <Toaster richColors position="top-right" />
-            </TerminalProvider>
-          </OperadorProvider>
+          <ModeProvider>
+            <OperadorProvider>
+              <TerminalProvider>
+                <AppLayout />
+                <Toaster richColors position="top-right" />
+              </TerminalProvider>
+            </OperadorProvider>
+          </ModeProvider>
         </AuthProvider>
       </QueryProvider>
     </ThemeProvider>
