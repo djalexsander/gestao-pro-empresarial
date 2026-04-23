@@ -377,6 +377,17 @@ function SalesPage() {
                               <X className="h-3.5 w-3.5" />
                             </Button>
                           )}
+                          {cancelada && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                              onClick={() => setExcluir(v)}
+                              title="Excluir venda cancelada definitivamente"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
