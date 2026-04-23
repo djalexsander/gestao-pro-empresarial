@@ -645,6 +645,44 @@ export type Database = {
           },
         ]
       }
+      empresa_membros: {
+        Row: {
+          convidado_por: string | null
+          created_at: string
+          empresa_id: string
+          id: string
+          papel: Database["public"]["Enums"]["empresa_papel"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          convidado_por?: string | null
+          created_at?: string
+          empresa_id: string
+          id?: string
+          papel?: Database["public"]["Enums"]["empresa_papel"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          convidado_por?: string | null
+          created_at?: string
+          empresa_id?: string
+          id?: string
+          papel?: Database["public"]["Enums"]["empresa_papel"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_membros_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       empresa_modulos: {
         Row: {
           created_at: string
@@ -1841,6 +1879,18 @@ export type Database = {
             }
             Returns: string
           }
+      acessa_owner_id: {
+        Args: { _owner_id: string; _user_id: string }
+        Returns: boolean
+      }
+      adicionar_membro_por_email: {
+        Args: {
+          _email: string
+          _empresa_id: string
+          _papel: Database["public"]["Enums"]["empresa_papel"]
+        }
+        Returns: Json
+      }
       admin_delete_empresa: { Args: { _id: string }; Returns: undefined }
       admin_delete_modulo: { Args: { _id: string }; Returns: undefined }
       admin_delete_pagamento: { Args: { _id: string }; Returns: undefined }
@@ -2232,6 +2282,7 @@ export type Database = {
           valor_total: number
         }[]
       }
+      current_empresa_id: { Args: never; Returns: string }
       excluir_caixa: { Args: { _caixa_id: string }; Returns: Json }
       excluir_venda_cancelada: { Args: { _venda_id: string }; Returns: Json }
       fechar_caixa: {
@@ -2360,7 +2411,21 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_member_of: {
+        Args: { _empresa_id: string; _user_id: string }
+        Returns: boolean
+      }
       is_super_admin: { Args: { _user_id?: string }; Returns: boolean }
+      listar_membros_empresa: {
+        Args: { _empresa_id: string }
+        Returns: {
+          created_at: string
+          email: string
+          id: string
+          papel: Database["public"]["Enums"]["empresa_papel"]
+          user_id: string
+        }[]
+      }
       meus_modulos: {
         Args: never
         Returns: {
@@ -2375,6 +2440,7 @@ export type Database = {
         }[]
       }
       minha_assinatura_status: { Args: never; Returns: Json }
+      minhas_empresas_ids: { Args: { _user_id: string }; Returns: string[] }
       modos_disponiveis: {
         Args: never
         Returns: {
@@ -2400,6 +2466,10 @@ export type Database = {
           valor: number
         }[]
       }
+      papel_na_empresa: {
+        Args: { _empresa_id: string; _user_id: string }
+        Returns: Database["public"]["Enums"]["empresa_papel"]
+      }
       planos_disponiveis: {
         Args: never
         Returns: {
@@ -2413,6 +2483,10 @@ export type Database = {
           tipo_cobranca: Database["public"]["Enums"]["plano_tipo_cobranca"]
           valor: number
         }[]
+      }
+      pode_ver_financeiro: {
+        Args: { _empresa_id: string; _user_id: string }
+        Returns: boolean
       }
       receber_compra: {
         Args: {
@@ -2444,6 +2518,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      remover_membro: { Args: { _membro_id: string }; Returns: Json }
       resetar_dados_empresa: { Args: never; Returns: undefined }
       saldos_estoque_lote: {
         Args: { _produto_ids: string[] }
@@ -2514,6 +2589,7 @@ export type Database = {
         | "recebida"
         | "cancelada"
       empresa_modulo_status: "ativo" | "pendente" | "cancelado"
+      empresa_papel: "owner" | "admin" | "gerente_operacional"
       forma_pagamento:
         | "dinheiro"
         | "pix"
@@ -2712,6 +2788,7 @@ export const Constants = {
         "cancelada",
       ],
       empresa_modulo_status: ["ativo", "pendente", "cancelado"],
+      empresa_papel: ["owner", "admin", "gerente_operacional"],
       forma_pagamento: [
         "dinheiro",
         "pix",
