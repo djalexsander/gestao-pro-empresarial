@@ -109,7 +109,37 @@ function PurchasesPage() {
     return { total, emAberto, recebidas, valorAberto };
   }, [filtradas]);
 
-  const limparFiltros = () => {
+  const gruposPorDia = useMemo(() => {
+    const mapa = new Map<string, typeof filtradas>();
+    for (const c of filtradas) {
+      const dia = c.data_emissao.slice(0, 10);
+      if (!mapa.has(dia)) mapa.set(dia, [] as typeof filtradas);
+      mapa.get(dia)!.push(c);
+    }
+    return Array.from(mapa.entries())
+      .map(([dia, list]) => ({
+        dia,
+        compras: list,
+        total: list.reduce((s, c) => s + Number(c.total ?? 0), 0),
+        qtd: list.length,
+      }))
+      .sort((a, b) => (a.dia < b.dia ? 1 : -1));
+  }, [filtradas]);
+
+  function toggleDia(dia: string) {
+    setDiasAbertos((prev) => ({ ...prev, [dia]: !prev[dia] }));
+  }
+
+  function formatarDia(dia: string) {
+    const d = new Date(dia + "T00:00:00");
+    return d.toLocaleDateString("pt-BR", {
+      weekday: "long",
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+    });
+  }
+
     setBusca("");
     setStatusFiltro("todos");
     setFornecedorFiltro("todos");
