@@ -5,6 +5,7 @@ import {
   Search,
   Eye,
   X,
+  Trash2,
   Loader2,
   ShoppingBag,
   Receipt,
@@ -36,11 +37,22 @@ import { formatBRL } from "@/lib/mock-data";
 import {
   useVendaMetricasPeriodo,
   useVendas,
+  useExcluirVendaCancelada,
   type VendaListItem,
 } from "@/hooks/useVendas";
 import { useClientesFull } from "@/hooks/useClientes";
 import { CancelarVendaDialog } from "@/components/vendas/CancelarVendaDialog";
 import { DetalheVendaDialog } from "@/components/vendas/DetalheVendaDialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/vendas")({
@@ -101,7 +113,9 @@ function SalesPage() {
   const [forma, setForma] = useState<string>("todos");
   const [clienteFiltro, setClienteFiltro] = useState<string>("todos");
   const [cancelar, setCancelar] = useState<VendaListItem | null>(null);
+  const [excluir, setExcluir] = useState<VendaListItem | null>(null);
   const [detalheId, setDetalheId] = useState<string | null>(null);
+  const excluirMutation = useExcluirVendaCancelada();
 
   const { inicio, fim } = useMemo(() => rangeFromPeriodo(periodo), [periodo]);
   const { data: metricas } = useVendaMetricasPeriodo(inicio, fim);
@@ -363,6 +377,17 @@ function SalesPage() {
                               <X className="h-3.5 w-3.5" />
                             </Button>
                           )}
+                          {cancelada && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                              onClick={() => setExcluir(v)}
+                              title="Excluir venda cancelada definitivamente"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -392,6 +417,56 @@ function SalesPage() {
         onOpenChange={(o) => !o && setDetalheId(null)}
         vendaId={detalheId}
       />
+
+      <AlertDialog
+        open={excluir !== null}
+        onOpenChange={(o) => !o && setExcluir(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Excluir venda {excluir?.numero}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação é <strong>permanente</strong> e remove a venda do
+              histórico. O estorno de estoque e os lançamentos financeiros já
+              cancelados serão preservados (apenas desvinculados). Use somente
+              para limpeza de registros indesejados.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={excluirMutation.isPending}>
+              Voltar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={excluirMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async (e) => {
+                e.preventDefault();
+                if (!excluir) return;
+                try {
+                  await excluirMutation.mutateAsync(excluir.id);
+                  setExcluir(null);
+                } catch {
+                  /* toast já mostrado pelo hook */
+                }
+              }}
+            >
+              {excluirMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Excluindo...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Excluir definitivamente
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -2232,6 +2232,7 @@ export type Database = {
           valor_total: number
         }[]
       }
+      excluir_venda_cancelada: { Args: { _venda_id: string }; Returns: Json }
       fechar_caixa: {
         Args: {
           _caixa_id: string
