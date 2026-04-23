@@ -886,6 +886,7 @@ export type Database = {
       }
       financeiro_lancamentos: {
         Row: {
+          caixa_id: string | null
           categoria_id: string | null
           cliente_id: string | null
           compra_id: string | null
@@ -910,6 +911,7 @@ export type Database = {
           venda_id: string | null
         }
         Insert: {
+          caixa_id?: string | null
           categoria_id?: string | null
           cliente_id?: string | null
           compra_id?: string | null
@@ -936,6 +938,7 @@ export type Database = {
           venda_id?: string | null
         }
         Update: {
+          caixa_id?: string | null
           categoria_id?: string | null
           cliente_id?: string | null
           compra_id?: string | null
@@ -962,6 +965,13 @@ export type Database = {
           venda_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "financeiro_lancamentos_caixa_id_fkey"
+            columns: ["caixa_id"]
+            isOneToOne: false
+            referencedRelation: "caixas"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "financeiro_lancamentos_categoria_id_fkey"
             columns: ["categoria_id"]
