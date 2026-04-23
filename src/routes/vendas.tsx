@@ -37,11 +37,22 @@ import { formatBRL } from "@/lib/mock-data";
 import {
   useVendaMetricasPeriodo,
   useVendas,
+  useExcluirVendaCancelada,
   type VendaListItem,
 } from "@/hooks/useVendas";
 import { useClientesFull } from "@/hooks/useClientes";
 import { CancelarVendaDialog } from "@/components/vendas/CancelarVendaDialog";
 import { DetalheVendaDialog } from "@/components/vendas/DetalheVendaDialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/vendas")({
