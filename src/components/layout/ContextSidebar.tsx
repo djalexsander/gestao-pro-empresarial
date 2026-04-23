@@ -7,9 +7,30 @@ interface ContextSidebarProps {
   activeModule: ModuleKey;
 }
 
+/** Quebra "/financeiro?tab=pagar" em { path, search } */
+function splitTo(to: string): { path: string; search: Record<string, string> } {
+  const [path, qs = ""] = to.split("?");
+  const search: Record<string, string> = {};
+  if (qs) {
+    for (const part of qs.split("&")) {
+      const [k, v = ""] = part.split("=");
+      if (k) search[decodeURIComponent(k)] = decodeURIComponent(v);
+    }
+  }
+  return { path, search };
+}
+
 export function ContextSidebar({ activeModule }: ContextSidebarProps) {
   const location = useLocation();
   const mod = MODULES.find((m) => m.key === activeModule) ?? MODULES[0];
+
+  // Parse current search params
+  const currentSearch = (location.search ?? {}) as Record<string, string | undefined>;
+
+  // Itens do módulo que possuem search params (ex.: ?tab=pagar)
+  const itemsWithSearch = mod.items
+    .map((it) => splitTo(it.to))
+    .filter((s) => Object.keys(s.search).length > 0 && s.path === location.pathname);
 
   return (
     <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-card lg:flex">
@@ -25,16 +46,38 @@ export function ContextSidebar({ activeModule }: ContextSidebarProps) {
       <nav className="flex-1 overflow-y-auto p-2">
         <ul className="space-y-0.5">
           {mod.items.map((item) => {
-            const base = item.to.split("?")[0];
-            const active =
-              base === "/"
-                ? location.pathname === "/"
-                : location.pathname === base || location.pathname.startsWith(base + "/");
+            const { path, search } = splitTo(item.to);
             const Icon = item.icon;
+
+            // Match de pathname
+            const pathMatches =
+              path === "/"
+                ? location.pathname === "/"
+                : location.pathname === path || location.pathname.startsWith(path + "/");
+
+            const itemHasSearch = Object.keys(search).length > 0;
+
+            // Active rule:
+            // - Item COM search params: marca ativo apenas se TODOS os params batem com a URL atual
+            // - Item SEM search params: marca ativo se pathname bate E nenhum outro item do mesmo
+            //   path com search params está ativo (para evitar "Financeiro" + "Contas a pagar" juntos)
+            let active = false;
+            if (itemHasSearch) {
+              active =
+                pathMatches &&
+                Object.entries(search).every(([k, v]) => currentSearch[k] === v);
+            } else {
+              const someSiblingActive = itemsWithSearch.some((sib) =>
+                Object.entries(sib.search).every(([k, v]) => currentSearch[k] === v),
+              );
+              active = pathMatches && !someSiblingActive;
+            }
+
             return (
               <li key={item.to}>
                 <Link
-                  to={base}
+                  to={path}
+                  search={itemHasSearch ? (search as never) : (undefined as never)}
                   className={cn(
                     "group flex items-start gap-3 rounded-md px-2.5 py-2 text-sm transition-colors",
                     active
