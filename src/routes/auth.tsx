@@ -385,7 +385,30 @@ function SignInForm({ redirect }: { redirect: string }) {
       <GoogleButton onClick={onGoogle} busy={googleBusy} />
       <Divider label="ou continue com e-mail" />
 
-      <form onSubmit={onSubmit} className="space-y-4">
+      <form
+        key={pwdFieldName}
+        onSubmit={onSubmit}
+        className="space-y-4"
+        autoComplete="off"
+        spellCheck={false}
+      >
+        {/* Campos-isca: o navegador preenche estes em vez do campo real,
+            evitando que ofereça "salvar senha" para o login do ERP. */}
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            top: -9999,
+            left: -9999,
+            height: 0,
+            width: 0,
+            overflow: "hidden",
+          }}
+        >
+          <input type="text" name="fakeuser" tabIndex={-1} autoComplete="username" />
+          <input type="password" name="fakepassword" tabIndex={-1} autoComplete="new-password" />
+        </div>
+
         <div className="space-y-1.5">
           <Label htmlFor="signin-email" className="text-white/80">
             E-mail
@@ -396,7 +419,7 @@ function SignInForm({ redirect }: { redirect: string }) {
               id="signin-email"
               type="email"
               required
-              autoComplete="email"
+              autoComplete="username"
               placeholder="voce@empresa.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -426,9 +449,16 @@ function SignInForm({ redirect }: { redirect: string }) {
             <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
             <Input
               id="signin-password"
+              /* nome dinâmico + autocomplete="new-password" impedem
+                 o navegador de salvar/auto-preencher a senha */
+              name={pwdFieldName}
               type={showPwd ? "text" : "password"}
               required
-              autoComplete="current-password"
+              autoComplete="new-password"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-bwignore="true"
+              data-form-type="other"
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -439,6 +469,7 @@ function SignInForm({ redirect }: { redirect: string }) {
               onClick={() => setShowPwd((v) => !v)}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70 transition-colors"
               aria-label={showPwd ? "Ocultar senha" : "Mostrar senha"}
+              tabIndex={-1}
             >
               {showPwd ? (
                 <EyeOff className="h-4 w-4" />
@@ -447,6 +478,10 @@ function SignInForm({ redirect }: { redirect: string }) {
               )}
             </button>
           </div>
+          <p className="text-[11px] text-white/45">
+            Por segurança, a senha nunca é salva. Você precisa digitá-la a
+            cada acesso.
+          </p>
         </div>
 
         <label className="flex cursor-pointer items-center gap-2 text-sm text-white/65 select-none">
