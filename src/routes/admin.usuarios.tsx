@@ -173,8 +173,6 @@ function AdminUsersPage() {
                         ? new Date(u.last_sign_in_at).toLocaleDateString("pt-BR")
                         : "—"}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">{u.total_produtos}</TableCell>
-                    <TableCell className="text-right tabular-nums">{u.total_vendas}</TableCell>
                     <TableCell>
                       <div className="flex items-center justify-end gap-1">
                         <Button
