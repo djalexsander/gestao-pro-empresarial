@@ -1,7 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
-  Users, Building2, Package, ShoppingCart, Receipt,
-  TrendingUp, ShieldCheck, ArrowRight, ScrollText, UserCog,
+  Users, Building2, TrendingUp, ShieldCheck, ArrowRight, ScrollText, UserCog,
   Activity, Lock, Ban,
 } from "lucide-react";
 import {
