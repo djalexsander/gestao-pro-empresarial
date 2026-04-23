@@ -417,6 +417,56 @@ function SalesPage() {
         onOpenChange={(o) => !o && setDetalheId(null)}
         vendaId={detalheId}
       />
+
+      <AlertDialog
+        open={excluir !== null}
+        onOpenChange={(o) => !o && setExcluir(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Excluir venda {excluir?.numero}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação é <strong>permanente</strong> e remove a venda do
+              histórico. O estorno de estoque e os lançamentos financeiros já
+              cancelados serão preservados (apenas desvinculados). Use somente
+              para limpeza de registros indesejados.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={excluirMutation.isPending}>
+              Voltar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={excluirMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async (e) => {
+                e.preventDefault();
+                if (!excluir) return;
+                try {
+                  await excluirMutation.mutateAsync(excluir.id);
+                  setExcluir(null);
+                } catch {
+                  /* toast já mostrado pelo hook */
+                }
+              }}
+            >
+              {excluirMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Excluindo...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Excluir definitivamente
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
