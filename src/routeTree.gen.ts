@@ -26,6 +26,12 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
+import { Route as RelatoriosVendasRouteImport } from './routes/relatorios.vendas'
+import { Route as RelatoriosFluxoCaixaRouteImport } from './routes/relatorios.fluxo-caixa'
+import { Route as RelatoriosFiscalRouteImport } from './routes/relatorios.fiscal'
+import { Route as RelatoriosEstoqueRouteImport } from './routes/relatorios.estoque'
+import { Route as RelatoriosDreRouteImport } from './routes/relatorios.dre'
+import { Route as RelatoriosComprasRouteImport } from './routes/relatorios.compras'
 import { Route as AdminUsuariosRouteImport } from './routes/admin.usuarios'
 import { Route as AdminPlanosRouteImport } from './routes/admin.planos'
 import { Route as AdminPagamentosRouteImport } from './routes/admin.pagamentos'
@@ -122,6 +128,36 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AdminRoute,
 } as any)
+const RelatoriosVendasRoute = RelatoriosVendasRouteImport.update({
+  id: '/vendas',
+  path: '/vendas',
+  getParentRoute: () => RelatoriosRoute,
+} as any)
+const RelatoriosFluxoCaixaRoute = RelatoriosFluxoCaixaRouteImport.update({
+  id: '/fluxo-caixa',
+  path: '/fluxo-caixa',
+  getParentRoute: () => RelatoriosRoute,
+} as any)
+const RelatoriosFiscalRoute = RelatoriosFiscalRouteImport.update({
+  id: '/fiscal',
+  path: '/fiscal',
+  getParentRoute: () => RelatoriosRoute,
+} as any)
+const RelatoriosEstoqueRoute = RelatoriosEstoqueRouteImport.update({
+  id: '/estoque',
+  path: '/estoque',
+  getParentRoute: () => RelatoriosRoute,
+} as any)
+const RelatoriosDreRoute = RelatoriosDreRouteImport.update({
+  id: '/dre',
+  path: '/dre',
+  getParentRoute: () => RelatoriosRoute,
+} as any)
+const RelatoriosComprasRoute = RelatoriosComprasRouteImport.update({
+  id: '/compras',
+  path: '/compras',
+  getParentRoute: () => RelatoriosRoute,
+} as any)
 const AdminUsuariosRoute = AdminUsuariosRouteImport.update({
   id: '/usuarios',
   path: '/usuarios',
@@ -188,7 +224,7 @@ export interface FileRoutesByFullPath {
   '/pdv': typeof PdvRoute
   '/pos': typeof PosRoute
   '/produtos': typeof ProdutosRoute
-  '/relatorios': typeof RelatoriosRoute
+  '/relatorios': typeof RelatoriosRouteWithChildren
   '/vendas': typeof VendasRoute
   '/admin/assinaturas': typeof AdminAssinaturasRoute
   '/admin/auditoria': typeof AdminAuditoriaRoute
@@ -200,6 +236,12 @@ export interface FileRoutesByFullPath {
   '/admin/pagamentos': typeof AdminPagamentosRoute
   '/admin/planos': typeof AdminPlanosRoute
   '/admin/usuarios': typeof AdminUsuariosRoute
+  '/relatorios/compras': typeof RelatoriosComprasRoute
+  '/relatorios/dre': typeof RelatoriosDreRoute
+  '/relatorios/estoque': typeof RelatoriosEstoqueRoute
+  '/relatorios/fiscal': typeof RelatoriosFiscalRoute
+  '/relatorios/fluxo-caixa': typeof RelatoriosFluxoCaixaRoute
+  '/relatorios/vendas': typeof RelatoriosVendasRoute
   '/admin/': typeof AdminIndexRoute
 }
 export interface FileRoutesByTo {
@@ -216,7 +258,7 @@ export interface FileRoutesByTo {
   '/pdv': typeof PdvRoute
   '/pos': typeof PosRoute
   '/produtos': typeof ProdutosRoute
-  '/relatorios': typeof RelatoriosRoute
+  '/relatorios': typeof RelatoriosRouteWithChildren
   '/vendas': typeof VendasRoute
   '/admin/assinaturas': typeof AdminAssinaturasRoute
   '/admin/auditoria': typeof AdminAuditoriaRoute
@@ -228,6 +270,12 @@ export interface FileRoutesByTo {
   '/admin/pagamentos': typeof AdminPagamentosRoute
   '/admin/planos': typeof AdminPlanosRoute
   '/admin/usuarios': typeof AdminUsuariosRoute
+  '/relatorios/compras': typeof RelatoriosComprasRoute
+  '/relatorios/dre': typeof RelatoriosDreRoute
+  '/relatorios/estoque': typeof RelatoriosEstoqueRoute
+  '/relatorios/fiscal': typeof RelatoriosFiscalRoute
+  '/relatorios/fluxo-caixa': typeof RelatoriosFluxoCaixaRoute
+  '/relatorios/vendas': typeof RelatoriosVendasRoute
   '/admin': typeof AdminIndexRoute
 }
 export interface FileRoutesById {
@@ -246,7 +294,7 @@ export interface FileRoutesById {
   '/pdv': typeof PdvRoute
   '/pos': typeof PosRoute
   '/produtos': typeof ProdutosRoute
-  '/relatorios': typeof RelatoriosRoute
+  '/relatorios': typeof RelatoriosRouteWithChildren
   '/vendas': typeof VendasRoute
   '/admin/assinaturas': typeof AdminAssinaturasRoute
   '/admin/auditoria': typeof AdminAuditoriaRoute
@@ -258,6 +306,12 @@ export interface FileRoutesById {
   '/admin/pagamentos': typeof AdminPagamentosRoute
   '/admin/planos': typeof AdminPlanosRoute
   '/admin/usuarios': typeof AdminUsuariosRoute
+  '/relatorios/compras': typeof RelatoriosComprasRoute
+  '/relatorios/dre': typeof RelatoriosDreRoute
+  '/relatorios/estoque': typeof RelatoriosEstoqueRoute
+  '/relatorios/fiscal': typeof RelatoriosFiscalRoute
+  '/relatorios/fluxo-caixa': typeof RelatoriosFluxoCaixaRoute
+  '/relatorios/vendas': typeof RelatoriosVendasRoute
   '/admin/': typeof AdminIndexRoute
 }
 export interface FileRouteTypes {
@@ -289,6 +343,12 @@ export interface FileRouteTypes {
     | '/admin/pagamentos'
     | '/admin/planos'
     | '/admin/usuarios'
+    | '/relatorios/compras'
+    | '/relatorios/dre'
+    | '/relatorios/estoque'
+    | '/relatorios/fiscal'
+    | '/relatorios/fluxo-caixa'
+    | '/relatorios/vendas'
     | '/admin/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -317,6 +377,12 @@ export interface FileRouteTypes {
     | '/admin/pagamentos'
     | '/admin/planos'
     | '/admin/usuarios'
+    | '/relatorios/compras'
+    | '/relatorios/dre'
+    | '/relatorios/estoque'
+    | '/relatorios/fiscal'
+    | '/relatorios/fluxo-caixa'
+    | '/relatorios/vendas'
     | '/admin'
   id:
     | '__root__'
@@ -346,6 +412,12 @@ export interface FileRouteTypes {
     | '/admin/pagamentos'
     | '/admin/planos'
     | '/admin/usuarios'
+    | '/relatorios/compras'
+    | '/relatorios/dre'
+    | '/relatorios/estoque'
+    | '/relatorios/fiscal'
+    | '/relatorios/fluxo-caixa'
+    | '/relatorios/vendas'
     | '/admin/'
   fileRoutesById: FileRoutesById
 }
@@ -364,7 +436,7 @@ export interface RootRouteChildren {
   PdvRoute: typeof PdvRoute
   PosRoute: typeof PosRoute
   ProdutosRoute: typeof ProdutosRoute
-  RelatoriosRoute: typeof RelatoriosRoute
+  RelatoriosRoute: typeof RelatoriosRouteWithChildren
   VendasRoute: typeof VendasRoute
 }
 
@@ -489,6 +561,48 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/relatorios/vendas': {
+      id: '/relatorios/vendas'
+      path: '/vendas'
+      fullPath: '/relatorios/vendas'
+      preLoaderRoute: typeof RelatoriosVendasRouteImport
+      parentRoute: typeof RelatoriosRoute
+    }
+    '/relatorios/fluxo-caixa': {
+      id: '/relatorios/fluxo-caixa'
+      path: '/fluxo-caixa'
+      fullPath: '/relatorios/fluxo-caixa'
+      preLoaderRoute: typeof RelatoriosFluxoCaixaRouteImport
+      parentRoute: typeof RelatoriosRoute
+    }
+    '/relatorios/fiscal': {
+      id: '/relatorios/fiscal'
+      path: '/fiscal'
+      fullPath: '/relatorios/fiscal'
+      preLoaderRoute: typeof RelatoriosFiscalRouteImport
+      parentRoute: typeof RelatoriosRoute
+    }
+    '/relatorios/estoque': {
+      id: '/relatorios/estoque'
+      path: '/estoque'
+      fullPath: '/relatorios/estoque'
+      preLoaderRoute: typeof RelatoriosEstoqueRouteImport
+      parentRoute: typeof RelatoriosRoute
+    }
+    '/relatorios/dre': {
+      id: '/relatorios/dre'
+      path: '/dre'
+      fullPath: '/relatorios/dre'
+      preLoaderRoute: typeof RelatoriosDreRouteImport
+      parentRoute: typeof RelatoriosRoute
+    }
+    '/relatorios/compras': {
+      id: '/relatorios/compras'
+      path: '/compras'
+      fullPath: '/relatorios/compras'
+      preLoaderRoute: typeof RelatoriosComprasRouteImport
+      parentRoute: typeof RelatoriosRoute
+    }
     '/admin/usuarios': {
       id: '/admin/usuarios'
       path: '/usuarios'
@@ -592,6 +706,28 @@ const AdminRouteChildren: AdminRouteChildren = {
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
+interface RelatoriosRouteChildren {
+  RelatoriosComprasRoute: typeof RelatoriosComprasRoute
+  RelatoriosDreRoute: typeof RelatoriosDreRoute
+  RelatoriosEstoqueRoute: typeof RelatoriosEstoqueRoute
+  RelatoriosFiscalRoute: typeof RelatoriosFiscalRoute
+  RelatoriosFluxoCaixaRoute: typeof RelatoriosFluxoCaixaRoute
+  RelatoriosVendasRoute: typeof RelatoriosVendasRoute
+}
+
+const RelatoriosRouteChildren: RelatoriosRouteChildren = {
+  RelatoriosComprasRoute: RelatoriosComprasRoute,
+  RelatoriosDreRoute: RelatoriosDreRoute,
+  RelatoriosEstoqueRoute: RelatoriosEstoqueRoute,
+  RelatoriosFiscalRoute: RelatoriosFiscalRoute,
+  RelatoriosFluxoCaixaRoute: RelatoriosFluxoCaixaRoute,
+  RelatoriosVendasRoute: RelatoriosVendasRoute,
+}
+
+const RelatoriosRouteWithChildren = RelatoriosRoute._addFileChildren(
+  RelatoriosRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRouteWithChildren,
@@ -607,7 +743,7 @@ const rootRouteChildren: RootRouteChildren = {
   PdvRoute: PdvRoute,
   PosRoute: PosRoute,
   ProdutosRoute: ProdutosRoute,
-  RelatoriosRoute: RelatoriosRoute,
+  RelatoriosRoute: RelatoriosRouteWithChildren,
   VendasRoute: VendasRoute,
 }
 export const routeTree = rootRouteImport
