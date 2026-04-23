@@ -17,9 +17,6 @@ export const Route = createFileRoute("/admin/")({
   component: AdminDashboard,
 });
 
-const fmtBRL = (n: number) =>
-  Number(n ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-
 function AdminDashboard() {
   const { data: stats, isLoading, error } = useAdminStats();
   const { data: serie = [] } = useAdminSerieCrescimento(30);
