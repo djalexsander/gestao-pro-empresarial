@@ -1,4 +1,4 @@
-import { Outlet, useLocation } from "@tanstack/react-router";
+import { Outlet, useLocation, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { RequireAdminLike } from "@/components/auth/RequireRole";
@@ -12,9 +12,30 @@ import { useIsSuperAdmin } from "@/hooks/useAdmin";
 import { Link } from "@tanstack/react-router";
 import { ShieldCheck } from "lucide-react";
 import { AssinaturaBanner } from "./AssinaturaBanner";
+import { useMode } from "@/components/modes/ModeProvider";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 export function AppLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { modoAtual, isRouteAllowed, isLoading: modosLoading } = useMode();
+
+  // Guard de modo: redireciona para a rota inicial do modo se rota atual não pertence ao modo.
+  useEffect(() => {
+    if (modosLoading) return;
+    if (!user) return;
+    if (location.pathname === "/auth" || location.pathname === "/hub") return;
+    if (location.pathname.startsWith("/admin")) return;
+    if (!modoAtual) {
+      // Sem modo selecionado e tentando acessar rota de app -> manda pro hub
+      navigate({ to: "/hub" });
+      return;
+    }
+    if (!isRouteAllowed(location.pathname)) {
+      navigate({ to: modoAtual.rota_inicial as "/" });
+    }
+  }, [location.pathname, modoAtual, modosLoading, user, isRouteAllowed, navigate]);
 
   if (location.pathname === "/auth") {
     return <Outlet />;
@@ -55,6 +76,8 @@ export function AppLayout() {
 function AppShell() {
   const location = useLocation();
   const { data: isSuperAdmin } = useIsSuperAdmin();
+  const { modoAtual, clearModo } = useMode();
+  const navigate = useNavigate();
 
   // Módulo ativo derivado da rota; também pode ser sobreposto pelo clique no menubar
   const [activeModule, setActiveModule] = useState<ModuleKey>(
@@ -67,6 +90,11 @@ function AppShell() {
     setActiveModule(findModuleByPath(location.pathname).key);
   }, [location.pathname]);
 
+  const handleTrocarModo = () => {
+    clearModo();
+    navigate({ to: "/hub" });
+  };
+
   return (
     <div className="flex min-h-screen w-full flex-col bg-background">
       <AssinaturaBanner />
@@ -74,6 +102,19 @@ function AppShell() {
         <div className="flex-1">
           <AppMenubar activeModule={activeModule} onModuleSelect={setActiveModule} />
         </div>
+        {modoAtual && (
+          <button
+            type="button"
+            onClick={handleTrocarModo}
+            className="hidden h-11 items-center gap-1.5 border-b border-l border-sidebar-border bg-sidebar px-3 text-[13px] font-medium text-sidebar-foreground/85 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground lg:flex"
+            title="Trocar de modo"
+          >
+            <span className="rounded-md bg-primary/15 px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-primary">
+              {modoAtual.chave}
+            </span>
+            Trocar modo
+          </button>
+        )}
         {isSuperAdmin && (
           <Link
             to="/admin"

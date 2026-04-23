@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
@@ -6,37 +6,70 @@ import {
   LogOut,
   Sparkles,
   ArrowRight,
-  Building2,
-  BarChart3,
-  PackageOpen,
-  Receipt,
-  Users,
   Lock,
+  Loader2,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { AdminAuthDialog } from "@/components/auth/AdminAuthDialog";
+import { useMode } from "@/components/modes/ModeProvider";
+import type { ModoDisponivel } from "@/hooks/useSaasAdmin";
 
 export const Route = createFileRoute("/hub")({
   head: () => ({
     meta: [
       { title: "Início — Gestão Pro" },
-      { name: "description", content: "Escolha entre o ERP completo ou o caixa." },
+      { name: "description", content: "Escolha o ambiente de trabalho." },
     ],
   }),
   component: HubPage,
 });
 
+const ICONES: Record<string, LucideIcon> = {
+  LayoutDashboard,
+  ShoppingCart,
+};
+
+function iconePorChave(chave: string, fallback: string | null): LucideIcon {
+  if (fallback && ICONES[fallback]) return ICONES[fallback];
+  if (chave === "pdv") return ShoppingCart;
+  return LayoutDashboard;
+}
+
 function HubPage() {
   const { user, loading, signOut } = useAuth();
   const navigate = useNavigate();
+  const { modos, isLoading: modosLoading, setModo } = useMode();
   const [adminAuthOpen, setAdminAuthOpen] = useState(false);
+  const [modoPendente, setModoPendente] = useState<ModoDisponivel | null>(null);
 
   useEffect(() => {
     if (!loading && !user) {
       navigate({ to: "/auth", search: { redirect: "/hub" } });
     }
   }, [loading, user, navigate]);
+
+  // Quando admin valida senha, ativa o modo escolhido e navega
+  const handleAfterAdminAuth = (open: boolean) => {
+    setAdminAuthOpen(open);
+    if (!open && modoPendente) {
+      // Dialog fechou — se ainda há modo pendente, assume que foi confirmado pelo redirect interno
+      // (AdminAuthDialog já redireciona pra "/" quando autentica). Aplicamos o modo aqui também.
+      setModo(modoPendente.chave);
+      setModoPendente(null);
+    }
+  };
+
+  const entrarNoModo = (m: ModoDisponivel) => {
+    if (m.tipo === "admin") {
+      setModoPendente(m);
+      setAdminAuthOpen(true);
+      return;
+    }
+    setModo(m.chave);
+    navigate({ to: m.rota_inicial as "/" });
+  };
 
   if (loading || !user) return null;
 
@@ -75,9 +108,7 @@ function HubPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => {
-              signOut();
-            }}
+            onClick={() => signOut()}
             className="text-white/70 hover:bg-white/10 hover:text-white"
           >
             <LogOut className="mr-1 h-4 w-4" /> Sair
@@ -100,109 +131,93 @@ function HubPage() {
           </p>
         </div>
 
-        <div className="grid w-full max-w-5xl gap-5 sm:grid-cols-2 animate-in fade-in slide-in-from-bottom-6 duration-700">
-          {/* Card ERP — exige reautenticação por dialog */}
-          <button
-            type="button"
-            onClick={() => setAdminAuthOpen(true)}
-            className="group relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] p-7 text-left backdrop-blur-xl transition-all hover:-translate-y-1 hover:border-white/25 hover:bg-white/[0.07] hover:shadow-2xl hover:shadow-[oklch(0.55_0.22_270)]/20 sm:p-8"
+        {modosLoading ? (
+          <div className="flex items-center gap-2 text-sm text-white/60">
+            <Loader2 className="h-4 w-4 animate-spin" /> Carregando modos…
+          </div>
+        ) : modos.length === 0 ? (
+          <p className="text-sm text-white/60">Nenhum modo ativo. Contate o administrador.</p>
+        ) : (
+          <div
+            className={
+              "grid w-full gap-5 animate-in fade-in slide-in-from-bottom-6 duration-700 " +
+              (modos.length === 1
+                ? "max-w-md"
+                : modos.length === 2
+                ? "max-w-5xl sm:grid-cols-2"
+                : "max-w-6xl sm:grid-cols-2 lg:grid-cols-3")
+            }
           >
-            <div className="pointer-events-none absolute -top-20 -right-20 h-56 w-56 rounded-full bg-[oklch(0.65_0.22_275)]/25 blur-3xl transition-opacity group-hover:opacity-100" />
-
-            <div className="relative">
-              <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[oklch(0.7_0.2_275)] to-[oklch(0.55_0.22_245)] shadow-lg shadow-[oklch(0.55_0.22_270)]/40">
-                <LayoutDashboard className="h-7 w-7 text-white" />
-              </div>
-
-              <div className="flex items-center gap-2">
-                <h2 className="text-2xl font-bold tracking-tight">Entrar no Sistema</h2>
-                <span
-                  className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white/70"
-                  title="Requer autenticação administrativa"
+            {modos.map((m) => {
+              const Icon = iconePorChave(m.chave, m.icone);
+              const isAdmin = m.tipo === "admin";
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => entrarNoModo(m)}
+                  className="group relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] p-7 text-left backdrop-blur-xl transition-all hover:-translate-y-1 hover:border-white/25 hover:bg-white/[0.07] hover:shadow-2xl hover:shadow-[oklch(0.55_0.22_270)]/20 sm:p-8"
                 >
-                  <Lock className="h-3 w-3" /> Senha
-                </span>
-              </div>
-              <p className="mt-1 text-xs uppercase tracking-[0.18em] text-[oklch(0.78_0.16_280)]">
-                ERP Completo
-              </p>
-              <p className="mt-3 text-sm leading-relaxed text-white/60">
-                Acesso ao painel administrativo: vendas, compras, estoque, financeiro, relatórios e
-                configurações.
-              </p>
+                  <div
+                    className={
+                      "pointer-events-none absolute -top-20 -right-20 h-56 w-56 rounded-full blur-3xl transition-opacity group-hover:opacity-100 " +
+                      (isAdmin
+                        ? "bg-[oklch(0.65_0.22_275)]/25"
+                        : "bg-emerald-500/25")
+                    }
+                  />
+                  <div className="relative">
+                    <div
+                      className={
+                        "mb-5 flex h-14 w-14 items-center justify-center rounded-2xl shadow-lg " +
+                        (isAdmin
+                          ? "bg-gradient-to-br from-[oklch(0.7_0.2_275)] to-[oklch(0.55_0.22_245)] shadow-[oklch(0.55_0.22_270)]/40"
+                          : "bg-gradient-to-br from-emerald-500 to-emerald-700 shadow-emerald-500/40")
+                      }
+                    >
+                      <Icon className="h-7 w-7 text-white" />
+                    </div>
 
-              <ul className="mt-5 grid grid-cols-2 gap-2 text-xs text-white/55">
-                <li className="flex items-center gap-1.5">
-                  <Building2 className="h-3.5 w-3.5 text-white/40" /> Cadastros
-                </li>
-                <li className="flex items-center gap-1.5">
-                  <BarChart3 className="h-3.5 w-3.5 text-white/40" /> Relatórios
-                </li>
-                <li className="flex items-center gap-1.5">
-                  <PackageOpen className="h-3.5 w-3.5 text-white/40" /> Estoque
-                </li>
-                <li className="flex items-center gap-1.5">
-                  <Users className="h-3.5 w-3.5 text-white/40" /> Equipe
-                </li>
-              </ul>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-2xl font-bold tracking-tight">{m.nome}</h2>
+                      {isAdmin && (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white/70"
+                          title="Requer autenticação administrativa"
+                        >
+                          <Lock className="h-3 w-3" /> Senha
+                        </span>
+                      )}
+                    </div>
+                    <p
+                      className={
+                        "mt-1 text-xs uppercase tracking-[0.18em] " +
+                        (isAdmin ? "text-[oklch(0.78_0.16_280)]" : "text-emerald-300")
+                      }
+                    >
+                      {isAdmin ? "Modo Administrativo" : "Modo Operacional"}
+                    </p>
+                    {m.descricao && (
+                      <p className="mt-3 text-sm leading-relaxed text-white/60">{m.descricao}</p>
+                    )}
 
-              <div className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-white/80 transition-colors group-hover:text-white">
-                Confirmar credenciais
-                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-              </div>
-            </div>
-          </button>
-
-          {/* Card PDV */}
-          <Link
-            to="/pos"
-            className="group relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] p-7 backdrop-blur-xl transition-all hover:-translate-y-1 hover:border-white/25 hover:bg-white/[0.07] hover:shadow-2xl hover:shadow-emerald-500/20 sm:p-8"
-          >
-            <div className="pointer-events-none absolute -top-20 -right-20 h-56 w-56 rounded-full bg-emerald-500/25 blur-3xl transition-opacity group-hover:opacity-100" />
-
-            <div className="relative">
-              <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 shadow-lg shadow-emerald-500/40">
-                <ShoppingCart className="h-7 w-7 text-white" />
-              </div>
-
-              <h2 className="text-2xl font-bold tracking-tight">Abrir Caixa / PDV</h2>
-              <p className="mt-1 text-xs uppercase tracking-[0.18em] text-emerald-300">
-                Frente de Caixa
-              </p>
-              <p className="mt-3 text-sm leading-relaxed text-white/60">
-                Ambiente operacional para o operador: identificação por PIN, abertura de caixa,
-                vendas no balcão e fechamento.
-              </p>
-
-              <ul className="mt-5 grid grid-cols-2 gap-2 text-xs text-white/55">
-                <li className="flex items-center gap-1.5">
-                  <Users className="h-3.5 w-3.5 text-white/40" /> Operador + PIN
-                </li>
-                <li className="flex items-center gap-1.5">
-                  <PackageOpen className="h-3.5 w-3.5 text-white/40" /> Abrir caixa
-                </li>
-                <li className="flex items-center gap-1.5">
-                  <ShoppingCart className="h-3.5 w-3.5 text-white/40" /> Vender
-                </li>
-                <li className="flex items-center gap-1.5">
-                  <Receipt className="h-3.5 w-3.5 text-white/40" /> Fechar caixa
-                </li>
-              </ul>
-
-              <div className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-white/80 transition-colors group-hover:text-white">
-                Iniciar operação
-                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-              </div>
-            </div>
-          </Link>
-        </div>
+                    <div className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-white/80 transition-colors group-hover:text-white">
+                      Entrar
+                      <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <p className="mt-10 text-xs text-white/40">
           Logado como <span className="font-medium text-white/60">{user.email}</span>
         </p>
       </main>
 
-      <AdminAuthDialog open={adminAuthOpen} onOpenChange={setAdminAuthOpen} />
+      <AdminAuthDialog open={adminAuthOpen} onOpenChange={handleAfterAdminAuth} />
     </div>
   );
 }

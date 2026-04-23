@@ -3,6 +3,7 @@ import { ThemeProvider, themeInitScript } from "@/components/theme/ThemeProvider
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { OperadorProvider } from "@/components/auth/OperadorProvider";
 import { TerminalProvider } from "@/components/auth/TerminalProvider";
+import { ModeProvider } from "@/components/modes/ModeProvider";
 import { QueryProvider } from "@/components/providers/QueryProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -87,12 +88,14 @@ function RootComponent() {
     <ThemeProvider>
       <QueryProvider>
         <AuthProvider>
-          <OperadorProvider>
-            <TerminalProvider>
-              <AppLayout />
-              <Toaster richColors position="top-right" />
-            </TerminalProvider>
-          </OperadorProvider>
+          <ModeProvider>
+            <OperadorProvider>
+              <TerminalProvider>
+                <AppLayout />
+                <Toaster richColors position="top-right" />
+              </TerminalProvider>
+            </OperadorProvider>
+          </ModeProvider>
         </AuthProvider>
       </QueryProvider>
     </ThemeProvider>

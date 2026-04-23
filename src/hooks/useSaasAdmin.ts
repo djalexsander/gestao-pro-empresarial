@@ -504,3 +504,128 @@ export function useModulo(chave: string) {
     origem: modulo?.origem ?? "bloqueado",
   };
 }
+
+/* =========================================================
+ * MODOS DO SISTEMA
+ * =======================================================*/
+export type SystemModeTipo = "admin" | "operador";
+
+export type SystemMode = {
+  id: string;
+  chave: string;
+  nome: string;
+  descricao: string | null;
+  rota_inicial: string;
+  tipo: SystemModeTipo;
+  ativo: boolean;
+  ordem: number;
+  icone: string | null;
+  modulos: { id: string; chave: string; nome: string }[];
+};
+
+export type ModoDisponivel = {
+  id: string;
+  chave: string;
+  nome: string;
+  descricao: string | null;
+  rota_inicial: string;
+  tipo: SystemModeTipo;
+  icone: string | null;
+};
+
+/** Lista todos os modos (admin) com módulos vinculados. */
+export function useAdminModos() {
+  return useQuery({
+    queryKey: ["admin-modos"],
+    queryFn: async () => {
+      const { data, error } = await (supabase.rpc as any)("admin_modos_listar");
+      if (error) throw error;
+      return (data ?? []) as SystemMode[];
+    },
+  });
+}
+
+/** Lista modos ativos para tela de escolha. */
+export function useModosDisponiveis() {
+  return useQuery({
+    queryKey: ["modos-disponiveis"],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data, error } = await (supabase.rpc as any)("modos_disponiveis");
+      if (error) throw error;
+      return (data ?? []) as ModoDisponivel[];
+    },
+  });
+}
+
+export function useUpsertModo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      id: string | null;
+      chave: string;
+      nome: string;
+      descricao?: string | null;
+      rota_inicial: string;
+      tipo: SystemModeTipo;
+      ativo: boolean;
+      ordem?: number;
+      icone?: string | null;
+    }) => {
+      const { data, error } = await (supabase.rpc as any)("admin_modo_upsert", {
+        _id: input.id,
+        _chave: input.chave,
+        _nome: input.nome,
+        _descricao: input.descricao ?? null,
+        _rota_inicial: input.rota_inicial,
+        _tipo: input.tipo,
+        _ativo: input.ativo,
+        _ordem: input.ordem ?? 0,
+        _icone: input.icone ?? null,
+      });
+      if (error) throw error;
+      return data as string;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-modos"] });
+      qc.invalidateQueries({ queryKey: ["modos-disponiveis"] });
+      toast.success("Modo salvo.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export function useDeleteModo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await (supabase.rpc as any)("admin_modo_deletar", { _id: id });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-modos"] });
+      qc.invalidateQueries({ queryKey: ["modos-disponiveis"] });
+      toast.success("Modo excluído.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export function useSetModoModulos() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { mode_id: string; module_ids: string[] }) => {
+      const { error } = await (supabase.rpc as any)("admin_modo_set_modulos", {
+        _mode_id: input.mode_id,
+        _module_ids: input.module_ids,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-modos"] });
+      toast.success("Vínculos atualizados.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+

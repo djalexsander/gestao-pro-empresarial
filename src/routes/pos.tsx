@@ -18,6 +18,7 @@ import { TerminalSelector, TerminalAtualBadge } from "@/components/auth/Terminal
 import { useCaixaAberto, useCaixaResumo } from "@/hooks/useCaixa";
 import { AbrirCaixaDialog } from "@/components/caixa/AbrirCaixaDialog";
 import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
+import { useMode } from "@/components/modes/ModeProvider";
 
 export const Route = createFileRoute("/pos")({
   head: () => ({
@@ -28,10 +29,20 @@ export const Route = createFileRoute("/pos")({
   }),
   component: () => (
     <RequireAuth>
+      <PosModoGuard />
       <PosShell />
     </RequireAuth>
   ),
 });
+
+function PosModoGuard() {
+  const { setModo, modoAtual, modos } = useMode();
+  useEffect(() => {
+    if (modoAtual?.chave === "pdv") return;
+    if (modos.find((m) => m.chave === "pdv")) setModo("pdv");
+  }, [modoAtual, modos, setModo]);
+  return null;
+}
 
 function PosShell() {
   const { operador } = useOperador();
