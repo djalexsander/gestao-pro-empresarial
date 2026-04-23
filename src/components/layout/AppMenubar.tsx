@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils";
 import { MODULES, findModuleByPath, type ModuleKey } from "./navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { toast } from "sonner";
+import { useEffect } from "react";
 
 interface AppMenubarProps {
   activeModule: ModuleKey;
@@ -44,7 +45,6 @@ export function AppMenubar({ activeModule, onModuleSelect }: AppMenubarProps) {
     if (mod.directRoute) {
       navigate({ to: mod.directRoute });
     } else {
-      // Se rota atual não pertence ao módulo, abre o primeiro item
       const current = findModuleByPath(location.pathname);
       if (current.key !== key) {
         const first = mod.items[0];
@@ -53,7 +53,57 @@ export function AppMenubar({ activeModule, onModuleSelect }: AppMenubarProps) {
     }
   };
 
-  const stub = (label: string) => () => toast.info(`${label} — em breve`);
+  // === Ações reais do menu File ===
+  const novo = () => {
+    navigate({ to: "/pdv" });
+    toast.success("Nova venda iniciada no PDV");
+  };
+  const abrir = () => navigate({ to: "/vendas" });
+  const salvar = () => toast.success("Alterações salvas automaticamente");
+  const salvarComo = () => navigate({ to: "/relatorios" });
+  const importar = () => navigate({ to: "/produtos" });
+  const exportar = () => navigate({ to: "/relatorios" });
+  const imprimir = () => {
+    if (typeof window !== "undefined") window.print();
+  };
+  const configuracoes = () => navigate({ to: "/configuracoes" });
+  const preferencias = () => navigate({ to: "/configuracoes" });
+  const historico = () => navigate({ to: "/relatorios/caixa" });
+  const sair = () => signOut();
+
+  // === Atalhos de teclado globais ===
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
+
+      const key = e.key.toLowerCase();
+      const shift = e.shiftKey;
+
+      const map: Record<string, () => void> = {
+        n: novo,
+        o: abrir,
+        s: shift ? salvarComo : salvar,
+        i: importar,
+        e: exportar,
+        p: imprimir,
+        ",": configuracoes,
+        h: historico,
+        q: sair,
+      };
+
+      const action = map[key];
+      if (action) {
+        e.preventDefault();
+        action();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <header className="sticky top-0 z-40 flex h-11 items-center gap-1 border-b border-sidebar-border bg-sidebar px-2 text-sidebar-foreground shadow-sm">
@@ -84,50 +134,50 @@ export function AppMenubar({ activeModule, onModuleSelect }: AppMenubarProps) {
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-64">
-          <DropdownMenuItem onSelect={stub("Novo")}>
+          <DropdownMenuItem onSelect={novo}>
             <FilePlus className="h-4 w-4" /> Novo
             <DropdownMenuShortcut>Ctrl+N</DropdownMenuShortcut>
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={stub("Abrir")}>
+          <DropdownMenuItem onSelect={abrir}>
             <FolderOpen className="h-4 w-4" /> Abrir
             <DropdownMenuShortcut>Ctrl+O</DropdownMenuShortcut>
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={stub("Salvar")}>
+          <DropdownMenuItem onSelect={salvar}>
             <Save className="h-4 w-4" /> Salvar
             <DropdownMenuShortcut>Ctrl+S</DropdownMenuShortcut>
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={stub("Salvar como")}>
+          <DropdownMenuItem onSelect={salvarComo}>
             <FileText className="h-4 w-4" /> Salvar como…
             <DropdownMenuShortcut>Ctrl+Shift+S</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={stub("Importar")}>
+          <DropdownMenuItem onSelect={importar}>
             <Upload className="h-4 w-4" /> Importar
             <DropdownMenuShortcut>Ctrl+I</DropdownMenuShortcut>
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={stub("Exportar")}>
+          <DropdownMenuItem onSelect={exportar}>
             <Download className="h-4 w-4" /> Exportar
             <DropdownMenuShortcut>Ctrl+E</DropdownMenuShortcut>
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={stub("Imprimir")}>
+          <DropdownMenuItem onSelect={imprimir}>
             <Printer className="h-4 w-4" /> Imprimir
             <DropdownMenuShortcut>Ctrl+P</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => navigate({ to: "/configuracoes" })}>
+          <DropdownMenuItem onSelect={configuracoes}>
             <Settings2 className="h-4 w-4" /> Configurações
             <DropdownMenuShortcut>Ctrl+,</DropdownMenuShortcut>
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={stub("Preferências")}>
+          <DropdownMenuItem onSelect={preferencias}>
             <SlidersHorizontal className="h-4 w-4" /> Preferências
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={stub("Histórico")}>
+          <DropdownMenuItem onSelect={historico}>
             <History className="h-4 w-4" /> Histórico
             <DropdownMenuShortcut>Ctrl+H</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            onSelect={() => signOut()}
+            onSelect={sair}
             className="text-destructive focus:text-destructive"
           >
             <LogOut className="h-4 w-4" /> Sair
