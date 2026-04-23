@@ -47,6 +47,7 @@ import {
 import { useVendas, useVendaMetricasPeriodo } from "@/hooks/useVendas";
 import { useClientesFull } from "@/hooks/useClientes";
 import { useFuncionariosAtivos } from "@/hooks/useFuncionarios";
+import { useCaixasHistorico } from "@/hooks/useCaixa";
 import { DetalheVendaDialog } from "@/components/vendas/DetalheVendaDialog";
 import { ModuloGate } from "@/components/saas/ModuloGate";
 import { formatBRL } from "@/lib/mock-data";
@@ -141,6 +142,7 @@ function Conteudo() {
   const { data: vendas = [], isLoading } = useVendas();
   const { data: clientes = [] } = useClientesFull();
   const { data: funcionarios = [] } = useFuncionariosAtivos();
+  const { data: caixasHistorico = [] } = useCaixasHistorico(200);
 
   const [preset, setPreset] = useState<PeriodoPreset>("30d");
   const [inicioCustom, setInicioCustom] = useState<string>("");
@@ -148,6 +150,8 @@ function Conteudo() {
   const [clienteFiltro, setClienteFiltro] = useState<string>("todos");
   const [operadorFiltro, setOperadorFiltro] = useState<string>("todos");
   const [formaFiltro, setFormaFiltro] = useState<string>("todos");
+  const [caixaFiltro, setCaixaFiltro] = useState<string>("todos");
+  const [aberturaFiltro, setAberturaFiltro] = useState<string>("todas");
   const [busca, setBusca] = useState("");
   const [page, setPage] = useState(1);
   const [detalheId, setDetalheId] = useState<string | null>(null);
