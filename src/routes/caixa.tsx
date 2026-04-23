@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Power,
   PowerOff,
@@ -18,6 +18,11 @@ import {
   Loader2,
   Calculator,
   AlertCircle,
+  Trash2,
+  ChevronDown,
+  ChevronRight,
+  CalendarDays,
+  Search,
 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
@@ -25,6 +30,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -33,6 +39,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { AbrirCaixaDialog } from "@/components/caixa/AbrirCaixaDialog";
 import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
 import { MovimentoCaixaDialog } from "@/components/caixa/MovimentoCaixaDialog";
@@ -41,6 +57,8 @@ import {
   useCaixaResumo,
   useCaixasHistorico,
   useCaixaMovimentos,
+  useExcluirCaixa,
+  type Caixa,
 } from "@/hooks/useCaixa";
 import { formatBRL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
