@@ -649,27 +649,36 @@ export type Database = {
         Row: {
           convidado_por: string | null
           created_at: string
+          email: string | null
           empresa_id: string
           id: string
+          nome: string | null
           papel: Database["public"]["Enums"]["empresa_papel"]
+          telefone: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
           convidado_por?: string | null
           created_at?: string
+          email?: string | null
           empresa_id: string
           id?: string
+          nome?: string | null
           papel?: Database["public"]["Enums"]["empresa_papel"]
+          telefone?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
           convidado_por?: string | null
           created_at?: string
+          email?: string | null
           empresa_id?: string
           id?: string
+          nome?: string | null
           papel?: Database["public"]["Enums"]["empresa_papel"]
+          telefone?: string | null
           updated_at?: string
           user_id?: string
         }
