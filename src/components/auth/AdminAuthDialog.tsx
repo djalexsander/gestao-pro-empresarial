@@ -28,6 +28,8 @@ interface Props {
  * com role admin / gerente / super_admin. Operadores de caixa
  * são bloqueados.
  */
+const REMEMBER_EMAIL_KEY = "erp_admin_remember_email";
+
 export function AdminAuthDialog({ open, onOpenChange }: Props) {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -37,13 +39,26 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
   const [showPwd, setShowPwd] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  // Pré-preenche o e-mail com a sessão atual (apenas conveniência;
-  // pode ser alterado para fazer login com outra conta admin).
+  // Nome aleatório do campo de senha + key do form a cada abertura.
+  // Isso evita que o navegador faça autofill / salve a senha do ERP.
+  const formInstanceId = useId();
+  const [openCount, setOpenCount] = useState(0);
+  const pwdFieldName = `erp-pwd-${formInstanceId}-${openCount}`;
+
+  // Pré-preenche apenas o e-mail (sessão atual ou último lembrado).
+  // A senha SEMPRE inicia vazia — nunca é persistida em lugar algum.
   useEffect(() => {
     if (open) {
-      setEmail(user?.email ?? "");
+      let remembered = "";
+      try {
+        remembered = localStorage.getItem(REMEMBER_EMAIL_KEY) ?? "";
+      } catch {
+        /* noop */
+      }
+      setEmail(user?.email ?? remembered ?? "");
       setPassword("");
       setShowPwd(false);
+      setOpenCount((n) => n + 1);
     }
   }, [open, user?.email]);
 
