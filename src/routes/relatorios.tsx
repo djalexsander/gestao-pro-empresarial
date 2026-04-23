@@ -12,6 +12,7 @@ import type { LucideIcon } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { ModuloGate } from "@/components/saas/ModuloGate";
 
 export const Route = createFileRoute("/relatorios")({
   head: () => ({
@@ -40,6 +41,14 @@ const reports: Report[] = [
 ];
 
 function ReportsPage() {
+  return (
+    <ModuloGate chave="relatorios" titulo="Relatórios">
+      <ReportsContent />
+    </ModuloGate>
+  );
+}
+
+function ReportsContent() {
   return (
     <div className="space-y-6">
       <PageHeader

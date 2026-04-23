@@ -2247,6 +2247,19 @@ export type Database = {
         Returns: boolean
       }
       is_super_admin: { Args: { _user_id?: string }; Returns: boolean }
+      meus_modulos: {
+        Args: never
+        Returns: {
+          aplica_restricao: boolean
+          chave: string
+          descricao: string
+          liberado: boolean
+          modulo_id: string
+          nome: string
+          origem: string
+          valor: number
+        }[]
+      }
       minha_assinatura_status: { Args: never; Returns: Json }
       receber_compra: {
         Args: {

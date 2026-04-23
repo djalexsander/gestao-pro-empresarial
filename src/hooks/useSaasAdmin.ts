@@ -466,3 +466,41 @@ export function useMinhaAssinatura() {
     },
   });
 }
+
+/* =========================================================
+ * MEUS MÓDULOS (gating no ERP)
+ * =======================================================*/
+export type MeuModulo = {
+  modulo_id: string;
+  chave: string;
+  nome: string;
+  descricao: string | null;
+  valor: number;
+  aplica_restricao: boolean;
+  liberado: boolean;
+  origem: "ativo" | "trial" | "sem_restricao" | "bloqueado";
+};
+
+export function useMeusModulos() {
+  return useQuery({
+    queryKey: ["meus-modulos"],
+    staleTime: 60_000,
+    queryFn: async (): Promise<MeuModulo[]> => {
+      const { data, error } = await (supabase.rpc as any)("meus_modulos");
+      if (error) throw error;
+      return (data ?? []) as MeuModulo[];
+    },
+  });
+}
+
+/** Retorna o estado de um módulo específico pela chave. */
+export function useModulo(chave: string) {
+  const { data, isLoading } = useMeusModulos();
+  const modulo = data?.find((m) => m.chave === chave);
+  return {
+    isLoading,
+    modulo,
+    liberado: modulo?.liberado ?? false,
+    origem: modulo?.origem ?? "bloqueado",
+  };
+}

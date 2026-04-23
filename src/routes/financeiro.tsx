@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { accountsPayable, accountsReceivable, formatBRL } from "@/lib/mock-data";
+import { ModuloGate } from "@/components/saas/ModuloGate";
 
 export const Route = createFileRoute("/financeiro")({
   head: () => ({
@@ -27,6 +28,14 @@ export const Route = createFileRoute("/financeiro")({
 });
 
 function FinancePage() {
+  return (
+    <ModuloGate chave="financeiro_avancado" titulo="Financeiro Avançado">
+      <FinanceContent />
+    </ModuloGate>
+  );
+}
+
+function FinanceContent() {
   const totalPay = accountsPayable.reduce((s, i) => s + i.valor, 0);
   const totalRec = accountsReceivable.reduce((s, i) => s + i.valor, 0);
   const saldo = totalRec - totalPay;
