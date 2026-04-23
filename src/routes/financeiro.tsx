@@ -19,7 +19,13 @@ import { formatBRL } from "@/lib/mock-data";
 import { ModuloGate } from "@/components/saas/ModuloGate";
 import { supabase } from "@/integrations/supabase/client";
 
+type FinTab = "receber" | "pagar" | "fluxo";
+
 export const Route = createFileRoute("/financeiro")({
+  validateSearch: (search: Record<string, unknown>): { tab?: FinTab } => {
+    const t = search.tab;
+    return t === "pagar" || t === "receber" || t === "fluxo" ? { tab: t } : {};
+  },
   head: () => ({
     meta: [
       { title: "Financeiro — Gestão Pro" },
