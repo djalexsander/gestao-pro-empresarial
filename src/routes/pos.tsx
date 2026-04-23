@@ -28,10 +28,20 @@ export const Route = createFileRoute("/pos")({
   }),
   component: () => (
     <RequireAuth>
+      <PosModoGuard />
       <PosShell />
     </RequireAuth>
   ),
 });
+
+function PosModoGuard() {
+  const { setModo, modoAtual, modos } = useMode();
+  useEffect(() => {
+    if (modoAtual?.chave === "pdv") return;
+    if (modos.find((m) => m.chave === "pdv")) setModo("pdv");
+  }, [modoAtual, modos, setModo]);
+  return null;
+}
 
 function PosShell() {
   const { operador } = useOperador();
