@@ -113,7 +113,9 @@ function SalesPage() {
   const [forma, setForma] = useState<string>("todos");
   const [clienteFiltro, setClienteFiltro] = useState<string>("todos");
   const [cancelar, setCancelar] = useState<VendaListItem | null>(null);
+  const [excluir, setExcluir] = useState<VendaListItem | null>(null);
   const [detalheId, setDetalheId] = useState<string | null>(null);
+  const excluirMutation = useExcluirVendaCancelada();
 
   const { inicio, fim } = useMemo(() => rangeFromPeriodo(periodo), [periodo]);
   const { data: metricas } = useVendaMetricasPeriodo(inicio, fim);
