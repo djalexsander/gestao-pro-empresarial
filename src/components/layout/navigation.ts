@@ -12,6 +12,7 @@ import {
   BarChart3,
   Settings,
   CircleDollarSign,
+  TrendingUp,
   type LucideIcon,
 } from "lucide-react";
 
@@ -66,7 +67,7 @@ export const MODULES: ModuleDef[] = [
     key: "financeiro",
     label: "Financeiro",
     items: [
-      { to: "/financeiro", label: "Financeiro", icon: Wallet, description: "Visão geral", exact: true },
+      { to: "/financeiro", label: "Financeiro", icon: Wallet, description: "Visão geral" },
       {
         to: "/financeiro?tab=pagar",
         label: "Contas a pagar",
