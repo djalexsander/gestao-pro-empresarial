@@ -130,31 +130,6 @@ function AdminDashboard() {
         </Card>
       </div>
 
-      {/* Volume agregado */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardContent className="p-6">
-            <p className="text-sm text-muted-foreground">Volume agregado de vendas</p>
-            <p className="mt-2 text-3xl font-semibold tracking-tight">
-              {isLoading ? "—" : fmtBRL(Number(stats?.volume_vendas_total ?? 0))}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Soma de todas as empresas (vendas não canceladas)
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <p className="text-sm text-muted-foreground">Volume agregado de compras</p>
-            <p className="mt-2 text-3xl font-semibold tracking-tight">
-              {isLoading ? "—" : fmtBRL(Number(stats?.volume_compras_total ?? 0))}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Soma de todas as empresas (compras não canceladas)
-            </p>
-          </CardContent>
-        </Card>
-      </div>
 
       {/* Atalhos */}
       <div className="grid gap-4 md:grid-cols-3">
