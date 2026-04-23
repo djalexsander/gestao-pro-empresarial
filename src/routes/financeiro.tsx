@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/table";
 import { formatBRL } from "@/lib/mock-data";
 import { ModuloGate } from "@/components/saas/ModuloGate";
+import { RequirePermission } from "@/components/auth/RequirePermission";
 import { supabase } from "@/integrations/supabase/client";
 
 type FinTab = "receber" | "pagar" | "fluxo";
@@ -65,9 +66,11 @@ function formatDate(d: string | null): string {
 
 function FinancePage() {
   return (
-    <ModuloGate chave="financeiro_avancado" titulo="Financeiro Avançado">
-      <FinanceContent />
-    </ModuloGate>
+    <RequirePermission permission="financeiro">
+      <ModuloGate chave="financeiro_avancado" titulo="Financeiro Avançado">
+        <FinanceContent />
+      </ModuloGate>
+    </RequirePermission>
   );
 }
 
