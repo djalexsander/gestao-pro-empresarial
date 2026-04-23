@@ -336,6 +336,27 @@ export function useVendaMetricasPeriodo(dataInicio: string, dataFim: string) {
   });
 }
 
+export function useExcluirVendaCancelada() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (venda_id: string) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc("excluir_venda_cancelada", {
+        _venda_id: venda_id,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vendas"] });
+      qc.invalidateQueries({ queryKey: ["financeiro"] });
+      qc.invalidateQueries({ queryKey: ["movimentacoes"] });
+      toast.success("Venda excluída com sucesso");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
 export function useCancelarVenda() {
   const qc = useQueryClient();
   return useMutation({
