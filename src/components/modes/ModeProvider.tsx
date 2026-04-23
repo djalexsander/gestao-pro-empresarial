@@ -19,7 +19,7 @@ const ModeContext = createContext<ModeContextValue | null>(null);
 const STORAGE_KEY = "app:modo-atual";
 
 /** Rotas sempre liberadas independente de modo (auth, hub, admin master, etc.). */
-const ROTAS_GLOBAIS = ["/auth", "/hub", "/admin"];
+const ROTAS_GLOBAIS = ["/auth", "/hub", "/admin", "/planos", "/modulos"];
 
 /** Mapeia rotas conhecidas a um modo (chave). */
 function rotasDoModo(modoChave: string): string[] {
