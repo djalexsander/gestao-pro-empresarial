@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Outlet, useMatchRoute } from "@tanstack/react-router";
 import {
   BarChart3,
   Boxes,
@@ -379,9 +379,11 @@ const reports: Report[] = [
 ];
 
 function ReportsPage() {
+  const matchRoute = useMatchRoute();
+  const isIndex = matchRoute({ to: "/relatorios", fuzzy: false });
   return (
     <ModuloGate chave="relatorios" titulo="Relatórios">
-      <ReportsContent />
+      {isIndex ? <ReportsContent /> : <Outlet />}
     </ModuloGate>
   );
 }
