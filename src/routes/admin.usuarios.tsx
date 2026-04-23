@@ -98,22 +98,20 @@ function AdminUsersPage() {
                 <TableHead>Papéis</TableHead>
                 <TableHead>Cadastro</TableHead>
                 <TableHead>Último acesso</TableHead>
-                <TableHead className="text-right">Produtos</TableHead>
-                <TableHead className="text-right">Vendas</TableHead>
                 <TableHead className="w-32" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground py-10">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-10">
                     Carregando...
                   </TableCell>
                 </TableRow>
               )}
               {!isLoading && filtrados.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground py-10">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-10">
                     Nenhum usuário encontrado.
                   </TableCell>
                 </TableRow>
