@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowDownToLine, ArrowUpFromLine, Plus, TrendingUp } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -19,7 +19,13 @@ import { formatBRL } from "@/lib/mock-data";
 import { ModuloGate } from "@/components/saas/ModuloGate";
 import { supabase } from "@/integrations/supabase/client";
 
+type FinTab = "receber" | "pagar" | "fluxo";
+
 export const Route = createFileRoute("/financeiro")({
+  validateSearch: (search: Record<string, unknown>): { tab?: FinTab } => {
+    const t = search.tab;
+    return t === "pagar" || t === "receber" || t === "fluxo" ? { tab: t } : {};
+  },
   head: () => ({
     meta: [
       { title: "Financeiro — Gestão Pro" },
@@ -66,6 +72,10 @@ function FinancePage() {
 }
 
 function FinanceContent() {
+  const { tab } = Route.useSearch();
+  const navigate = useNavigate({ from: Route.fullPath });
+  const activeTab: FinTab = tab ?? "receber";
+
   const { data: lancamentos = [], isLoading } = useQuery({
     queryKey: ["financeiro_lancamentos"],
     queryFn: async () => {
@@ -125,7 +135,12 @@ function FinanceContent() {
         />
       </div>
 
-      <Tabs defaultValue="receber">
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) =>
+          navigate({ search: { tab: v === "receber" ? undefined : (v as FinTab) }, replace: true })
+        }
+      >
         <TabsList>
           <TabsTrigger value="receber">Contas a receber</TabsTrigger>
           <TabsTrigger value="pagar">Contas a pagar</TabsTrigger>
