@@ -80,21 +80,31 @@ export function SociosTab() {
 
   const adicionar = useMutation({
     mutationFn: async () => {
-      const trimmed = email.trim();
-      if (!trimmed) throw new Error("Informe o e-mail");
-      const { data, error } = await supabase.rpc("adicionar_membro_por_email", {
-        _empresa_id: empresaAtual!.id,
-        _email: trimmed,
-        _papel: novoPapel,
+      if (!nome.trim()) throw new Error("Informe o nome completo");
+      if (!email.trim()) throw new Error("Informe o e-mail");
+      if (senha.length < 8) throw new Error("A senha deve ter ao menos 8 caracteres");
+
+      const { data, error } = await supabase.functions.invoke("criar-socio", {
+        body: {
+          empresa_id: empresaAtual!.id,
+          nome: nome.trim(),
+          email: email.trim().toLowerCase(),
+          telefone: telefone.trim() || undefined,
+          senha,
+          papel: novoPapel,
+        },
       });
-      if (error) throw error;
+      if (error) throw new Error(error.message);
       const result = data as { ok: boolean; erro?: string };
       if (!result.ok) throw new Error(result.erro || "Erro ao adicionar");
       return result;
     },
     onSuccess: () => {
-      toast.success("Membro adicionado");
+      toast.success("Sócio criado com sucesso");
+      setNome("");
       setEmail("");
+      setTelefone("");
+      setSenha("");
       setNovoPapel("admin");
       qc.invalidateQueries({ queryKey: ["empresa_membros"] });
     },
