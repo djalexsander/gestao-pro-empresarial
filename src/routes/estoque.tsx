@@ -1,5 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ArrowDownUp, AlertTriangle, Boxes, PackageX, Search, History, Loader2, ScanLine } from "lucide-react";
+import {
+  ArrowDownUp,
+  AlertTriangle,
+  Boxes,
+  PackageX,
+  Search,
+  History,
+  Loader2,
+  ScanLine,
+  ChevronDown,
+  ChevronRight,
+  CalendarDays,
+  X,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
