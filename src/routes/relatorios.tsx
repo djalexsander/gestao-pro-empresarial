@@ -10,6 +10,7 @@ import {
   Eye,
   Loader2,
   CircleDollarSign,
+  PiggyBank,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useState } from "react";
@@ -37,7 +38,7 @@ interface Report {
   description: string;
   icon: LucideIcon;
   tone: string;
-  route: "/relatorios/vendas" | "/relatorios/compras" | "/relatorios/estoque" | "/relatorios/fluxo-caixa" | "/relatorios/caixa" | "/relatorios/dre" | "/relatorios/fiscal";
+  route: "/relatorios/vendas" | "/relatorios/compras" | "/relatorios/estoque" | "/relatorios/fluxo-caixa" | "/relatorios/caixa" | "/relatorios/financeiro" | "/relatorios/dre" | "/relatorios/fiscal";
   filenamePrefix: string;
   /** Carrega + colunas para export rápido a partir do card. */
   exporter: () => Promise<{ rows: any[]; columns: CsvColumn<any>[] }>;
@@ -215,6 +216,51 @@ const reports: Report[] = [
         { header: "Pagamento", accessor: (r) => r.pagamento },
         { header: "Status", accessor: (r) => r.status },
         { header: "Forma", accessor: (r) => r.forma },
+      ];
+      return { rows, columns };
+    },
+  },
+  {
+    key: "financeiro",
+    title: "Relatório financeiro",
+    description: "Receitas, despesas, lucro e contas em aberto.",
+    icon: PiggyBank,
+    tone: "bg-success/10 text-success",
+    route: "/relatorios/financeiro",
+    filenamePrefix: "financeiro",
+    exporter: async () => {
+      const { data, error } = await supabase
+        .from("financeiro_lancamentos")
+        .select(
+          "descricao, tipo, valor, valor_pago, data_emissao, data_vencimento, data_pagamento, status, forma_pagamento, categoria:categorias_financeiras(nome), cliente:clientes(nome), fornecedor:fornecedores(razao_social, nome_fantasia)",
+        )
+        .neq("status", "cancelado")
+        .order("data_vencimento", { ascending: false })
+        .limit(2000);
+      if (error) throw error;
+      const rows = (data ?? []).map((l: any) => ({
+        vencimento: l.data_vencimento,
+        pagamento: l.data_pagamento ?? "",
+        tipo: l.tipo,
+        categoria: l.categoria?.nome ?? "",
+        descricao: l.descricao,
+        pessoa: l.cliente?.nome ?? l.fornecedor?.nome_fantasia ?? l.fornecedor?.razao_social ?? "",
+        valor: Number(l.valor) || 0,
+        valor_pago: Number(l.valor_pago) || 0,
+        forma: l.forma_pagamento ?? "",
+        status: l.status,
+      }));
+      const columns: CsvColumn<typeof rows[number]>[] = [
+        { header: "Data vencimento", accessor: (r) => r.vencimento },
+        { header: "Data pagamento", accessor: (r) => r.pagamento },
+        { header: "Tipo", accessor: (r) => r.tipo },
+        { header: "Categoria", accessor: (r) => r.categoria },
+        { header: "Descrição", accessor: (r) => r.descricao },
+        { header: "Cliente/Fornecedor", accessor: (r) => r.pessoa },
+        { header: "Valor", accessor: (r) => r.valor },
+        { header: "Valor pago", accessor: (r) => r.valor_pago },
+        { header: "Forma pagamento", accessor: (r) => r.forma },
+        { header: "Status", accessor: (r) => r.status },
       ];
       return { rows, columns };
     },
