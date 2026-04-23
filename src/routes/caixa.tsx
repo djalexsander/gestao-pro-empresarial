@@ -102,9 +102,10 @@ function CaixaPage() {
   const { user } = useAuth();
   const { data: caixaAberto, isLoading: loadingCaixa } = useQualquerCaixaAberto();
   const { data: resumo } = useCaixaResumo(caixaAberto?.id);
-  const { data: historico = [] } = useCaixasHistorico(20);
+  const { data: historico = [] } = useCaixasHistorico(500);
   const { data: movimentos = [] } = useCaixaMovimentos(caixaAberto?.id);
   const { data: funcionarios = [] } = useFuncionarios();
+  const excluirCaixaMutation = useExcluirCaixa();
 
   const operadorNome = caixaAberto?.operador_id
     ? funcionarios.find((f) => f.id === caixaAberto.operador_id)?.nome ?? "Operador"
@@ -113,6 +114,11 @@ function CaixaPage() {
   const [abrirOpen, setAbrirOpen] = useState(false);
   const [fecharOpen, setFecharOpen] = useState(false);
   const [movDialog, setMovDialog] = useState<null | "sangria" | "suprimento">(null);
+  const [excluirCaixa, setExcluirCaixa] = useState<Caixa | null>(null);
+  const [buscaHist, setBuscaHist] = useState("");
+  const [dataInicio, setDataInicio] = useState("");
+  const [dataFim, setDataFim] = useState("");
+  const [diasAbertos, setDiasAbertos] = useState<Record<string, boolean>>({});
 
   if (loadingCaixa) {
     return (
