@@ -300,6 +300,13 @@ function SignInForm({ redirect }: { redirect: string }) {
   const [busy, setBusy] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
 
+  // Nome aleatório do campo de senha + key do form a cada montagem.
+  // Impede o navegador (Chrome, Edge, gerenciadores de senha) de salvar
+  // ou auto-preencher a senha de login.
+  const formInstanceId = useId();
+  const [mountCount, setMountCount] = useState(0);
+  const pwdFieldName = `login-pwd-${formInstanceId}-${mountCount}`;
+
   // Recupera SOMENTE o e-mail lembrado. A senha nunca é persistida.
   useEffect(() => {
     try {
@@ -313,6 +320,8 @@ function SignInForm({ redirect }: { redirect: string }) {
     } catch {
       /* noop */
     }
+    setPassword("");
+    setMountCount((n) => n + 1);
   }, []);
 
   async function onGoogle() {
