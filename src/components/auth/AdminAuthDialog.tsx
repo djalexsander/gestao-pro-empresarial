@@ -161,8 +161,6 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
           onSubmit={onSubmit}
           className="space-y-4"
           autoComplete="off"
-          /* @ts-expect-error - atributo válido em alguns browsers para desabilitar autofill */
-          autoCorrect="off"
           spellCheck={false}
         >
           {/* Campos-isca: alguns navegadores ignoram autocomplete="off" se
