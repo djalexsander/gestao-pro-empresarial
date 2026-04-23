@@ -266,6 +266,7 @@ const reports: Report[] = [
     },
   },
   {
+    key: "caixa",
     title: "Relatório de caixa",
     description: "Aberturas, fechamentos e auditoria de PDV.",
     icon: CircleDollarSign,
