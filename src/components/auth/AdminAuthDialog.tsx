@@ -118,6 +118,14 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
       }
 
       // 3) Libera acesso e navega para o ERP.
+      // Lembra apenas o e-mail — NUNCA a senha.
+      try {
+        localStorage.setItem(REMEMBER_EMAIL_KEY, email.trim());
+      } catch {
+        /* noop */
+      }
+      // Garante que a senha digitada não permanece em memória após sucesso.
+      setPassword("");
       unlockErp(authedUserId);
       toast.success("Acesso autorizado.");
       onOpenChange(false);
@@ -146,7 +154,27 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={onSubmit} className="space-y-4">
+        {/* key força React a remontar o form (e seus inputs) a cada abertura,
+            o que descarta qualquer estado anterior e bloqueia autofill persistente */}
+        <form
+          key={pwdFieldName}
+          onSubmit={onSubmit}
+          className="space-y-4"
+          autoComplete="off"
+          /* @ts-expect-error - atributo válido em alguns browsers para desabilitar autofill */
+          autoCorrect="off"
+          spellCheck={false}
+        >
+          {/* Campos-isca: alguns navegadores ignoram autocomplete="off" se
+              não houver um par usuário+senha "consumível" antes do campo real */}
+          <div
+            aria-hidden="true"
+            style={{ position: "absolute", top: -9999, left: -9999, height: 0, width: 0, overflow: "hidden" }}
+          >
+            <input type="text" name="fakeuser" tabIndex={-1} autoComplete="username" />
+            <input type="password" name="fakepassword" tabIndex={-1} autoComplete="new-password" />
+          </div>
+
           <div className="space-y-1.5">
             <Label htmlFor="admin-email">E-mail</Label>
             <div className="relative">
@@ -155,7 +183,7 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
                 id="admin-email"
                 type="email"
                 required
-                autoComplete="email"
+                autoComplete="username"
                 placeholder="admin@empresa.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -171,10 +199,17 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
               <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 id="admin-password"
+                /* nome dinâmico impede o navegador de associar essa senha
+                   a um login salvo e a auto-preencher na próxima abertura */
+                name={pwdFieldName}
                 type={showPwd ? "text" : "password"}
                 required
-                autoComplete="current-password"
-                placeholder="••••••••"
+                autoComplete="new-password"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-bwignore="true"
+                data-form-type="other"
+                placeholder="Digite sua senha"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="pl-10 pr-10"
@@ -195,6 +230,13 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
                 )}
               </button>
             </div>
+            <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+              <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>
+                Por segurança, a senha nunca é salva. Você precisa digitá-la
+                a cada acesso ao ERP.
+              </span>
+            </p>
           </div>
 
           <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
