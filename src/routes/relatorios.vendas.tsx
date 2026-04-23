@@ -438,6 +438,48 @@ function Conteudo() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Caixa (sessão)</label>
+              <Select value={caixaFiltro} onValueChange={setCaixaFiltro}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos</SelectItem>
+                  <SelectItem value="_sem">Sem caixa vinculado</SelectItem>
+                  {caixasHistorico.map((c) => {
+                    const dt = c.data_abertura
+                      ? format(new Date(c.data_abertura), "dd/MM HH:mm")
+                      : "—";
+                    const statusLbl = c.status === "aberto" ? " • aberto" : "";
+                    return (
+                      <SelectItem key={c.id} value={c.id}>
+                        {dt}
+                        {statusLbl}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">
+                Data de abertura
+              </label>
+              <Select value={aberturaFiltro} onValueChange={setAberturaFiltro}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todas">Todas</SelectItem>
+                  {aberturasOptions.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-1.5 sm:col-span-2">
               <label className="text-xs font-medium text-muted-foreground">Buscar</label>
               <Input
