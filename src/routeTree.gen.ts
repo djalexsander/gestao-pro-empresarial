@@ -32,6 +32,7 @@ import { Route as RelatoriosFiscalRouteImport } from './routes/relatorios.fiscal
 import { Route as RelatoriosEstoqueRouteImport } from './routes/relatorios.estoque'
 import { Route as RelatoriosDreRouteImport } from './routes/relatorios.dre'
 import { Route as RelatoriosComprasRouteImport } from './routes/relatorios.compras'
+import { Route as RelatoriosCaixaRouteImport } from './routes/relatorios.caixa'
 import { Route as AdminUsuariosRouteImport } from './routes/admin.usuarios'
 import { Route as AdminPlanosRouteImport } from './routes/admin.planos'
 import { Route as AdminPagamentosRouteImport } from './routes/admin.pagamentos'
@@ -158,6 +159,11 @@ const RelatoriosComprasRoute = RelatoriosComprasRouteImport.update({
   path: '/compras',
   getParentRoute: () => RelatoriosRoute,
 } as any)
+const RelatoriosCaixaRoute = RelatoriosCaixaRouteImport.update({
+  id: '/caixa',
+  path: '/caixa',
+  getParentRoute: () => RelatoriosRoute,
+} as any)
 const AdminUsuariosRoute = AdminUsuariosRouteImport.update({
   id: '/usuarios',
   path: '/usuarios',
@@ -236,6 +242,7 @@ export interface FileRoutesByFullPath {
   '/admin/pagamentos': typeof AdminPagamentosRoute
   '/admin/planos': typeof AdminPlanosRoute
   '/admin/usuarios': typeof AdminUsuariosRoute
+  '/relatorios/caixa': typeof RelatoriosCaixaRoute
   '/relatorios/compras': typeof RelatoriosComprasRoute
   '/relatorios/dre': typeof RelatoriosDreRoute
   '/relatorios/estoque': typeof RelatoriosEstoqueRoute
@@ -270,6 +277,7 @@ export interface FileRoutesByTo {
   '/admin/pagamentos': typeof AdminPagamentosRoute
   '/admin/planos': typeof AdminPlanosRoute
   '/admin/usuarios': typeof AdminUsuariosRoute
+  '/relatorios/caixa': typeof RelatoriosCaixaRoute
   '/relatorios/compras': typeof RelatoriosComprasRoute
   '/relatorios/dre': typeof RelatoriosDreRoute
   '/relatorios/estoque': typeof RelatoriosEstoqueRoute
@@ -306,6 +314,7 @@ export interface FileRoutesById {
   '/admin/pagamentos': typeof AdminPagamentosRoute
   '/admin/planos': typeof AdminPlanosRoute
   '/admin/usuarios': typeof AdminUsuariosRoute
+  '/relatorios/caixa': typeof RelatoriosCaixaRoute
   '/relatorios/compras': typeof RelatoriosComprasRoute
   '/relatorios/dre': typeof RelatoriosDreRoute
   '/relatorios/estoque': typeof RelatoriosEstoqueRoute
@@ -343,6 +352,7 @@ export interface FileRouteTypes {
     | '/admin/pagamentos'
     | '/admin/planos'
     | '/admin/usuarios'
+    | '/relatorios/caixa'
     | '/relatorios/compras'
     | '/relatorios/dre'
     | '/relatorios/estoque'
@@ -377,6 +387,7 @@ export interface FileRouteTypes {
     | '/admin/pagamentos'
     | '/admin/planos'
     | '/admin/usuarios'
+    | '/relatorios/caixa'
     | '/relatorios/compras'
     | '/relatorios/dre'
     | '/relatorios/estoque'
@@ -412,6 +423,7 @@ export interface FileRouteTypes {
     | '/admin/pagamentos'
     | '/admin/planos'
     | '/admin/usuarios'
+    | '/relatorios/caixa'
     | '/relatorios/compras'
     | '/relatorios/dre'
     | '/relatorios/estoque'
@@ -603,6 +615,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RelatoriosComprasRouteImport
       parentRoute: typeof RelatoriosRoute
     }
+    '/relatorios/caixa': {
+      id: '/relatorios/caixa'
+      path: '/caixa'
+      fullPath: '/relatorios/caixa'
+      preLoaderRoute: typeof RelatoriosCaixaRouteImport
+      parentRoute: typeof RelatoriosRoute
+    }
     '/admin/usuarios': {
       id: '/admin/usuarios'
       path: '/usuarios'
@@ -707,6 +726,7 @@ const AdminRouteChildren: AdminRouteChildren = {
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
 interface RelatoriosRouteChildren {
+  RelatoriosCaixaRoute: typeof RelatoriosCaixaRoute
   RelatoriosComprasRoute: typeof RelatoriosComprasRoute
   RelatoriosDreRoute: typeof RelatoriosDreRoute
   RelatoriosEstoqueRoute: typeof RelatoriosEstoqueRoute
@@ -716,6 +736,7 @@ interface RelatoriosRouteChildren {
 }
 
 const RelatoriosRouteChildren: RelatoriosRouteChildren = {
+  RelatoriosCaixaRoute: RelatoriosCaixaRoute,
   RelatoriosComprasRoute: RelatoriosComprasRoute,
   RelatoriosDreRoute: RelatoriosDreRoute,
   RelatoriosEstoqueRoute: RelatoriosEstoqueRoute,

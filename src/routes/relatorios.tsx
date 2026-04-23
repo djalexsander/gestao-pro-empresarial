@@ -9,6 +9,7 @@ import {
   Download,
   Eye,
   Loader2,
+  CircleDollarSign,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useState } from "react";
@@ -36,7 +37,7 @@ interface Report {
   description: string;
   icon: LucideIcon;
   tone: string;
-  route: "/relatorios/vendas" | "/relatorios/compras" | "/relatorios/estoque" | "/relatorios/fluxo-caixa" | "/relatorios/dre" | "/relatorios/fiscal";
+  route: "/relatorios/vendas" | "/relatorios/compras" | "/relatorios/estoque" | "/relatorios/fluxo-caixa" | "/relatorios/caixa" | "/relatorios/dre" | "/relatorios/fiscal";
   filenamePrefix: string;
   /** Carrega + colunas para export rápido a partir do card. */
   exporter: () => Promise<{ rows: any[]; columns: CsvColumn<any>[] }>;
@@ -214,6 +215,50 @@ const reports: Report[] = [
         { header: "Pagamento", accessor: (r) => r.pagamento },
         { header: "Status", accessor: (r) => r.status },
         { header: "Forma", accessor: (r) => r.forma },
+      ];
+      return { rows, columns };
+    },
+  },
+  {
+    key: "caixa",
+    title: "Relatório de caixa",
+    description: "Aberturas, fechamentos e auditoria de PDV.",
+    icon: CircleDollarSign,
+    tone: "bg-chart-2/15 text-chart-2",
+    route: "/relatorios/caixa",
+    filenamePrefix: "caixa",
+    exporter: async () => {
+      const { data, error } = await supabase
+        .from("caixas")
+        .select(
+          "data_abertura, data_fechamento, valor_inicial, total_vendas, total_sangrias, total_suprimentos, valor_esperado, valor_informado, diferenca, status",
+        )
+        .order("data_abertura", { ascending: false })
+        .limit(1000);
+      if (error) throw error;
+      const rows = (data ?? []).map((c: any) => ({
+        abertura: c.data_abertura,
+        fechamento: c.data_fechamento ?? "",
+        inicial: Number(c.valor_inicial) || 0,
+        vendas: Number(c.total_vendas) || 0,
+        sangrias: Number(c.total_sangrias) || 0,
+        suprimentos: Number(c.total_suprimentos) || 0,
+        esperado: c.valor_esperado != null ? Number(c.valor_esperado) : "",
+        informado: c.valor_informado != null ? Number(c.valor_informado) : "",
+        diferenca: c.diferenca != null ? Number(c.diferenca) : "",
+        status: c.status,
+      }));
+      const columns: CsvColumn<typeof rows[number]>[] = [
+        { header: "Abertura", accessor: (r) => r.abertura },
+        { header: "Fechamento", accessor: (r) => r.fechamento },
+        { header: "Valor inicial", accessor: (r) => r.inicial },
+        { header: "Total vendas", accessor: (r) => r.vendas },
+        { header: "Sangrias", accessor: (r) => r.sangrias },
+        { header: "Suprimentos", accessor: (r) => r.suprimentos },
+        { header: "Esperado", accessor: (r) => r.esperado },
+        { header: "Informado", accessor: (r) => r.informado },
+        { header: "Diferença", accessor: (r) => r.diferenca },
+        { header: "Status", accessor: (r) => r.status },
       ];
       return { rows, columns };
     },
