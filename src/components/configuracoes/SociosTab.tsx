@@ -286,7 +286,7 @@ export function SociosTab() {
               Remover
             </AlertDialogAction>
           </AlertDialogFooter>
-        </AlertDialogFooter>
+        </AlertDialogContent>
       </AlertDialog>
     </div>
   );
