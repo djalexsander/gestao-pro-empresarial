@@ -396,67 +396,256 @@ function CaixaPage() {
         </>
       )}
 
-      {/* Histórico */}
+      {/* Histórico agrupado por data */}
       <Card>
         <CardContent className="p-0">
-          <div className="flex items-center gap-2 border-b border-border p-4">
-            <History className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold text-foreground">Histórico de caixas</h3>
+          <div className="flex flex-col gap-3 border-b border-border p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <History className="h-4 w-4 text-muted-foreground" />
+              <h3 className="text-sm font-semibold text-foreground">
+                Histórico de caixas
+              </h3>
+              <Badge variant="outline" className="text-xs text-muted-foreground">
+                {historicoFiltrado.length} {historicoFiltrado.length === 1 ? "caixa" : "caixas"}
+              </Badge>
+            </div>
           </div>
-          {historico.length === 0 ? (
+
+          {/* Filtros */}
+          <div className="grid gap-3 border-b border-border p-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="relative lg:col-span-2">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por operador, status ou observação..."
+                className="pl-9"
+                value={buscaHist}
+                onChange={(e) => setBuscaHist(e.target.value)}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <CalendarDays className="h-4 w-4 text-muted-foreground" />
+              <Input
+                type="date"
+                value={dataInicio}
+                onChange={(e) => setDataInicio(e.target.value)}
+                aria-label="Data inicial"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">até</span>
+              <Input
+                type="date"
+                value={dataFim}
+                onChange={(e) => setDataFim(e.target.value)}
+                aria-label="Data final"
+              />
+              {(dataInicio || dataFim || buscaHist) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setDataInicio("");
+                    setDataFim("");
+                    setBuscaHist("");
+                  }}
+                >
+                  Limpar
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {gruposPorDia.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted-foreground">
-              Nenhum caixa registrado ainda.
+              {historico.length === 0
+                ? "Nenhum caixa registrado ainda."
+                : "Nenhum caixa encontrado para os filtros aplicados."}
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Abertura</TableHead>
-                  <TableHead>Fechamento</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Vendas</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
-                  <TableHead className="text-right">Diferença</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {historico.map((c) => (
-                  <TableRow key={c.id}>
-                    <TableCell className="text-sm">{formatDateTime(c.data_abertura)}</TableCell>
-                    <TableCell className="text-sm">{formatDateTime(c.data_fechamento)}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          c.status === "aberto"
-                            ? "border-success/40 bg-success/15 text-success"
-                            : "border-border bg-muted text-muted-foreground",
-                        )}
-                      >
-                        {c.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right text-sm tabular-nums">{c.qtd_vendas}</TableCell>
-                    <TableCell className="text-right font-mono text-sm tabular-nums">
-                      {formatBRL(c.total_vendas)}
-                    </TableCell>
-                    <TableCell
-                      className={cn(
-                        "text-right font-mono text-sm tabular-nums",
-                        c.diferenca === null && "text-muted-foreground",
-                        c.diferenca !== null && Math.abs(c.diferenca) < 0.009 && "text-success",
-                        c.diferenca !== null && Math.abs(c.diferenca) >= 0.009 && "text-destructive",
-                      )}
+            <div className="divide-y divide-border">
+              {gruposPorDia.map((grupo) => {
+                const aberto = diasAbertos[grupo.dia] ?? false;
+                return (
+                  <div key={grupo.dia}>
+                    <button
+                      type="button"
+                      onClick={() => toggleDia(grupo.dia)}
+                      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40"
                     >
-                      {c.diferenca === null ? "—" : (c.diferenca > 0 ? "+" : "") + formatBRL(c.diferenca)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                      <div className="flex items-center gap-2">
+                        {aberto ? (
+                          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        )}
+                        <span className="text-sm font-medium capitalize text-foreground">
+                          {formatarDia(grupo.dia)}
+                        </span>
+                        <Badge variant="outline" className="text-xs">
+                          {grupo.caixas.length}{" "}
+                          {grupo.caixas.length === 1 ? "caixa" : "caixas"}
+                        </Badge>
+                        {grupo.abertos > 0 && (
+                          <Badge className="border-success/30 bg-success/15 text-xs text-success">
+                            {grupo.abertos} aberto{grupo.abertos > 1 ? "s" : ""}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                        <span>
+                          <span className="text-foreground tabular-nums">
+                            {grupo.totalQtd}
+                          </span>{" "}
+                          vendas
+                        </span>
+                        <span className="font-mono text-foreground tabular-nums">
+                          {formatBRL(grupo.totalVendas)}
+                        </span>
+                      </div>
+                    </button>
+
+                    {aberto && (
+                      <div className="bg-muted/20 px-2 pb-3">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Abertura</TableHead>
+                              <TableHead>Fechamento</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead className="text-right">Vendas</TableHead>
+                              <TableHead className="text-right">Total</TableHead>
+                              <TableHead className="text-right">Diferença</TableHead>
+                              <TableHead className="w-12 text-right" />
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {grupo.caixas.map((c) => (
+                              <TableRow key={c.id}>
+                                <TableCell className="text-sm">
+                                  {formatDateTime(c.data_abertura)}
+                                </TableCell>
+                                <TableCell className="text-sm">
+                                  {formatDateTime(c.data_fechamento)}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge
+                                    variant="outline"
+                                    className={cn(
+                                      c.status === "aberto"
+                                        ? "border-success/40 bg-success/15 text-success"
+                                        : "border-border bg-muted text-muted-foreground",
+                                    )}
+                                  >
+                                    {c.status}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-right text-sm tabular-nums">
+                                  {c.qtd_vendas}
+                                </TableCell>
+                                <TableCell className="text-right font-mono text-sm tabular-nums">
+                                  {formatBRL(c.total_vendas)}
+                                </TableCell>
+                                <TableCell
+                                  className={cn(
+                                    "text-right font-mono text-sm tabular-nums",
+                                    c.diferenca === null && "text-muted-foreground",
+                                    c.diferenca !== null &&
+                                      Math.abs(c.diferenca) < 0.009 &&
+                                      "text-success",
+                                    c.diferenca !== null &&
+                                      Math.abs(c.diferenca) >= 0.009 &&
+                                      "text-destructive",
+                                  )}
+                                >
+                                  {c.diferenca === null
+                                    ? "—"
+                                    : (c.diferenca > 0 ? "+" : "") +
+                                      formatBRL(c.diferenca)}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  {c.status === "fechado" && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                      onClick={() => setExcluirCaixa(c)}
+                                      title="Excluir caixa do histórico"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog
+        open={excluirCaixa !== null}
+        onOpenChange={(o) => !o && setExcluirCaixa(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir caixa do histórico?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação é <strong>permanente</strong>. Os movimentos do caixa
+              (sangrias, suprimentos, abertura e fechamento) serão removidos. As
+              vendas vinculadas serão preservadas, apenas desvinculadas deste
+              caixa.
+              <br />
+              <br />
+              <span className="text-foreground">
+                Caixa aberto em{" "}
+                <strong>{formatDateTime(excluirCaixa?.data_abertura ?? null)}</strong>
+                {excluirCaixa?.qtd_vendas
+                  ? ` • ${excluirCaixa.qtd_vendas} vendas (${formatBRL(excluirCaixa.total_vendas)})`
+                  : ""}
+                .
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={excluirCaixaMutation.isPending}>
+              Voltar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={excluirCaixaMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async (e) => {
+                e.preventDefault();
+                if (!excluirCaixa) return;
+                try {
+                  await excluirCaixaMutation.mutateAsync(excluirCaixa.id);
+                  setExcluirCaixa(null);
+                } catch {
+                  /* toast já mostrado pelo hook */
+                }
+              }}
+            >
+              {excluirCaixaMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Excluindo...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Excluir caixa
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AbrirCaixaDialog open={abrirOpen} onOpenChange={setAbrirOpen} />
       {caixaAberto && (
