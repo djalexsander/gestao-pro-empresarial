@@ -66,18 +66,24 @@ export const MODULES: ModuleDef[] = [
     key: "financeiro",
     label: "Financeiro",
     items: [
-      { to: "/financeiro", label: "Financeiro", icon: Wallet, description: "Visão geral" },
+      { to: "/financeiro", label: "Financeiro", icon: Wallet, description: "Visão geral", exact: true },
       {
-        to: "/financeiro?tipo=pagar",
+        to: "/financeiro?tab=pagar",
         label: "Contas a pagar",
         icon: ArrowUpFromLine,
         description: "Despesas e fornecedores",
       },
       {
-        to: "/financeiro?tipo=receber",
+        to: "/financeiro?tab=receber",
         label: "Contas a receber",
         icon: ArrowDownToLine,
         description: "Recebíveis de clientes",
+      },
+      {
+        to: "/financeiro?tab=fluxo",
+        label: "Fluxo de caixa",
+        icon: TrendingUp,
+        description: "Entradas e saídas no tempo",
       },
     ],
   },
