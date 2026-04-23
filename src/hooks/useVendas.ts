@@ -122,6 +122,9 @@ export interface VendaListItem {
   status: VendaStatus;
   status_pagamento: StatusPagamento | string;
   forma_pagamento: FormaPagamento | null;
+  caixa_id: string | null;
+  operador_id: string | null;
+  terminal_id: string | null;
 }
 
 export function useVendas() {
@@ -131,10 +134,10 @@ export function useVendas() {
       const { data, error } = await supabase
         .from("vendas")
         .select(
-          "id, numero, cliente_id, data_emissao, data_finalizacao, total, status, status_pagamento, forma_pagamento, cliente:clientes(nome)",
+          "id, numero, cliente_id, data_emissao, data_finalizacao, total, status, status_pagamento, forma_pagamento, caixa_id, operador_id, terminal_id, cliente:clientes(nome)",
         )
         .order("created_at", { ascending: false })
-        .limit(200);
+        .limit(500);
       if (error) throw error;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (data ?? []).map((v: any) => ({
@@ -148,6 +151,9 @@ export function useVendas() {
         status: v.status,
         status_pagamento: v.status_pagamento,
         forma_pagamento: v.forma_pagamento,
+        caixa_id: v.caixa_id ?? null,
+        operador_id: v.operador_id ?? null,
+        terminal_id: v.terminal_id ?? null,
       }));
     },
   });
