@@ -47,16 +47,42 @@ export function MobileNavSheet({
                 {isOpen && (
                   <ul className="space-y-0.5 p-2">
                     {mod.items.map((item) => {
-                      const base = item.to.split("?")[0];
-                      const active =
+                      const [base, qs = ""] = item.to.split("?");
+                      const search: Record<string, string> = {};
+                      if (qs) {
+                        for (const part of qs.split("&")) {
+                          const [k, v = ""] = part.split("=");
+                          if (k) search[decodeURIComponent(k)] = decodeURIComponent(v);
+                        }
+                      }
+                      const hasSearch = Object.keys(search).length > 0;
+                      const currentSearch = (location.search ?? {}) as Record<string, string | undefined>;
+                      const pathMatches =
                         base === "/"
                           ? location.pathname === "/"
                           : location.pathname.startsWith(base);
+                      const active = hasSearch
+                        ? pathMatches &&
+                          Object.entries(search).every(([k, v]) => currentSearch[k] === v)
+                        : pathMatches &&
+                          !mod.items.some((sib) => {
+                            const sQs = sib.to.split("?")[1];
+                            if (!sQs) return false;
+                            const sBase = sib.to.split("?")[0];
+                            if (sBase !== base) return false;
+                            const sSearch: Record<string, string> = {};
+                            for (const part of sQs.split("&")) {
+                              const [k, v = ""] = part.split("=");
+                              if (k) sSearch[decodeURIComponent(k)] = decodeURIComponent(v);
+                            }
+                            return Object.entries(sSearch).every(([k, v]) => currentSearch[k] === v);
+                          });
                       const Icon = item.icon;
                       return (
                         <li key={item.to}>
                           <Link
                             to={base}
+                            search={hasSearch ? (search as never) : (undefined as never)}
                             onClick={() => onOpenChange(false)}
                             className={cn(
                               "flex items-center gap-3 rounded-md px-3 py-2 text-sm",
