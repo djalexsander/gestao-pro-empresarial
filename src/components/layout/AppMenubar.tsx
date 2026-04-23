@@ -134,50 +134,50 @@ export function AppMenubar({ activeModule, onModuleSelect }: AppMenubarProps) {
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-64">
-          <DropdownMenuItem onSelect={stub("Novo")}>
+          <DropdownMenuItem onSelect={novo}>
             <FilePlus className="h-4 w-4" /> Novo
             <DropdownMenuShortcut>Ctrl+N</DropdownMenuShortcut>
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={stub("Abrir")}>
+          <DropdownMenuItem onSelect={abrir}>
             <FolderOpen className="h-4 w-4" /> Abrir
             <DropdownMenuShortcut>Ctrl+O</DropdownMenuShortcut>
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={stub("Salvar")}>
+          <DropdownMenuItem onSelect={salvar}>
             <Save className="h-4 w-4" /> Salvar
             <DropdownMenuShortcut>Ctrl+S</DropdownMenuShortcut>
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={stub("Salvar como")}>
+          <DropdownMenuItem onSelect={salvarComo}>
             <FileText className="h-4 w-4" /> Salvar como…
             <DropdownMenuShortcut>Ctrl+Shift+S</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={stub("Importar")}>
+          <DropdownMenuItem onSelect={importar}>
             <Upload className="h-4 w-4" /> Importar
             <DropdownMenuShortcut>Ctrl+I</DropdownMenuShortcut>
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={stub("Exportar")}>
+          <DropdownMenuItem onSelect={exportar}>
             <Download className="h-4 w-4" /> Exportar
             <DropdownMenuShortcut>Ctrl+E</DropdownMenuShortcut>
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={stub("Imprimir")}>
+          <DropdownMenuItem onSelect={imprimir}>
             <Printer className="h-4 w-4" /> Imprimir
             <DropdownMenuShortcut>Ctrl+P</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => navigate({ to: "/configuracoes" })}>
+          <DropdownMenuItem onSelect={configuracoes}>
             <Settings2 className="h-4 w-4" /> Configurações
             <DropdownMenuShortcut>Ctrl+,</DropdownMenuShortcut>
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={stub("Preferências")}>
+          <DropdownMenuItem onSelect={preferencias}>
             <SlidersHorizontal className="h-4 w-4" /> Preferências
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={stub("Histórico")}>
+          <DropdownMenuItem onSelect={historico}>
             <History className="h-4 w-4" /> Histórico
             <DropdownMenuShortcut>Ctrl+H</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            onSelect={() => signOut()}
+            onSelect={sair}
             className="text-destructive focus:text-destructive"
           >
             <LogOut className="h-4 w-4" /> Sair
