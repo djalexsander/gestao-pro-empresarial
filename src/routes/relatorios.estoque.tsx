@@ -123,14 +123,14 @@ function Conteudo() {
     toast.loading("Gerando relatório...", { id: "export-estoque" });
     try {
       const columns: CsvColumn<ProdutoRow>[] = [
-        { header: "SKU", accessor: (r) => r.sku },
-        { header: "Produto", accessor: (r) => r.nome },
-        { header: "Unidade", accessor: (r) => r.unidade },
-        { header: "Saldo", accessor: (r) => r.saldo },
-        { header: "Mínimo", accessor: (r) => r.minimo },
-        { header: "Custo", accessor: (r) => r.custo },
-        { header: "Venda", accessor: (r) => r.venda },
-        { header: "Valor estoque", accessor: (r) => r.saldo * r.custo },
+        { header: "SKU", accessor: (r) => r.sku, type: "text" },
+        { header: "Produto", accessor: (r) => r.nome, type: "text" },
+        { header: "Unidade", accessor: (r) => r.unidade, type: "text" },
+        { header: "Saldo", accessor: (r) => r.saldo, type: "number" },
+        { header: "Minimo", accessor: (r) => r.minimo, type: "number" },
+        { header: "Custo", accessor: (r) => r.custo, type: "currency" },
+        { header: "Venda", accessor: (r) => r.venda, type: "currency" },
+        { header: "Valor estoque", accessor: (r) => r.saldo * r.custo, type: "currency" },
       ];
       exportRowsToCSV("estoque", filtered, columns);
       toast.success("Download iniciado", { id: "export-estoque" });

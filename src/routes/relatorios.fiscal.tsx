@@ -119,12 +119,12 @@ function Conteudo() {
     toast.loading("Gerando relatório...", { id: "export-fiscal" });
     try {
       const columns: CsvColumn<NotaRow>[] = [
-        { header: "Venda", accessor: (r) => r.numero },
-        { header: "NF", accessor: (r) => r.nf },
-        { header: "Série", accessor: (r) => r.serie },
-        { header: "Data", accessor: (r) => r.data },
-        { header: "Total", accessor: (r) => r.total },
-        { header: "Status", accessor: (r) => r.status },
+        { header: "Venda", accessor: (r) => r.numero, type: "text" },
+        { header: "NF", accessor: (r) => r.nf, type: "text" },
+        { header: "Serie", accessor: (r) => r.serie, type: "text" },
+        { header: "Data", accessor: (r) => r.data, type: "datetime" },
+        { header: "Total", accessor: (r) => r.total, type: "currency" },
+        { header: "Status", accessor: (r) => r.status, type: "text" },
       ];
       exportRowsToCSV("fiscal", rows, columns);
       toast.success("Download iniciado", { id: "export-fiscal" });

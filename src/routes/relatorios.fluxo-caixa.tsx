@@ -135,15 +135,15 @@ function Conteudo() {
     toast.loading("Gerando relatório...", { id: "export-fluxo" });
     try {
       const columns: CsvColumn<LancRow>[] = [
-        { header: "Descrição", accessor: (r) => r.descricao },
-        { header: "Tipo", accessor: (r) => r.tipo },
-        { header: "Valor", accessor: (r) => r.valor },
-        { header: "Valor pago", accessor: (r) => r.valor_pago },
-        { header: "Emissão", accessor: (r) => r.emissao },
-        { header: "Vencimento", accessor: (r) => r.vencimento },
-        { header: "Pagamento", accessor: (r) => r.pagamento ?? "" },
-        { header: "Status", accessor: (r) => r.status },
-        { header: "Forma", accessor: (r) => r.forma ?? "" },
+        { header: "Descricao", accessor: (r) => r.descricao, type: "text" },
+        { header: "Tipo", accessor: (r) => r.tipo, type: "text" },
+        { header: "Valor", accessor: (r) => r.valor, type: "currency" },
+        { header: "Valor pago", accessor: (r) => r.valor_pago, type: "currency" },
+        { header: "Emissao", accessor: (r) => r.emissao, type: "date" },
+        { header: "Vencimento", accessor: (r) => r.vencimento, type: "date" },
+        { header: "Pagamento", accessor: (r) => r.pagamento ?? "", type: "date" },
+        { header: "Status", accessor: (r) => r.status, type: "text" },
+        { header: "Forma", accessor: (r) => r.forma ?? "", type: "text" },
       ];
       exportRowsToCSV("fluxo-caixa", rows, columns);
       toast.success("Download iniciado", { id: "export-fluxo" });

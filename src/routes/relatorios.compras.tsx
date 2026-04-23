@@ -129,11 +129,11 @@ function Conteudo() {
     toast.loading("Gerando relatório...", { id: "export-compras" });
     try {
       const columns: CsvColumn<CompraRow>[] = [
-        { header: "Número", accessor: (r) => r.numero },
-        { header: "Data", accessor: (r) => r.data },
-        { header: "Fornecedor", accessor: (r) => r.fornecedor },
-        { header: "Total", accessor: (r) => r.total },
-        { header: "Status", accessor: (r) => r.status },
+        { header: "Numero", accessor: (r) => r.numero, type: "text" },
+        { header: "Data", accessor: (r) => r.data, type: "date" },
+        { header: "Fornecedor", accessor: (r) => r.fornecedor, type: "text" },
+        { header: "Total", accessor: (r) => r.total, type: "currency" },
+        { header: "Status", accessor: (r) => r.status, type: "text" },
       ];
       exportRowsToCSV("compras", filtered, columns);
       toast.success("Download iniciado", { id: "export-compras" });
