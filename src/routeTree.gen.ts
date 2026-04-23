@@ -30,6 +30,7 @@ import { Route as AdminUsuariosRouteImport } from './routes/admin.usuarios'
 import { Route as AdminPlanosRouteImport } from './routes/admin.planos'
 import { Route as AdminPagamentosRouteImport } from './routes/admin.pagamentos'
 import { Route as AdminModulosRouteImport } from './routes/admin.modulos'
+import { Route as AdminModosRouteImport } from './routes/admin.modos'
 import { Route as AdminEstatisticasRouteImport } from './routes/admin.estatisticas'
 import { Route as AdminEmpresasRouteImport } from './routes/admin.empresas'
 import { Route as AdminConfigComercialRouteImport } from './routes/admin.config-comercial'
@@ -141,6 +142,11 @@ const AdminModulosRoute = AdminModulosRouteImport.update({
   path: '/modulos',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminModosRoute = AdminModosRouteImport.update({
+  id: '/modos',
+  path: '/modos',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminEstatisticasRoute = AdminEstatisticasRouteImport.update({
   id: '/estatisticas',
   path: '/estatisticas',
@@ -189,6 +195,7 @@ export interface FileRoutesByFullPath {
   '/admin/config-comercial': typeof AdminConfigComercialRoute
   '/admin/empresas': typeof AdminEmpresasRoute
   '/admin/estatisticas': typeof AdminEstatisticasRoute
+  '/admin/modos': typeof AdminModosRoute
   '/admin/modulos': typeof AdminModulosRoute
   '/admin/pagamentos': typeof AdminPagamentosRoute
   '/admin/planos': typeof AdminPlanosRoute
@@ -216,6 +223,7 @@ export interface FileRoutesByTo {
   '/admin/config-comercial': typeof AdminConfigComercialRoute
   '/admin/empresas': typeof AdminEmpresasRoute
   '/admin/estatisticas': typeof AdminEstatisticasRoute
+  '/admin/modos': typeof AdminModosRoute
   '/admin/modulos': typeof AdminModulosRoute
   '/admin/pagamentos': typeof AdminPagamentosRoute
   '/admin/planos': typeof AdminPlanosRoute
@@ -245,6 +253,7 @@ export interface FileRoutesById {
   '/admin/config-comercial': typeof AdminConfigComercialRoute
   '/admin/empresas': typeof AdminEmpresasRoute
   '/admin/estatisticas': typeof AdminEstatisticasRoute
+  '/admin/modos': typeof AdminModosRoute
   '/admin/modulos': typeof AdminModulosRoute
   '/admin/pagamentos': typeof AdminPagamentosRoute
   '/admin/planos': typeof AdminPlanosRoute
@@ -275,6 +284,7 @@ export interface FileRouteTypes {
     | '/admin/config-comercial'
     | '/admin/empresas'
     | '/admin/estatisticas'
+    | '/admin/modos'
     | '/admin/modulos'
     | '/admin/pagamentos'
     | '/admin/planos'
@@ -302,6 +312,7 @@ export interface FileRouteTypes {
     | '/admin/config-comercial'
     | '/admin/empresas'
     | '/admin/estatisticas'
+    | '/admin/modos'
     | '/admin/modulos'
     | '/admin/pagamentos'
     | '/admin/planos'
@@ -330,6 +341,7 @@ export interface FileRouteTypes {
     | '/admin/config-comercial'
     | '/admin/empresas'
     | '/admin/estatisticas'
+    | '/admin/modos'
     | '/admin/modulos'
     | '/admin/pagamentos'
     | '/admin/planos'
@@ -505,6 +517,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminModulosRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/modos': {
+      id: '/admin/modos'
+      path: '/modos'
+      fullPath: '/admin/modos'
+      preLoaderRoute: typeof AdminModosRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/estatisticas': {
       id: '/admin/estatisticas'
       path: '/estatisticas'
@@ -549,6 +568,7 @@ interface AdminRouteChildren {
   AdminConfigComercialRoute: typeof AdminConfigComercialRoute
   AdminEmpresasRoute: typeof AdminEmpresasRoute
   AdminEstatisticasRoute: typeof AdminEstatisticasRoute
+  AdminModosRoute: typeof AdminModosRoute
   AdminModulosRoute: typeof AdminModulosRoute
   AdminPagamentosRoute: typeof AdminPagamentosRoute
   AdminPlanosRoute: typeof AdminPlanosRoute
@@ -562,6 +582,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminConfigComercialRoute: AdminConfigComercialRoute,
   AdminEmpresasRoute: AdminEmpresasRoute,
   AdminEstatisticasRoute: AdminEstatisticasRoute,
+  AdminModosRoute: AdminModosRoute,
   AdminModulosRoute: AdminModulosRoute,
   AdminPagamentosRoute: AdminPagamentosRoute,
   AdminPlanosRoute: AdminPlanosRoute,
