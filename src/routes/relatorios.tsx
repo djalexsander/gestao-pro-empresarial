@@ -70,13 +70,13 @@ const reports: Report[] = [
         pagamento: v.status_pagamento,
       }));
       const columns: CsvColumn<typeof rows[number]>[] = [
-        { header: "Número", accessor: (r) => r.numero },
-        { header: "Data", accessor: (r) => r.data },
-        { header: "Cliente", accessor: (r) => r.cliente },
-        { header: "Forma pagamento", accessor: (r) => r.forma },
-        { header: "Total", accessor: (r) => r.total },
-        { header: "Status", accessor: (r) => r.status },
-        { header: "Pagamento", accessor: (r) => r.pagamento },
+        { header: "Numero", accessor: (r) => r.numero, type: "text" },
+        { header: "Data", accessor: (r) => r.data, type: "datetime" },
+        { header: "Cliente", accessor: (r) => r.cliente, type: "text" },
+        { header: "Forma pagamento", accessor: (r) => r.forma, type: "text" },
+        { header: "Total", accessor: (r) => r.total, type: "currency" },
+        { header: "Status", accessor: (r) => r.status, type: "text" },
+        { header: "Pagamento", accessor: (r) => r.pagamento, type: "text" },
       ];
       return { rows, columns };
     },
@@ -104,11 +104,11 @@ const reports: Report[] = [
         status: c.status,
       }));
       const columns: CsvColumn<typeof rows[number]>[] = [
-        { header: "Número", accessor: (r) => r.numero },
-        { header: "Data", accessor: (r) => r.data },
-        { header: "Fornecedor", accessor: (r) => r.fornecedor },
-        { header: "Total", accessor: (r) => r.total },
-        { header: "Status", accessor: (r) => r.status },
+        { header: "Numero", accessor: (r) => r.numero, type: "text" },
+        { header: "Data", accessor: (r) => r.data, type: "date" },
+        { header: "Fornecedor", accessor: (r) => r.fornecedor, type: "text" },
+        { header: "Total", accessor: (r) => r.total, type: "currency" },
+        { header: "Status", accessor: (r) => r.status, type: "text" },
       ];
       return { rows, columns };
     },
@@ -169,13 +169,13 @@ const reports: Report[] = [
         saldo: saldos.get(p.id) ?? 0,
       }));
       const columns: CsvColumn<typeof rows[number]>[] = [
-        { header: "SKU", accessor: (r) => r.sku },
-        { header: "Produto", accessor: (r) => r.nome },
-        { header: "Unidade", accessor: (r) => r.unidade },
-        { header: "Saldo", accessor: (r) => r.saldo },
-        { header: "Mínimo", accessor: (r) => r.minimo },
-        { header: "Custo", accessor: (r) => r.custo },
-        { header: "Venda", accessor: (r) => r.venda },
+        { header: "SKU", accessor: (r) => r.sku, type: "text" },
+        { header: "Produto", accessor: (r) => r.nome, type: "text" },
+        { header: "Unidade", accessor: (r) => r.unidade, type: "text" },
+        { header: "Saldo", accessor: (r) => r.saldo, type: "number" },
+        { header: "Minimo", accessor: (r) => r.minimo, type: "number" },
+        { header: "Custo", accessor: (r) => r.custo, type: "currency" },
+        { header: "Venda", accessor: (r) => r.venda, type: "currency" },
       ];
       return { rows, columns };
     },
@@ -207,15 +207,15 @@ const reports: Report[] = [
         forma: l.forma_pagamento ?? "",
       }));
       const columns: CsvColumn<typeof rows[number]>[] = [
-        { header: "Descrição", accessor: (r) => r.descricao },
-        { header: "Tipo", accessor: (r) => r.tipo },
-        { header: "Valor", accessor: (r) => r.valor },
-        { header: "Valor pago", accessor: (r) => r.valor_pago },
-        { header: "Emissão", accessor: (r) => r.emissao },
-        { header: "Vencimento", accessor: (r) => r.vencimento },
-        { header: "Pagamento", accessor: (r) => r.pagamento },
-        { header: "Status", accessor: (r) => r.status },
-        { header: "Forma", accessor: (r) => r.forma },
+        { header: "Descricao", accessor: (r) => r.descricao, type: "text" },
+        { header: "Tipo", accessor: (r) => r.tipo, type: "text" },
+        { header: "Valor", accessor: (r) => r.valor, type: "currency" },
+        { header: "Valor pago", accessor: (r) => r.valor_pago, type: "currency" },
+        { header: "Emissao", accessor: (r) => r.emissao, type: "date" },
+        { header: "Vencimento", accessor: (r) => r.vencimento, type: "date" },
+        { header: "Pagamento", accessor: (r) => r.pagamento, type: "date" },
+        { header: "Status", accessor: (r) => r.status, type: "text" },
+        { header: "Forma", accessor: (r) => r.forma, type: "text" },
       ];
       return { rows, columns };
     },
@@ -251,16 +251,16 @@ const reports: Report[] = [
         status: l.status,
       }));
       const columns: CsvColumn<typeof rows[number]>[] = [
-        { header: "Data vencimento", accessor: (r) => r.vencimento },
-        { header: "Data pagamento", accessor: (r) => r.pagamento },
-        { header: "Tipo", accessor: (r) => r.tipo },
-        { header: "Categoria", accessor: (r) => r.categoria },
-        { header: "Descrição", accessor: (r) => r.descricao },
-        { header: "Cliente/Fornecedor", accessor: (r) => r.pessoa },
-        { header: "Valor", accessor: (r) => r.valor },
-        { header: "Valor pago", accessor: (r) => r.valor_pago },
-        { header: "Forma pagamento", accessor: (r) => r.forma },
-        { header: "Status", accessor: (r) => r.status },
+        { header: "Data vencimento", accessor: (r) => r.vencimento, type: "date" },
+        { header: "Data pagamento", accessor: (r) => r.pagamento, type: "date" },
+        { header: "Tipo", accessor: (r) => r.tipo, type: "text" },
+        { header: "Categoria", accessor: (r) => r.categoria, type: "text" },
+        { header: "Descricao", accessor: (r) => r.descricao, type: "text" },
+        { header: "Cliente/Fornecedor", accessor: (r) => r.pessoa, type: "text" },
+        { header: "Valor", accessor: (r) => r.valor, type: "currency" },
+        { header: "Valor pago", accessor: (r) => r.valor_pago, type: "currency" },
+        { header: "Forma pagamento", accessor: (r) => r.forma, type: "text" },
+        { header: "Status", accessor: (r) => r.status, type: "text" },
       ];
       return { rows, columns };
     },
@@ -295,16 +295,16 @@ const reports: Report[] = [
         status: c.status,
       }));
       const columns: CsvColumn<typeof rows[number]>[] = [
-        { header: "Abertura", accessor: (r) => r.abertura },
-        { header: "Fechamento", accessor: (r) => r.fechamento },
-        { header: "Valor inicial", accessor: (r) => r.inicial },
-        { header: "Total vendas", accessor: (r) => r.vendas },
-        { header: "Sangrias", accessor: (r) => r.sangrias },
-        { header: "Suprimentos", accessor: (r) => r.suprimentos },
-        { header: "Esperado", accessor: (r) => r.esperado },
-        { header: "Informado", accessor: (r) => r.informado },
-        { header: "Diferença", accessor: (r) => r.diferenca },
-        { header: "Status", accessor: (r) => r.status },
+        { header: "Abertura", accessor: (r) => r.abertura, type: "datetime" },
+        { header: "Fechamento", accessor: (r) => r.fechamento, type: "datetime" },
+        { header: "Valor inicial", accessor: (r) => r.inicial, type: "currency" },
+        { header: "Total vendas", accessor: (r) => r.vendas, type: "currency" },
+        { header: "Sangrias", accessor: (r) => r.sangrias, type: "currency" },
+        { header: "Suprimentos", accessor: (r) => r.suprimentos, type: "currency" },
+        { header: "Esperado", accessor: (r) => r.esperado, type: "currency" },
+        { header: "Informado", accessor: (r) => r.informado, type: "currency" },
+        { header: "Diferenca", accessor: (r) => r.diferenca, type: "currency" },
+        { header: "Status", accessor: (r) => r.status, type: "text" },
       ];
       return { rows, columns };
     },
@@ -335,8 +335,8 @@ const reports: Report[] = [
         { conta: "Resultado", valor: receita + outras_receitas - despesas },
       ];
       const columns: CsvColumn<typeof rows[number]>[] = [
-        { header: "Conta", accessor: (r) => r.conta },
-        { header: "Valor", accessor: (r) => r.valor },
+        { header: "Conta", accessor: (r) => r.conta, type: "text" },
+        { header: "Valor", accessor: (r) => r.valor, type: "currency" },
       ];
       return { rows, columns };
     },
@@ -366,12 +366,12 @@ const reports: Report[] = [
         status: v.status,
       }));
       const columns: CsvColumn<typeof rows[number]>[] = [
-        { header: "Venda", accessor: (r) => r.venda },
-        { header: "NF", accessor: (r) => r.nf },
-        { header: "Série", accessor: (r) => r.serie },
-        { header: "Data", accessor: (r) => r.data },
-        { header: "Total", accessor: (r) => r.total },
-        { header: "Status", accessor: (r) => r.status },
+        { header: "Venda", accessor: (r) => r.venda, type: "text" },
+        { header: "NF", accessor: (r) => r.nf, type: "text" },
+        { header: "Serie", accessor: (r) => r.serie, type: "text" },
+        { header: "Data", accessor: (r) => r.data, type: "datetime" },
+        { header: "Total", accessor: (r) => r.total, type: "currency" },
+        { header: "Status", accessor: (r) => r.status, type: "text" },
       ];
       return { rows, columns };
     },

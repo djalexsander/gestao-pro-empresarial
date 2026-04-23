@@ -131,8 +131,8 @@ function Conteudo() {
     toast.loading("Gerando relatório...", { id: "export-dre" });
     try {
       const columns: CsvColumn<DreLinha>[] = [
-        { header: "Conta", accessor: (r) => r.conta },
-        { header: "Valor", accessor: (r) => r.valor },
+        { header: "Conta", accessor: (r) => r.conta, type: "text" },
+        { header: "Valor", accessor: (r) => r.valor, type: "currency" },
       ];
       exportRowsToCSV("dre", linhas, columns);
       toast.success("Download iniciado", { id: "export-dre" });

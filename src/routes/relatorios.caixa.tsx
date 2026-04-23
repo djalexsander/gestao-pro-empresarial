@@ -345,22 +345,22 @@ function Conteudo() {
     toast.loading("Gerando relatório...", { id: "export-caixa" });
     try {
       const columns: CsvColumn<CaixaRow>[] = [
-        { header: "Operador", accessor: (r) => r.operador_nome },
-        { header: "Terminal", accessor: (r) => r.terminal_nome },
-        { header: "Abertura", accessor: (r) => fmtDateTime(r.data_abertura) },
-        { header: "Fechamento", accessor: (r) => fmtDateTime(r.data_fechamento) },
-        { header: "Valor inicial", accessor: (r) => r.valor_inicial },
-        { header: "Total vendas", accessor: (r) => r.total_vendas },
-        { header: "Sangrias", accessor: (r) => r.total_sangrias },
-        { header: "Suprimentos", accessor: (r) => r.total_suprimentos },
-        { header: "Dinheiro", accessor: (r) => r.total_dinheiro },
-        { header: "PIX", accessor: (r) => r.total_pix },
-        { header: "Débito", accessor: (r) => r.total_debito },
-        { header: "Crédito", accessor: (r) => r.total_credito },
-        { header: "Esperado", accessor: (r) => r.valor_esperado ?? "" },
-        { header: "Informado", accessor: (r) => r.valor_informado ?? "" },
-        { header: "Diferença", accessor: (r) => r.diferenca ?? "" },
-        { header: "Status", accessor: (r) => r.status },
+        { header: "Operador", accessor: (r) => r.operador_nome, type: "text" },
+        { header: "Terminal", accessor: (r) => r.terminal_nome, type: "text" },
+        { header: "Abertura", accessor: (r) => r.data_abertura, type: "datetime" },
+        { header: "Fechamento", accessor: (r) => r.data_fechamento ?? "", type: "datetime" },
+        { header: "Valor inicial", accessor: (r) => r.valor_inicial, type: "currency" },
+        { header: "Total vendas", accessor: (r) => r.total_vendas, type: "currency" },
+        { header: "Sangrias", accessor: (r) => r.total_sangrias, type: "currency" },
+        { header: "Suprimentos", accessor: (r) => r.total_suprimentos, type: "currency" },
+        { header: "Dinheiro", accessor: (r) => r.total_dinheiro, type: "currency" },
+        { header: "PIX", accessor: (r) => r.total_pix, type: "currency" },
+        { header: "Debito", accessor: (r) => r.total_debito, type: "currency" },
+        { header: "Credito", accessor: (r) => r.total_credito, type: "currency" },
+        { header: "Esperado", accessor: (r) => r.valor_esperado ?? "", type: "currency" },
+        { header: "Informado", accessor: (r) => r.valor_informado ?? "", type: "currency" },
+        { header: "Diferenca", accessor: (r) => r.diferenca ?? "", type: "currency" },
+        { header: "Status", accessor: (r) => r.status, type: "text" },
       ];
       exportRowsToCSV("caixa", rows, columns);
       toast.success("Download iniciado", { id: "export-caixa" });

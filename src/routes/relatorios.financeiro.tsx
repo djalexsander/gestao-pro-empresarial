@@ -391,19 +391,20 @@ function Conteudo() {
     toast.loading("Gerando relatório...", { id: "export-financeiro" });
     try {
       const columns: CsvColumn<Lancamento>[] = [
-        { header: "Data vencimento", accessor: (r) => r.data_vencimento },
-        { header: "Data pagamento", accessor: (r) => r.data_pagamento ?? "" },
-        { header: "Tipo", accessor: (r) => r.tipo },
-        { header: "Categoria", accessor: (r) => r.categoria_nome ?? "" },
-        { header: "Descrição", accessor: (r) => r.descricao },
+        { header: "Data vencimento", accessor: (r) => r.data_vencimento, type: "date" },
+        { header: "Data pagamento", accessor: (r) => r.data_pagamento ?? "", type: "date" },
+        { header: "Tipo", accessor: (r) => r.tipo, type: "text" },
+        { header: "Categoria", accessor: (r) => r.categoria_nome ?? "", type: "text" },
+        { header: "Descricao", accessor: (r) => r.descricao, type: "text" },
         {
           header: "Cliente/Fornecedor",
           accessor: (r) => r.cliente_nome ?? r.fornecedor_nome ?? "",
+          type: "text",
         },
-        { header: "Valor", accessor: (r) => r.valor },
-        { header: "Valor pago", accessor: (r) => r.valor_pago },
-        { header: "Forma pagamento", accessor: (r) => r.forma_pagamento ?? "" },
-        { header: "Status", accessor: (r) => statusVisual(r) },
+        { header: "Valor", accessor: (r) => r.valor, type: "currency" },
+        { header: "Valor pago", accessor: (r) => r.valor_pago, type: "currency" },
+        { header: "Forma pagamento", accessor: (r) => r.forma_pagamento ?? "", type: "text" },
+        { header: "Status", accessor: (r) => statusVisual(r), type: "text" },
       ];
       exportRowsToCSV("financeiro", filteredRows, columns);
       toast.success("Download iniciado", { id: "export-financeiro" });
