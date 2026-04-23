@@ -1,5 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ArrowDownUp, AlertTriangle, Boxes, PackageX, Search, History, Loader2, ScanLine } from "lucide-react";
+import {
+  ArrowDownUp,
+  AlertTriangle,
+  Boxes,
+  PackageX,
+  Search,
+  History,
+  Loader2,
+  ScanLine,
+  ChevronDown,
+  ChevronRight,
+  CalendarDays,
+  X,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -46,6 +59,10 @@ function StockPage() {
   const [open, setOpen] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [movBusca, setMovBusca] = useState("");
+  const [movDataIni, setMovDataIni] = useState("");
+  const [movDataFim, setMovDataFim] = useState("");
+  const [diasAbertosMov, setDiasAbertosMov] = useState<Record<string, boolean>>({});
 
   const items = useMemo(() => {
     return produtos.map((p) => {
@@ -62,6 +79,58 @@ function StockPage() {
       i.nome.toLowerCase().includes(q) || i.sku.toLowerCase().includes(q)
     );
   }, [items, search]);
+
+  // Filtro + agrupamento por dia das movimentações
+  const movsFiltradas = useMemo(() => {
+    const q = movBusca.trim().toLowerCase();
+    return movs.filter((m) => {
+      const dia = (m.data_movimentacao ?? "").slice(0, 10);
+      if (movDataIni && dia < movDataIni) return false;
+      if (movDataFim && dia > movDataFim) return false;
+      if (!q) return true;
+      return (
+        (m.produto?.nome ?? "").toLowerCase().includes(q) ||
+        (m.produto?.sku ?? "").toLowerCase().includes(q) ||
+        (m.observacoes ?? "").toLowerCase().includes(q) ||
+        (m.tipo ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [movs, movBusca, movDataIni, movDataFim]);
+
+  const movsPorDia = useMemo(() => {
+    const mapa = new Map<string, typeof movsFiltradas>();
+    for (const m of movsFiltradas) {
+      const dia = (m.data_movimentacao ?? "").slice(0, 10);
+      if (!mapa.has(dia)) mapa.set(dia, [] as typeof movsFiltradas);
+      mapa.get(dia)!.push(m);
+    }
+    return Array.from(mapa.entries())
+      .map(([dia, list]) => {
+        const entradas = list
+          .filter((m) => m.tipo === "entrada" || m.tipo === "devolucao")
+          .reduce((s, m) => s + Number(m.quantidade), 0);
+        const saidas = list
+          .filter((m) => m.tipo === "saida" || m.tipo === "transferencia")
+          .reduce((s, m) => s + Number(m.quantidade), 0);
+        return { dia, movs: list, entradas, saidas, qtd: list.length };
+      })
+      .sort((a, b) => (a.dia < b.dia ? 1 : -1));
+  }, [movsFiltradas]);
+
+  function toggleMovDia(dia: string) {
+    setDiasAbertosMov((prev) => ({ ...prev, [dia]: !prev[dia] }));
+  }
+
+  function formatarDia(dia: string) {
+    if (!dia) return "Sem data";
+    const d = new Date(dia + "T00:00:00");
+    return d.toLocaleDateString("pt-BR", {
+      weekday: "long",
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+    });
+  }
 
   const totalSkus = items.length;
   const totalUnits = items.reduce((s, i) => s + i.saldo, 0);
@@ -161,10 +230,62 @@ function StockPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="historico" className="mt-4">
+        <TabsContent value="historico" className="mt-4 space-y-4">
           <Card>
-            <CardHeader>
-              <CardTitle>Últimas movimentações</CardTitle>
+            <CardContent className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="relative lg:col-span-2">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar produto, SKU, tipo ou observação..."
+                  className="pl-9"
+                  value={movBusca}
+                  onChange={(e) => setMovBusca(e.target.value)}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="date"
+                  value={movDataIni}
+                  onChange={(e) => setMovDataIni(e.target.value)}
+                  aria-label="Data inicial"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">até</span>
+                <Input
+                  type="date"
+                  value={movDataFim}
+                  onChange={(e) => setMovDataFim(e.target.value)}
+                  aria-label="Data final"
+                />
+                {(movBusca || movDataIni || movDataFim) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setMovBusca("");
+                      setMovDataIni("");
+                      setMovDataFim("");
+                    }}
+                    className="gap-1"
+                  >
+                    <X className="h-3.5 w-3.5" /> Limpar
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Histórico de movimentações</CardTitle>
+              <span className="text-xs text-muted-foreground">
+                {movsFiltradas.length}{" "}
+                {movsFiltradas.length === 1
+                  ? "movimentação"
+                  : "movimentações"}
+              </span>
             </CardHeader>
             <CardContent className="p-0">
               {movs.length === 0 ? (
@@ -175,50 +296,130 @@ function StockPage() {
                     description="Registre uma entrada, saída ou ajuste para começar."
                   />
                 </div>
+              ) : movsPorDia.length === 0 ? (
+                <div className="p-8 text-center text-sm text-muted-foreground">
+                  Nenhuma movimentação encontrada para os filtros aplicados.
+                </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Data</TableHead>
-                      <TableHead>Produto</TableHead>
-                      <TableHead>Tipo</TableHead>
-                      <TableHead className="text-right">Qtd</TableHead>
-                      <TableHead className="text-right">Saldo após</TableHead>
-                      <TableHead>Observação</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {movs.map((m) => {
-                      const tipoLabel =
-                        m.tipo === "entrada" ? "Entrada" :
-                        m.tipo === "saida" ? "Saída" :
-                        m.tipo === "ajuste" ? "Ajuste" :
-                        m.tipo === "devolucao" ? "Devolução" : "Transferência";
-                      const tone =
-                        m.tipo === "entrada" || m.tipo === "devolucao" ? "success" :
-                        m.tipo === "saida" || m.tipo === "transferencia" ? "danger" : "info";
-                      return (
-                        <TableRow key={m.id}>
-                          <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
-                            {new Date(m.data_movimentacao).toLocaleString("pt-BR")}
-                          </TableCell>
-                          <TableCell className="font-medium">
-                            {m.produto?.nome ?? "—"}
-                            {m.produto?.sku && <span className="block text-xs font-mono text-muted-foreground">{m.produto.sku}</span>}
-                          </TableCell>
-                          <TableCell><StatusBadge status={tipoLabel} tone={tone as "success" | "danger" | "info"} /></TableCell>
-                          <TableCell className="text-right tabular-nums font-medium">{m.quantidade}</TableCell>
-                          <TableCell className="text-right tabular-nums text-muted-foreground">
-                            {m.saldo_posterior ?? "—"}
-                          </TableCell>
-                          <TableCell className="text-sm text-muted-foreground max-w-xs truncate">
-                            {m.observacoes ?? "—"}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+                <div className="divide-y divide-border">
+                  {movsPorDia.map((grupo) => {
+                    const aberto = diasAbertosMov[grupo.dia] ?? false;
+                    return (
+                      <div key={grupo.dia}>
+                        <button
+                          type="button"
+                          onClick={() => toggleMovDia(grupo.dia)}
+                          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40"
+                        >
+                          <div className="flex items-center gap-2">
+                            {aberto ? (
+                              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                            )}
+                            <span className="text-sm font-medium capitalize text-foreground">
+                              {formatarDia(grupo.dia)}
+                            </span>
+                            <span className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                              {grupo.qtd}{" "}
+                              {grupo.qtd === 1 ? "movimento" : "movimentos"}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3 text-xs">
+                            <span className="text-success">
+                              ↑ {grupo.entradas}
+                            </span>
+                            <span className="text-destructive">
+                              ↓ {grupo.saidas}
+                            </span>
+                          </div>
+                        </button>
+                        {aberto && (
+                          <div className="bg-muted/20 px-2 pb-3">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Hora</TableHead>
+                                  <TableHead>Produto</TableHead>
+                                  <TableHead>Tipo</TableHead>
+                                  <TableHead className="text-right">
+                                    Qtd
+                                  </TableHead>
+                                  <TableHead className="text-right">
+                                    Saldo após
+                                  </TableHead>
+                                  <TableHead>Observação</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {grupo.movs.map((m) => {
+                                  const tipoLabel =
+                                    m.tipo === "entrada"
+                                      ? "Entrada"
+                                      : m.tipo === "saida"
+                                        ? "Saída"
+                                        : m.tipo === "ajuste"
+                                          ? "Ajuste"
+                                          : m.tipo === "devolucao"
+                                            ? "Devolução"
+                                            : "Transferência";
+                                  const tone =
+                                    m.tipo === "entrada" ||
+                                    m.tipo === "devolucao"
+                                      ? "success"
+                                      : m.tipo === "saida" ||
+                                          m.tipo === "transferencia"
+                                        ? "danger"
+                                        : "info";
+                                  return (
+                                    <TableRow key={m.id}>
+                                      <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                                        {new Date(
+                                          m.data_movimentacao,
+                                        ).toLocaleTimeString("pt-BR", {
+                                          hour: "2-digit",
+                                          minute: "2-digit",
+                                        })}
+                                      </TableCell>
+                                      <TableCell className="font-medium">
+                                        {m.produto?.nome ?? "—"}
+                                        {m.produto?.sku && (
+                                          <span className="block font-mono text-xs text-muted-foreground">
+                                            {m.produto.sku}
+                                          </span>
+                                        )}
+                                      </TableCell>
+                                      <TableCell>
+                                        <StatusBadge
+                                          status={tipoLabel}
+                                          tone={
+                                            tone as
+                                              | "success"
+                                              | "danger"
+                                              | "info"
+                                          }
+                                        />
+                                      </TableCell>
+                                      <TableCell className="text-right font-medium tabular-nums">
+                                        {m.quantidade}
+                                      </TableCell>
+                                      <TableCell className="text-right tabular-nums text-muted-foreground">
+                                        {m.saldo_posterior ?? "—"}
+                                      </TableCell>
+                                      <TableCell className="max-w-xs truncate text-sm text-muted-foreground">
+                                        {m.observacoes ?? "—"}
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </CardContent>
           </Card>
