@@ -12,10 +12,7 @@ export function ContextSidebar({ activeModule }: ContextSidebarProps) {
   const mod = MODULES.find((m) => m.key === activeModule) ?? MODULES[0];
 
   return (
-    <aside
-      key={mod.key}
-      className="hidden w-60 shrink-0 flex-col border-r border-border bg-card lg:flex animate-in fade-in slide-in-from-left-2 duration-200"
-    >
+    <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-card lg:flex">
       <div className="flex h-12 items-center justify-between border-b border-border px-4">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
