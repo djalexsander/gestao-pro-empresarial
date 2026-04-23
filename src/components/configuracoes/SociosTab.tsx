@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2, UserPlus, Crown, Shield, Briefcase } from "lucide-react";
+import { Trash2, UserPlus, Crown, Shield, Briefcase, Eye, EyeOff } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,7 +52,11 @@ export function SociosTab() {
   const podeGerenciar = podeGerenciarMembros(papel);
   const qc = useQueryClient();
 
+  const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
+  const [telefone, setTelefone] = useState("");
+  const [senha, setSenha] = useState("");
+  const [mostrarSenha, setMostrarSenha] = useState(false);
   const [novoPapel, setNovoPapel] = useState<EmpresaPapel>("admin");
   const [removerId, setRemoverId] = useState<string | null>(null);
 
