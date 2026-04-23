@@ -281,64 +281,183 @@ function VincularModulosDialog({
   modo, onClose,
 }: { modo: SystemMode | null; onClose: () => void }) {
   const open = !!modo;
-  const { data: modulos = [] } = useAdminModulos();
+  const { data: modulos = [], isLoading } = useAdminModulos();
   const set = useSetModoModulos();
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+  const [busca, setBusca] = useState("");
+  const [inicializado, setInicializado] = useState(false);
 
-  if (open && modo && selecionados.size === 0 && modo.modulos.length > 0) {
-    // Inicializa quando abrir (uma vez por abertura).
-    setSelecionados(new Set(modo.modulos.map((m) => m.id)));
+  // Reinicializa seleção a cada abertura do diálogo (não só quando vazia).
+  useEffect(() => {
+    if (open && modo && !inicializado) {
+      setSelecionados(new Set(modo.modulos.map((m) => m.id)));
+      setBusca("");
+      setInicializado(true);
+    }
+    if (!open && inicializado) {
+      setInicializado(false);
+    }
+  }, [open, modo, inicializado]);
+
+  const modulosFiltrados = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    if (!q) return modulos;
+    return modulos.filter(
+      (m) =>
+        m.nome.toLowerCase().includes(q) ||
+        m.chave.toLowerCase().includes(q) ||
+        (m.descricao ?? "").toLowerCase().includes(q),
+    );
+  }, [modulos, busca]);
+
+  const idsOriginais = useMemo(
+    () => new Set((modo?.modulos ?? []).map((m) => m.id)),
+    [modo],
+  );
+  const dirty = useMemo(() => {
+    if (!modo) return false;
+    if (selecionados.size !== idsOriginais.size) return true;
+    for (const id of selecionados) if (!idsOriginais.has(id)) return true;
+    return false;
+  }, [selecionados, idsOriginais, modo]);
+
+  const todosVisiveisMarcados =
+    modulosFiltrados.length > 0 &&
+    modulosFiltrados.every((m) => selecionados.has(m.id));
+
+  function toggleTodosVisiveis() {
+    const next = new Set(selecionados);
+    if (todosVisiveisMarcados) {
+      modulosFiltrados.forEach((m) => next.delete(m.id));
+    } else {
+      modulosFiltrados.forEach((m) => next.add(m.id));
+    }
+    setSelecionados(next);
+  }
+
+  function fechar() {
+    setSelecionados(new Set());
+    setBusca("");
+    setInicializado(false);
+    onClose();
+  }
+
+  async function salvar() {
+    if (!modo) return;
+    try {
+      await set.mutateAsync({
+        mode_id: modo.id,
+        module_ids: Array.from(selecionados),
+      });
+      fechar();
+    } catch {
+      // toast já exibido pelo hook
+    }
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) { setSelecionados(new Set()); onClose(); } }}>
-      <DialogContent className="sm:max-w-md">
+    <Dialog open={open} onOpenChange={(o) => { if (!o) fechar(); }}>
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Vincular módulos a “{modo?.nome}”</DialogTitle>
+          <p className="text-xs text-muted-foreground">
+            Selecione quais módulos comerciais ficam disponíveis quando o usuário entrar neste modo.
+          </p>
         </DialogHeader>
-        <div className="max-h-[60vh] space-y-2 overflow-y-auto py-2">
-          {modulos.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nenhum módulo cadastrado.</p>
-          ) : modulos.map((m) => {
-            const checked = selecionados.has(m.id);
-            return (
-              <label key={m.id} className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 hover:bg-muted/40">
-                <Checkbox
-                  checked={checked}
-                  onCheckedChange={(v) => {
-                    const next = new Set(selecionados);
-                    if (v) next.add(m.id); else next.delete(m.id);
-                    setSelecionados(next);
-                  }}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium">{m.nome}</p>
-                    <code className="text-[10px] text-muted-foreground">{m.chave}</code>
+
+        <div className="space-y-3 py-1">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              className="pl-8"
+              placeholder="Buscar módulo por nome, chave ou descrição…"
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+            />
+          </div>
+
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>
+              <CheckCircle2 className="mr-1 inline h-3.5 w-3.5 text-success" />
+              {selecionados.size} de {modulos.length} selecionado(s)
+            </span>
+            {modulosFiltrados.length > 0 && (
+              <button
+                type="button"
+                className="text-xs font-medium text-primary hover:underline"
+                onClick={toggleTodosVisiveis}
+              >
+                {todosVisiveisMarcados ? "Desmarcar visíveis" : "Selecionar visíveis"}
+              </button>
+            )}
+          </div>
+
+          <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
+            {isLoading ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">Carregando módulos…</p>
+            ) : modulos.length === 0 ? (
+              <div className="py-10 text-center">
+                <PackageX className="mx-auto h-8 w-8 text-muted-foreground/60" />
+                <p className="mt-2 text-sm text-muted-foreground">Nenhum módulo cadastrado.</p>
+                <p className="text-xs text-muted-foreground">Cadastre módulos na aba Módulos primeiro.</p>
+              </div>
+            ) : modulosFiltrados.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                Nenhum módulo encontrado para “{busca}”.
+              </p>
+            ) : modulosFiltrados.map((m) => {
+              const checked = selecionados.has(m.id);
+              return (
+                <label
+                  key={m.id}
+                  className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
+                    checked ? "border-primary/40 bg-primary/5" : "hover:bg-muted/40"
+                  }`}
+                >
+                  <Checkbox
+                    checked={checked}
+                    onCheckedChange={(v) => {
+                      const next = new Set(selecionados);
+                      if (v) next.add(m.id); else next.delete(m.id);
+                      setSelecionados(next);
+                    }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-medium">{m.nome}</p>
+                      <code className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                        {m.chave}
+                      </code>
+                      {!m.ativo && (
+                        <Badge variant="secondary" className="text-[10px]">Inativo</Badge>
+                      )}
+                      {m.aplica_restricao && (
+                        <Badge variant="outline" className="text-[10px]">Pago</Badge>
+                      )}
+                    </div>
+                    {m.descricao && (
+                      <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">{m.descricao}</p>
+                    )}
                   </div>
-                  {m.descricao && <p className="text-xs text-muted-foreground">{m.descricao}</p>}
-                </div>
-              </label>
-            );
-          })}
+                </label>
+              );
+            })}
+          </div>
         </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => { setSelecionados(new Set()); onClose(); }}>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={fechar} disabled={set.isPending}>
             Cancelar
           </Button>
           <Button
-            disabled={set.isPending || !modo}
-            onClick={async () => {
-              if (!modo) return;
-              await set.mutateAsync({
-                mode_id: modo.id,
-                module_ids: Array.from(selecionados),
-              });
-              setSelecionados(new Set());
-              onClose();
-            }}
+            disabled={set.isPending || !modo || !dirty}
+            onClick={salvar}
           >
-            {set.isPending ? "Salvando…" : "Salvar vínculos"}
+            {set.isPending
+              ? "Salvando…"
+              : dirty
+                ? `Salvar vínculos (${selecionados.size})`
+                : "Sem alterações"}
           </Button>
         </DialogFooter>
       </DialogContent>
