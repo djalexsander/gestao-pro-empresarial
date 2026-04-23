@@ -5,6 +5,7 @@ import {
   Search,
   Eye,
   X,
+  Trash2,
   Loader2,
   ShoppingBag,
   Receipt,
