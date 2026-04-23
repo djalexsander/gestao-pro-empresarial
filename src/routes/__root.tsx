@@ -3,6 +3,7 @@ import { ThemeProvider, themeInitScript } from "@/components/theme/ThemeProvider
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { OperadorProvider } from "@/components/auth/OperadorProvider";
 import { TerminalProvider } from "@/components/auth/TerminalProvider";
+import { ModeProvider } from "@/components/modes/ModeProvider";
 import { QueryProvider } from "@/components/providers/QueryProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { AppLayout } from "@/components/layout/AppLayout";
