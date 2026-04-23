@@ -13,6 +13,7 @@ import {
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { NotificationsBell } from "./NotificationsBell";
+import { EmpresaSwitcher } from "./EmpresaSwitcher";
 
 interface AppTopbarProps {
   onMobileMenuClick: () => void;
@@ -39,6 +40,8 @@ export function AppTopbar({ onMobileMenuClick }: AppTopbarProps) {
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        <EmpresaSwitcher />
+
         <Button
           asChild
           variant="ghost"
