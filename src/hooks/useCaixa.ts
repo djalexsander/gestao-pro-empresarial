@@ -292,7 +292,8 @@ export function useFecharCaixa() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["caixa"] });
       qc.invalidateQueries({ queryKey: ["vendas"] });
-      toast.success("Caixa fechado.");
+      qc.invalidateQueries({ queryKey: ["financeiro_lancamentos"] });
+      toast.success("Caixa fechado. Movimentos enviados ao Financeiro.");
     },
     onError: (e: Error) => toast.error(e.message),
   });
