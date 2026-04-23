@@ -1,4 +1,4 @@
 project_id = "mwukovaunyctaafolnsd"
 
 [functions.criar-socio]
-verify_jwt = true
+verify_jwt = false
