@@ -1,6 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
-import { AlertTriangle, Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,21 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { FuncionariosTab } from "@/components/configuracoes/FuncionariosTab";
 import { TerminaisTab } from "@/components/configuracoes/TerminaisTab";
-import { useResetarDadosEmpresa } from "@/hooks/useSaasCliente";
 
 export const Route = createFileRoute("/configuracoes")({
   head: () => ({
@@ -49,9 +35,6 @@ function SettingsPage() {
           <TabsTrigger value="terminais">Terminais</TabsTrigger>
           <TabsTrigger value="prefs">Preferências</TabsTrigger>
           <TabsTrigger value="integracoes">Integrações</TabsTrigger>
-          <TabsTrigger value="perigo" className="text-destructive data-[state=active]:text-destructive">
-            Zona de Perigo
-          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="empresa" className="mt-4">
@@ -131,9 +114,6 @@ function SettingsPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="perigo" className="mt-4">
-          <ZonaPerigoTab />
-        </TabsContent>
       </Tabs>
     </div>
   );
@@ -159,89 +139,3 @@ function DarkModeSwitchRow() {
   );
 }
 
-function ZonaPerigoTab() {
-  const [confirm, setConfirm] = useState("");
-  const reset = useResetarDadosEmpresa();
-  const palavraConfirma = "ZERAR";
-
-  return (
-    <Card className="border-destructive/40">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-destructive">
-          <AlertTriangle className="h-5 w-5" />
-          Zerar todos os dados da empresa
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
-          <p className="mb-2 font-medium text-destructive">
-            Atenção: esta ação é irreversível!
-          </p>
-          <p className="text-muted-foreground">
-            Serão apagados <strong>permanentemente</strong>: vendas, produtos,
-            clientes, fornecedores, compras, caixa, financeiro, estoque,
-            terminais e funcionários. Sua conta, empresa, plano e módulos
-            permanecem intactos.
-          </p>
-          <p className="mt-2 text-muted-foreground">
-            Use isto se quiser recomeçar com a base limpa após o período de
-            testes.
-          </p>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="confirm-reset">
-            Para confirmar, digite{" "}
-            <code className="rounded bg-muted px-1 font-mono text-xs">
-              {palavraConfirma}
-            </code>
-            :
-          </Label>
-          <Input
-            id="confirm-reset"
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            placeholder={palavraConfirma}
-            autoComplete="off"
-          />
-        </div>
-
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button
-              variant="destructive"
-              disabled={confirm !== palavraConfirma || reset.isPending}
-            >
-              {reset.isPending && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              Zerar dados agora
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Tem certeza absoluta?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Esta ação não pode ser desfeita. Todos os dados operacionais da
-                sua empresa serão apagados imediatamente.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancelar</AlertDialogCancel>
-              <AlertDialogAction
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                onClick={() => {
-                  reset.mutate(undefined, {
-                    onSuccess: () => setConfirm(""),
-                  });
-                }}
-              >
-                Sim, apagar tudo
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </CardContent>
-    </Card>
-  );
-}

@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { ArrowDownToLine, ArrowUpFromLine, Plus, TrendingUp } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -14,8 +15,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { accountsPayable, accountsReceivable, formatBRL } from "@/lib/mock-data";
+import { formatBRL } from "@/lib/mock-data";
 import { ModuloGate } from "@/components/saas/ModuloGate";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/financeiro")({
   head: () => ({
@@ -27,6 +29,34 @@ export const Route = createFileRoute("/financeiro")({
   component: FinancePage,
 });
 
+type Lancamento = {
+  id: string;
+  descricao: string;
+  valor: number;
+  valor_pago: number | null;
+  data_vencimento: string;
+  data_pagamento: string | null;
+  tipo: "receber" | "pagar";
+  status: "pendente" | "recebido" | "pago" | "cancelado" | "parcial" | "vencido";
+};
+
+function statusLabel(l: Lancamento): string {
+  if (l.status === "pago" || l.status === "recebido") return "Pago";
+  if (l.status === "cancelado") return "Cancelado";
+  if (l.status === "parcial") return "Parcial";
+  // pendente: avaliar vencimento
+  if (l.data_vencimento && new Date(l.data_vencimento) < new Date(new Date().toDateString())) {
+    return "Vencido";
+  }
+  return "Pendente";
+}
+
+function formatDate(d: string | null): string {
+  if (!d) return "—";
+  const [y, m, day] = d.split("-");
+  return `${day}/${m}/${y}`;
+}
+
 function FinancePage() {
   return (
     <ModuloGate chave="financeiro_avancado" titulo="Financeiro Avançado">
@@ -36,8 +66,27 @@ function FinancePage() {
 }
 
 function FinanceContent() {
-  const totalPay = accountsPayable.reduce((s, i) => s + i.valor, 0);
-  const totalRec = accountsReceivable.reduce((s, i) => s + i.valor, 0);
+  const { data: lancamentos = [], isLoading } = useQuery({
+    queryKey: ["financeiro_lancamentos"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("financeiro_lancamentos")
+        .select("id, descricao, valor, valor_pago, data_vencimento, data_pagamento, tipo, status")
+        .order("data_vencimento", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as Lancamento[];
+    },
+  });
+
+  const receber = lancamentos.filter(
+    (l) => l.tipo === "receber" && l.status !== "recebido" && l.status !== "cancelado",
+  );
+  const pagar = lancamentos.filter(
+    (l) => l.tipo === "pagar" && l.status !== "pago" && l.status !== "cancelado",
+  );
+
+  const totalRec = receber.reduce((s, l) => s + Number(l.valor) - Number(l.valor_pago ?? 0), 0);
+  const totalPay = pagar.reduce((s, l) => s + Number(l.valor) - Number(l.valor_pago ?? 0), 0);
   const saldo = totalRec - totalPay;
 
   return (
@@ -59,14 +108,14 @@ function FinanceContent() {
           value={formatBRL(totalRec)}
           icon={ArrowDownToLine}
           iconTone="success"
-          hint={`${accountsReceivable.length} títulos`}
+          hint={`${receber.length} títulos`}
         />
         <StatCard
           label="Total a pagar"
           value={formatBRL(totalPay)}
           icon={ArrowUpFromLine}
           iconTone="warning"
-          hint={`${accountsPayable.length} títulos`}
+          hint={`${pagar.length} títulos`}
         />
         <StatCard
           label="Saldo previsto"
@@ -84,65 +133,11 @@ function FinanceContent() {
         </TabsList>
 
         <TabsContent value="receber" className="mt-4">
-          <Card>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>ID</TableHead>
-                    <TableHead>Descrição</TableHead>
-                    <TableHead>Vencimento</TableHead>
-                    <TableHead className="text-right">Valor</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {accountsReceivable.map((i) => (
-                    <TableRow key={i.id}>
-                      <TableCell className="font-mono text-xs text-muted-foreground">{i.id}</TableCell>
-                      <TableCell className="font-medium">{i.descricao}</TableCell>
-                      <TableCell className="text-muted-foreground">{i.vencimento}</TableCell>
-                      <TableCell className="text-right font-medium">{formatBRL(i.valor)}</TableCell>
-                      <TableCell>
-                        <StatusBadge status={i.status} />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+          <LancamentosTable items={receber} loading={isLoading} emptyMsg="Nenhuma conta a receber." />
         </TabsContent>
 
         <TabsContent value="pagar" className="mt-4">
-          <Card>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>ID</TableHead>
-                    <TableHead>Descrição</TableHead>
-                    <TableHead>Vencimento</TableHead>
-                    <TableHead className="text-right">Valor</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {accountsPayable.map((i) => (
-                    <TableRow key={i.id}>
-                      <TableCell className="font-mono text-xs text-muted-foreground">{i.id}</TableCell>
-                      <TableCell className="font-medium">{i.descricao}</TableCell>
-                      <TableCell className="text-muted-foreground">{i.vencimento}</TableCell>
-                      <TableCell className="text-right font-medium">{formatBRL(i.valor)}</TableCell>
-                      <TableCell>
-                        <StatusBadge status={i.status} />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+          <LancamentosTable items={pagar} loading={isLoading} emptyMsg="Nenhuma conta a pagar." />
         </TabsContent>
 
         <TabsContent value="fluxo" className="mt-4">
@@ -154,5 +149,58 @@ function FinanceContent() {
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+function LancamentosTable({
+  items,
+  loading,
+  emptyMsg,
+}: {
+  items: Lancamento[];
+  loading: boolean;
+  emptyMsg: string;
+}) {
+  return (
+    <Card>
+      <CardContent className="p-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Descrição</TableHead>
+              <TableHead>Vencimento</TableHead>
+              <TableHead className="text-right">Valor</TableHead>
+              <TableHead>Status</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                  Carregando…
+                </TableCell>
+              </TableRow>
+            ) : items.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                  {emptyMsg}
+                </TableCell>
+              </TableRow>
+            ) : (
+              items.map((i) => (
+                <TableRow key={i.id}>
+                  <TableCell className="font-medium">{i.descricao}</TableCell>
+                  <TableCell className="text-muted-foreground">{formatDate(i.data_vencimento)}</TableCell>
+                  <TableCell className="text-right font-medium">{formatBRL(Number(i.valor))}</TableCell>
+                  <TableCell>
+                    <StatusBadge status={statusLabel(i)} />
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   );
 }
