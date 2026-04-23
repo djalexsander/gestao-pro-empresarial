@@ -264,6 +264,8 @@ const reports: Report[] = [
     },
   },
   {
+    key: "dre",
+    title: "DRE simplificado",
     description: "Demonstrativo de resultados do período.",
     icon: BarChart3,
     tone: "bg-chart-4/15 text-chart-4",
