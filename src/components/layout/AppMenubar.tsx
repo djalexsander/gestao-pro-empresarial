@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { MODULES, findModuleByPath, type ModuleKey } from "./navigation";
+import { useFilteredModules } from "./useFilteredModules";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { toast } from "sonner";
 import { useEffect } from "react";
@@ -38,9 +39,10 @@ export function AppMenubar({ activeModule, onModuleSelect }: AppMenubarProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { signOut } = useAuth();
+  const modules = useFilteredModules();
 
   const handleModuleClick = (key: ModuleKey) => {
-    const mod = MODULES.find((m) => m.key === key)!;
+    const mod = modules.find((m) => m.key === key) ?? MODULES.find((m) => m.key === key)!;
     onModuleSelect(key);
     if (mod.directRoute) {
       navigate({ to: mod.directRoute });
@@ -205,7 +207,7 @@ export function AppMenubar({ activeModule, onModuleSelect }: AppMenubarProps) {
 
       {/* Module tabs */}
       <nav className="flex items-center gap-0.5">
-        {MODULES.map((mod) => {
+        {modules.map((mod) => {
           const active = activeModule === mod.key;
           return (
             <button
