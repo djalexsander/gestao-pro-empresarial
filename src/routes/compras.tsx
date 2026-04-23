@@ -140,6 +140,7 @@ function PurchasesPage() {
     });
   }
 
+  const limparFiltros = () => {
     setBusca("");
     setStatusFiltro("todos");
     setFornecedorFiltro("todos");
