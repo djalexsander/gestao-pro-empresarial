@@ -21,7 +21,8 @@ export type ModuleKey =
   | "operacional"
   | "financeiro"
   | "cadastros"
-  | "analise";
+  | "analise"
+  | "configuracoes";
 
 export interface ModuleItem {
   to: string;
@@ -99,8 +100,16 @@ export const MODULES: ModuleDef[] = [
   {
     key: "analise",
     label: "Análise",
+    directRoute: "/relatorios",
     items: [
       { to: "/relatorios", label: "Relatórios", icon: BarChart3, description: "Indicadores e exports" },
+    ],
+  },
+  {
+    key: "configuracoes",
+    label: "Configurações",
+    directRoute: "/configuracoes",
+    items: [
       { to: "/configuracoes", label: "Configurações", icon: Settings, description: "Ajustes do sistema" },
     ],
   },
