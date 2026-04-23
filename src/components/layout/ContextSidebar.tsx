@@ -1,6 +1,7 @@
 import { Link, useLocation } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
-import { MODULES, type ModuleKey } from "./navigation";
+import { type ModuleKey } from "./navigation";
+import { useFilteredModules } from "./useFilteredModules";
 import { ChevronRight } from "lucide-react";
 
 interface ContextSidebarProps {
@@ -22,7 +23,8 @@ function splitTo(to: string): { path: string; search: Record<string, string> } {
 
 export function ContextSidebar({ activeModule }: ContextSidebarProps) {
   const location = useLocation();
-  const mod = MODULES.find((m) => m.key === activeModule) ?? MODULES[0];
+  const modules = useFilteredModules();
+  const mod = modules.find((m) => m.key === activeModule) ?? modules[0];
 
   // Parse current search params
   const currentSearch = (location.search ?? {}) as Record<string, string | undefined>;

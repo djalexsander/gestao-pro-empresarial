@@ -12,7 +12,8 @@ import {
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { NotificationsBell } from "./NotificationsBell";
-import { MODULES, type ModuleKey } from "./navigation";
+import { type ModuleKey } from "./navigation";
+import { useFilteredModules } from "./useFilteredModules";
 
 interface AppToolbarProps {
   activeModule: ModuleKey;
@@ -20,7 +21,8 @@ interface AppToolbarProps {
 }
 
 export function AppToolbar({ activeModule, onMobileMenuClick }: AppToolbarProps) {
-  const mod = MODULES.find((m) => m.key === activeModule) ?? MODULES[0];
+  const modules = useFilteredModules();
+  const mod = modules.find((m) => m.key === activeModule) ?? modules[0];
 
   return (
     <div className="flex h-12 items-center gap-3 border-b border-border bg-background/85 px-4 backdrop-blur-sm sm:px-6">

@@ -1,6 +1,7 @@
 import { Link, useLocation } from "@tanstack/react-router";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { MODULES, type ModuleKey } from "./navigation";
+import { type ModuleKey } from "./navigation";
+import { useFilteredModules } from "./useFilteredModules";
 import { cn } from "@/lib/utils";
 import { useIsSuperAdmin } from "@/hooks/useAdmin";
 import { ShieldCheck } from "lucide-react";
@@ -20,6 +21,7 @@ export function MobileNavSheet({
 }: MobileNavSheetProps) {
   const location = useLocation();
   const { data: isSuperAdmin } = useIsSuperAdmin();
+  const modules = useFilteredModules();
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -29,7 +31,7 @@ export function MobileNavSheet({
         </div>
 
         <div className="flex h-[calc(100%-3rem)] flex-col overflow-y-auto">
-          {MODULES.map((mod) => {
+          {modules.map((mod) => {
             const isOpen = activeModule === mod.key;
             return (
               <div key={mod.key} className="border-b border-sidebar-border/60">
