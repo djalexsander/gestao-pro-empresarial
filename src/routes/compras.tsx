@@ -78,6 +78,7 @@ function PurchasesPage() {
   const [novaOpen, setNovaOpen] = useState(false);
   const [detalheId, setDetalheId] = useState<string | null>(null);
   const [removendoId, setRemovendoId] = useState<string | null>(null);
+  const [diasAbertos, setDiasAbertos] = useState<Record<string, boolean>>({});
 
   const filtradas = useMemo(() => {
     const q = busca.trim().toLowerCase();
