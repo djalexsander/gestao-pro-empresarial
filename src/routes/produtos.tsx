@@ -86,6 +86,23 @@ function ProductsPage() {
     });
   }, [produtos, search, categoriaFilter, statusFilter]);
 
+  const gruposPorCategoria = useMemo(() => {
+    const mapa = new Map<string, { nome: string; produtos: typeof filtered }>();
+    for (const p of filtered) {
+      const key = p.categoria_id ?? "_sem";
+      const nome = p.categoria?.nome ?? "Sem categoria";
+      if (!mapa.has(key)) mapa.set(key, { nome, produtos: [] as typeof filtered });
+      mapa.get(key)!.produtos.push(p);
+    }
+    return Array.from(mapa.entries())
+      .map(([key, g]) => ({ key, nome: g.nome, produtos: g.produtos }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  }, [filtered]);
+
+  function toggleGrupo(key: string) {
+    setGruposAbertos((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
   function openNew() { setEditingId(null); setOpen(true); }
   function openEdit(id: string) { setEditingId(id); setOpen(true); }
 
