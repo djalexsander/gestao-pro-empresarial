@@ -175,56 +175,104 @@ function ProductsPage() {
               />
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>SKU</TableHead>
-                  <TableHead>Nome</TableHead>
-                  <TableHead>Categoria</TableHead>
-                  <TableHead className="text-right">Custo</TableHead>
-                  <TableHead className="text-right">Venda</TableHead>
-                  <TableHead className="text-right">Estoque</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="w-20" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map((p) => {
-                  const saldo = Number(saldos?.get(p.id) ?? 0);
-                  const statusLabel =
-                    p.status === "ativo" ? "Ativo" :
-                    p.status === "inativo" ? "Inativo" : "Descontinuado";
-                  return (
-                    <TableRow key={p.id}>
-                      <TableCell className="font-mono text-xs text-muted-foreground">{p.sku}</TableCell>
-                      <TableCell className="font-medium">{p.nome}</TableCell>
-                      <TableCell>
-                        {p.categoria ? (
-                          <span className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                            {p.categoria.nome}
-                          </span>
-                        ) : <span className="text-xs text-muted-foreground">—</span>}
-                      </TableCell>
-                      <TableCell className="text-right text-muted-foreground">{formatBRL(Number(p.preco_custo))}</TableCell>
-                      <TableCell className="text-right font-medium">{formatBRL(Number(p.preco_venda))}</TableCell>
-                      <TableCell className="text-right tabular-nums">{saldo}</TableCell>
-                      <TableCell><StatusBadge status={statusLabel} /></TableCell>
-                      <TableCell>
-                        <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(p.id)}>
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive"
-                            onClick={() => setConfirmDelete(p.id)}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+            <div className="divide-y divide-border">
+              {gruposPorCategoria.map((grupo) => {
+                const aberto = gruposAbertos[grupo.key] ?? false;
+                return (
+                  <div key={grupo.key}>
+                    <button
+                      type="button"
+                      onClick={() => toggleGrupo(grupo.key)}
+                      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40"
+                    >
+                      <div className="flex items-center gap-2">
+                        {aberto ? (
+                          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        )}
+                        <FolderTree className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-medium text-foreground">
+                          {grupo.nome}
+                        </span>
+                        <span className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                          {grupo.produtos.length}{" "}
+                          {grupo.produtos.length === 1 ? "produto" : "produtos"}
+                        </span>
+                      </div>
+                    </button>
+                    {aberto && (
+                      <div className="bg-muted/20 px-2 pb-3">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>SKU</TableHead>
+                              <TableHead>Nome</TableHead>
+                              <TableHead className="text-right">Custo</TableHead>
+                              <TableHead className="text-right">Venda</TableHead>
+                              <TableHead className="text-right">Estoque</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead className="w-20" />
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {grupo.produtos.map((p) => {
+                              const saldo = Number(saldos?.get(p.id) ?? 0);
+                              const statusLabel =
+                                p.status === "ativo"
+                                  ? "Ativo"
+                                  : p.status === "inativo"
+                                    ? "Inativo"
+                                    : "Descontinuado";
+                              return (
+                                <TableRow key={p.id}>
+                                  <TableCell className="font-mono text-xs text-muted-foreground">
+                                    {p.sku}
+                                  </TableCell>
+                                  <TableCell className="font-medium">{p.nome}</TableCell>
+                                  <TableCell className="text-right text-muted-foreground">
+                                    {formatBRL(Number(p.preco_custo))}
+                                  </TableCell>
+                                  <TableCell className="text-right font-medium">
+                                    {formatBRL(Number(p.preco_venda))}
+                                  </TableCell>
+                                  <TableCell className="text-right tabular-nums">
+                                    {saldo}
+                                  </TableCell>
+                                  <TableCell>
+                                    <StatusBadge status={statusLabel} />
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex items-center justify-end gap-1">
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8"
+                                        onClick={() => openEdit(p.id)}
+                                      >
+                                        <Pencil className="h-3.5 w-3.5" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 text-destructive"
+                                        onClick={() => setConfirmDelete(p.id)}
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </CardContent>
       </Card>
