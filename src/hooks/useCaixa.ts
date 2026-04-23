@@ -297,3 +297,23 @@ export function useFecharCaixa() {
     onError: (e: Error) => toast.error(e.message),
   });
 }
+
+export function useExcluirCaixa() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (caixa_id: string) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc("excluir_caixa", {
+        _caixa_id: caixa_id,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["caixa"] });
+      qc.invalidateQueries({ queryKey: ["vendas"] });
+      toast.success("Caixa excluído.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
