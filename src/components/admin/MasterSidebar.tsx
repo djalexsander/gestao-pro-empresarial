@@ -38,6 +38,7 @@ const groups: NavGroup[] = [
       { to: "/admin/modulos", label: "Módulos", icon: Puzzle },
       { to: "/admin/assinaturas", label: "Assinaturas", icon: CreditCard },
       { to: "/admin/pagamentos", label: "Pagamentos", icon: Wallet },
+      { to: "/admin/modos", label: "Modos do sistema", icon: Layers },
       { to: "/admin/config-comercial", label: "Configurações", icon: Settings2 },
     ],
   },
