@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
 import {
   TrendingUp,
   ShoppingCart,
@@ -8,7 +9,9 @@ import {
   ArrowUpFromLine,
   Download,
   Filter,
+  RotateCcw,
 } from "lucide-react";
+import { toast } from "sonner";
 import {
   ResponsiveContainer,
   LineChart,
@@ -29,6 +32,23 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -38,6 +58,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDashboard } from "@/hooks/useDashboard";
+import { csvFilename, downloadCSV } from "@/lib/export-csv";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -67,9 +88,117 @@ function variacao(atual: number, anterior: number) {
   return ((atual - anterior) / anterior) * 100;
 }
 
+type DashboardPeriodo = "mes" | "30d" | "90d" | "6m";
+
+function formatDateInput(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getRangeFromPeriodo(periodo: DashboardPeriodo) {
+  const hoje = new Date();
+  const fim = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate(), 23, 59, 59, 999);
+
+  if (periodo === "mes") {
+    return {
+      inicio: new Date(hoje.getFullYear(), hoje.getMonth(), 1, 0, 0, 0, 0),
+      fim,
+    };
+  }
+
+  if (periodo === "30d") {
+    return {
+      inicio: new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - 29, 0, 0, 0, 0),
+      fim,
+    };
+  }
+
+  if (periodo === "90d") {
+    return {
+      inicio: new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - 89, 0, 0, 0, 0),
+      fim,
+    };
+  }
+
+  return {
+    inicio: new Date(hoje.getFullYear(), hoje.getMonth() - 5, 1, 0, 0, 0, 0),
+    fim,
+  };
+}
+
+function inRange(dateValue: string | null | undefined, inicio?: string, fim?: string) {
+  if (!dateValue) return false;
+  const value = new Date(dateValue);
+  if (Number.isNaN(value.getTime())) return false;
+  const start = inicio ? new Date(`${inicio}T00:00:00`) : null;
+  const end = fim ? new Date(`${fim}T23:59:59`) : null;
+  if (start && value < start) return false;
+  if (end && value > end) return false;
+  return true;
+}
+
 function DashboardPage() {
   const navigate = useNavigate();
   const { data, isLoading } = useDashboard();
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [periodo, setPeriodo] = useState<DashboardPeriodo>("mes");
+  const defaultRange = useMemo(() => getRangeFromPeriodo("mes"), []);
+  const [inicio, setInicio] = useState(formatDateInput(defaultRange.inicio));
+  const [fim, setFim] = useState(formatDateInput(defaultRange.fim));
+
+  function aplicarPeriodo(value: DashboardPeriodo) {
+    const range = getRangeFromPeriodo(value);
+    setPeriodo(value);
+    setInicio(formatDateInput(range.inicio));
+    setFim(formatDateInput(range.fim));
+  }
+
+  function limparFiltros() {
+    aplicarPeriodo("mes");
+  }
+
+  function exportarDashboard() {
+    if (!data) return;
+
+    const resumoRows = [
+      { indicador: "Vendas do período", valor: data.vendasMes },
+      { indicador: "Compras do período", valor: data.comprasMes },
+      { indicador: "Lucro do período", valor: data.lucroMes },
+      { indicador: "Contas a pagar", valor: data.contasPagar },
+      { indicador: "Contas a receber", valor: data.contasReceber },
+      { indicador: "Estoque baixo", valor: data.estoqueBaixo },
+    ];
+
+    const vendasRows = (data.ultimasVendas ?? []).filter((item) => inRange(item.data, inicio, fim));
+    const comprasRows = (data.ultimasCompras ?? []).filter((item) => inRange(item.data, inicio, fim));
+
+    const csvPartes = [
+      "Resumo do dashboard",
+      "Período;Data inicial;Data final",
+      `${periodo};${inicio};${fim}`,
+      "",
+      "Indicador;Valor",
+      ...resumoRows.map((row) => `${row.indicador};${Number(row.valor).toFixed(2).replace(".", ",")}`),
+      "",
+      "Últimas vendas",
+      "Numero;Data;Cliente;Total;Status",
+      ...vendasRows.map(
+        (row) => `${row.numero};${row.data};${row.cliente};${Number(row.valor).toFixed(2).replace(".", ",")};${row.status}`,
+      ),
+      "",
+      "Últimas compras",
+      "Numero;Data;Fornecedor;Total;Status",
+      ...comprasRows.map(
+        (row) => `${row.numero};${row.data};${row.fornecedor};${Number(row.valor).toFixed(2).replace(".", ",")};${row.status}`,
+      ),
+    ].join("\r\n");
+
+    const nome = `dashboard_${inicio}_${fim}`.replace(/[^a-zA-Z0-9_-]/g, "_");
+    downloadCSV(csvFilename(nome), csvPartes);
+    toast.success("Exportação iniciada.");
+  }
 
   if (isLoading || !data) {
     return (
@@ -93,6 +222,8 @@ function DashboardPage() {
 
   const varVendas = variacao(data.vendasMes, data.vendasMesAnterior);
   const varCompras = variacao(data.comprasMes, data.comprasMesAnterior);
+  const ultimasVendas = (data.ultimasVendas ?? []).filter((item) => inRange(item.data, inicio, fim));
+  const ultimasCompras = (data.ultimasCompras ?? []).filter((item) => inRange(item.data, inicio, fim));
   const totalDados =
     data.vendasMes +
     data.comprasMes +
@@ -107,14 +238,19 @@ function DashboardPage() {
         description="Visão consolidada do desempenho da sua empresa."
         actions={
           <>
-            <Button variant="outline" size="sm" className="gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setSheetOpen(true)}
+            >
               <Filter className="h-4 w-4" />
               Filtros
             </Button>
             <Button
               size="sm"
               className="gap-1.5"
-              onClick={() => navigate({ to: "/relatorios" })}
+              onClick={exportarDashboard}
             >
               <Download className="h-4 w-4" />
               Exportar
@@ -314,9 +450,9 @@ function DashboardPage() {
             </Button>
           </CardHeader>
           <CardContent className="p-0">
-            {data.ultimasVendas.length === 0 ? (
+            {ultimasVendas.length === 0 ? (
               <p className="px-6 py-8 text-center text-sm text-muted-foreground">
-                Nenhuma venda registrada ainda.
+                Nenhuma venda encontrada para o período selecionado.
               </p>
             ) : (
               <Table>
@@ -329,7 +465,7 @@ function DashboardPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {data.ultimasVendas.map((s) => (
+                  {ultimasVendas.map((s) => (
                     <TableRow key={s.id}>
                       <TableCell className="font-mono text-xs text-muted-foreground">
                         {s.numero}
@@ -357,9 +493,9 @@ function DashboardPage() {
             </Button>
           </CardHeader>
           <CardContent className="p-0">
-            {data.ultimasCompras.length === 0 ? (
+            {ultimasCompras.length === 0 ? (
               <p className="px-6 py-8 text-center text-sm text-muted-foreground">
-                Nenhuma compra registrada ainda.
+                Nenhuma compra encontrada para o período selecionado.
               </p>
             ) : (
               <Table>
@@ -372,7 +508,7 @@ function DashboardPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {data.ultimasCompras.map((p) => (
+                  {ultimasCompras.map((p) => (
                     <TableRow key={p.id}>
                       <TableCell className="font-mono text-xs text-muted-foreground">
                         {p.numero}
@@ -392,6 +528,63 @@ function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Filtros do dashboard</SheetTitle>
+            <SheetDescription>
+              Ajuste o período para filtrar as listas e a exportação do dashboard.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Período</Label>
+              <Select value={periodo} onValueChange={(value) => aplicarPeriodo(value as DashboardPeriodo)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o período" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="mes">Mês atual</SelectItem>
+                  <SelectItem value="30d">Últimos 30 dias</SelectItem>
+                  <SelectItem value="90d">Últimos 90 dias</SelectItem>
+                  <SelectItem value="6m">Últimos 6 meses</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="dashboard-inicio">Data inicial</Label>
+                <Input
+                  id="dashboard-inicio"
+                  type="date"
+                  value={inicio}
+                  onChange={(e) => setInicio(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="dashboard-fim">Data final</Label>
+                <Input
+                  id="dashboard-fim"
+                  type="date"
+                  value={fim}
+                  onChange={(e) => setFim(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+
+          <SheetFooter className="gap-2 sm:space-x-0">
+            <Button variant="outline" className="gap-1.5" onClick={limparFiltros}>
+              <RotateCcw className="h-4 w-4" />
+              Limpar
+            </Button>
+            <Button onClick={() => setSheetOpen(false)}>Aplicar</Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
