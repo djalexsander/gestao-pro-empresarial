@@ -1,5 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Plus, Search, Pencil, Trash2, Loader2, PackagePlus, ScanLine } from "lucide-react";
+import {
+  Plus,
+  Search,
+  Pencil,
+  Trash2,
+  Loader2,
+  PackagePlus,
+  ScanLine,
+  ChevronDown,
+  ChevronRight,
+  FolderTree,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
