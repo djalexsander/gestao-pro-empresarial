@@ -1126,6 +1126,42 @@ export type Database = {
           },
         ]
       }
+      mode_modules: {
+        Row: {
+          created_at: string
+          id: string
+          mode_id: string
+          module_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          mode_id: string
+          module_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          mode_id?: string
+          module_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mode_modules_mode_id_fkey"
+            columns: ["mode_id"]
+            isOneToOne: false
+            referencedRelation: "system_modes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mode_modules_module_id_fkey"
+            columns: ["module_id"]
+            isOneToOne: false
+            referencedRelation: "modulos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       modulos: {
         Row: {
           aplica_restricao: boolean
@@ -1460,6 +1496,48 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      system_modes: {
+        Row: {
+          ativo: boolean
+          chave: string
+          created_at: string
+          descricao: string | null
+          icone: string | null
+          id: string
+          nome: string
+          ordem: number
+          rota_inicial: string
+          tipo: Database["public"]["Enums"]["system_mode_tipo"]
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          chave: string
+          created_at?: string
+          descricao?: string | null
+          icone?: string | null
+          id?: string
+          nome: string
+          ordem?: number
+          rota_inicial?: string
+          tipo?: Database["public"]["Enums"]["system_mode_tipo"]
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          chave?: string
+          created_at?: string
+          descricao?: string | null
+          icone?: string | null
+          id?: string
+          nome?: string
+          ordem?: number
+          rota_inicial?: string
+          tipo?: Database["public"]["Enums"]["system_mode_tipo"]
+          updated_at?: string
+        }
+        Relationships: []
       }
       terminais: {
         Row: {
@@ -1950,6 +2028,40 @@ export type Database = {
           user_id: string
         }[]
       }
+      admin_modo_deletar: { Args: { _id: string }; Returns: undefined }
+      admin_modo_set_modulos: {
+        Args: { _mode_id: string; _module_ids: string[] }
+        Returns: undefined
+      }
+      admin_modo_upsert: {
+        Args: {
+          _ativo: boolean
+          _chave: string
+          _descricao: string
+          _icone: string
+          _id: string
+          _nome: string
+          _ordem: number
+          _rota_inicial: string
+          _tipo: Database["public"]["Enums"]["system_mode_tipo"]
+        }
+        Returns: string
+      }
+      admin_modos_listar: {
+        Args: never
+        Returns: {
+          ativo: boolean
+          chave: string
+          descricao: string
+          icone: string
+          id: string
+          modulos: Json
+          nome: string
+          ordem: number
+          rota_inicial: string
+          tipo: Database["public"]["Enums"]["system_mode_tipo"]
+        }[]
+      }
       admin_registrar_pagamento: {
         Args: {
           _data_pagamento: string
@@ -2261,6 +2373,18 @@ export type Database = {
         }[]
       }
       minha_assinatura_status: { Args: never; Returns: Json }
+      modos_disponiveis: {
+        Args: never
+        Returns: {
+          chave: string
+          descricao: string
+          icone: string
+          id: string
+          nome: string
+          rota_inicial: string
+          tipo: Database["public"]["Enums"]["system_mode_tipo"]
+        }[]
+      }
       receber_compra: {
         Args: {
           _categoria_id?: string
@@ -2387,6 +2511,7 @@ export type Database = {
       pessoa_tipo: "PF" | "PJ"
       plano_tipo_cobranca: "mensal" | "anual" | "vitalicio"
       produto_status: "ativo" | "inativo" | "descontinuado"
+      system_mode_tipo: "admin" | "operador"
       venda_status:
         | "rascunho"
         | "pendente"
@@ -2588,6 +2713,7 @@ export const Constants = {
       pessoa_tipo: ["PF", "PJ"],
       plano_tipo_cobranca: ["mensal", "anual", "vitalicio"],
       produto_status: ["ativo", "inativo", "descontinuado"],
+      system_mode_tipo: ["admin", "operador"],
       venda_status: [
         "rascunho",
         "pendente",
