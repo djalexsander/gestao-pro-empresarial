@@ -289,6 +289,8 @@ const inputCls =
 
 /* ---------- Sign in ---------- */
 
+const REMEMBER_LOGIN_KEY = "auth_remember_email";
+
 function SignInForm({ redirect }: { redirect: string }) {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -297,6 +299,21 @@ function SignInForm({ redirect }: { redirect: string }) {
   const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
+
+  // Recupera SOMENTE o e-mail lembrado. A senha nunca é persistida.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(REMEMBER_LOGIN_KEY);
+      if (saved) {
+        setEmail(saved);
+        setRemember(true);
+      } else {
+        setRemember(false);
+      }
+    } catch {
+      /* noop */
+    }
+  }, []);
 
   async function onGoogle() {
     setGoogleBusy(true);
@@ -330,6 +347,17 @@ function SignInForm({ redirect }: { redirect: string }) {
       );
       return;
     }
+    // Lembra apenas o e-mail, se solicitado. Senha nunca é salva.
+    try {
+      if (remember) {
+        localStorage.setItem(REMEMBER_LOGIN_KEY, email.trim());
+      } else {
+        localStorage.removeItem(REMEMBER_LOGIN_KEY);
+      }
+    } catch {
+      /* noop */
+    }
+    setPassword("");
     toast.success("Bem-vindo de volta!");
     navigate({ to: redirect });
   }
