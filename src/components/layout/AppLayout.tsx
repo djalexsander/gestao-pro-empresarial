@@ -1,5 +1,5 @@
 import { Outlet, useLocation, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { RequireAdminLike } from "@/components/auth/RequireRole";
 import { RequireErpUnlock } from "@/components/auth/RequireErpUnlock";
@@ -15,44 +15,44 @@ import { AssinaturaBanner } from "./AssinaturaBanner";
 import { useMode } from "@/components/modes/ModeProvider";
 import { useAuth } from "@/components/auth/AuthProvider";
 
+// Rotas que usam layout próprio (sem o shell do ERP)
+const STANDALONE_ROUTES = new Set(["/auth", "/hub", "/pos", "/pdv"]);
+
 export function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
   const { modoAtual, isRouteAllowed, isLoading: modosLoading } = useMode();
 
-  // Guard de modo: redireciona para a rota inicial do modo se rota atual não pertence ao modo.
+  const pathname = location.pathname;
+  const isStandalone = STANDALONE_ROUTES.has(pathname);
+  const isAdminRoute = pathname === "/admin" || pathname.startsWith("/admin/");
+
+  // Guard de modo: só dispara navegação quando realmente necessário,
+  // e nunca em rotas standalone/admin (que não dependem de modo).
   useEffect(() => {
-    if (modosLoading) return;
-    if (!user) return;
-    if (location.pathname === "/auth" || location.pathname === "/hub") return;
-    if (location.pathname.startsWith("/admin")) return;
+    if (modosLoading || !user) return;
+    if (isStandalone || isAdminRoute) return;
     if (!modoAtual) {
-      // Sem modo selecionado e tentando acessar rota de app -> manda pro hub
-      navigate({ to: "/hub" });
+      navigate({ to: "/hub", replace: true });
       return;
     }
-    if (!isRouteAllowed(location.pathname)) {
-      navigate({ to: modoAtual.rota_inicial as "/" });
+    if (!isRouteAllowed(pathname)) {
+      navigate({ to: modoAtual.rota_inicial as "/", replace: true });
     }
-  }, [location.pathname, modoAtual, modosLoading, user, isRouteAllowed, navigate]);
+  }, [pathname, modoAtual, modosLoading, user, isRouteAllowed, isStandalone, isAdminRoute, navigate]);
 
-  if (location.pathname === "/auth") {
+  if (pathname === "/auth") {
     return <Outlet />;
   }
 
   // /hub, /pos e /pdv usam layout próprio (sem sidebar/menubar do ERP).
-  // O PDV é ambiente isolado de operação de caixa.
-  if (
-    location.pathname === "/hub" ||
-    location.pathname === "/pos" ||
-    location.pathname === "/pdv"
-  ) {
+  if (pathname === "/hub" || pathname === "/pos" || pathname === "/pdv") {
     return <Outlet />;
   }
 
   // /admin também exige unlock prévio (acesso administrativo).
-  if (location.pathname === "/admin" || location.pathname.startsWith("/admin/")) {
+  if (isAdminRoute) {
     return (
       <RequireAuth>
         <RequireErpUnlock>
@@ -79,28 +79,38 @@ function AppShell() {
   const { modoAtual, clearModo } = useMode();
   const navigate = useNavigate();
 
-  // Módulo ativo derivado da rota; também pode ser sobreposto pelo clique no menubar
-  const [activeModule, setActiveModule] = useState<ModuleKey>(
+  // Módulo derivado do pathname (sem useEffect — evita render duplo).
+  const derivedModule = useMemo<ModuleKey>(
     () => findModuleByPath(location.pathname).key,
+    [location.pathname],
   );
+  // Override opcional quando o usuário clica em um módulo no menubar
+  // mas a rota ainda não mudou. Limpa quando a rota se alinha.
+  const [overrideModule, setOverrideModule] = useState<ModuleKey | null>(null);
+  const activeModule = overrideModule ?? derivedModule;
+
+  useEffect(() => {
+    if (overrideModule && overrideModule === derivedModule) {
+      setOverrideModule(null);
+    }
+  }, [derivedModule, overrideModule]);
+
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  // Sincroniza o módulo ativo quando a rota muda
-  useEffect(() => {
-    setActiveModule(findModuleByPath(location.pathname).key);
-  }, [location.pathname]);
-
-  const handleTrocarModo = () => {
-    clearModo();
-    navigate({ to: "/hub" });
-  };
+  // Trocar modo: navega ANTES de limpar o estado pra evitar flicker e
+  // que o guard do AppLayout dispare uma segunda navegação.
+  const handleTrocarModo = useCallback(() => {
+    navigate({ to: "/hub", replace: true });
+    // Limpa o modo no próximo tick, depois que a navegação foi enfileirada.
+    queueMicrotask(() => clearModo());
+  }, [navigate, clearModo]);
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-background">
       <AssinaturaBanner />
       <div className="flex items-center">
         <div className="flex-1">
-          <AppMenubar activeModule={activeModule} onModuleSelect={setActiveModule} />
+          <AppMenubar activeModule={activeModule} onModuleSelect={setOverrideModule} />
         </div>
         {modoAtual && (
           <button
@@ -143,9 +153,7 @@ function AppShell() {
         open={mobileNavOpen}
         onOpenChange={setMobileNavOpen}
         activeModule={activeModule}
-        onModuleSelect={(k) => {
-          setActiveModule(k);
-        }}
+        onModuleSelect={(k) => setOverrideModule(k)}
       />
     </div>
   );
