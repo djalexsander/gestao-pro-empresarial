@@ -59,6 +59,10 @@ function StockPage() {
   const [open, setOpen] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [movBusca, setMovBusca] = useState("");
+  const [movDataIni, setMovDataIni] = useState("");
+  const [movDataFim, setMovDataFim] = useState("");
+  const [diasAbertosMov, setDiasAbertosMov] = useState<Record<string, boolean>>({});
 
   const items = useMemo(() => {
     return produtos.map((p) => {
