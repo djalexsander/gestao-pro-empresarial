@@ -47,6 +47,7 @@ import {
 import { useVendas, useVendaMetricasPeriodo } from "@/hooks/useVendas";
 import { useClientesFull } from "@/hooks/useClientes";
 import { useFuncionariosAtivos } from "@/hooks/useFuncionarios";
+import { useCaixasHistorico } from "@/hooks/useCaixa";
 import { DetalheVendaDialog } from "@/components/vendas/DetalheVendaDialog";
 import { ModuloGate } from "@/components/saas/ModuloGate";
 import { formatBRL } from "@/lib/mock-data";
@@ -141,6 +142,7 @@ function Conteudo() {
   const { data: vendas = [], isLoading } = useVendas();
   const { data: clientes = [] } = useClientesFull();
   const { data: funcionarios = [] } = useFuncionariosAtivos();
+  const { data: caixasHistorico = [] } = useCaixasHistorico(200);
 
   const [preset, setPreset] = useState<PeriodoPreset>("30d");
   const [inicioCustom, setInicioCustom] = useState<string>("");
@@ -148,6 +150,8 @@ function Conteudo() {
   const [clienteFiltro, setClienteFiltro] = useState<string>("todos");
   const [operadorFiltro, setOperadorFiltro] = useState<string>("todos");
   const [formaFiltro, setFormaFiltro] = useState<string>("todos");
+  const [caixaFiltro, setCaixaFiltro] = useState<string>("todos");
+  const [aberturaFiltro, setAberturaFiltro] = useState<string>("todas");
   const [busca, setBusca] = useState("");
   const [page, setPage] = useState(1);
   const [detalheId, setDetalheId] = useState<string | null>(null);
@@ -170,6 +174,31 @@ function Conteudo() {
   const { data: metricas } = useVendaMetricasPeriodo(inicio, fim);
   const { data: metricasPrev } = useVendaMetricasPeriodo(inicioPrev, fimPrev);
 
+  // Mapa de caixa_id → data_abertura (para filtro por data de abertura)
+  const aberturasOptions = useMemo(() => {
+    const set = new Map<string, string>(); // chave YYYY-MM-DD → label legível
+    for (const c of caixasHistorico) {
+      const dt = c.data_abertura ? c.data_abertura.slice(0, 10) : "";
+      if (!dt) continue;
+      if (!set.has(dt)) {
+        set.set(dt, format(new Date(dt + "T00:00:00"), "dd/MM/yyyy"));
+      }
+    }
+    return Array.from(set.entries())
+      .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+      .map(([value, label]) => ({ value, label }));
+  }, [caixasHistorico]);
+
+  // Conjunto de caixas que abriram na data selecionada
+  const caixasNaAbertura = useMemo(() => {
+    if (aberturaFiltro === "todas") return null;
+    const ids = new Set<string>();
+    for (const c of caixasHistorico) {
+      if (c.data_abertura?.slice(0, 10) === aberturaFiltro) ids.add(c.id);
+    }
+    return ids;
+  }, [aberturaFiltro, caixasHistorico]);
+
   const filtered = useMemo(() => {
     const q = busca.trim().toLowerCase();
     return vendas.filter((v) => {
@@ -180,7 +209,15 @@ function Conteudo() {
         } else if (v.cliente_id !== clienteFiltro) return false;
       }
       if (formaFiltro !== "todos" && v.forma_pagamento !== formaFiltro) return false;
-      // operador filtro: precisaríamos do operador_id em VendaListItem (ainda não exposto). Pulamos no client.
+      if (operadorFiltro !== "todos" && v.operador_id !== operadorFiltro) return false;
+      if (caixaFiltro !== "todos") {
+        if (caixaFiltro === "_sem") {
+          if (v.caixa_id) return false;
+        } else if (v.caixa_id !== caixaFiltro) return false;
+      }
+      if (caixasNaAbertura) {
+        if (!v.caixa_id || !caixasNaAbertura.has(v.caixa_id)) return false;
+      }
       if (q) {
         const ok =
           v.numero.toLowerCase().includes(q) ||
@@ -189,7 +226,17 @@ function Conteudo() {
       }
       return true;
     });
-  }, [vendas, busca, inicio, fim, clienteFiltro, formaFiltro]);
+  }, [
+    vendas,
+    busca,
+    inicio,
+    fim,
+    clienteFiltro,
+    formaFiltro,
+    operadorFiltro,
+    caixaFiltro,
+    caixasNaAbertura,
+  ]);
 
   // Dados do gráfico (linha por dia)
   const chartData = useMemo(() => {
@@ -227,6 +274,8 @@ function Conteudo() {
     setClienteFiltro("todos");
     setOperadorFiltro("todos");
     setFormaFiltro("todos");
+    setCaixaFiltro("todos");
+    setAberturaFiltro("todas");
     setBusca("");
     setPage(1);
   }
@@ -386,6 +435,48 @@ function Conteudo() {
                   <SelectItem value="boleto">Boleto</SelectItem>
                   <SelectItem value="transferencia">Transferência</SelectItem>
                   <SelectItem value="outro">Fiado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Caixa (sessão)</label>
+              <Select value={caixaFiltro} onValueChange={setCaixaFiltro}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos</SelectItem>
+                  <SelectItem value="_sem">Sem caixa vinculado</SelectItem>
+                  {caixasHistorico.map((c) => {
+                    const dt = c.data_abertura
+                      ? format(new Date(c.data_abertura), "dd/MM HH:mm")
+                      : "—";
+                    const statusLbl = c.status === "aberto" ? " • aberto" : "";
+                    return (
+                      <SelectItem key={c.id} value={c.id}>
+                        {dt}
+                        {statusLbl}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">
+                Data de abertura
+              </label>
+              <Select value={aberturaFiltro} onValueChange={setAberturaFiltro}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todas">Todas</SelectItem>
+                  {aberturasOptions.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
