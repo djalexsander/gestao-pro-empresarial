@@ -80,6 +80,58 @@ function StockPage() {
     );
   }, [items, search]);
 
+  // Filtro + agrupamento por dia das movimentações
+  const movsFiltradas = useMemo(() => {
+    const q = movBusca.trim().toLowerCase();
+    return movs.filter((m) => {
+      const dia = (m.data_movimentacao ?? "").slice(0, 10);
+      if (movDataIni && dia < movDataIni) return false;
+      if (movDataFim && dia > movDataFim) return false;
+      if (!q) return true;
+      return (
+        (m.produto?.nome ?? "").toLowerCase().includes(q) ||
+        (m.produto?.sku ?? "").toLowerCase().includes(q) ||
+        (m.observacoes ?? "").toLowerCase().includes(q) ||
+        (m.tipo ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [movs, movBusca, movDataIni, movDataFim]);
+
+  const movsPorDia = useMemo(() => {
+    const mapa = new Map<string, typeof movsFiltradas>();
+    for (const m of movsFiltradas) {
+      const dia = (m.data_movimentacao ?? "").slice(0, 10);
+      if (!mapa.has(dia)) mapa.set(dia, [] as typeof movsFiltradas);
+      mapa.get(dia)!.push(m);
+    }
+    return Array.from(mapa.entries())
+      .map(([dia, list]) => {
+        const entradas = list
+          .filter((m) => m.tipo === "entrada" || m.tipo === "devolucao")
+          .reduce((s, m) => s + Number(m.quantidade), 0);
+        const saidas = list
+          .filter((m) => m.tipo === "saida" || m.tipo === "transferencia")
+          .reduce((s, m) => s + Number(m.quantidade), 0);
+        return { dia, movs: list, entradas, saidas, qtd: list.length };
+      })
+      .sort((a, b) => (a.dia < b.dia ? 1 : -1));
+  }, [movsFiltradas]);
+
+  function toggleMovDia(dia: string) {
+    setDiasAbertosMov((prev) => ({ ...prev, [dia]: !prev[dia] }));
+  }
+
+  function formatarDia(dia: string) {
+    if (!dia) return "Sem data";
+    const d = new Date(dia + "T00:00:00");
+    return d.toLocaleDateString("pt-BR", {
+      weekday: "long",
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+    });
+  }
+
   const totalSkus = items.length;
   const totalUnits = items.reduce((s, i) => s + i.saldo, 0);
   const baixo = items.filter((i) => i.situacao === "Baixo" || i.situacao === "Crítico").length;
