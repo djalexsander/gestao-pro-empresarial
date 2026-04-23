@@ -1,4 +1,4 @@
-import { Bell, Menu, Plus, Search, ShoppingCart } from "lucide-react";
+import { Menu, Plus, Search, ShoppingCart } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { NotificationsBell } from "./NotificationsBell";
 
 interface AppTopbarProps {
   onMobileMenuClick: () => void;
@@ -75,10 +76,7 @@ export function AppTopbar({ onMobileMenuClick }: AppTopbarProps) {
 
         <ThemeToggle />
 
-        <Button variant="ghost" size="icon" className="relative h-10 w-10">
-          <Bell className="h-5 w-5" />
-          <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-destructive ring-2 ring-background" />
-        </Button>
+        <NotificationsBell size="md" />
 
         <UserMenu />
       </div>

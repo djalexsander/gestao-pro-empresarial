@@ -1,4 +1,4 @@
-import { Bell, Menu, Plus, Search } from "lucide-react";
+import { Menu, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { NotificationsBell } from "./NotificationsBell";
 import { MODULES, type ModuleKey } from "./navigation";
 
 interface AppToolbarProps {
@@ -67,10 +68,7 @@ export function AppToolbar({ activeModule, onMobileMenuClick }: AppToolbarProps)
 
         <ThemeToggle />
 
-        <Button variant="ghost" size="icon" className="relative h-9 w-9">
-          <Bell className="h-[18px] w-[18px]" />
-          <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-destructive ring-2 ring-background" />
-        </Button>
+        <NotificationsBell size="sm" />
 
         <UserMenu />
       </div>
