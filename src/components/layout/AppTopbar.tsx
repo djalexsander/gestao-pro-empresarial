@@ -1,4 +1,4 @@
-import { Menu, Plus, Search, ShoppingCart } from "lucide-react";
+import { Crown, Menu, Plus, Search, ShoppingCart } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +39,18 @@ export function AppTopbar({ onMobileMenuClick }: AppTopbarProps) {
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        <Button
+          asChild
+          variant="ghost"
+          size="sm"
+          className="hidden md:inline-flex h-10 gap-1.5 text-amber-600 hover:bg-amber-500/10 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+        >
+          <Link to="/planos">
+            <Crown className="h-4 w-4" />
+            Meu plano
+          </Link>
+        </Button>
+
         <Button
           asChild
           variant="outline"
@@ -100,6 +112,13 @@ function UserMenu() {
           <p className="text-sm font-medium truncate">{user?.user_metadata?.nome ?? "Usuário"}</p>
           <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
         </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link to="/planos">Meu plano</Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link to="/modulos">Módulos</Link>
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => signOut()} className="text-destructive">Sair</DropdownMenuItem>
       </DropdownMenuContent>

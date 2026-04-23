@@ -13,7 +13,9 @@ import { Route as VendasRouteImport } from './routes/vendas'
 import { Route as RelatoriosRouteImport } from './routes/relatorios'
 import { Route as ProdutosRouteImport } from './routes/produtos'
 import { Route as PosRouteImport } from './routes/pos'
+import { Route as PlanosRouteImport } from './routes/planos'
 import { Route as PdvRouteImport } from './routes/pdv'
+import { Route as ModulosRouteImport } from './routes/modulos'
 import { Route as HubRouteImport } from './routes/hub'
 import { Route as FornecedoresRouteImport } from './routes/fornecedores'
 import { Route as FinanceiroRouteImport } from './routes/financeiro'
@@ -65,9 +67,19 @@ const PosRoute = PosRouteImport.update({
   path: '/pos',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PlanosRoute = PlanosRouteImport.update({
+  id: '/planos',
+  path: '/planos',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PdvRoute = PdvRouteImport.update({
   id: '/pdv',
   path: '/pdv',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ModulosRoute = ModulosRouteImport.update({
+  id: '/modulos',
+  path: '/modulos',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HubRoute = HubRouteImport.update({
@@ -233,7 +245,9 @@ export interface FileRoutesByFullPath {
   '/financeiro': typeof FinanceiroRoute
   '/fornecedores': typeof FornecedoresRoute
   '/hub': typeof HubRoute
+  '/modulos': typeof ModulosRoute
   '/pdv': typeof PdvRoute
+  '/planos': typeof PlanosRoute
   '/pos': typeof PosRoute
   '/produtos': typeof ProdutosRoute
   '/relatorios': typeof RelatoriosRouteWithChildren
@@ -269,7 +283,9 @@ export interface FileRoutesByTo {
   '/financeiro': typeof FinanceiroRoute
   '/fornecedores': typeof FornecedoresRoute
   '/hub': typeof HubRoute
+  '/modulos': typeof ModulosRoute
   '/pdv': typeof PdvRoute
+  '/planos': typeof PlanosRoute
   '/pos': typeof PosRoute
   '/produtos': typeof ProdutosRoute
   '/relatorios': typeof RelatoriosRouteWithChildren
@@ -307,7 +323,9 @@ export interface FileRoutesById {
   '/financeiro': typeof FinanceiroRoute
   '/fornecedores': typeof FornecedoresRoute
   '/hub': typeof HubRoute
+  '/modulos': typeof ModulosRoute
   '/pdv': typeof PdvRoute
+  '/planos': typeof PlanosRoute
   '/pos': typeof PosRoute
   '/produtos': typeof ProdutosRoute
   '/relatorios': typeof RelatoriosRouteWithChildren
@@ -346,7 +364,9 @@ export interface FileRouteTypes {
     | '/financeiro'
     | '/fornecedores'
     | '/hub'
+    | '/modulos'
     | '/pdv'
+    | '/planos'
     | '/pos'
     | '/produtos'
     | '/relatorios'
@@ -382,7 +402,9 @@ export interface FileRouteTypes {
     | '/financeiro'
     | '/fornecedores'
     | '/hub'
+    | '/modulos'
     | '/pdv'
+    | '/planos'
     | '/pos'
     | '/produtos'
     | '/relatorios'
@@ -419,7 +441,9 @@ export interface FileRouteTypes {
     | '/financeiro'
     | '/fornecedores'
     | '/hub'
+    | '/modulos'
     | '/pdv'
+    | '/planos'
     | '/pos'
     | '/produtos'
     | '/relatorios'
@@ -457,7 +481,9 @@ export interface RootRouteChildren {
   FinanceiroRoute: typeof FinanceiroRoute
   FornecedoresRoute: typeof FornecedoresRoute
   HubRoute: typeof HubRoute
+  ModulosRoute: typeof ModulosRoute
   PdvRoute: typeof PdvRoute
+  PlanosRoute: typeof PlanosRoute
   PosRoute: typeof PosRoute
   ProdutosRoute: typeof ProdutosRoute
   RelatoriosRoute: typeof RelatoriosRouteWithChildren
@@ -494,11 +520,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PosRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/planos': {
+      id: '/planos'
+      path: '/planos'
+      fullPath: '/planos'
+      preLoaderRoute: typeof PlanosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/pdv': {
       id: '/pdv'
       path: '/pdv'
       fullPath: '/pdv'
       preLoaderRoute: typeof PdvRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/modulos': {
+      id: '/modulos'
+      path: '/modulos'
+      fullPath: '/modulos'
+      preLoaderRoute: typeof ModulosRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/hub': {
@@ -782,7 +822,9 @@ const rootRouteChildren: RootRouteChildren = {
   FinanceiroRoute: FinanceiroRoute,
   FornecedoresRoute: FornecedoresRoute,
   HubRoute: HubRoute,
+  ModulosRoute: ModulosRoute,
   PdvRoute: PdvRoute,
+  PlanosRoute: PlanosRoute,
   PosRoute: PosRoute,
   ProdutosRoute: ProdutosRoute,
   RelatoriosRoute: RelatoriosRouteWithChildren,

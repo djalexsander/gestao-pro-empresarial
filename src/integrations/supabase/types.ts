@@ -2387,6 +2387,33 @@ export type Database = {
           tipo: Database["public"]["Enums"]["system_mode_tipo"]
         }[]
       }
+      modulos_disponiveis_cliente: {
+        Args: never
+        Returns: {
+          aplica_restricao: boolean
+          chave: string
+          data_expiracao: string
+          descricao: string
+          id: string
+          nome: string
+          status: string
+          valor: number
+        }[]
+      }
+      planos_disponiveis: {
+        Args: never
+        Returns: {
+          atual: boolean
+          descricao: string
+          id: string
+          limite_produtos: number
+          limite_usuarios: number
+          nome: string
+          ordem: number
+          tipo_cobranca: Database["public"]["Enums"]["plano_tipo_cobranca"]
+          valor: number
+        }[]
+      }
       receber_compra: {
         Args: {
           _categoria_id?: string
@@ -2417,12 +2444,21 @@ export type Database = {
         }
         Returns: undefined
       }
+      resetar_dados_empresa: { Args: never; Returns: undefined }
       saldos_estoque_lote: {
         Args: { _produto_ids: string[] }
         Returns: {
           produto_id: string
           saldo: number
         }[]
+      }
+      solicitar_contratacao_modulo: {
+        Args: { _modulo_id: string }
+        Returns: string
+      }
+      solicitar_contratacao_plano: {
+        Args: { _plano_id: string }
+        Returns: string
       }
       terminais_listar: {
         Args: never
