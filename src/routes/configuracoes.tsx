@@ -130,6 +130,10 @@ function SettingsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value="perigo" className="mt-4">
+          <ZonaPerigoTab />
+        </TabsContent>
       </Tabs>
     </div>
   );
