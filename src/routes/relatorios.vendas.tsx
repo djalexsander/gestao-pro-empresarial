@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   Download,
@@ -198,6 +198,21 @@ function Conteudo() {
     }
     return ids;
   }, [aberturaFiltro, caixasHistorico]);
+
+  // Reseta a página automaticamente quando qualquer filtro muda
+  useEffect(() => {
+    setPage(1);
+  }, [
+    preset,
+    inicioCustom,
+    fimCustom,
+    clienteFiltro,
+    operadorFiltro,
+    formaFiltro,
+    caixaFiltro,
+    aberturaFiltro,
+    busca,
+  ]);
 
   const filtered = useMemo(() => {
     const q = busca.trim().toLowerCase();
