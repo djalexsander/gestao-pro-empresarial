@@ -58,7 +58,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDashboard } from "@/hooks/useDashboard";
-import { exportRowsToCSV } from "@/lib/export-csv";
+import { csvFilename, downloadCSV } from "@/lib/export-csv";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -180,7 +180,7 @@ function DashboardPage() {
       `${periodo};${inicio};${fim}`,
       "",
       "Indicador;Valor",
-      ...resumoRows.map((row) => `${row.indicador};${String(row.valor).replace(".", ",")}`),
+      ...resumoRows.map((row) => `${row.indicador};${Number(row.valor).toFixed(2).replace(".", ",")}`),
       "",
       "Últimas vendas",
       "Numero;Data;Cliente;Total;Status",
@@ -196,11 +196,7 @@ function DashboardPage() {
     ].join("\r\n");
 
     const nome = `dashboard_${inicio}_${fim}`.replace(/[^a-zA-Z0-9_-]/g, "_");
-    exportRowsToCSV(
-      nome,
-      [{ conteudo: csvPartes }],
-      [{ header: "conteudo", accessor: (row) => row.conteudo, type: "text" }],
-    );
+    downloadCSV(csvFilename(nome), csvPartes);
     toast.success("Exportação iniciada.");
   }
 

@@ -23,8 +23,8 @@ export type DashboardData = {
   fluxoCaixa: Array<{ day: string; entrada: number; saida: number }>;
 
   // Tabelas
-  ultimasVendas: Array<{ id: string; numero: string; cliente: string; valor: number; status: string }>;
-  ultimasCompras: Array<{ id: string; numero: string; fornecedor: string; valor: number; status: string }>;
+  ultimasVendas: Array<{ id: string; numero: string; cliente: string; valor: number; status: string; data: string }>;
+  ultimasCompras: Array<{ id: string; numero: string; fornecedor: string; valor: number; status: string; data: string }>;
 };
 
 const MESES_PT = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
@@ -208,6 +208,7 @@ export function useDashboard() {
         cliente: v.cliente_id ? (clientesMap.get(v.cliente_id) ?? "—") : "Consumidor",
         valor: Number(v.total ?? 0),
         status: v.status,
+        data: v.data_emissao,
       }));
       const ultimasCompras = (compras ?? []).slice(0, 5).map((c) => ({
         id: c.id,
@@ -215,6 +216,7 @@ export function useDashboard() {
         fornecedor: c.fornecedor_id ? (fornMap.get(c.fornecedor_id) ?? "—") : "—",
         valor: Number(c.total ?? 0),
         status: c.status,
+        data: c.data_emissao,
       }));
 
       return {
