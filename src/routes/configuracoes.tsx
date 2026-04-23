@@ -1,6 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
-import { AlertTriangle, Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,21 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { FuncionariosTab } from "@/components/configuracoes/FuncionariosTab";
 import { TerminaisTab } from "@/components/configuracoes/TerminaisTab";
-import { useResetarDadosEmpresa } from "@/hooks/useSaasCliente";
 
 export const Route = createFileRoute("/configuracoes")({
   head: () => ({
@@ -49,9 +35,6 @@ function SettingsPage() {
           <TabsTrigger value="terminais">Terminais</TabsTrigger>
           <TabsTrigger value="prefs">Preferências</TabsTrigger>
           <TabsTrigger value="integracoes">Integrações</TabsTrigger>
-          <TabsTrigger value="perigo" className="text-destructive data-[state=active]:text-destructive">
-            Zona de Perigo
-          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="empresa" className="mt-4">
@@ -131,9 +114,6 @@ function SettingsPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="perigo" className="mt-4">
-          <ZonaPerigoTab />
-        </TabsContent>
       </Tabs>
     </div>
   );
