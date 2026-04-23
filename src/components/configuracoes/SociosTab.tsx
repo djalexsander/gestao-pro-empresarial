@@ -157,42 +157,89 @@ export function SociosTab() {
               Apenas o proprietário pode adicionar ou remover sócios e administradores.
             </div>
           ) : (
-            <div className="grid gap-3 md:grid-cols-[1fr,200px,auto] items-end">
-              <div className="space-y-1.5">
-                <Label htmlFor="membro-email">E-mail do usuário</Label>
-                <Input
-                  id="membro-email"
-                  type="email"
-                  placeholder="usuario@exemplo.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  disabled={adicionar.isPending}
-                />
+            <div className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="membro-nome">Nome completo *</Label>
+                  <Input
+                    id="membro-nome"
+                    placeholder="João da Silva"
+                    value={nome}
+                    onChange={(e) => setNome(e.target.value)}
+                    disabled={adicionar.isPending}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="membro-email">E-mail *</Label>
+                  <Input
+                    id="membro-email"
+                    type="email"
+                    placeholder="usuario@exemplo.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    disabled={adicionar.isPending}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="membro-telefone">Telefone</Label>
+                  <Input
+                    id="membro-telefone"
+                    placeholder="(11) 99999-9999"
+                    value={telefone}
+                    onChange={(e) => setTelefone(e.target.value)}
+                    disabled={adicionar.isPending}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="membro-senha">Senha *</Label>
+                  <div className="relative">
+                    <Input
+                      id="membro-senha"
+                      type={mostrarSenha ? "text" : "password"}
+                      placeholder="Mínimo 8 caracteres"
+                      value={senha}
+                      onChange={(e) => setSenha(e.target.value)}
+                      disabled={adicionar.isPending}
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setMostrarSenha((v) => !v)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      tabIndex={-1}
+                    >
+                      {mostrarSenha ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="membro-papel">Tipo de acesso</Label>
-                <Select value={novoPapel} onValueChange={(v) => setNovoPapel(v as EmpresaPapel)}>
-                  <SelectTrigger id="membro-papel">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="admin">Administrador (Sócio)</SelectItem>
-                    <SelectItem value="gerente_operacional">Gerente operacional</SelectItem>
-                  </SelectContent>
-                </Select>
+
+              <div className="grid gap-3 md:grid-cols-[1fr,auto] items-end">
+                <div className="space-y-1.5">
+                  <Label htmlFor="membro-papel">Tipo de acesso *</Label>
+                  <Select value={novoPapel} onValueChange={(v) => setNovoPapel(v as EmpresaPapel)}>
+                    <SelectTrigger id="membro-papel">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="admin">Administrador (Sócio)</SelectItem>
+                      <SelectItem value="gerente_operacional">Gerente operacional</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  onClick={() => adicionar.mutate()}
+                  disabled={adicionar.isPending || !nome.trim() || !email.trim() || senha.length < 8}
+                >
+                  <UserPlus className="h-4 w-4 mr-1.5" />
+                  {adicionar.isPending ? "Criando..." : "Criar acesso"}
+                </Button>
               </div>
-              <Button
-                onClick={() => adicionar.mutate()}
-                disabled={adicionar.isPending || !email.trim()}
-              >
-                <UserPlus className="h-4 w-4 mr-1.5" />
-                Adicionar
-              </Button>
             </div>
           )}
 
           <p className="mt-3 text-xs text-muted-foreground">
-            O usuário precisa já ter conta no sistema. Peça para que ele se cadastre primeiro.
+            A conta é criada na hora. Compartilhe o e-mail e a senha com o novo sócio para o primeiro acesso.
           </p>
         </CardContent>
       </Card>
