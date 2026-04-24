@@ -1,4 +1,4 @@
-import { Link, useLocation, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate, useRouter } from "@tanstack/react-router";
 import {
   Sparkles,
   FileText,
@@ -38,21 +38,36 @@ interface AppMenubarProps {
 export function AppMenubar({ activeModule, onModuleSelect }: AppMenubarProps) {
   const navigate = useNavigate();
   const location = useLocation();
+  const router = useRouter();
   const { signOut } = useAuth();
   const modules = useFilteredModules();
 
+  /** Resolve a rota destino de um módulo (sem efeito colateral) */
+  const resolveModuleTarget = (key: ModuleKey): string | null => {
+    const mod = modules.find((m) => m.key === key) ?? MODULES.find((m) => m.key === key);
+    if (!mod) return null;
+    if (mod.directRoute) return mod.directRoute;
+    const first = mod.items[0];
+    return first ? first.to.split("?")[0] : null;
+  };
+
   const handleModuleClick = (key: ModuleKey) => {
-    const mod = modules.find((m) => m.key === key) ?? MODULES.find((m) => m.key === key)!;
     onModuleSelect(key);
-    if (mod.directRoute) {
-      navigate({ to: mod.directRoute });
-    } else {
-      const current = findModuleByPath(location.pathname);
-      if (current.key !== key) {
-        const first = mod.items[0];
-        navigate({ to: first.to.split("?")[0] });
-      }
+    const target = resolveModuleTarget(key);
+    if (!target) return;
+    const current = findModuleByPath(location.pathname);
+    if (current.key !== key || target !== location.pathname) {
+      navigate({ to: target });
     }
+  };
+
+  /** Pré-carrega chunk + loader ao hover/focus para tornar o clique instantâneo */
+  const handleModuleHover = (key: ModuleKey) => {
+    const target = resolveModuleTarget(key);
+    if (!target) return;
+    void router.preloadRoute({ to: target }).catch(() => {
+      // silenciar — preload é melhor-esforço
+    });
   };
 
   // === Ações reais do menu File ===
@@ -213,6 +228,8 @@ export function AppMenubar({ activeModule, onModuleSelect }: AppMenubarProps) {
             <button
               key={mod.key}
               onClick={() => handleModuleClick(mod.key)}
+              onMouseEnter={() => handleModuleHover(mod.key)}
+              onFocus={() => handleModuleHover(mod.key)}
               className={cn(
                 "relative flex h-8 items-center rounded-md px-3 text-[13px] font-medium transition-colors",
                 active
