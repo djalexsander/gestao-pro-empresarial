@@ -106,47 +106,49 @@ function AppShell() {
   }, [navigate, clearModo]);
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-background">
-      <AssinaturaBanner />
-      <div className="flex items-center">
-        <div className="flex-1">
-          <AppMenubar activeModule={activeModule} onModuleSelect={setOverrideModule} />
+    <div className="flex h-screen w-full flex-col overflow-hidden bg-background">
+      {/* Topo fixo: banner + menubar + toolbar */}
+      <div className="sticky top-0 z-40 shrink-0">
+        <AssinaturaBanner />
+        <div className="flex items-center bg-sidebar">
+          <div className="flex-1">
+            <AppMenubar activeModule={activeModule} onModuleSelect={setOverrideModule} />
+          </div>
+          {modoAtual && (
+            <button
+              type="button"
+              onClick={handleTrocarModo}
+              className="hidden h-11 items-center gap-1.5 border-b border-l border-sidebar-border bg-sidebar px-3 text-[13px] font-medium text-sidebar-foreground/85 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground lg:flex"
+              title="Trocar de modo"
+            >
+              <span className="rounded-md bg-primary/15 px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-primary">
+                {modoAtual.chave}
+              </span>
+              Trocar modo
+            </button>
+          )}
+          {isSuperAdmin && (
+            <Link
+              to="/admin"
+              className="hidden h-11 items-center gap-1.5 border-b border-l border-sidebar-border bg-sidebar px-3 text-[13px] font-medium text-sidebar-foreground/85 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground lg:flex"
+              title="Painel Master"
+            >
+              <ShieldCheck className="h-4 w-4" /> Master
+            </Link>
+          )}
         </div>
-        {modoAtual && (
-          <button
-            type="button"
-            onClick={handleTrocarModo}
-            className="hidden h-11 items-center gap-1.5 border-b border-l border-sidebar-border bg-sidebar px-3 text-[13px] font-medium text-sidebar-foreground/85 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground lg:flex"
-            title="Trocar de modo"
-          >
-            <span className="rounded-md bg-primary/15 px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-primary">
-              {modoAtual.chave}
-            </span>
-            Trocar modo
-          </button>
-        )}
-        {isSuperAdmin && (
-          <Link
-            to="/admin"
-            className="hidden h-11 items-center gap-1.5 border-b border-l border-sidebar-border bg-sidebar px-3 text-[13px] font-medium text-sidebar-foreground/85 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground lg:flex"
-            title="Painel Master"
-          >
-            <ShieldCheck className="h-4 w-4" /> Master
-          </Link>
-        )}
+        <AppToolbar
+          activeModule={activeModule}
+          onMobileMenuClick={() => setMobileNavOpen(true)}
+        />
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      {/* Área inferior: sidebar fixa + conteúdo rolável */}
+      <div className="flex min-h-0 flex-1">
         <ContextSidebar activeModule={activeModule} />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <AppToolbar
-            activeModule={activeModule}
-            onMobileMenuClick={() => setMobileNavOpen(true)}
-          />
-          <main className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8">
-            <Outlet />
-          </main>
-        </div>
+        <main className="min-w-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8">
+          <Outlet />
+        </main>
       </div>
 
       <MobileNavSheet
