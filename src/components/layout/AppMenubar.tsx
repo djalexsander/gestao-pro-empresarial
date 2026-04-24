@@ -1,34 +1,8 @@
 import { Link, useLocation, useNavigate, useRouter } from "@tanstack/react-router";
-import {
-  Sparkles,
-  FileText,
-  FolderOpen,
-  Save,
-  FilePlus,
-  Upload,
-  Download,
-  Printer,
-  Settings2,
-  SlidersHorizontal,
-  History,
-  LogOut,
-  ChevronDown,
-  ShoppingBag,
-} from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-  DropdownMenuShortcut,
-} from "@/components/ui/dropdown-menu";
+import { Sparkles, ShoppingBag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MODULES, findModuleByPath, type ModuleKey } from "./navigation";
 import { useFilteredModules } from "./useFilteredModules";
-import { useAuth } from "@/components/auth/AuthProvider";
-import { toast } from "sonner";
-import { useEffect } from "react";
 
 interface AppMenubarProps {
   activeModule: ModuleKey;
@@ -39,7 +13,6 @@ export function AppMenubar({ activeModule, onModuleSelect }: AppMenubarProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const router = useRouter();
-  const { signOut } = useAuth();
   const modules = useFilteredModules();
 
   /** Resolve a rota destino de um módulo (sem efeito colateral) */
@@ -70,58 +43,6 @@ export function AppMenubar({ activeModule, onModuleSelect }: AppMenubarProps) {
     });
   };
 
-  // === Ações reais do menu File ===
-  const novo = () => {
-    navigate({ to: "/pdv" });
-    toast.success("Nova venda iniciada no PDV");
-  };
-  const abrir = () => navigate({ to: "/vendas" });
-  const salvar = () => toast.success("Alterações salvas automaticamente");
-  const salvarComo = () => navigate({ to: "/relatorios" });
-  const importar = () => navigate({ to: "/produtos" });
-  const exportar = () => navigate({ to: "/relatorios" });
-  const imprimir = () => {
-    if (typeof window !== "undefined") window.print();
-  };
-  const configuracoes = () => navigate({ to: "/configuracoes" });
-  const preferencias = () => navigate({ to: "/configuracoes" });
-  const historico = () => navigate({ to: "/relatorios/caixa" });
-  const sair = () => signOut();
-
-  // === Atalhos de teclado globais ===
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      const target = e.target as HTMLElement | null;
-      const tag = target?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
-
-      const key = e.key.toLowerCase();
-      const shift = e.shiftKey;
-
-      const map: Record<string, () => void> = {
-        n: novo,
-        o: abrir,
-        s: shift ? salvarComo : salvar,
-        i: importar,
-        e: exportar,
-        p: imprimir,
-        ",": configuracoes,
-        h: historico,
-        q: sair,
-      };
-
-      const action = map[key];
-      if (action) {
-        e.preventDefault();
-        action();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   return (
     <header className="sticky top-0 z-40 flex h-11 items-center gap-1 border-b border-sidebar-border bg-sidebar px-2 text-sidebar-foreground shadow-sm">
       {/* Brand */}
@@ -136,72 +57,6 @@ export function AppMenubar({ activeModule, onModuleSelect }: AppMenubarProps) {
       </Link>
 
       <div className="mx-1 hidden h-5 w-px bg-sidebar-border sm:block" />
-
-      {/* FILE menu */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            className={cn(
-              "flex h-8 items-center gap-1 rounded-md px-2.5 text-[13px] font-medium outline-none transition-colors",
-              "hover:bg-sidebar-accent data-[state=open]:bg-sidebar-accent",
-            )}
-          >
-            File
-            <ChevronDown className="h-3 w-3 opacity-60" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-64">
-          <DropdownMenuItem onSelect={novo}>
-            <FilePlus className="h-4 w-4" /> Novo
-            <DropdownMenuShortcut>Ctrl+N</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={abrir}>
-            <FolderOpen className="h-4 w-4" /> Abrir
-            <DropdownMenuShortcut>Ctrl+O</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={salvar}>
-            <Save className="h-4 w-4" /> Salvar
-            <DropdownMenuShortcut>Ctrl+S</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={salvarComo}>
-            <FileText className="h-4 w-4" /> Salvar como…
-            <DropdownMenuShortcut>Ctrl+Shift+S</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={importar}>
-            <Upload className="h-4 w-4" /> Importar
-            <DropdownMenuShortcut>Ctrl+I</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={exportar}>
-            <Download className="h-4 w-4" /> Exportar
-            <DropdownMenuShortcut>Ctrl+E</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={imprimir}>
-            <Printer className="h-4 w-4" /> Imprimir
-            <DropdownMenuShortcut>Ctrl+P</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={configuracoes}>
-            <Settings2 className="h-4 w-4" /> Configurações
-            <DropdownMenuShortcut>Ctrl+,</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={preferencias}>
-            <SlidersHorizontal className="h-4 w-4" /> Preferências
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={historico}>
-            <History className="h-4 w-4" /> Histórico
-            <DropdownMenuShortcut>Ctrl+H</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onSelect={sair}
-            className="text-destructive focus:text-destructive"
-          >
-            <LogOut className="h-4 w-4" /> Sair
-            <DropdownMenuShortcut>Ctrl+Q</DropdownMenuShortcut>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
 
       {/* Nova Venda — atalho de PDV */}
       <Link

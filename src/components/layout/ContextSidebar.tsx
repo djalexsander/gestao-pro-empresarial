@@ -2,7 +2,9 @@ import { Link, useLocation } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
 import { type ModuleKey } from "./navigation";
 import { useFilteredModules } from "./useFilteredModules";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, LogOut } from "lucide-react";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { APP_VERSION } from "@/lib/version";
 
 interface ContextSidebarProps {
   activeModule: ModuleKey;
@@ -24,6 +26,7 @@ function splitTo(to: string): { path: string; search: Record<string, string> } {
 export function ContextSidebar({ activeModule }: ContextSidebarProps) {
   const location = useLocation();
   const modules = useFilteredModules();
+  const { signOut } = useAuth();
   const mod = modules.find((m) => m.key === activeModule) ?? modules[0];
 
   // Parse current search params
@@ -112,6 +115,20 @@ export function ContextSidebar({ activeModule }: ContextSidebarProps) {
           })}
         </ul>
       </nav>
+
+      {/* Rodapé fixo: Sair + versão do app */}
+      <div className="shrink-0 border-t border-border p-3">
+        <button
+          onClick={() => signOut()}
+          className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
+        >
+          <LogOut className="h-[18px] w-[18px]" />
+          Sair
+        </button>
+        <p className="mt-2 text-center text-[11px] text-muted-foreground">
+          Versão {APP_VERSION}
+        </p>
+      </div>
     </aside>
   );
 }
