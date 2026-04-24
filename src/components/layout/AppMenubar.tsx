@@ -1,34 +1,8 @@
 import { Link, useLocation, useNavigate, useRouter } from "@tanstack/react-router";
-import {
-  Sparkles,
-  FileText,
-  FolderOpen,
-  Save,
-  FilePlus,
-  Upload,
-  Download,
-  Printer,
-  Settings2,
-  SlidersHorizontal,
-  History,
-  LogOut,
-  ChevronDown,
-  ShoppingBag,
-} from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-  DropdownMenuShortcut,
-} from "@/components/ui/dropdown-menu";
+import { Sparkles, ShoppingBag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MODULES, findModuleByPath, type ModuleKey } from "./navigation";
 import { useFilteredModules } from "./useFilteredModules";
-import { useAuth } from "@/components/auth/AuthProvider";
-import { toast } from "sonner";
-import { useEffect } from "react";
 
 interface AppMenubarProps {
   activeModule: ModuleKey;
