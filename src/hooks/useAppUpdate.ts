@@ -1,18 +1,65 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 
 /**
- * Detecta se há uma nova versão do app publicada comparando o conteúdo
- * de `/index.html` (servido pelo host) com a versão carregada inicialmente.
+ * Detecta se há uma nova versão do app publicada comparando as referências
+ * de assets (scripts e stylesheets) no `index.html`.
  *
- * Funciona sem service worker — compatível com o preview da Lovable e com
- * o app publicado. Não interrompe o uso normal: roda em segundo plano.
+ * Por que não comparar o HTML inteiro?
+ *   No preview/host da Lovable o HTML contém marcações dinâmicas (scripts
+ *   injetados pelo `lovable.js`, IDs de sessão, comentários de build) que
+ *   mudam a cada request — gerava falsos positivos a cada 2 min.
+ *
+ * Estratégia:
+ *   - Buscar `/` com cache-bust.
+ *   - Extrair APENAS as URLs dos <script type="module" src=...> e
+ *     <link rel="stylesheet" href=...>. O Vite gera hashes estáveis nesses
+ *     nomes, então só mudam em um build novo de verdade.
+ *   - Comparar a assinatura ordenada dessas URLs com a inicial.
  */
 
-const CHECK_INTERVAL_MS = 2 * 60 * 1000; // 2 minutos
-const SNOOZE_MS = 10 * 60 * 1000; // "Depois" reaparece em 10 min
+const CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutos
+const SNOOZE_MS = 30 * 60 * 1000; // "Depois" silencia por 30 min
 const SNOOZE_KEY = "app-update:snoozed-until";
 
-async function fetchIndexHash(): Promise<string | null> {
+/** Extrai assinatura estável a partir do HTML do index. */
+function extractAssetSignature(html: string): string | null {
+  try {
+    // Captura URLs de scripts module e stylesheets — atributos podem estar em qualquer ordem.
+    const scriptRegex =
+      /<script\b[^>]*\btype=["']module["'][^>]*\bsrc=["']([^"']+)["'][^>]*>|<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*\btype=["']module["'][^>]*>/gi;
+    const linkRegex =
+      /<link\b[^>]*\brel=["']stylesheet["'][^>]*\bhref=["']([^"']+)["'][^>]*>|<link\b[^>]*\bhref=["']([^"']+)["'][^>]*\brel=["']stylesheet["'][^>]*>/gi;
+
+    const urls = new Set<string>();
+    let m: RegExpExecArray | null;
+    while ((m = scriptRegex.exec(html))) urls.add(m[1] ?? m[2]);
+    while ((m = linkRegex.exec(html))) urls.add(m[1] ?? m[2]);
+
+    // Filtra runtime injetado por terceiros (ex.: cdn.gpteng.co/lovable.js) que
+    // pode mudar independentemente do build do app.
+    const filtered = [...urls].filter((u) => {
+      if (!u) return false;
+      // Mantém apenas assets servidos do mesmo host (caminhos relativos ou
+      // do próprio domínio). URLs absolutas externas são descartadas.
+      if (/^https?:\/\//i.test(u)) {
+        try {
+          const parsed = new URL(u, window.location.origin);
+          return parsed.origin === window.location.origin;
+        } catch {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    if (filtered.length === 0) return null;
+    return filtered.sort().join("|");
+  } catch {
+    return null;
+  }
+}
+
+async function fetchAssetSignature(): Promise<string | null> {
   try {
     const res = await fetch(`/?_v=${Date.now()}`, {
       method: "GET",
@@ -21,17 +68,8 @@ async function fetchIndexHash(): Promise<string | null> {
       headers: { "Cache-Control": "no-cache" },
     });
     if (!res.ok) return null;
-    // Prefer ETag (estável e barato). Senão, hash leve do corpo.
-    const etag = res.headers.get("etag") || res.headers.get("last-modified");
-    if (etag) return etag;
     const text = await res.text();
-    // Hash determinístico simples (FNV-1a) para evitar dependências.
-    let h = 2166136261;
-    for (let i = 0; i < text.length; i++) {
-      h ^= text.charCodeAt(i);
-      h = Math.imul(h, 16777619);
-    }
-    return String(h >>> 0);
+    return extractAssetSignature(text);
   } catch {
     return null;
   }
@@ -48,7 +86,7 @@ export interface AppUpdateState {
 export function useAppUpdate(): AppUpdateState {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
-  const initialHashRef = useRef<string | null>(null);
+  const initialSigRef = useRef<string | null>(null);
   const dismissedRef = useRef(false);
 
   const isSnoozed = useCallback(() => {
@@ -65,15 +103,15 @@ export function useAppUpdate(): AppUpdateState {
     if (document.visibilityState !== "visible") return;
     if (dismissedRef.current) return;
 
-    const current = await fetchIndexHash();
+    const current = await fetchAssetSignature();
     if (!current) return;
 
-    if (initialHashRef.current === null) {
-      initialHashRef.current = current;
+    if (initialSigRef.current === null) {
+      initialSigRef.current = current;
       return;
     }
 
-    if (current !== initialHashRef.current) {
+    if (current !== initialSigRef.current) {
       if (isSnoozed()) return;
       setUpdateAvailable(true);
     }
@@ -82,7 +120,7 @@ export function useAppUpdate(): AppUpdateState {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    // Captura o hash inicial logo após o mount
+    // Captura assinatura inicial após o mount
     void check();
 
     const interval = window.setInterval(() => {
@@ -111,9 +149,7 @@ export function useAppUpdate(): AppUpdateState {
     } catch {
       // ignore
     }
-    // Pequeno delay para permitir feedback visual
     window.setTimeout(() => {
-      // Reload puro: força o navegador a buscar nova versão dos assets
       window.location.reload();
     }, 350);
   }, []);
