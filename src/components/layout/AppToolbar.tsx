@@ -1,6 +1,5 @@
-import { Menu, Plus, Search } from "lucide-react";
+import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,33 +40,7 @@ export function AppToolbar({ activeModule, onMobileMenuClick }: AppToolbarProps)
         </span>
       </div>
 
-      <div className="relative ml-2 hidden max-w-sm flex-1 md:block">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Buscar produtos, clientes, pedidos..."
-          className="h-9 border-transparent bg-muted/40 pl-9 focus-visible:bg-background"
-        />
-      </div>
-
       <div className="ml-auto flex items-center gap-1.5">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button size="sm" className="hidden h-9 gap-1.5 sm:inline-flex">
-              <Plus className="h-4 w-4" />
-              Novo
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuLabel>Cadastrar</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem>Nova venda</DropdownMenuItem>
-            <DropdownMenuItem>Nova compra</DropdownMenuItem>
-            <DropdownMenuItem>Novo produto</DropdownMenuItem>
-            <DropdownMenuItem>Novo cliente</DropdownMenuItem>
-            <DropdownMenuItem>Novo fornecedor</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-
         <ThemeToggle />
 
         <NotificationsBell size="sm" />
