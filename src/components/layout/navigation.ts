@@ -13,6 +13,7 @@ import {
   Settings,
   CircleDollarSign,
   TrendingUp,
+  CreditCard,
   type LucideIcon,
 } from "lucide-react";
 
