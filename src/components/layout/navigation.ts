@@ -13,6 +13,7 @@ import {
   Settings,
   CircleDollarSign,
   TrendingUp,
+  CreditCard,
   type LucideIcon,
 } from "lucide-react";
 
@@ -29,6 +30,12 @@ export interface ModuleItem {
   label: string;
   icon: LucideIcon;
   description?: string;
+  /**
+   * Chave técnica do módulo SaaS (tabela `modulos.chave`).
+   * Quando definida, o item só aparece no menu se o módulo estiver liberado
+   * (contratado ou em trial). Use junto com <RequireModulo> nas rotas.
+   */
+  moduloChave?: string;
 }
 
 export interface ModuleDef {
@@ -108,9 +115,9 @@ export const MODULES: ModuleDef[] = [
   {
     key: "configuracoes",
     label: "Configurações",
-    directRoute: "/configuracoes",
     items: [
       { to: "/configuracoes", label: "Configurações", icon: Settings, description: "Ajustes do sistema" },
+      { to: "/modulos", label: "Meu Plano", icon: CreditCard, description: "Plano e módulos contratados" },
     ],
   },
 ];
