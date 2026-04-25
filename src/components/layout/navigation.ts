@@ -30,6 +30,12 @@ export interface ModuleItem {
   label: string;
   icon: LucideIcon;
   description?: string;
+  /**
+   * Chave técnica do módulo SaaS (tabela `modulos.chave`).
+   * Quando definida, o item só aparece no menu se o módulo estiver liberado
+   * (contratado ou em trial). Use junto com <RequireModulo> nas rotas.
+   */
+  moduloChave?: string;
 }
 
 export interface ModuleDef {
