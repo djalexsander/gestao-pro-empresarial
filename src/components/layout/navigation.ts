@@ -115,9 +115,9 @@ export const MODULES: ModuleDef[] = [
   {
     key: "configuracoes",
     label: "Configurações",
-    directRoute: "/configuracoes",
     items: [
       { to: "/configuracoes", label: "Configurações", icon: Settings, description: "Ajustes do sistema" },
+      { to: "/modulos", label: "Meu Plano", icon: CreditCard, description: "Plano e módulos contratados" },
     ],
   },
 ];
