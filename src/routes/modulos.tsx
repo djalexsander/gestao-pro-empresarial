@@ -222,7 +222,7 @@ function PlanoAtualCard({
       ? "bg-emerald-500 hover:bg-emerald-600"
       : status === "trial"
         ? "bg-blue-500 hover:bg-blue-600"
-        : status === "expirado" || status === "bloqueada"
+        : status === "vencido" || status === "cancelado"
           ? "bg-destructive hover:bg-destructive/90"
           : "bg-amber-500 hover:bg-amber-600";
 
