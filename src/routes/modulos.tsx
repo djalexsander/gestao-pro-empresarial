@@ -64,10 +64,10 @@ const tipoLabel: Record<string, string> = {
 const statusLabel: Record<string, string> = {
   ativo: "Ativo",
   trial: "Em teste (Trial)",
-  expirado: "Expirado",
+  vencido: "Vencido",
   pendente: "Pendente",
   cancelado: "Cancelado",
-  bloqueada: "Bloqueada",
+  indefinido: "Indefinido",
 };
 
 /* =========================================================
