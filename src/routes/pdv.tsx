@@ -776,9 +776,10 @@ function PDVPage() {
           )}
           <Popover open={clientePopoverOpen} onOpenChange={setClientePopoverOpen}>
             <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-1.5">
+              <Button variant="outline" size="sm" className="gap-1.5" title="Buscar/selecionar cliente (F4)">
                 <User className="h-4 w-4" />
                 {cliente ? cliente.nome : "Cliente: Consumidor"}
+                <PdvKbd className="ml-1">F4</PdvKbd>
               </Button>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-96 p-0">
