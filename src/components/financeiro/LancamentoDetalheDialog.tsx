@@ -1,5 +1,16 @@
+import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, XCircle, Calendar, FileText, User, Wallet, Tag, Clock } from "lucide-react";
+import {
+  CheckCircle2,
+  XCircle,
+  Calendar,
+  FileText,
+  User,
+  Wallet,
+  Tag,
+  Clock,
+  Receipt,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -14,6 +25,7 @@ import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { supabase } from "@/integrations/supabase/client";
 import { formatBRL } from "@/lib/mock-data";
+import { ConciliarIfoodDialog } from "./ConciliarIfoodDialog";
 
 export type LancamentoDetalhe = {
   id: string;
@@ -32,6 +44,12 @@ export type LancamentoDetalhe = {
   categoria_nome?: string | null;
   forma_pagamento?: string | null;
   created_at?: string | null;
+  // Auditoria de conciliação iFood
+  conciliado_em?: string | null;
+  valor_repasse?: number | null;
+  taxa_repasse?: number | null;
+  numero_repasse?: string | null;
+  observacao_repasse?: string | null;
 };
 
 interface Props {
