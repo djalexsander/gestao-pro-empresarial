@@ -866,6 +866,9 @@ interface FluxoRow {
   descricao: string;
   valor: number; // positivo = entrada, negativo = saída
   status?: string | null;
+  // Operacional = não conta como receita/despesa real (fundo de troco,
+  // encerramento). Apenas informativo no extrato.
+  operacional?: boolean;
 }
 
 function calcRangeFluxo(p: FluxoPeriodo): { inicio: string; fim: string } {
@@ -1043,11 +1046,17 @@ function FluxoCaixaPanel() {
           created_at: string;
         }) => {
           const tipo = m.tipo as FluxoTipo;
+          const bruto = Number(m.valor) || 0;
           // Sinal: entrada (+) ou saída (-)
-          let valor = Number(m.valor) || 0;
-          if (tipo === "sangria" || tipo === "fechamento") valor = -Math.abs(valor);
-          else valor = Math.abs(valor);
-          // "fechamento" entra com valor 0 normalmente — manter informativo.
+          let valor = bruto;
+          if (tipo === "sangria" || tipo === "fechamento") valor = -Math.abs(bruto);
+          else valor = Math.abs(bruto);
+          // Abertura e fechamento são movimentos OPERACIONAIS do caixa
+          // (fundo de troco / encerramento) — não são receita/despesa real.
+          // Mantemos a linha no extrato com valor informativo, mas eles não
+          // entram no cálculo de entradas, saídas, saldo do período nem no
+          // saldo acumulado real.
+          const operacional = tipo === "abertura" || tipo === "fechamento";
           return {
             id: `mov-${m.id}`,
             data: m.created_at,
@@ -1055,6 +1064,7 @@ function FluxoCaixaPanel() {
             origem: "caixa",
             descricao: m.motivo ?? TIPO_LABEL[tipo] ?? "Movimento de caixa",
             valor,
+            operacional,
           };
         },
       );
@@ -1109,21 +1119,28 @@ function FluxoCaixaPanel() {
   const totais = useMemo(() => {
     let entradas = 0;
     let saidas = 0;
+    let fundoAberturas = 0; // valor inicial colocado nos caixas (operacional)
     for (const r of rows) {
-      if (r.tipo === "fechamento") continue; // informativo
+      if (r.operacional) {
+        // Apenas soma o valor das aberturas para exibir como "Fundo de caixa".
+        // Fechamento é informativo e não entra em nenhum total.
+        if (r.tipo === "abertura") fundoAberturas += Math.abs(r.valor);
+        continue;
+      }
       if (r.valor >= 0) entradas += r.valor;
       else saidas += Math.abs(r.valor);
     }
-    return { entradas, saidas, saldo: entradas - saidas };
+    return { entradas, saidas, saldo: entradas - saidas, fundoAberturas };
   }, [rows]);
 
-  // Saldo acumulado (a partir do mais antigo).
+  // Saldo acumulado REAL (financeiro): ignora abertura e fechamento.
+  // Reflete apenas entradas e saídas reais do período.
   const rowsComSaldo = useMemo(() => {
     const ordenadas = [...rows].sort((a, b) => (a.data < b.data ? -1 : 1));
     let acc = 0;
     const map = new Map<string, number>();
     for (const r of ordenadas) {
-      if (r.tipo !== "fechamento") acc += r.valor;
+      if (!r.operacional) acc += r.valor;
       map.set(r.id, acc);
     }
     return rows.map((r) => ({ ...r, saldoAcumulado: map.get(r.id) ?? 0 }));
@@ -1162,25 +1179,43 @@ function FluxoCaixaPanel() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          label="Entradas no período"
+          label="Entradas reais"
           value={formatBRL(totais.entradas)}
           icon={ArrowDownToLine}
           iconTone="success"
+          hint="Vendas, suprimentos e recebimentos"
         />
         <StatCard
-          label="Saídas no período"
+          label="Saídas reais"
           value={formatBRL(totais.saidas)}
           icon={ArrowUpFromLine}
           iconTone="warning"
+          hint="Sangrias e despesas pagas"
         />
         <StatCard
-          label="Saldo do período"
+          label="Resultado do período"
           value={formatBRL(totais.saldo)}
           icon={TrendingUp}
           iconTone={totais.saldo >= 0 ? "success" : "danger"}
+          hint="Entradas − Saídas (sem fundo)"
         />
+        <StatCard
+          label="Fundo de caixa"
+          value={formatBRL(totais.fundoAberturas)}
+          icon={Wallet}
+          iconTone="info"
+          hint="Aberturas — operacional, não é receita"
+        />
+      </div>
+
+      <div className="rounded-md border border-dashed border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground">
+        <strong className="text-foreground">Como ler:</strong> abertura e
+        fechamento de caixa são <em>movimentos operacionais</em> (fundo de
+        troco / encerramento). Eles aparecem no extrato como referência, mas{" "}
+        <strong>não entram</strong> nas entradas, saídas, resultado nem no
+        saldo acumulado real do período.
       </div>
 
       {porForma.length > 0 && (
@@ -1241,16 +1276,38 @@ function FluxoCaixaPanel() {
                 </TableRow>
               ) : (
                 rowsComSaldo.map((r) => (
-                  <TableRow key={r.id}>
+                  <TableRow
+                    key={r.id}
+                    className={cn(r.operacional && "bg-muted/30")}
+                  >
                     <TableCell className="text-muted-foreground">
                       {formatDateTime(r.data)}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="font-normal">
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "font-normal",
+                          r.operacional &&
+                            "border-info/40 bg-info/10 text-info",
+                        )}
+                      >
                         {TIPO_LABEL[r.tipo]}
+                        {r.operacional && (
+                          <span className="ml-1 text-[10px] opacity-80">
+                            • operacional
+                          </span>
+                        )}
                       </Badge>
                     </TableCell>
-                    <TableCell className="font-medium">{r.descricao}</TableCell>
+                    <TableCell
+                      className={cn(
+                        "font-medium",
+                        r.operacional && "text-muted-foreground",
+                      )}
+                    >
+                      {r.descricao}
+                    </TableCell>
                     <TableCell>
                       <span
                         className={cn(
@@ -1265,14 +1322,23 @@ function FluxoCaixaPanel() {
                     </TableCell>
                     <TableCell
                       className={cn(
-                        "text-right font-medium",
-                        r.valor > 0 && "text-success",
-                        r.valor < 0 && "text-destructive",
+                        "text-right font-medium tabular-nums",
+                        r.operacional
+                          ? "text-muted-foreground italic"
+                          : r.valor > 0
+                            ? "text-success"
+                            : r.valor < 0
+                              ? "text-destructive"
+                              : "",
                       )}
                     >
-                      {r.valor === 0 ? "—" : formatBRL(r.valor)}
+                      {r.valor === 0
+                        ? "—"
+                        : r.operacional
+                          ? `(${formatBRL(Math.abs(r.valor))})`
+                          : formatBRL(r.valor)}
                     </TableCell>
-                    <TableCell className="text-right text-muted-foreground">
+                    <TableCell className="text-right text-muted-foreground tabular-nums">
                       {formatBRL(r.saldoAcumulado)}
                     </TableCell>
                   </TableRow>
