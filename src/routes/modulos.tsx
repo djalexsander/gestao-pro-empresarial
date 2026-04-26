@@ -97,25 +97,34 @@ function MeuPlanoPage() {
     <div className="space-y-8">
       <PageHeader
         title="Meu Plano"
-        description="Visão completa do seu plano atual, módulos ativos e funcionalidades adicionais disponíveis."
+        description="Plano Base e módulos adicionais contratados pela sua empresa."
       />
 
       {/* === Card do plano atual === */}
       {loadingAssin || loadingPlanos ? (
-        <Skeleton className="h-[220px] rounded-xl" />
+        <Skeleton className="h-[260px] rounded-xl" />
       ) : (
         <PlanoAtualCard plano={planoAtual} assinatura={assinatura} />
       )}
 
+      {/* === Resumo visual do acesso === */}
+      {!loadingAssin && !loadingMods && (
+        <ResumoAcessoCard
+          temPlano={!!planoAtual}
+          qtdModulos={modulosAtivos.filter((m) => m.status === "ativo").length}
+        />
+      )}
+
       {/* === Módulos ativos === */}
       <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
-            <h2 className="text-xl font-semibold tracking-tight">
-              Módulos ativos
+            <h2 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
+              <Puzzle className="h-5 w-5 text-primary" />
+              Módulos adicionais ativos
             </h2>
             <p className="text-sm text-muted-foreground">
-              Funcionalidades já liberadas para sua empresa.
+              Funcionalidades extras contratadas além do Plano Base.
             </p>
           </div>
           {!loadingMods && (
@@ -132,17 +141,54 @@ function MeuPlanoPage() {
             ))}
           </div>
         ) : modulosAtivos.length === 0 ? (
-          <Card>
-            <CardContent className="py-8 text-center text-sm text-muted-foreground">
-              Nenhum módulo ativo no momento.
+          <Card className="border-dashed">
+            <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
+              <Package className="h-8 w-8 text-muted-foreground/60" />
+              <div>
+                <p className="text-sm font-medium">
+                  Nenhum módulo adicional ativo
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Você está usando apenas as funcionalidades essenciais do Plano
+                  Base. Contrate módulos abaixo para expandir seu sistema.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  document
+                    .getElementById("modulos-disponiveis")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+              >
+                <ArrowDown className="mr-2 h-4 w-4" />
+                Ver módulos disponíveis
+              </Button>
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {modulosAtivos.map((m) => (
-              <ModuloCard key={m.id} modulo={m} />
-            ))}
-          </div>
+          <>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {modulosAtivos.map((m) => (
+                <ModuloCard key={m.id} modulo={m} />
+              ))}
+            </div>
+            <div className="flex justify-end pt-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  document
+                    .getElementById("modulos-disponiveis")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                Adicionar mais módulos
+              </Button>
+            </div>
+          </>
         )}
       </section>
 
