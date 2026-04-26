@@ -376,7 +376,7 @@ export function FinalizarVendaDialog({
       })),
       {
         key: "Enter",
-        allowInInputs: false, // Enter dentro de inputs cabe ao input
+        allowInInputs: true, // Enter força confirmação mesmo dentro de inputs/buttons
         handler: (e) => {
           // Ignora auto-repeat de tecla pressionada
           if (e.repeat) return;
@@ -388,14 +388,14 @@ export function FinalizarVendaDialog({
           if (!dialogEl) return;
           if (active && !dialogEl.contains(active)) return;
 
-          // Não dispara se o foco estiver em um botão (deixa o click nativo agir)
-          if (active && (active.tagName === "BUTTON" || active.getAttribute("role") === "button")) {
-            return;
-          }
+          // Em textarea (observação), Enter deve quebrar linha — não confirma
+          if (active && active.tagName === "TEXTAREA") return;
 
           // Só confirma se a venda estiver válida
           if (!podeConfirmar) return;
 
+          // Previne o comportamento padrão (ex.: clicar no botão focado) e força confirmação
+          e.preventDefault();
           handleConfirmar();
         },
       },
