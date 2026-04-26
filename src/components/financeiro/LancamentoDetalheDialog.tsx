@@ -77,7 +77,11 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
   const updateStatus = useMutation({
     mutationFn: async (novoStatus: "pago" | "recebido" | "cancelado") => {
       if (!lancamento) return;
-      const patch: Record<string, unknown> = { status: novoStatus };
+      const patch: {
+        status: "pago" | "recebido" | "cancelado";
+        data_pagamento?: string | null;
+        valor_pago?: number;
+      } = { status: novoStatus };
       if (novoStatus === "pago" || novoStatus === "recebido") {
         patch.data_pagamento = new Date().toISOString().slice(0, 10);
         patch.valor_pago = Number(lancamento.valor);
