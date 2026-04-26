@@ -10,6 +10,7 @@ import { useTheme } from "@/components/theme/ThemeProvider";
 import { FuncionariosTab } from "@/components/configuracoes/FuncionariosTab";
 import { TerminaisTab } from "@/components/configuracoes/TerminaisTab";
 import { SociosTab } from "@/components/configuracoes/SociosTab";
+import { PlanosModulosTab } from "@/components/configuracoes/PlanosModulosTab";
 
 export const Route = createFileRoute("/configuracoes")({
   head: () => ({
@@ -32,6 +33,7 @@ function SettingsPage() {
       <Tabs defaultValue="empresa">
         <TabsList>
           <TabsTrigger value="empresa">Empresa</TabsTrigger>
+          <TabsTrigger value="planos">Planos e módulos</TabsTrigger>
           <TabsTrigger value="socios">Sócios e Admins</TabsTrigger>
           <TabsTrigger value="funcionarios">Funcionários</TabsTrigger>
           <TabsTrigger value="terminais">Terminais</TabsTrigger>
@@ -70,6 +72,10 @@ function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="planos" className="mt-4">
+          <PlanosModulosTab />
         </TabsContent>
 
         <TabsContent value="socios" className="mt-4">
