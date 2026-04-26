@@ -33,8 +33,28 @@ export function useUserRoles() {
 }
 
 /**
+ * Rotas que o operador `caixa` pode acessar dentro do ERP/menu lateral.
+ * Além dessas, o caixa sempre pode acessar /pos e /pdv (frente de caixa).
+ * Mantenha em sincronia com `useFilteredModules` e `RequireAdminLike`.
+ */
+export const CAIXA_ALLOWED_BASES = [
+  "/pos",
+  "/pdv",
+  "/produtos",
+  "/estoque",
+  "/compras",
+];
+
+/** Verifica se um pathname está na whitelist do operador de caixa. */
+export function isCaixaAllowedPath(pathname: string): boolean {
+  return CAIXA_ALLOWED_BASES.some(
+    (base) => pathname === base || pathname.startsWith(base + "/"),
+  );
+}
+
+/**
  * Helpers de papéis. `isAdminLike` libera acesso ao ERP completo.
- * Operadores `caixa` ficam restritos ao /pos.
+ * Operadores `caixa` ficam restritos a /pos, /pdv, /produtos, /estoque, /compras.
  */
 export function useUserRole() {
   const { data: roles = [], isLoading } = useUserRoles();
@@ -47,7 +67,7 @@ export function useUserRole() {
 
   // Quem pode acessar o ERP completo
   const isAdminLike = isSuperAdmin || isAdmin || isGerente || roles.length === 0;
-  // Quem é restrito ao /pos
+  // Quem é restrito (caixa sem outro papel administrativo)
   const isCaixaOnly = isCaixa && !isAdminLike;
 
   return {
