@@ -1192,6 +1192,57 @@ export type Database = {
         }
         Relationships: []
       }
+      lancamento_pagamentos: {
+        Row: {
+          caixa_id: string | null
+          created_at: string
+          data_pagamento: string
+          forma_pagamento: Database["public"]["Enums"]["forma_pagamento"] | null
+          id: string
+          lancamento_id: string
+          observacao: string | null
+          owner_id: string
+          registrado_por: string | null
+          valor: number
+        }
+        Insert: {
+          caixa_id?: string | null
+          created_at?: string
+          data_pagamento?: string
+          forma_pagamento?:
+            | Database["public"]["Enums"]["forma_pagamento"]
+            | null
+          id?: string
+          lancamento_id: string
+          observacao?: string | null
+          owner_id: string
+          registrado_por?: string | null
+          valor: number
+        }
+        Update: {
+          caixa_id?: string | null
+          created_at?: string
+          data_pagamento?: string
+          forma_pagamento?:
+            | Database["public"]["Enums"]["forma_pagamento"]
+            | null
+          id?: string
+          lancamento_id?: string
+          observacao?: string | null
+          owner_id?: string
+          registrado_por?: string | null
+          valor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lancamento_pagamentos_lancamento_id_fkey"
+            columns: ["lancamento_id"]
+            isOneToOne: false
+            referencedRelation: "financeiro_lancamentos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       lotes_produto: {
         Row: {
           created_at: string
