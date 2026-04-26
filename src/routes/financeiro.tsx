@@ -113,11 +113,27 @@ function FinancePage() {
   );
 }
 
+type BlocoChave =
+  | "receber"
+  | "pagar"
+  | "saldo"
+  | "vendido"
+  | "custo"
+  | "lucro"
+  | "fiado"
+  | "ifood"
+  | "recebidoHoje"
+  | "vencidos";
+
 function FinanceContent() {
   const { tab } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   const activeTab: FinTab = tab ?? "receber";
   const [selected, setSelected] = useState<Lancamento | null>(null);
+  const [blocoAberto, setBlocoAberto] = useState<BlocoChave | null>(null);
+
+  const indicadores = useFinanceiroIndicadores();
+  const ind = indicadores.data;
 
   const { data: lancamentos = [], isLoading } = useQuery({
     queryKey: ["financeiro_lancamentos"],
@@ -194,41 +210,179 @@ function FinanceContent() {
   const totalPay = pagar.reduce((s, l) => s + Number(l.valor) - Number(l.valor_pago ?? 0), 0);
   const saldo = totalRec - totalPay;
 
+  const consolidado = useMemo(
+    () => buildConsolidado({ totalRec, totalPay, saldo, receber, pagar, ind }),
+    [totalRec, totalPay, saldo, receber, pagar, ind],
+  );
+
+  const handleExportConsolidadoCSV = () =>
+    exportarBlocoCSV("financeiro_consolidado", consolidado, [
+      { header: "Indicador", accessor: (r) => r.indicador, type: "text" },
+      { header: "Quantidade", accessor: (r) => r.quantidade, type: "integer" },
+      { header: "Valor (R$)", accessor: (r) => r.valor, type: "currency" },
+    ]);
+
+  const handleExportConsolidadoPDF = () =>
+    exportarBlocoPDF({
+      titulo: "Financeiro — Resumo consolidado",
+      subtitulo: ind
+        ? `Período: ${formatDate(ind.periodo.inicio)} a ${formatDate(ind.periodo.fim)}`
+        : "Mês atual",
+      tabela: {
+        header: ["Indicador", "Quantidade", "Valor"],
+        rows: consolidado,
+        formatRow: (r) => [r.indicador, String(r.quantidade), formatBRL(r.valor)],
+      },
+    });
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Financeiro"
-        description="Acompanhe entradas, saídas e o fluxo de caixa."
+        description="Acompanhe entradas, saídas, lucro e fluxo de caixa."
         actions={
-          <Button size="sm" className="gap-1.5">
-            <Plus className="h-4 w-4" />
-            Novo lançamento
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline" className="gap-1.5">
+                  <Download className="h-4 w-4" />
+                  Exportar resumo
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleExportConsolidadoCSV} className="gap-2">
+                  <SheetIcon className="h-4 w-4" /> CSV (Excel)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportConsolidadoPDF} className="gap-2">
+                  <FileText className="h-4 w-4" /> PDF
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button size="sm" className="gap-1.5">
+              <Plus className="h-4 w-4" />
+              Novo lançamento
+            </Button>
+          </div>
         }
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatCard
-          label="Total a receber"
-          value={formatBRL(totalRec)}
-          icon={ArrowDownToLine}
-          iconTone="success"
-          hint={`${receber.length} títulos`}
-        />
-        <StatCard
-          label="Total a pagar"
-          value={formatBRL(totalPay)}
-          icon={ArrowUpFromLine}
-          iconTone="warning"
-          hint={`${pagar.length} títulos`}
-        />
-        <StatCard
-          label="Saldo previsto"
-          value={formatBRL(saldo)}
-          icon={TrendingUp}
-          iconTone={saldo >= 0 ? "success" : "danger"}
-        />
+      {/* Bloco 1: Posição financeira */}
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Posição financeira
+        </p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <StatCard
+            label="Total a receber"
+            value={formatBRL(totalRec)}
+            icon={ArrowDownToLine}
+            iconTone="success"
+            hint={`${receber.length} títulos`}
+            onClick={() => setBlocoAberto("receber")}
+          />
+          <StatCard
+            label="Total a pagar"
+            value={formatBRL(totalPay)}
+            icon={ArrowUpFromLine}
+            iconTone="warning"
+            hint={`${pagar.length} títulos`}
+            onClick={() => setBlocoAberto("pagar")}
+          />
+          <StatCard
+            label="Saldo previsto"
+            value={formatBRL(saldo)}
+            icon={TrendingUp}
+            iconTone={saldo >= 0 ? "success" : "danger"}
+            onClick={() => setBlocoAberto("saldo")}
+          />
+        </div>
       </div>
+
+      {/* Bloco 2: Performance do mês */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Performance do mês
+          </p>
+          {ind && (
+            <span className="text-[11px] text-muted-foreground">
+              {formatDate(ind.periodo.inicio)} → {formatDate(ind.periodo.fim)}
+            </span>
+          )}
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <StatCard
+            label="Total vendido"
+            value={formatBRL(ind?.totalVendido ?? 0)}
+            icon={ShoppingCart}
+            iconTone="info"
+            hint={`${ind?.qtdVendas ?? 0} vendas`}
+            onClick={() => setBlocoAberto("vendido")}
+          />
+          <StatCard
+            label="Custo dos produtos vendidos"
+            value={formatBRL(ind?.custoTotal ?? 0)}
+            icon={Package}
+            iconTone="warning"
+            hint={
+              ind && ind.qtdItensSemCusto > 0
+                ? `${ind.qtdItensSemCusto} sem custo`
+                : `${ind?.qtdItens ?? 0} itens`
+            }
+            onClick={() => setBlocoAberto("custo")}
+          />
+          <StatCard
+            label="Lucro bruto"
+            value={formatBRL(ind?.lucroBruto ?? 0)}
+            icon={TrendingUp}
+            iconTone={(ind?.lucroBruto ?? 0) >= 0 ? "success" : "danger"}
+            hint={`Margem ${(ind?.margemPct ?? 0).toFixed(1)}%`}
+            onClick={() => setBlocoAberto("lucro")}
+          />
+        </div>
+      </div>
+
+      {/* Bloco 3: A receber por origem + operacional */}
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          A receber por origem e operacional
+        </p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            label="Fiado em aberto"
+            value={formatBRL(ind?.fiadoEmAberto ?? 0)}
+            icon={HandCoins}
+            iconTone="info"
+            hint={`${ind?.qtdFiado ?? 0} títulos`}
+            onClick={() => setBlocoAberto("fiado")}
+          />
+          <StatCard
+            label="iFood a repassar"
+            value={formatBRL(ind?.ifoodAReceber ?? 0)}
+            icon={UtensilsCrossed}
+            iconTone="warning"
+            hint={`${ind?.qtdIfood ?? 0} pendentes`}
+            onClick={() => setBlocoAberto("ifood")}
+          />
+          <StatCard
+            label="Recebido hoje"
+            value={formatBRL(ind?.recebidoHoje ?? 0)}
+            icon={Wallet}
+            iconTone="success"
+            hint={`${ind?.qtdRecebimentosHoje ?? 0} recebimentos`}
+            onClick={() => setBlocoAberto("recebidoHoje")}
+          />
+          <StatCard
+            label="Vencidos"
+            value={formatBRL(ind?.vencidosTotal ?? 0)}
+            icon={AlertTriangle}
+            iconTone="danger"
+            hint={`${ind?.qtdVencidos ?? 0} títulos`}
+            onClick={() => setBlocoAberto("vencidos")}
+          />
+        </div>
+      </div>
+
 
       <Tabs
         value={activeTab}
