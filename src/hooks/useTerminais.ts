@@ -18,6 +18,12 @@ export interface Terminal {
   operador_atual_nome: string | null;
   user_agent: string | null;
   ip_local: string | null;
+  pode_pdv: boolean;
+  pode_erp: boolean;
+  pode_financeiro: boolean;
+  pode_configuracoes: boolean;
+  pode_relatorios: boolean;
+  pode_cadastros: boolean;
 }
 
 /** Considera online se o último heartbeat foi há menos de 90s. */
