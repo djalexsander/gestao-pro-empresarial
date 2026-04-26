@@ -385,20 +385,16 @@ export function ConciliarIfoodDialog({
             onClick={() => onOpenChange(false)}
             disabled={conciliar.isPending}
           >
-            Cancelar
+            Cancelar <kbd className="ml-2 hidden rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground sm:inline">Esc</kbd>
           </Button>
           <Button
             onClick={() => conciliar.mutate()}
-            disabled={
-              conciliar.isPending ||
-              valorMaiorQueBruto ||
-              valorRepasseNum <= 0 ||
-              (mode === "lote" && selecionados.size === 0)
-            }
+            disabled={!podeConfirmar}
             className="gap-1.5 bg-success text-success-foreground hover:bg-success/90"
           >
             <CheckCircle2 className="h-4 w-4" />
             Confirmar repasse
+            <kbd className="ml-1 hidden rounded bg-success-foreground/15 px-1.5 py-0.5 text-[10px] font-medium sm:inline">Enter</kbd>
           </Button>
         </DialogFooter>
       </DialogContent>
