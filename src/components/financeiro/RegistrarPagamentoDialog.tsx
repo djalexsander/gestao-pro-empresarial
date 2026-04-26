@@ -198,9 +198,11 @@ export function RegistrarPagamentoDialog({
               <SelectContent>
                 <SelectItem value="dinheiro">Dinheiro</SelectItem>
                 <SelectItem value="pix">PIX</SelectItem>
-                <SelectItem value="debito">Débito</SelectItem>
-                <SelectItem value="credito">Crédito</SelectItem>
+                <SelectItem value="cartao_debito">Débito</SelectItem>
+                <SelectItem value="cartao_credito">Crédito</SelectItem>
                 <SelectItem value="boleto">Boleto</SelectItem>
+                <SelectItem value="transferencia">Transferência</SelectItem>
+                <SelectItem value="cheque">Cheque</SelectItem>
                 <SelectItem value="ifood">iFood</SelectItem>
                 <SelectItem value="fiado">Fiado</SelectItem>
                 <SelectItem value="outro">Outro</SelectItem>
