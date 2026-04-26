@@ -224,6 +224,12 @@ function PDVPage() {
   // ============ Busca por CPF/CNPJ ============
   const [docQuery, setDocQuery] = useState("");
   const [docLookupBusy, setDocLookupBusy] = useState(false);
+  // Quando true, a busca por Enter já foi disparada e não encontrou cliente.
+  // Habilita ArrowDown para mover foco até "Cadastrar com este documento".
+  const [docBuscaSemResultado, setDocBuscaSemResultado] = useState(false);
+  const docQueryInputRef = useRef<HTMLInputElement>(null);
+  const cadastrarComDocBtnRef = useRef<HTMLButtonElement>(null);
+  const cadastrarNovoBtnRef = useRef<HTMLButtonElement>(null);
   const docInfo = validarDocumento(docQuery);
   const docDigits = somenteDigitos(docQuery);
   const matchLocalPorDoc = useMemo<ClienteLite | null>(() => {
@@ -233,13 +239,20 @@ function PDVPage() {
     );
   }, [clientes, docDigits]);
 
+  // Reset da flag de "sem resultado" sempre que o usuário muda o documento.
+  useEffect(() => {
+    setDocBuscaSemResultado(false);
+  }, [docQuery]);
+
   async function handleSelecionarPorDoc() {
     if (!docInfo.tipo) {
       toast.warning("Digite um CPF (11) ou CNPJ (14) completo.");
+      docQueryInputRef.current?.focus();
       return;
     }
     if (!docInfo.valido) {
       toast.error(`${docInfo.tipo} inválido. Confira os dígitos.`);
+      docQueryInputRef.current?.focus();
       return;
     }
     // Hit local primeiro
@@ -247,6 +260,7 @@ function PDVPage() {
       setCliente(matchLocalPorDoc);
       setClientePopoverOpen(false);
       setDocQuery("");
+      setDocBuscaSemResultado(false);
       som.beep("ok");
       toast.success(`Cliente "${matchLocalPorDoc.nome}" selecionado.`);
       return;
@@ -265,12 +279,14 @@ function PDVPage() {
         setCliente(lite);
         setClientePopoverOpen(false);
         setDocQuery("");
+        setDocBuscaSemResultado(false);
         som.beep("ok");
         toast.success(`Cliente "${found.nome}" selecionado.`);
       } else {
         som.beep("warn");
+        setDocBuscaSemResultado(true);
         toast.message("Nenhum cliente com este documento.", {
-          description: "Use 'Cadastrar com este documento' para criar agora.",
+          description: "↓ para selecionar 'Cadastrar com este documento' e Enter.",
         });
       }
     } catch (e) {
@@ -279,6 +295,28 @@ function PDVPage() {
       setDocLookupBusy(false);
     }
   }
+
+  // F4 = abrir popover de cliente / focar no campo de CPF/CNPJ.
+  // Se já estiver aberto, apenas reposiciona o foco no input.
+  function abrirOuFocarBuscaCliente() {
+    if (!clientePopoverOpen) {
+      setClientePopoverOpen(true);
+      // Foco será aplicado pelo efeito abaixo, quando o popover montar.
+    } else {
+      docQueryInputRef.current?.focus();
+      docQueryInputRef.current?.select();
+    }
+  }
+
+  // Foco automático no input de CPF/CNPJ ao abrir o popover de cliente.
+  useEffect(() => {
+    if (!clientePopoverOpen) return;
+    const t = setTimeout(() => {
+      docQueryInputRef.current?.focus();
+      docQueryInputRef.current?.select();
+    }, 60);
+    return () => clearTimeout(t);
+  }, [clientePopoverOpen]);
 
   function handleCadastrarComDoc() {
     if (!docInfo.tipo) {
@@ -466,6 +504,14 @@ function PDVPage() {
         handler: () => {
           flashHotkey("F8");
           if (items.length > 0) setConfirmClear("clear");
+        },
+      },
+      {
+        key: "F4",
+        allowInInputs: true,
+        handler: () => {
+          flashHotkey("F4");
+          abrirOuFocarBuscaCliente();
         },
       },
       {
@@ -675,6 +721,8 @@ function PDVPage() {
                     <span className="mx-1 text-border">·</span>
                   </>
                 )}
+                <PdvKbd flash={hotkeyFlash === "F4"}>F4</PdvKbd>
+                <span>cliente</span>
                 <PdvKbd flash={hotkeyFlash === "F7"}>F7</PdvKbd>
                 <span>nova</span>
                 <PdvKbd flash={hotkeyFlash === "F8"}>F8</PdvKbd>
@@ -728,9 +776,10 @@ function PDVPage() {
           )}
           <Popover open={clientePopoverOpen} onOpenChange={setClientePopoverOpen}>
             <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-1.5">
+              <Button variant="outline" size="sm" className="gap-1.5" title="Buscar/selecionar cliente (F4)">
                 <User className="h-4 w-4" />
                 {cliente ? cliente.nome : "Cliente: Consumidor"}
+                <PdvKbd className="ml-1">F4</PdvKbd>
               </Button>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-96 p-0">
@@ -742,6 +791,7 @@ function PDVPage() {
                 </label>
                 <div className="flex items-center gap-2">
                   <Input
+                    ref={docQueryInputRef}
                     value={docQuery}
                     onChange={(e) =>
                       setDocQuery(maskDocumentoProgressivo(e.target.value))
@@ -750,11 +800,24 @@ function PDVPage() {
                       if (e.key === "Enter") {
                         e.preventDefault();
                         handleSelecionarPorDoc();
+                        return;
+                      }
+                      if (e.key === "ArrowDown") {
+                        // Move foco para a opção de cadastro quando aplicável.
+                        const target =
+                          docInfo.valido && !matchLocalPorDoc
+                            ? cadastrarComDocBtnRef.current
+                            : cadastrarNovoBtnRef.current;
+                        if (target) {
+                          e.preventDefault();
+                          target.focus();
+                        }
                       }
                     }}
                     placeholder="000.000.000-00"
                     inputMode="numeric"
                     autoComplete="off"
+                    aria-label="Buscar cliente por CPF ou CNPJ"
                     className={cn(
                       "h-9 font-mono text-sm",
                       docInfo.tipo && !docInfo.valido &&
@@ -805,11 +868,21 @@ function PDVPage() {
                 )}
                 {docInfo.valido && !matchLocalPorDoc && (
                   <Button
+                    ref={cadastrarComDocBtnRef}
                     type="button"
-                    variant="outline"
+                    variant={docBuscaSemResultado ? "default" : "outline"}
                     size="sm"
-                    className="w-full justify-start gap-2"
+                    className={cn(
+                      "w-full justify-start gap-2 focus-visible:ring-2 focus-visible:ring-primary",
+                      docBuscaSemResultado && "ring-2 ring-primary ring-offset-1",
+                    )}
                     onClick={handleCadastrarComDoc}
+                    onKeyDown={(e) => {
+                      if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        docQueryInputRef.current?.focus();
+                      }
+                    }}
                   >
                     <UserPlus className="h-4 w-4" />
                     Cadastrar com este {docInfo.tipo}
@@ -854,13 +927,20 @@ function PDVPage() {
                 </CommandList>
                 <div className="border-t border-border p-2">
                   <Button
+                    ref={cadastrarNovoBtnRef}
                     variant="ghost"
                     size="sm"
-                    className="w-full justify-start gap-2 text-primary hover:text-primary"
+                    className="w-full justify-start gap-2 text-primary hover:text-primary focus-visible:ring-2 focus-visible:ring-primary"
                     onClick={() => {
                       setClientePopoverOpen(false);
-                      setNovoClienteDoc(null);
+                      setNovoClienteDoc(docDigits || null);
                       setNovoClienteOpen(true);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        docQueryInputRef.current?.focus();
+                      }
                     }}
                   >
                     <UserPlus className="h-4 w-4" />
