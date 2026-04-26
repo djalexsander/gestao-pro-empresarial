@@ -267,6 +267,64 @@ const reports: Report[] = [
     },
   },
   {
+    key: "contas-receber",
+    title: "Contas a receber",
+    description: "Recebíveis por cliente, período e mês com saldo restante.",
+    icon: HandCoins,
+    tone: "bg-warning/15 text-warning-foreground",
+    route: "/relatorios/contas-receber",
+    filenamePrefix: "contas-receber",
+    exporter: async () => {
+      const { data, error } = await supabase
+        .from("financeiro_lancamentos")
+        .select(
+          "descricao, valor, valor_pago, data_emissao, data_vencimento, data_pagamento, status, forma_pagamento, numero_documento, cliente:clientes(nome, nome_fantasia, documento, telefone, celular), venda:vendas(numero)",
+        )
+        .eq("tipo", "receber")
+        .neq("status", "cancelado")
+        .order("data_vencimento", { ascending: false })
+        .limit(2000);
+      if (error) throw error;
+      const rows = (data ?? []).map((l: Record<string, unknown>) => {
+        const valor = Number(l.valor) || 0;
+        const pago = Number(l.valor_pago) || 0;
+        const cli = l.cliente as Record<string, unknown> | null;
+        const ven = l.venda as Record<string, unknown> | null;
+        return {
+          vencimento: l.data_vencimento as string,
+          emissao: (l.data_emissao as string) ?? "",
+          pagamento: (l.data_pagamento as string) ?? "",
+          cliente: cli ? ((cli.nome_fantasia as string) || (cli.nome as string)) : "",
+          documento: cli ? ((cli.documento as string) ?? "") : "",
+          telefone: cli ? ((cli.telefone as string) ?? (cli.celular as string) ?? "") : "",
+          venda: ven ? ((ven.numero as string) ?? "") : "",
+          descricao: l.descricao as string,
+          valor,
+          valor_pago: pago,
+          saldo: Math.max(0, valor - pago),
+          status: l.status as string,
+          forma: (l.forma_pagamento as string) ?? "",
+        };
+      });
+      const columns: CsvColumn<typeof rows[number]>[] = [
+        { header: "Vencimento", accessor: (r) => r.vencimento, type: "date" },
+        { header: "Emissao", accessor: (r) => r.emissao, type: "date" },
+        { header: "Pagamento", accessor: (r) => r.pagamento, type: "date" },
+        { header: "Cliente", accessor: (r) => r.cliente, type: "text" },
+        { header: "CPF/CNPJ", accessor: (r) => r.documento, type: "text" },
+        { header: "Telefone", accessor: (r) => r.telefone, type: "text" },
+        { header: "Venda", accessor: (r) => r.venda, type: "text" },
+        { header: "Descricao", accessor: (r) => r.descricao, type: "text" },
+        { header: "Valor original", accessor: (r) => r.valor, type: "currency" },
+        { header: "Valor pago", accessor: (r) => r.valor_pago, type: "currency" },
+        { header: "Saldo", accessor: (r) => r.saldo, type: "currency" },
+        { header: "Forma", accessor: (r) => r.forma, type: "text" },
+        { header: "Status", accessor: (r) => r.status, type: "text" },
+      ];
+      return { rows, columns };
+    },
+  },
+  {
     key: "caixa",
     title: "Relatório de caixa",
     description: "Aberturas, fechamentos e auditoria de PDV.",
