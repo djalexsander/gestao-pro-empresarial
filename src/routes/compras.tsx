@@ -65,7 +65,7 @@ const fmtBRL = (n: number) =>
 
 const STATUS_EM_ABERTO: CompraStatus[] = ["rascunho", "pendente", "aprovada", "recebida_parcial"];
 
-function PurchasesPage() {
+export function PurchasesPage() {
   const { data: compras = [], isLoading } = useCompras();
   const { data: fornecedores = [] } = useFornecedores();
   const deleteMut = useDeleteCompra();

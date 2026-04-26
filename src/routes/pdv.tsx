@@ -17,6 +17,8 @@ import {
   Eraser,
   LogOut,
   ArrowLeft,
+  Boxes,
+  ShoppingCart,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,6 +80,11 @@ import { useTerminal } from "@/components/auth/TerminalProvider";
 import { TerminalAtualBadge } from "@/components/auth/TerminalSelector";
 import { RequirePosSession } from "@/components/auth/RequirePosSession";
 import { PdvErrorBoundary } from "@/components/pdv/PdvErrorBoundary";
+import {
+  PdvQuickViewDialog,
+  type PdvQuickViewKey,
+} from "@/components/pdv/PdvQuickViewDialog";
+import { useUserRole } from "@/hooks/useUserRole";
 import { useCaixaAberto, useCaixaResumo } from "@/hooks/useCaixa";
 import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
 import { toast } from "sonner";
@@ -182,6 +189,9 @@ function PDVPage() {
   const [manualQuery, setManualQuery] = useState("");
   const [finalizarOpen, setFinalizarOpen] = useState(false);
   const [sucessoOpen, setSucessoOpen] = useState(false);
+  const [quickView, setQuickView] = useState<PdvQuickViewKey | null>(null);
+  const { isCaixa, isAdminLike } = useUserRole();
+  const podeAcessarRapido = isCaixa || isAdminLike;
   const [vendaConcluida, setVendaConcluida] = useState<null | {
     id: string;
     numero: string | null;
@@ -408,9 +418,36 @@ function PDVPage() {
     }, 350);
   }
 
-  // F7 nova venda · F8 limpar · F9 buscar produto · F10 finalizar
+  // F1 produtos · F2 estoque · F3 compras · F7 nova · F8 limpar · F9 buscar · F10 finalizar
   useHotkeys(
     [
+      {
+        key: "F1",
+        allowInInputs: true,
+        handler: () => {
+          if (!podeAcessarRapido || quickView) return;
+          flashHotkey("F1");
+          setQuickView("produtos");
+        },
+      },
+      {
+        key: "F2",
+        allowInInputs: true,
+        handler: () => {
+          if (!podeAcessarRapido || quickView) return;
+          flashHotkey("F2");
+          setQuickView("estoque");
+        },
+      },
+      {
+        key: "F3",
+        allowInInputs: true,
+        handler: () => {
+          if (!podeAcessarRapido || quickView) return;
+          flashHotkey("F3");
+          setQuickView("compras");
+        },
+      },
       {
         key: "F7",
         allowInInputs: true,
@@ -468,7 +505,7 @@ function PDVPage() {
       // Escopo "page": atalhos do PDV ficam suspensos automaticamente
       // enquanto qualquer modal (Finalizar, Sucesso, Scanner) estiver no
       // topo do stack. Os guards abaixo são redundância defensiva.
-      enabled: !finalizarOpen && !sucessoOpen && !scannerOpen,
+      enabled: !finalizarOpen && !sucessoOpen && !scannerOpen && !quickView,
       scope: "page",
     },
   );
@@ -627,6 +664,17 @@ function PDVPage() {
                 </span>
               </span>
               <span className="hidden items-center gap-1.5 sm:flex">
+                {podeAcessarRapido && (
+                  <>
+                    <PdvKbd flash={hotkeyFlash === "F1"}>F1</PdvKbd>
+                    <span>produtos</span>
+                    <PdvKbd flash={hotkeyFlash === "F2"}>F2</PdvKbd>
+                    <span>estoque</span>
+                    <PdvKbd flash={hotkeyFlash === "F3"}>F3</PdvKbd>
+                    <span>compras</span>
+                    <span className="mx-1 text-border">·</span>
+                  </>
+                )}
                 <PdvKbd flash={hotkeyFlash === "F7"}>F7</PdvKbd>
                 <span>nova</span>
                 <PdvKbd flash={hotkeyFlash === "F8"}>F8</PdvKbd>
@@ -640,7 +688,44 @@ function PDVPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {podeAcessarRapido && (
+            <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/30 px-1.5 py-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2.5"
+                onClick={() => setQuickView("produtos")}
+                title="Abrir Produtos (F1)"
+              >
+                <Package className="h-4 w-4" />
+                Produtos
+                <PdvKbd className="ml-0.5">F1</PdvKbd>
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2.5"
+                onClick={() => setQuickView("estoque")}
+                title="Abrir Estoque (F2)"
+              >
+                <Boxes className="h-4 w-4" />
+                Estoque
+                <PdvKbd className="ml-0.5">F2</PdvKbd>
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2.5"
+                onClick={() => setQuickView("compras")}
+                title="Abrir Compras (F3)"
+              >
+                <ShoppingCart className="h-4 w-4" />
+                Compras
+                <PdvKbd className="ml-0.5">F3</PdvKbd>
+              </Button>
+            </div>
+          )}
           <Popover open={clientePopoverOpen} onOpenChange={setClientePopoverOpen}>
             <PopoverTrigger asChild>
               <Button variant="outline" size="sm" className="gap-1.5">
@@ -1170,6 +1255,9 @@ function PDVPage() {
           setCliente(null);
         }}
       />
+
+      {/* Acesso rápido (modal) — Produtos / Estoque / Compras sem sair do PDV */}
+      <PdvQuickViewDialog view={quickView} onClose={() => setQuickView(null)} />
 
       {/* Fechamento de caixa (acionado por Voltar/Encerrar) */}
       {caixaAberto && (
