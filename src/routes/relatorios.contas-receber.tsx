@@ -570,32 +570,32 @@ function Conteudo() {
       {/* Indicadores */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard
-          title="A receber"
+          label="A receber"
           value={formatBRL(indicadores.totalSaldo)}
           icon={Wallet}
-          tone="warning"
-          subtitle={`${indicadores.qtdAbertas} título(s) aberto(s)`}
+          iconTone="warning"
+          hint={`${indicadores.qtdAbertas} título(s) aberto(s)`}
         />
         <StatCard
-          title="Recebido"
+          label="Recebido"
           value={formatBRL(indicadores.totalRecebido)}
           icon={CheckCircle2}
-          tone="success"
-          subtitle="Pagamentos no período"
+          iconTone="success"
+          hint="Pagamentos no período"
         />
         <StatCard
-          title="Vencidos"
+          label="Vencidos"
           value={formatBRL(indicadores.saldoVencido)}
           icon={AlertTriangle}
-          tone="danger"
-          subtitle={`${indicadores.qtdVencidas} título(s)`}
+          iconTone="danger"
+          hint={`${indicadores.qtdVencidas} título(s)`}
         />
         <StatCard
-          title="Total emitido"
+          label="Total emitido"
           value={formatBRL(indicadores.totalOriginal)}
           icon={HandCoins}
-          tone="info"
-          subtitle={`${filtradas.length} lançamento(s)`}
+          iconTone="info"
+          hint={`${filtradas.length} lançamento(s)`}
         />
       </div>
 
