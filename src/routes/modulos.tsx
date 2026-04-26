@@ -1,10 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
+  ArrowDown,
   Check,
   Clock,
   Crown,
+  Info,
   Loader2,
   Lock,
+  Package,
   Puzzle,
   Sparkles,
 } from "lucide-react";
