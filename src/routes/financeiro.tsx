@@ -228,10 +228,12 @@ function LancamentosTable({
   items,
   loading,
   emptyMsg,
+  onSelect,
 }: {
   items: Lancamento[];
   loading: boolean;
   emptyMsg: string;
+  onSelect?: (l: Lancamento) => void;
 }) {
   return (
     <Card>
@@ -260,7 +262,11 @@ function LancamentosTable({
               </TableRow>
             ) : (
               items.map((i) => (
-                <TableRow key={i.id}>
+                <TableRow
+                  key={i.id}
+                  onClick={() => onSelect?.(i)}
+                  className={onSelect ? "cursor-pointer transition-colors hover:bg-muted/50" : undefined}
+                >
                   <TableCell className="font-medium">{i.descricao}</TableCell>
                   <TableCell className="text-muted-foreground">{formatDate(i.data_vencimento)}</TableCell>
                   <TableCell className="text-right font-medium">{formatBRL(Number(i.valor))}</TableCell>
