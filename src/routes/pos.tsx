@@ -19,6 +19,7 @@ import { useCaixaAberto, useCaixaResumo } from "@/hooks/useCaixa";
 import { AbrirCaixaDialog } from "@/components/caixa/AbrirCaixaDialog";
 import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
 import { useMode } from "@/components/modes/ModeProvider";
+import { useTerminalHeartbeat } from "@/hooks/useTerminalHeartbeat";
 
 export const Route = createFileRoute("/pos")({
   head: () => ({
@@ -47,6 +48,8 @@ function PosModoGuard() {
 function PosShell() {
   const { operador } = useOperador();
   const { terminal } = useTerminal();
+  // Heartbeat: marca este terminal como online enquanto o PDV estiver aberto.
+  useTerminalHeartbeat();
 
   if (!terminal) {
     return <PosTerminalScreen />;
