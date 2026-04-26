@@ -140,6 +140,16 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
   const [pagamentoOpen, setPagamentoOpen] = useState(false);
   const [pagamentoModoTotal, setPagamentoModoTotal] = useState(false);
 
+  // owner_id atual (usuário autenticado) para inserção do pagamento
+  const { data: ownerId = "" } = useQuery({
+    queryKey: ["auth_uid"],
+    queryFn: async () => {
+      const { data } = await supabase.auth.getUser();
+      return data.user?.id ?? "";
+    },
+    staleTime: 60_000,
+  });
+
   // Carrega histórico de pagamentos do título
   const { data: pagamentos = [] } = useQuery({
     queryKey: ["lancamento_pagamentos", lancamento?.id],
