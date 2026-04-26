@@ -1,6 +1,22 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { ArrowDownToLine, ArrowUpFromLine, Plus, TrendingUp } from "lucide-react";
+import {
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Plus,
+  TrendingUp,
+  ShoppingCart,
+  Package,
+  Wallet,
+  Clock,
+  AlertTriangle,
+  Receipt,
+  HandCoins,
+  UtensilsCrossed,
+  Download,
+  FileText,
+  Sheet as SheetIcon,
+} from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
@@ -8,6 +24,12 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -34,7 +56,17 @@ import {
   type LancamentoDetalhe,
 } from "@/components/financeiro/LancamentoDetalheDialog";
 import { ConciliarIfoodDialog } from "@/components/financeiro/ConciliarIfoodDialog";
-import { Receipt } from "lucide-react";
+import {
+  BlocoDetalheDialog,
+  type DetalheColumn,
+  type DetalheRow,
+} from "@/components/financeiro/BlocoDetalheDialog";
+import { useFinanceiroIndicadores } from "@/hooks/useFinanceiroIndicadores";
+import {
+  exportarBlocoCSV,
+  exportarBlocoPDF,
+} from "@/lib/export-bloco";
+
 
 type FinTab = "receber" | "pagar" | "fluxo";
 
