@@ -1119,21 +1119,28 @@ function FluxoCaixaPanel() {
   const totais = useMemo(() => {
     let entradas = 0;
     let saidas = 0;
+    let fundoAberturas = 0; // valor inicial colocado nos caixas (operacional)
     for (const r of rows) {
-      if (r.tipo === "fechamento") continue; // informativo
+      if (r.operacional) {
+        // Apenas soma o valor das aberturas para exibir como "Fundo de caixa".
+        // Fechamento é informativo e não entra em nenhum total.
+        if (r.tipo === "abertura") fundoAberturas += Math.abs(r.valor);
+        continue;
+      }
       if (r.valor >= 0) entradas += r.valor;
       else saidas += Math.abs(r.valor);
     }
-    return { entradas, saidas, saldo: entradas - saidas };
+    return { entradas, saidas, saldo: entradas - saidas, fundoAberturas };
   }, [rows]);
 
-  // Saldo acumulado (a partir do mais antigo).
+  // Saldo acumulado REAL (financeiro): ignora abertura e fechamento.
+  // Reflete apenas entradas e saídas reais do período.
   const rowsComSaldo = useMemo(() => {
     const ordenadas = [...rows].sort((a, b) => (a.data < b.data ? -1 : 1));
     let acc = 0;
     const map = new Map<string, number>();
     for (const r of ordenadas) {
-      if (r.tipo !== "fechamento") acc += r.valor;
+      if (!r.operacional) acc += r.valor;
       map.set(r.id, acc);
     }
     return rows.map((r) => ({ ...r, saldoAcumulado: map.get(r.id) ?? 0 }));
