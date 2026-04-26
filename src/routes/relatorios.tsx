@@ -11,6 +11,7 @@ import {
   Loader2,
   CircleDollarSign,
   PiggyBank,
+  HandCoins,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useState } from "react";
