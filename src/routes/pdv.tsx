@@ -664,6 +664,17 @@ function PDVPage() {
                 </span>
               </span>
               <span className="hidden items-center gap-1.5 sm:flex">
+                {podeAcessarRapido && (
+                  <>
+                    <PdvKbd flash={hotkeyFlash === "F1"}>F1</PdvKbd>
+                    <span>produtos</span>
+                    <PdvKbd flash={hotkeyFlash === "F2"}>F2</PdvKbd>
+                    <span>estoque</span>
+                    <PdvKbd flash={hotkeyFlash === "F3"}>F3</PdvKbd>
+                    <span>compras</span>
+                    <span className="mx-1 text-border">·</span>
+                  </>
+                )}
                 <PdvKbd flash={hotkeyFlash === "F7"}>F7</PdvKbd>
                 <span>nova</span>
                 <PdvKbd flash={hotkeyFlash === "F8"}>F8</PdvKbd>
