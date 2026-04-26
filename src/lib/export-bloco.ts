@@ -1,7 +1,7 @@
 // Exportação de blocos financeiros em PDF, PNG ou CSV.
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import html2canvas from "html2canvas";
+import { toPng } from "html-to-image";
 import { exportRowsToCSV, type CsvColumn } from "@/lib/export-csv";
 
 function tsFilename(prefix: string, ext: string): string {
