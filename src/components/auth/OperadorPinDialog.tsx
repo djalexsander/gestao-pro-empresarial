@@ -38,6 +38,42 @@ export function OperadorPinSelector({ onSuccess }: Props) {
     }
   }
 
+  // Captura teclado físico (numérico/normal) quando operador já foi selecionado
+  useEffect(() => {
+    if (!selecionado || busy) return;
+
+    const handler = (e: KeyboardEvent) => {
+      // Ignora se o usuário estiver digitando em outro input
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.key >= "0" && e.key <= "9") {
+        e.preventDefault();
+        setPin((prev) => (prev.length < 6 ? prev + e.key : prev));
+      } else if (e.key === "Backspace") {
+        e.preventDefault();
+        setPin((prev) => prev.slice(0, -1));
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        void confirmar();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        setPin("");
+      }
+    };
+
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selecionado, busy, pin]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
