@@ -182,6 +182,39 @@ export function ConciliarIfoodDialog({
     });
   };
 
+  const podeConfirmar =
+    !conciliar.isPending &&
+    !valorMaiorQueBruto &&
+    valorRepasseNum > 0 &&
+    !!dataRepasse &&
+    (mode !== "lote" || selecionados.size > 0);
+
+  // Atalhos: Enter confirma, Esc fecha. Funciona mesmo com foco em inputs.
+  useHotkeys(
+    [
+      {
+        key: "Enter",
+        allowInInputs: true,
+        handler: (e) => {
+          const active = document.activeElement as HTMLElement | null;
+          // Permite quebra de linha no textarea de observação
+          if (active && active.tagName === "TEXTAREA") return;
+          if (!podeConfirmar) return;
+          e.preventDefault();
+          conciliar.mutate();
+        },
+      },
+      {
+        key: "Escape",
+        allowInInputs: true,
+        handler: () => {
+          if (!conciliar.isPending) onOpenChange(false);
+        },
+      },
+    ],
+    { enabled: open, scope: "modal" },
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[90vh] flex-col sm:max-w-2xl">
