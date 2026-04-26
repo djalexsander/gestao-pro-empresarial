@@ -1,10 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
+  ArrowDown,
   Check,
   Clock,
   Crown,
+  Info,
   Loader2,
   Lock,
+  Package,
   Puzzle,
   Sparkles,
 } from "lucide-react";
@@ -94,25 +97,34 @@ function MeuPlanoPage() {
     <div className="space-y-8">
       <PageHeader
         title="Meu Plano"
-        description="Visão completa do seu plano atual, módulos ativos e funcionalidades adicionais disponíveis."
+        description="Plano Base e módulos adicionais contratados pela sua empresa."
       />
 
       {/* === Card do plano atual === */}
       {loadingAssin || loadingPlanos ? (
-        <Skeleton className="h-[220px] rounded-xl" />
+        <Skeleton className="h-[260px] rounded-xl" />
       ) : (
         <PlanoAtualCard plano={planoAtual} assinatura={assinatura} />
       )}
 
+      {/* === Resumo visual do acesso === */}
+      {!loadingAssin && !loadingMods && (
+        <ResumoAcessoCard
+          temPlano={!!planoAtual}
+          qtdModulos={modulosAtivos.filter((m) => m.status === "ativo").length}
+        />
+      )}
+
       {/* === Módulos ativos === */}
       <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
-            <h2 className="text-xl font-semibold tracking-tight">
-              Módulos ativos
+            <h2 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
+              <Puzzle className="h-5 w-5 text-primary" />
+              Módulos adicionais ativos
             </h2>
             <p className="text-sm text-muted-foreground">
-              Funcionalidades já liberadas para sua empresa.
+              Funcionalidades extras contratadas além do Plano Base.
             </p>
           </div>
           {!loadingMods && (
@@ -129,30 +141,69 @@ function MeuPlanoPage() {
             ))}
           </div>
         ) : modulosAtivos.length === 0 ? (
-          <Card>
-            <CardContent className="py-8 text-center text-sm text-muted-foreground">
-              Nenhum módulo ativo no momento.
+          <Card className="border-dashed">
+            <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
+              <Package className="h-8 w-8 text-muted-foreground/60" />
+              <div>
+                <p className="text-sm font-medium">
+                  Nenhum módulo adicional ativo
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Você está usando apenas as funcionalidades essenciais do Plano
+                  Base. Contrate módulos abaixo para expandir seu sistema.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  document
+                    .getElementById("modulos-disponiveis")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+              >
+                <ArrowDown className="mr-2 h-4 w-4" />
+                Ver módulos disponíveis
+              </Button>
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {modulosAtivos.map((m) => (
-              <ModuloCard key={m.id} modulo={m} />
-            ))}
-          </div>
+          <>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {modulosAtivos.map((m) => (
+                <ModuloCard key={m.id} modulo={m} />
+              ))}
+            </div>
+            <div className="flex justify-end pt-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  document
+                    .getElementById("modulos-disponiveis")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                Adicionar mais módulos
+              </Button>
+            </div>
+          </>
         )}
       </section>
 
       <Separator />
 
       {/* === Módulos disponíveis para contratação === */}
-      <section className="space-y-3">
+      <section id="modulos-disponiveis" className="space-y-3 scroll-mt-20">
         <div>
-          <h2 className="text-xl font-semibold tracking-tight">
+          <h2 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
+            <Sparkles className="h-5 w-5 text-primary" />
             Módulos disponíveis para contratação
           </h2>
           <p className="text-sm text-muted-foreground">
-            Adicione funcionalidades extras conforme sua necessidade.
+            Expanda seu sistema com funcionalidades extras. Cada módulo é
+            cobrado separadamente do Plano Base.
           </p>
         </div>
 
@@ -294,12 +345,12 @@ function PlanoAtualCard({
             <Separator />
             <div>
               <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Benefícios incluídos
+                O que está incluído no Plano Base
               </p>
               <ul className="grid gap-2 text-sm sm:grid-cols-2">
                 <li className="flex items-start gap-2">
                   <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-                  <span>Acesso completo ao ERP</span>
+                  <span>Acesso às funcionalidades essenciais do sistema</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
@@ -322,6 +373,16 @@ function PlanoAtualCard({
                   <span>Suporte por e-mail</span>
                 </li>
               </ul>
+              <div className="mt-3 flex items-start gap-2 rounded-md border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                <span>
+                  <strong className="text-foreground">
+                    Módulos adicionais
+                  </strong>{" "}
+                  (como Financeiro, Relatórios avançados e outros) são
+                  contratados separadamente do Plano Base.
+                </span>
+              </div>
             </div>
           </>
         )}
@@ -329,9 +390,72 @@ function PlanoAtualCard({
         {assinatura?.readonly && (
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
             Sua assinatura está em modo somente leitura. Regularize o pagamento
-            para liberar o ERP completo.
+            para liberar o sistema novamente.
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/* =========================================================
+ * Resumo visual do acesso (Plano Base + módulos)
+ * =======================================================*/
+function ResumoAcessoCard({
+  temPlano,
+  qtdModulos,
+}: {
+  temPlano: boolean;
+  qtdModulos: number;
+}) {
+  return (
+    <Card className="border-primary/20 bg-muted/30">
+      <CardContent className="flex flex-wrap items-center justify-between gap-4 py-4">
+        <div className="flex items-center gap-4">
+          <div className="rounded-full bg-primary/10 p-2">
+            <Check className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">
+              Seu acesso atual inclui
+            </p>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
+              <Badge
+                variant={temPlano ? "default" : "outline"}
+                className="gap-1"
+              >
+                {temPlano ? (
+                  <Check className="h-3 w-3" />
+                ) : (
+                  <Lock className="h-3 w-3" />
+                )}
+                Plano Base
+              </Badge>
+              <span className="text-muted-foreground">+</span>
+              <Badge
+                variant={qtdModulos > 0 ? "default" : "secondary"}
+                className="gap-1"
+              >
+                <Puzzle className="h-3 w-3" />
+                {qtdModulos === 0
+                  ? "Nenhum módulo adicional"
+                  : `${qtdModulos} módulo(s) ativo(s)`}
+              </Badge>
+            </div>
+          </div>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            document
+              .getElementById("modulos-disponiveis")
+              ?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }}
+        >
+          <Sparkles className="mr-2 h-4 w-4" />
+          Gerenciar módulos
+        </Button>
       </CardContent>
     </Card>
   );
