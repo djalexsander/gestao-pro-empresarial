@@ -896,6 +896,8 @@ export type Database = {
           categoria_id: string | null
           cliente_id: string | null
           compra_id: string | null
+          conciliado_em: string | null
+          conciliado_por: string | null
           created_at: string
           data_emissao: string
           data_pagamento: string | null
@@ -905,15 +907,20 @@ export type Database = {
           fornecedor_id: string | null
           id: string
           numero_documento: string | null
+          numero_repasse: string | null
+          observacao_repasse: string | null
           observacoes: string | null
           owner_id: string
           parcela_numero: number | null
           parcela_total: number | null
+          repasse_id: string | null
           status: Database["public"]["Enums"]["lancamento_status"]
+          taxa_repasse: number | null
           tipo: Database["public"]["Enums"]["lancamento_tipo"]
           updated_at: string
           valor: number
           valor_pago: number
+          valor_repasse: number | null
           venda_id: string | null
         }
         Insert: {
@@ -921,6 +928,8 @@ export type Database = {
           categoria_id?: string | null
           cliente_id?: string | null
           compra_id?: string | null
+          conciliado_em?: string | null
+          conciliado_por?: string | null
           created_at?: string
           data_emissao?: string
           data_pagamento?: string | null
@@ -932,15 +941,20 @@ export type Database = {
           fornecedor_id?: string | null
           id?: string
           numero_documento?: string | null
+          numero_repasse?: string | null
+          observacao_repasse?: string | null
           observacoes?: string | null
           owner_id: string
           parcela_numero?: number | null
           parcela_total?: number | null
+          repasse_id?: string | null
           status?: Database["public"]["Enums"]["lancamento_status"]
+          taxa_repasse?: number | null
           tipo: Database["public"]["Enums"]["lancamento_tipo"]
           updated_at?: string
           valor: number
           valor_pago?: number
+          valor_repasse?: number | null
           venda_id?: string | null
         }
         Update: {
@@ -948,6 +962,8 @@ export type Database = {
           categoria_id?: string | null
           cliente_id?: string | null
           compra_id?: string | null
+          conciliado_em?: string | null
+          conciliado_por?: string | null
           created_at?: string
           data_emissao?: string
           data_pagamento?: string | null
@@ -959,15 +975,20 @@ export type Database = {
           fornecedor_id?: string | null
           id?: string
           numero_documento?: string | null
+          numero_repasse?: string | null
+          observacao_repasse?: string | null
           observacoes?: string | null
           owner_id?: string
           parcela_numero?: number | null
           parcela_total?: number | null
+          repasse_id?: string | null
           status?: Database["public"]["Enums"]["lancamento_status"]
+          taxa_repasse?: number | null
           tipo?: Database["public"]["Enums"]["lancamento_tipo"]
           updated_at?: string
           valor?: number
           valor_pago?: number
+          valor_repasse?: number | null
           venda_id?: string | null
         }
         Relationships: [
@@ -1123,6 +1144,51 @@ export type Database = {
           role?: Database["public"]["Enums"]["app_role"]
           ultimo_acesso?: string | null
           updated_at?: string
+        }
+        Relationships: []
+      }
+      ifood_repasses: {
+        Row: {
+          conciliado_por: string | null
+          created_at: string
+          data_repasse: string
+          id: string
+          numero_repasse: string | null
+          observacao: string | null
+          owner_id: string
+          qtd_lancamentos: number
+          taxa_total: number
+          updated_at: string
+          valor_bruto: number
+          valor_liquido: number
+        }
+        Insert: {
+          conciliado_por?: string | null
+          created_at?: string
+          data_repasse: string
+          id?: string
+          numero_repasse?: string | null
+          observacao?: string | null
+          owner_id: string
+          qtd_lancamentos?: number
+          taxa_total?: number
+          updated_at?: string
+          valor_bruto?: number
+          valor_liquido?: number
+        }
+        Update: {
+          conciliado_por?: string | null
+          created_at?: string
+          data_repasse?: string
+          id?: string
+          numero_repasse?: string | null
+          observacao?: string | null
+          owner_id?: string
+          qtd_lancamentos?: number
+          taxa_total?: number
+          updated_at?: string
+          valor_bruto?: number
+          valor_liquido?: number
         }
         Relationships: []
       }
@@ -2306,6 +2372,26 @@ export type Database = {
           ultima_venda: string
           valor_total: number
         }[]
+      }
+      conciliar_ifood_lancamento: {
+        Args: {
+          _data_repasse: string
+          _lancamento_id: string
+          _numero_repasse?: string
+          _observacao?: string
+          _valor_repasse: number
+        }
+        Returns: string
+      }
+      conciliar_ifood_lote: {
+        Args: {
+          _data_repasse: string
+          _lancamento_ids: string[]
+          _numero_repasse?: string
+          _observacao?: string
+          _valor_repasse_total: number
+        }
+        Returns: string
       }
       current_empresa_id: { Args: never; Returns: string }
       excluir_caixa: { Args: { _caixa_id: string }; Returns: Json }
