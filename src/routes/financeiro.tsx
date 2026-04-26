@@ -216,11 +216,7 @@ function FinanceContent() {
         </TabsContent>
 
         <TabsContent value="fluxo" className="mt-4">
-          <Card>
-            <CardContent className="p-8 text-center text-muted-foreground">
-              <p className="text-sm">Visualização de fluxo de caixa em construção.</p>
-            </CardContent>
-          </Card>
+          <FluxoCaixaPanel />
         </TabsContent>
       </Tabs>
 
