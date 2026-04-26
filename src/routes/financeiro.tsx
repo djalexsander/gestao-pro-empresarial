@@ -189,11 +189,21 @@ function FinanceContent() {
         </TabsList>
 
         <TabsContent value="receber" className="mt-4">
-          <LancamentosTable items={receber} loading={isLoading} emptyMsg="Nenhuma conta a receber." />
+          <LancamentosTable
+            items={receber}
+            loading={isLoading}
+            emptyMsg="Nenhuma conta a receber."
+            onSelect={setSelected}
+          />
         </TabsContent>
 
         <TabsContent value="pagar" className="mt-4">
-          <LancamentosTable items={pagar} loading={isLoading} emptyMsg="Nenhuma conta a pagar." />
+          <LancamentosTable
+            items={pagar}
+            loading={isLoading}
+            emptyMsg="Nenhuma conta a pagar."
+            onSelect={setSelected}
+          />
         </TabsContent>
 
         <TabsContent value="fluxo" className="mt-4">
@@ -204,6 +214,12 @@ function FinanceContent() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <LancamentoDetalheDialog
+        open={!!selected}
+        onOpenChange={(o) => !o && setSelected(null)}
+        lancamento={selected}
+      />
     </div>
   );
 }
