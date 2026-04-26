@@ -74,16 +74,58 @@ function FinanceContent() {
   const { tab } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   const activeTab: FinTab = tab ?? "receber";
+  const [selected, setSelected] = useState<Lancamento | null>(null);
 
   const { data: lancamentos = [], isLoading } = useQuery({
     queryKey: ["financeiro_lancamentos"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("financeiro_lancamentos")
-        .select("id, descricao, valor, valor_pago, data_vencimento, data_pagamento, tipo, status")
+        .select(
+          `id, descricao, valor, valor_pago, data_vencimento, data_pagamento, data_emissao,
+           tipo, status, observacoes, numero_documento, forma_pagamento, created_at,
+           fornecedor:fornecedores(razao_social, nome_fantasia),
+           cliente:clientes(nome),
+           categoria:categorias_financeiras(nome)`,
+        )
         .order("data_vencimento", { ascending: true });
       if (error) throw error;
-      return (data ?? []) as Lancamento[];
+      type Row = {
+        id: string;
+        descricao: string;
+        valor: number;
+        valor_pago: number | null;
+        data_vencimento: string;
+        data_pagamento: string | null;
+        data_emissao: string | null;
+        tipo: "receber" | "pagar";
+        status: Lancamento["status"];
+        observacoes: string | null;
+        numero_documento: string | null;
+        forma_pagamento: string | null;
+        created_at: string | null;
+        fornecedor: { razao_social: string | null; nome_fantasia: string | null } | null;
+        cliente: { nome: string | null } | null;
+        categoria: { nome: string | null } | null;
+      };
+      return ((data ?? []) as Row[]).map<Lancamento>((r) => ({
+        id: r.id,
+        descricao: r.descricao,
+        valor: r.valor,
+        valor_pago: r.valor_pago,
+        data_vencimento: r.data_vencimento,
+        data_pagamento: r.data_pagamento,
+        data_emissao: r.data_emissao,
+        tipo: r.tipo,
+        status: r.status,
+        observacoes: r.observacoes,
+        numero_documento: r.numero_documento,
+        forma_pagamento: r.forma_pagamento,
+        created_at: r.created_at,
+        fornecedor_nome: r.fornecedor?.nome_fantasia ?? r.fornecedor?.razao_social ?? null,
+        cliente_nome: r.cliente?.nome ?? null,
+        categoria_nome: r.categoria?.nome ?? null,
+      }));
     },
   });
 
