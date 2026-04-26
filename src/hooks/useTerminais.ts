@@ -12,6 +12,19 @@ export interface Terminal {
   ultimo_uso: string | null;
   caixa_aberto_id: string | null;
   created_at: string;
+  papel: "servidor" | "terminal";
+  heartbeat_at: string | null;
+  operador_atual_id: string | null;
+  operador_atual_nome: string | null;
+  user_agent: string | null;
+  ip_local: string | null;
+}
+
+/** Considera online se o último heartbeat foi há menos de 90s. */
+export function isTerminalOnline(t: Pick<Terminal, "heartbeat_at">): boolean {
+  if (!t.heartbeat_at) return false;
+  const diff = Date.now() - new Date(t.heartbeat_at).getTime();
+  return diff < 90_000;
 }
 
 export function useTerminais() {
@@ -23,7 +36,8 @@ export function useTerminais() {
       if (error) throw error;
       return (data ?? []) as Terminal[];
     },
-    staleTime: 30_000,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
   });
 }
 
@@ -143,6 +157,25 @@ export function useGerarTokenTerminal() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["terminais"] });
       toast.success("Token gerado.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+/** Promove um terminal a "Servidor principal" (rebaixa o anterior). */
+export function useDefinirServidor() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabase as any).rpc("terminal_definir_servidor", {
+        _terminal_id: id,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["terminais"] });
+      toast.success("Servidor principal definido.");
     },
     onError: (e: Error) => toast.error(e.message),
   });
