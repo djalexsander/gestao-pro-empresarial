@@ -86,7 +86,12 @@ export function RegistrarPagamentoDialog({
   const salvar = useMutation({
     mutationFn: async () => {
       const { data: u } = await supabase.auth.getUser();
-      const { error } = await supabase.from("lancamento_pagamentos").insert({
+      // Tabela nova; types ainda não regenerados → cast controlado
+      const { error } = await (supabase.from as unknown as (
+        t: string,
+      ) => {
+        insert: (rows: Record<string, unknown>) => Promise<{ error: { message: string } | null }>;
+      })("lancamento_pagamentos").insert({
         owner_id: ownerId,
         lancamento_id: lancamentoId,
         valor: valorNum,
@@ -95,7 +100,7 @@ export function RegistrarPagamentoDialog({
         observacao: obs.trim() || null,
         registrado_por: u.user?.id ?? null,
       });
-      if (error) throw error;
+      if (error) throw new Error(error.message);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["financeiro_lancamentos"] });
