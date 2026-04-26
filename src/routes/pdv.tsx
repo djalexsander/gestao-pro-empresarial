@@ -507,6 +507,14 @@ function PDVPage() {
         },
       },
       {
+        key: "F4",
+        allowInInputs: true,
+        handler: () => {
+          flashHotkey("F4");
+          abrirOuFocarBuscaCliente();
+        },
+      },
+      {
         key: "F9",
         allowInInputs: true,
         handler: () => {
