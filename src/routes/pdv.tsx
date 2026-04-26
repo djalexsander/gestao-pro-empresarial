@@ -788,6 +788,7 @@ function PDVPage() {
                 </label>
                 <div className="flex items-center gap-2">
                   <Input
+                    ref={docQueryInputRef}
                     value={docQuery}
                     onChange={(e) =>
                       setDocQuery(maskDocumentoProgressivo(e.target.value))
@@ -796,11 +797,24 @@ function PDVPage() {
                       if (e.key === "Enter") {
                         e.preventDefault();
                         handleSelecionarPorDoc();
+                        return;
+                      }
+                      if (e.key === "ArrowDown") {
+                        // Move foco para a opção de cadastro quando aplicável.
+                        const target =
+                          docInfo.valido && !matchLocalPorDoc
+                            ? cadastrarComDocBtnRef.current
+                            : cadastrarNovoBtnRef.current;
+                        if (target) {
+                          e.preventDefault();
+                          target.focus();
+                        }
                       }
                     }}
                     placeholder="000.000.000-00"
                     inputMode="numeric"
                     autoComplete="off"
+                    aria-label="Buscar cliente por CPF ou CNPJ"
                     className={cn(
                       "h-9 font-mono text-sm",
                       docInfo.tipo && !docInfo.valido &&
@@ -851,11 +865,21 @@ function PDVPage() {
                 )}
                 {docInfo.valido && !matchLocalPorDoc && (
                   <Button
+                    ref={cadastrarComDocBtnRef}
                     type="button"
-                    variant="outline"
+                    variant={docBuscaSemResultado ? "default" : "outline"}
                     size="sm"
-                    className="w-full justify-start gap-2"
+                    className={cn(
+                      "w-full justify-start gap-2 focus-visible:ring-2 focus-visible:ring-primary",
+                      docBuscaSemResultado && "ring-2 ring-primary ring-offset-1",
+                    )}
                     onClick={handleCadastrarComDoc}
+                    onKeyDown={(e) => {
+                      if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        docQueryInputRef.current?.focus();
+                      }
+                    }}
                   >
                     <UserPlus className="h-4 w-4" />
                     Cadastrar com este {docInfo.tipo}
