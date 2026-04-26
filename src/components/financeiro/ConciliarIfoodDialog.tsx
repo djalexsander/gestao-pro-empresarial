@@ -186,7 +186,7 @@ export function ConciliarIfoodDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="flex max-h-[90vh] flex-col sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Receipt className="h-5 w-5" />
@@ -199,7 +199,7 @@ export function ConciliarIfoodDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="flex-1 space-y-4 overflow-y-auto pr-1">
           {mode === "lote" && (
             <div className="rounded-md border border-border">
               <ScrollArea className="h-[260px]">
