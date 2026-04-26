@@ -1256,6 +1256,9 @@ function PDVPage() {
         }}
       />
 
+      {/* Acesso rápido (modal) — Produtos / Estoque / Compras sem sair do PDV */}
+      <PdvQuickViewDialog view={quickView} onClose={() => setQuickView(null)} />
+
       {/* Fechamento de caixa (acionado por Voltar/Encerrar) */}
       {caixaAberto && (
         <FecharCaixaDialog
