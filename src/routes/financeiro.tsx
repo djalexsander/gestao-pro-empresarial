@@ -1179,25 +1179,43 @@ function FluxoCaixaPanel() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          label="Entradas no período"
+          label="Entradas reais"
           value={formatBRL(totais.entradas)}
           icon={ArrowDownToLine}
           iconTone="success"
+          hint="Vendas, suprimentos e recebimentos"
         />
         <StatCard
-          label="Saídas no período"
+          label="Saídas reais"
           value={formatBRL(totais.saidas)}
           icon={ArrowUpFromLine}
           iconTone="warning"
+          hint="Sangrias e despesas pagas"
         />
         <StatCard
-          label="Saldo do período"
+          label="Resultado do período"
           value={formatBRL(totais.saldo)}
           icon={TrendingUp}
           iconTone={totais.saldo >= 0 ? "success" : "danger"}
+          hint="Entradas − Saídas (sem fundo)"
         />
+        <StatCard
+          label="Fundo de caixa"
+          value={formatBRL(totais.fundoAberturas)}
+          icon={Wallet}
+          iconTone="info"
+          hint="Aberturas — operacional, não é receita"
+        />
+      </div>
+
+      <div className="rounded-md border border-dashed border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground">
+        <strong className="text-foreground">Como ler:</strong> abertura e
+        fechamento de caixa são <em>movimentos operacionais</em> (fundo de
+        troco / encerramento). Eles aparecem no extrato como referência, mas{" "}
+        <strong>não entram</strong> nas entradas, saídas, resultado nem no
+        saldo acumulado real do período.
       </div>
 
       {porForma.length > 0 && (
