@@ -91,6 +91,7 @@ function Field({ icon: Icon, label, children }: { icon: typeof Calendar; label: 
 
 export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Props) {
   const qc = useQueryClient();
+  const [conciliarOpen, setConciliarOpen] = useState(false);
 
   const updateStatus = useMutation({
     mutationFn: async (novoStatus: "pago" | "recebido" | "cancelado") => {
@@ -132,105 +133,179 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
     lancamento.status === "pago" ||
     lancamento.status === "recebido" ||
     lancamento.status === "cancelado";
+  const isIfoodPendente =
+    lancamento.forma_pagamento === "ifood" &&
+    !jaResolvido &&
+    lancamento.tipo === "receber";
+  const temAuditoriaRepasse = !!lancamento.conciliado_em;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="flex items-center justify-between gap-3">
-            <span className="truncate">{lancamento.descricao}</span>
-            <StatusBadge status={info.label} tone={info.tone} />
-          </DialogTitle>
-          <DialogDescription>
-            {isPagar ? "Conta a pagar" : "Conta a receber"} • {formatBRL(Number(lancamento.valor))}
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center justify-between gap-3">
+              <span className="truncate">{lancamento.descricao}</span>
+              <StatusBadge status={info.label} tone={info.tone} />
+            </DialogTitle>
+            <DialogDescription>
+              {isPagar ? "Conta a pagar" : "Conta a receber"} • {formatBRL(Number(lancamento.valor))}
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="space-y-4 py-2">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field icon={Wallet} label="Valor">
-              <span className="text-base font-semibold">{formatBRL(Number(lancamento.valor))}</span>
-            </Field>
-            <Field icon={Calendar} label="Vencimento">
-              {formatDate(lancamento.data_vencimento)}
-            </Field>
-            <Field icon={Calendar} label="Emissão">
-              {formatDate(lancamento.data_emissao ?? null)}
-            </Field>
-            <Field icon={CheckCircle2} label="Pagamento">
-              {formatDate(lancamento.data_pagamento)}
-            </Field>
-            {(lancamento.fornecedor_nome || lancamento.cliente_nome) && (
-              <Field icon={User} label={isPagar ? "Fornecedor" : "Cliente"}>
-                {lancamento.fornecedor_nome ?? lancamento.cliente_nome ?? "—"}
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field icon={Wallet} label="Valor">
+                <span className="text-base font-semibold">{formatBRL(Number(lancamento.valor))}</span>
               </Field>
+              <Field icon={Calendar} label="Vencimento">
+                {formatDate(lancamento.data_vencimento)}
+              </Field>
+              <Field icon={Calendar} label="Emissão">
+                {formatDate(lancamento.data_emissao ?? null)}
+              </Field>
+              <Field icon={CheckCircle2} label="Pagamento">
+                {formatDate(lancamento.data_pagamento)}
+              </Field>
+              {(lancamento.fornecedor_nome || lancamento.cliente_nome) && (
+                <Field icon={User} label={isPagar ? "Fornecedor" : "Cliente"}>
+                  {lancamento.fornecedor_nome ?? lancamento.cliente_nome ?? "—"}
+                </Field>
+              )}
+              {lancamento.categoria_nome && (
+                <Field icon={Tag} label="Categoria">
+                  {lancamento.categoria_nome}
+                </Field>
+              )}
+              {lancamento.forma_pagamento && (
+                <Field icon={Wallet} label="Forma">
+                  {lancamento.forma_pagamento}
+                </Field>
+              )}
+              {lancamento.numero_documento && (
+                <Field icon={FileText} label="Documento">
+                  {lancamento.numero_documento}
+                </Field>
+              )}
+              {lancamento.created_at && (
+                <Field icon={Clock} label="Criado em">
+                  {formatDate(lancamento.created_at)}
+                </Field>
+              )}
+            </div>
+
+            {temAuditoriaRepasse && (
+              <>
+                <Separator />
+                <div className="rounded-md border border-success/30 bg-success/5 p-3">
+                  <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-success">
+                    <Receipt className="h-3.5 w-3.5" />
+                    Repasse iFood conciliado
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <p className="text-muted-foreground">Conciliado em</p>
+                      <p className="font-medium">
+                        {lancamento.conciliado_em
+                          ? new Date(lancamento.conciliado_em).toLocaleString("pt-BR")
+                          : "—"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Valor recebido</p>
+                      <p className="font-mono font-semibold tabular-nums">
+                        {formatBRL(Number(lancamento.valor_repasse ?? 0))}
+                      </p>
+                    </div>
+                    {Number(lancamento.taxa_repasse ?? 0) > 0 && (
+                      <div>
+                        <p className="text-muted-foreground">Taxa iFood</p>
+                        <p className="font-mono font-semibold tabular-nums text-warning">
+                          {formatBRL(Number(lancamento.taxa_repasse))}
+                        </p>
+                      </div>
+                    )}
+                    {lancamento.numero_repasse && (
+                      <div>
+                        <p className="text-muted-foreground">Nº do repasse</p>
+                        <p className="font-medium">{lancamento.numero_repasse}</p>
+                      </div>
+                    )}
+                  </div>
+                  {lancamento.observacao_repasse && (
+                    <p className="mt-2 whitespace-pre-wrap border-t border-success/20 pt-2 text-xs text-foreground">
+                      {lancamento.observacao_repasse}
+                    </p>
+                  )}
+                </div>
+              </>
             )}
-            {lancamento.categoria_nome && (
-              <Field icon={Tag} label="Categoria">
-                {lancamento.categoria_nome}
-              </Field>
-            )}
-            {lancamento.forma_pagamento && (
-              <Field icon={Wallet} label="Forma">
-                {lancamento.forma_pagamento}
-              </Field>
-            )}
-            {lancamento.numero_documento && (
-              <Field icon={FileText} label="Documento">
-                {lancamento.numero_documento}
-              </Field>
-            )}
-            {lancamento.created_at && (
-              <Field icon={Clock} label="Criado em">
-                {formatDate(lancamento.created_at)}
-              </Field>
+
+            {lancamento.observacoes && (
+              <>
+                <Separator />
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Observações</p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">
+                    {lancamento.observacoes}
+                  </p>
+                </div>
+              </>
             )}
           </div>
 
-          {lancamento.observacoes && (
-            <>
-              <Separator />
-              <div>
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Observações</p>
-                <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">
-                  {lancamento.observacoes}
-                </p>
+          <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+            <Button
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={updateStatus.isPending}
+            >
+              Fechar
+            </Button>
+            {!jaResolvido && (
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button
+                  variant="outline"
+                  onClick={() => updateStatus.mutate("cancelado")}
+                  disabled={updateStatus.isPending}
+                  className="gap-1.5 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                >
+                  <XCircle className="h-4 w-4" />
+                  Cancelar título
+                </Button>
+                {isIfoodPendente ? (
+                  <Button
+                    onClick={() => setConciliarOpen(true)}
+                    disabled={updateStatus.isPending}
+                    className="gap-1.5 bg-success text-success-foreground hover:bg-success/90"
+                  >
+                    <Receipt className="h-4 w-4" />
+                    Conciliar repasse iFood
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => updateStatus.mutate(isPagar ? "pago" : "recebido")}
+                    disabled={updateStatus.isPending}
+                    className="gap-1.5 bg-success text-success-foreground hover:bg-success/90"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    {isPagar ? "Marcar como pago" : "Marcar como recebido"}
+                  </Button>
+                )}
               </div>
-            </>
-          )}
-        </div>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-        <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-between">
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={updateStatus.isPending}
-          >
-            Fechar
-          </Button>
-          {!jaResolvido && (
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Button
-                variant="outline"
-                onClick={() => updateStatus.mutate("cancelado")}
-                disabled={updateStatus.isPending}
-                className="gap-1.5 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
-              >
-                <XCircle className="h-4 w-4" />
-                Cancelar título
-              </Button>
-              <Button
-                onClick={() => updateStatus.mutate(isPagar ? "pago" : "recebido")}
-                disabled={updateStatus.isPending}
-                className="gap-1.5 bg-success text-success-foreground hover:bg-success/90"
-              >
-                <CheckCircle2 className="h-4 w-4" />
-                {isPagar ? "Marcar como pago" : "Marcar como recebido"}
-              </Button>
-            </div>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <ConciliarIfoodDialog
+        open={conciliarOpen}
+        onOpenChange={setConciliarOpen}
+        mode="individual"
+        lancamentoId={lancamento.id}
+        valorVenda={Number(lancamento.valor)}
+        descricaoVenda={lancamento.descricao}
+      />
+    </>
   );
 }
