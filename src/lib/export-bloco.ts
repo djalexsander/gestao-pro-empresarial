@@ -81,15 +81,19 @@ export function exportarBlocoPDF<T>(opts: ExportPdfOptions<T>) {
 }
 
 export async function exportarBlocoPNG(element: HTMLElement, prefix: string) {
-  const canvas = await html2canvas(element, {
-    scale: 2,
-    backgroundColor: getComputedStyle(document.body).backgroundColor || "#ffffff",
-    logging: false,
-    useCORS: true,
+  // html-to-image suporta cores modernas (oklch, color-mix etc.) que o html2canvas v1 não renderiza.
+  const bg = getComputedStyle(document.body).backgroundColor || "#ffffff";
+  const dataUrl = await toPng(element, {
+    pixelRatio: 2,
+    backgroundColor: bg,
+    cacheBust: true,
+    style: {
+      // Garante que transformações/zoom do dialog não distorçam o PNG.
+      transform: "none",
+    },
   });
-  const url = canvas.toDataURL("image/png");
   const link = document.createElement("a");
-  link.href = url;
+  link.href = dataUrl;
   link.download = tsFilename(slug(prefix), "png");
   document.body.appendChild(link);
   link.click();
