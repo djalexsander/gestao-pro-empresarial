@@ -113,6 +113,8 @@ export type Database = {
           total_credito: number
           total_debito: number
           total_dinheiro: number
+          total_fiado: number
+          total_ifood: number
           total_outros: number
           total_pix: number
           total_sangrias: number
@@ -141,6 +143,8 @@ export type Database = {
           total_credito?: number
           total_debito?: number
           total_dinheiro?: number
+          total_fiado?: number
+          total_ifood?: number
           total_outros?: number
           total_pix?: number
           total_sangrias?: number
@@ -169,6 +173,8 @@ export type Database = {
           total_credito?: number
           total_debito?: number
           total_dinheiro?: number
+          total_fiado?: number
+          total_ifood?: number
           total_outros?: number
           total_pix?: number
           total_sangrias?: number
@@ -2618,6 +2624,8 @@ export type Database = {
         | "transferencia"
         | "cheque"
         | "outro"
+        | "ifood"
+        | "fiado"
       lancamento_status:
         | "pendente"
         | "pago"
@@ -2817,6 +2825,8 @@ export const Constants = {
         "transferencia",
         "cheque",
         "outro",
+        "ifood",
+        "fiado",
       ],
       lancamento_status: [
         "pendente",
