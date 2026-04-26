@@ -460,8 +460,331 @@ function FinanceContent() {
         onOpenChange={(o) => !o && setSelected(null)}
         lancamento={selected}
       />
+
+      <BlocoModais
+        bloco={blocoAberto}
+        onClose={() => setBlocoAberto(null)}
+        receber={receber}
+        pagar={pagar}
+        totalRec={totalRec}
+        totalPay={totalPay}
+        saldo={saldo}
+        ind={ind}
+      />
     </div>
   );
+}
+
+function BlocoModais({
+  bloco,
+  onClose,
+  receber,
+  pagar,
+  totalRec,
+  totalPay,
+  saldo,
+  ind,
+}: {
+  bloco: BlocoChave | null;
+  onClose: () => void;
+  receber: Lancamento[];
+  pagar: Lancamento[];
+  totalRec: number;
+  totalPay: number;
+  saldo: number;
+  ind: ReturnType<typeof useFinanceiroIndicadores>["data"] | undefined;
+}) {
+  if (!bloco) return null;
+
+  const lancamentoCols: DetalheColumn[] = [
+    { key: "descricao", header: "Descrição" },
+    { key: "vencimento", header: "Vencimento", format: "date" },
+    { key: "valor", header: "Valor", format: "currency", align: "right" },
+    { key: "status", header: "Status" },
+  ];
+
+  const lancRows = (items: Lancamento[]): DetalheRow[] =>
+    items.map((l) => ({
+      id: l.id,
+      descricao: l.descricao,
+      vencimento: l.data_vencimento,
+      valor: Number(l.valor) - Number(l.valor_pago ?? 0),
+      status: statusLabel(l),
+    }));
+
+  if (bloco === "receber") {
+    return (
+      <BlocoDetalheDialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        titulo="Total a receber"
+        subtitulo="Títulos em aberto a receber"
+        origem="financeiro_lancamentos"
+        resumo={[
+          { label: "Total em aberto", valor: formatBRL(totalRec), tone: "success" },
+          { label: "Qtd. títulos", valor: String(receber.length) },
+        ]}
+        colunas={lancamentoCols}
+        rows={lancRows(receber)}
+      />
+    );
+  }
+  if (bloco === "pagar") {
+    return (
+      <BlocoDetalheDialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        titulo="Total a pagar"
+        subtitulo="Contas a pagar em aberto"
+        origem="financeiro_lancamentos"
+        resumo={[
+          { label: "Total em aberto", valor: formatBRL(totalPay), tone: "danger" },
+          { label: "Qtd. títulos", valor: String(pagar.length) },
+        ]}
+        colunas={lancamentoCols}
+        rows={lancRows(pagar)}
+      />
+    );
+  }
+  if (bloco === "saldo") {
+    return (
+      <BlocoDetalheDialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        titulo="Saldo previsto"
+        subtitulo="Composição: a receber − a pagar"
+        origem="financeiro_lancamentos"
+        resumo={[
+          { label: "A receber", valor: formatBRL(totalRec), tone: "success" },
+          { label: "A pagar", valor: formatBRL(totalPay), tone: "danger" },
+          { label: "Saldo", valor: formatBRL(saldo), tone: saldo >= 0 ? "success" : "danger" },
+        ]}
+        colunas={[
+          { key: "indicador", header: "Indicador" },
+          { key: "valor", header: "Valor", format: "currency", align: "right" },
+        ]}
+        rows={[
+          { id: "r", indicador: "Total a receber", valor: totalRec },
+          { id: "p", indicador: "Total a pagar", valor: -totalPay },
+          { id: "s", indicador: "Saldo previsto", valor: saldo },
+        ]}
+      />
+    );
+  }
+
+  // Blocos baseados em ind (mês atual)
+  if (!ind) {
+    return (
+      <BlocoDetalheDialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        titulo="Carregando…"
+        origem="—"
+        resumo={[]}
+        colunas={[{ key: "info", header: "Status" }]}
+        rows={[{ id: "1", info: "Aguardando dados do mês" }]}
+      />
+    );
+  }
+
+  const periodoLabel = `${formatDate(ind.periodo.inicio)} a ${formatDate(ind.periodo.fim)}`;
+
+  if (bloco === "vendido") {
+    return (
+      <BlocoDetalheDialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        titulo="Total vendido"
+        subtitulo={`Período: ${periodoLabel}`}
+        origem="vendas finalizadas"
+        resumo={[
+          { label: "Total vendido", valor: formatBRL(ind.totalVendido), tone: "success" },
+          { label: "Qtd. vendas", valor: String(ind.qtdVendas) },
+          {
+            label: "Ticket médio",
+            valor: formatBRL(ind.qtdVendas > 0 ? ind.totalVendido / ind.qtdVendas : 0),
+          },
+        ]}
+        colunas={[
+          { key: "numero", header: "Nº" },
+          { key: "data", header: "Data", format: "datetime" },
+          { key: "cliente", header: "Cliente" },
+          { key: "forma", header: "Forma" },
+          { key: "total", header: "Total", format: "currency", align: "right" },
+        ]}
+        rows={ind.vendasDetalhe.map((v) => ({
+          id: v.id,
+          numero: v.numero,
+          data: v.data,
+          cliente: v.cliente_nome ?? "Consumidor final",
+          forma: v.forma_pagamento ?? "—",
+          total: v.total,
+        }))}
+      />
+    );
+  }
+  if (bloco === "custo" || bloco === "lucro") {
+    const isLucro = bloco === "lucro";
+    const semCustoTotal = ind.itensDetalhe
+      .filter((i) => i.sem_custo)
+      .reduce((s, i) => s + i.total_venda, 0);
+    return (
+      <BlocoDetalheDialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        titulo={isLucro ? "Lucro bruto" : "Custo dos produtos vendidos"}
+        subtitulo={`Período: ${periodoLabel}`}
+        origem="venda_itens × produtos.preco_custo"
+        resumo={[
+          { label: "Total vendido", valor: formatBRL(ind.totalVendido) },
+          { label: "Custo total", valor: formatBRL(ind.custoTotal), tone: "danger" },
+          {
+            label: "Lucro bruto",
+            valor: formatBRL(ind.lucroBruto),
+            tone: ind.lucroBruto >= 0 ? "success" : "danger",
+          },
+        ]}
+        alertaSemCusto={
+          ind.qtdItensSemCusto > 0
+            ? { qtd: ind.qtdItensSemCusto, total: semCustoTotal }
+            : null
+        }
+        colunas={[
+          { key: "numero", header: "Venda" },
+          { key: "produto", header: "Produto" },
+          { key: "qtd", header: "Qtd", format: "number", align: "right" },
+          { key: "venda", header: "Total venda", format: "currency", align: "right" },
+          { key: "custo", header: "Custo", format: "currency", align: "right" },
+          { key: "lucro", header: "Lucro", format: "currency", align: "right" },
+        ]}
+        rows={ind.itensDetalhe.map((it, idx) => ({
+          id: `${it.venda_id}-${idx}`,
+          numero: it.venda_numero,
+          produto: it.sem_custo ? `${it.produto_nome} ⚠` : it.produto_nome,
+          qtd: it.quantidade,
+          venda: it.total_venda,
+          custo: it.total_custo,
+          lucro: it.lucro,
+        }))}
+      />
+    );
+  }
+  if (bloco === "fiado") {
+    const fiadosLanc = receber.filter((l) => l.forma_pagamento === "fiado");
+    return (
+      <BlocoDetalheDialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        titulo="Fiado em aberto"
+        subtitulo="Vendas em fiado pendentes de recebimento"
+        origem="financeiro_lancamentos (forma=fiado)"
+        resumo={[
+          { label: "Total fiado", valor: formatBRL(ind.fiadoEmAberto), tone: "info" },
+          { label: "Qtd. títulos", valor: String(ind.qtdFiado) },
+        ]}
+        colunas={[
+          { key: "descricao", header: "Descrição" },
+          { key: "cliente", header: "Cliente" },
+          { key: "vencimento", header: "Vencimento", format: "date" },
+          { key: "valor", header: "Valor", format: "currency", align: "right" },
+        ]}
+        rows={fiadosLanc.map((l) => ({
+          id: l.id,
+          descricao: l.descricao,
+          cliente: l.cliente_nome ?? "—",
+          vencimento: l.data_vencimento,
+          valor: Number(l.valor) - Number(l.valor_pago ?? 0),
+        }))}
+      />
+    );
+  }
+  if (bloco === "ifood") {
+    const ifoodLanc = receber.filter(
+      (l) => l.forma_pagamento === "ifood" && !l.conciliado_em,
+    );
+    return (
+      <BlocoDetalheDialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        titulo="iFood a repassar"
+        subtitulo="Vendas iFood aguardando conciliação"
+        origem="financeiro_lancamentos (forma=ifood, não conciliado)"
+        resumo={[
+          { label: "Total iFood", valor: formatBRL(ind.ifoodAReceber), tone: "info" },
+          { label: "Qtd. pendentes", valor: String(ind.qtdIfood) },
+        ]}
+        colunas={[
+          { key: "descricao", header: "Descrição" },
+          { key: "vencimento", header: "Vencimento", format: "date" },
+          { key: "valor", header: "Valor", format: "currency", align: "right" },
+        ]}
+        rows={ifoodLanc.map((l) => ({
+          id: l.id,
+          descricao: l.descricao,
+          vencimento: l.data_vencimento,
+          valor: Number(l.valor) - Number(l.valor_pago ?? 0),
+        }))}
+      />
+    );
+  }
+  if (bloco === "recebidoHoje") {
+    return (
+      <BlocoDetalheDialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        titulo="Recebido hoje"
+        subtitulo={`Recebimentos do dia ${formatDate(ind.periodo.hoje)}`}
+        origem="financeiro_lancamentos (data_pagamento = hoje)"
+        resumo={[
+          { label: "Total recebido", valor: formatBRL(ind.recebidoHoje), tone: "success" },
+          { label: "Qtd. recebimentos", valor: String(ind.qtdRecebimentosHoje) },
+        ]}
+        colunas={[{ key: "info", header: "Detalhes" }]}
+        rows={[
+          {
+            id: "1",
+            info:
+              ind.qtdRecebimentosHoje > 0
+                ? `${ind.qtdRecebimentosHoje} recebimentos totalizando ${formatBRL(ind.recebidoHoje)}`
+                : "Nenhum recebimento registrado hoje",
+          },
+        ]}
+      />
+    );
+  }
+  if (bloco === "vencidos") {
+    const vencidosLanc = [...receber, ...pagar].filter((l) => {
+      if (!l.data_vencimento) return false;
+      return new Date(l.data_vencimento) < new Date(new Date().toDateString());
+    });
+    return (
+      <BlocoDetalheDialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        titulo="Vencidos"
+        subtitulo="Títulos com vencimento anterior a hoje"
+        origem="financeiro_lancamentos"
+        resumo={[
+          { label: "Total vencido", valor: formatBRL(ind.vencidosTotal), tone: "danger" },
+          { label: "Qtd. títulos", valor: String(ind.qtdVencidos) },
+        ]}
+        colunas={[
+          { key: "descricao", header: "Descrição" },
+          { key: "tipo", header: "Tipo" },
+          { key: "vencimento", header: "Vencimento", format: "date" },
+          { key: "valor", header: "Valor", format: "currency", align: "right" },
+        ]}
+        rows={vencidosLanc.map((l) => ({
+          id: l.id,
+          descricao: l.descricao,
+          tipo: l.tipo === "receber" ? "A receber" : "A pagar",
+          vencimento: l.data_vencimento,
+          valor: Number(l.valor) - Number(l.valor_pago ?? 0),
+        }))}
+      />
+    );
+  }
+  return null;
 }
 
 function LancamentosTable({
