@@ -1,12 +1,17 @@
-import { Navigate } from "@tanstack/react-router";
-import { useUserRole } from "@/hooks/useUserRole";
+import { Navigate, useLocation } from "@tanstack/react-router";
+import { isCaixaAllowedPath, useUserRole } from "@/hooks/useUserRole";
 
 /**
- * Bloqueia rotas do ERP completo para usuários com role exclusivo de "caixa".
- * Redireciona para /pos.
+ * Bloqueia rotas administrativas do ERP para usuários com role exclusivo de "caixa".
+ *
+ * - Caixa pode acessar: /pos, /pdv, /produtos, /estoque, /compras (e suas sub-rotas)
+ * - Em qualquer outra rota do ERP, redireciona para /pos.
+ *
+ * Admin/gerente/super_admin (ou usuários sem roles atribuídos) seguem com acesso total.
  */
 export function RequireAdminLike({ children }: { children: React.ReactNode }) {
   const { isLoading, isCaixaOnly } = useUserRole();
+  const location = useLocation();
 
   if (isLoading) {
     return (
@@ -16,7 +21,7 @@ export function RequireAdminLike({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (isCaixaOnly) {
+  if (isCaixaOnly && !isCaixaAllowedPath(location.pathname)) {
     return <Navigate to="/pos" />;
   }
 
