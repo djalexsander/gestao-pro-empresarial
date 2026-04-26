@@ -163,7 +163,7 @@ export function useFinanceiroIndicadores() {
         .from("financeiro_lancamentos")
         .select("id, valor, valor_pago, forma_pagamento, status, conciliado_em")
         .eq("tipo", "receber")
-        .in("status", ["pendente", "parcial"])
+        .in("status", ["pendente"])
         .limit(5000);
 
       let fiadoEmAberto = 0;
@@ -209,7 +209,7 @@ export function useFinanceiroIndicadores() {
       const { data: vencidos } = await supabase
         .from("financeiro_lancamentos")
         .select("id, valor, valor_pago, tipo")
-        .in("status", ["pendente", "parcial"])
+        .in("status", ["pendente"])
         .lt("data_vencimento", hojeStr)
         .limit(5000);
 
