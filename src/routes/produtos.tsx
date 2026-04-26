@@ -61,7 +61,7 @@ export const Route = createFileRoute("/produtos")({
 const formatBRL = (v: number) =>
   v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-function ProductsPage() {
+export function ProductsPage() {
   const { data: produtos = [], isLoading } = useProdutos();
   const { data: categorias = [] } = useCategorias();
   const { data: saldos } = useEstoqueSaldos();

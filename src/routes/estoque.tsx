@@ -52,7 +52,7 @@ function situacao(saldo: number, minimo: number) {
   return "OK";
 }
 
-function StockPage() {
+export function StockPage() {
   const { data: produtos = [], isLoading } = useProdutos();
   const { data: saldos } = useEstoqueSaldos();
   const { data: movs = [] } = useMovimentacoes();
