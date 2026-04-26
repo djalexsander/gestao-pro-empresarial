@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { ArrowDownRight, ArrowUpRight } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, ChevronRight } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -11,6 +11,8 @@ interface StatCardProps {
   hint?: string;
   icon: LucideIcon;
   iconTone?: "primary" | "success" | "warning" | "danger" | "info";
+  onClick?: () => void;
+  className?: string;
 }
 
 const tones = {
@@ -29,46 +31,69 @@ export function StatCard({
   hint,
   icon: Icon,
   iconTone = "primary",
+  onClick,
+  className,
 }: StatCardProps) {
   const positive = trend === "up";
+  const clickable = !!onClick;
+  const Wrapper = clickable ? "button" : "div";
   return (
-    <Card className="overflow-hidden transition-shadow hover:shadow-md">
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-muted-foreground">{label}</p>
-            <p className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{value}</p>
-            <div className="mt-3 flex items-center gap-2 text-xs">
-              {typeof change === "number" && (
-                <span
-                  className={cn(
-                    "inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 font-medium",
-                    positive
-                      ? "bg-success/10 text-success"
-                      : "bg-destructive/10 text-destructive"
-                  )}
-                >
-                  {positive ? (
-                    <ArrowUpRight className="h-3 w-3" />
-                  ) : (
-                    <ArrowDownRight className="h-3 w-3" />
-                  )}
-                  {Math.abs(change)}%
-                </span>
+    <Card
+      className={cn(
+        "group overflow-hidden transition-all hover:shadow-md",
+        clickable && "cursor-pointer hover:border-primary/40 hover:bg-card/80",
+        className,
+      )}
+    >
+      <Wrapper
+        type={clickable ? "button" : undefined}
+        onClick={onClick}
+        className={cn("block w-full text-left", clickable && "focus-visible:outline-none")}
+      >
+        <CardContent className="p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <p className="truncate text-sm font-medium text-muted-foreground">{label}</p>
+                {clickable && (
+                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100" />
+                )}
+              </div>
+              <p className="mt-2 text-2xl font-semibold tracking-tight text-foreground tabular-nums">
+                {value}
+              </p>
+              <div className="mt-3 flex items-center gap-2 text-xs">
+                {typeof change === "number" && (
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 font-medium",
+                      positive
+                        ? "bg-success/10 text-success"
+                        : "bg-destructive/10 text-destructive",
+                    )}
+                  >
+                    {positive ? (
+                      <ArrowUpRight className="h-3 w-3" />
+                    ) : (
+                      <ArrowDownRight className="h-3 w-3" />
+                    )}
+                    {Math.abs(change)}%
+                  </span>
+                )}
+                {hint && <span className="text-muted-foreground">{hint}</span>}
+              </div>
+            </div>
+            <div
+              className={cn(
+                "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-transform group-hover:scale-105",
+                tones[iconTone],
               )}
-              {hint && <span className="text-muted-foreground">{hint}</span>}
+            >
+              <Icon className="h-5 w-5" />
             </div>
           </div>
-          <div
-            className={cn(
-              "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg",
-              tones[iconTone]
-            )}
-          >
-            <Icon className="h-5 w-5" />
-          </div>
-        </div>
-      </CardContent>
+        </CardContent>
+      </Wrapper>
     </Card>
   );
 }
