@@ -418,7 +418,7 @@ function FluxoCaixaPanel() {
       };
       const lancRows: FluxoRow[] = ((lancs ?? []) as LancRowDb[]).map((l) => {
         const v = Number(l.valor_pago ?? l.valor) || 0;
-        const isReceita = l.tipo === "receber";
+        const isReceita = l.tipo === "receber" || l.tipo === "receita";
         return {
           id: `lanc-${l.id}`,
           data: l.data_pagamento ?? `${inicio}T00:00:00`,
