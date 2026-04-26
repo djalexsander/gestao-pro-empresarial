@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 import { ArrowDownToLine, ArrowUpFromLine, Plus, TrendingUp } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -19,6 +20,10 @@ import { formatBRL } from "@/lib/mock-data";
 import { ModuloGate } from "@/components/saas/ModuloGate";
 import { RequirePermission } from "@/components/auth/RequirePermission";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  LancamentoDetalheDialog,
+  type LancamentoDetalhe,
+} from "@/components/financeiro/LancamentoDetalheDialog";
 
 type FinTab = "receber" | "pagar" | "fluxo";
 
