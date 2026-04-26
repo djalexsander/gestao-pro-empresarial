@@ -631,7 +631,7 @@ function Conteudo() {
                   <TableRow key={c.cliente_id ?? "_sem"}>
                     <TableCell className="font-medium">{c.cliente_nome}</TableCell>
                     <TableCell className="font-mono text-xs">
-                      {c.cliente_documento ? formatDocumento(c.cliente_documento) : "—"}
+                      {c.cliente_documento ? formatarDocumento(c.cliente_documento) : "—"}
                     </TableCell>
                     <TableCell className="text-xs">{c.cliente_telefone ?? "—"}</TableCell>
                     <TableCell className="text-right tabular-nums">{c.qtd}</TableCell>
@@ -759,7 +759,7 @@ function Conteudo() {
                         </div>
                       </TableCell>
                       <TableCell className="font-mono text-xs">
-                        {r.cliente_documento ? formatDocumento(r.cliente_documento) : "—"}
+                        {r.cliente_documento ? formatarDocumento(r.cliente_documento) : "—"}
                       </TableCell>
                       <TableCell className="text-xs">
                         {r.cliente_telefone ?? r.cliente_celular ?? "—"}
