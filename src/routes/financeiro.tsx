@@ -174,8 +174,10 @@ function FinanceContent() {
           `id, descricao, valor, valor_pago, data_vencimento, data_pagamento, data_emissao,
            tipo, status, observacoes, numero_documento, forma_pagamento, created_at,
            conciliado_em, valor_repasse, taxa_repasse, numero_repasse, observacao_repasse,
-           fornecedor:fornecedores(razao_social, nome_fantasia),
-           cliente:clientes(nome),
+           cliente_id, venda_id,
+           fornecedor:fornecedores(razao_social, nome_fantasia, documento, telefone),
+           cliente:clientes(nome, documento, telefone, celular, email),
+           venda:vendas(numero, data_finalizacao, total),
            categoria:categorias_financeiras(nome)`,
         )
         .order("data_vencimento", { ascending: true });
@@ -199,8 +201,22 @@ function FinanceContent() {
         taxa_repasse: number | null;
         numero_repasse: string | null;
         observacao_repasse: string | null;
-        fornecedor: { razao_social: string | null; nome_fantasia: string | null } | null;
-        cliente: { nome: string | null } | null;
+        cliente_id: string | null;
+        venda_id: string | null;
+        fornecedor: {
+          razao_social: string | null;
+          nome_fantasia: string | null;
+          documento: string | null;
+          telefone: string | null;
+        } | null;
+        cliente: {
+          nome: string | null;
+          documento: string | null;
+          telefone: string | null;
+          celular: string | null;
+          email: string | null;
+        } | null;
+        venda: { numero: string | null; data_finalizacao: string | null; total: number | null } | null;
         categoria: { nome: string | null } | null;
       };
       return ((data ?? []) as Row[]).map<Lancamento>((r) => ({
@@ -222,8 +238,18 @@ function FinanceContent() {
         taxa_repasse: r.taxa_repasse,
         numero_repasse: r.numero_repasse,
         observacao_repasse: r.observacao_repasse,
+        cliente_id: r.cliente_id,
+        venda_id: r.venda_id,
         fornecedor_nome: r.fornecedor?.nome_fantasia ?? r.fornecedor?.razao_social ?? null,
+        fornecedor_documento: r.fornecedor?.documento ?? null,
+        fornecedor_telefone: r.fornecedor?.telefone ?? null,
         cliente_nome: r.cliente?.nome ?? null,
+        cliente_documento: r.cliente?.documento ?? null,
+        cliente_telefone: r.cliente?.telefone ?? r.cliente?.celular ?? null,
+        cliente_email: r.cliente?.email ?? null,
+        venda_numero: r.venda?.numero ?? null,
+        venda_data: r.venda?.data_finalizacao ?? null,
+        venda_total: r.venda?.total ?? null,
         categoria_nome: r.categoria?.nome ?? null,
       }));
     },

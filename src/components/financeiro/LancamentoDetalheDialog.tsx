@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
   XCircle,
@@ -10,6 +10,12 @@ import {
   Tag,
   Clock,
   Receipt,
+  Phone,
+  IdCard,
+  ShoppingCart,
+  History,
+  HandCoins,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -25,7 +31,9 @@ import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { supabase } from "@/integrations/supabase/client";
 import { formatBRL } from "@/lib/mock-data";
+import { useHotkeys } from "@/hooks/useHotkeys";
 import { ConciliarIfoodDialog } from "./ConciliarIfoodDialog";
+import { RegistrarPagamentoDialog } from "./RegistrarPagamentoDialog";
 
 export type LancamentoDetalhe = {
   id: string;
@@ -40,11 +48,20 @@ export type LancamentoDetalhe = {
   observacoes?: string | null;
   numero_documento?: string | null;
   fornecedor_nome?: string | null;
+  fornecedor_documento?: string | null;
+  fornecedor_telefone?: string | null;
+  cliente_id?: string | null;
   cliente_nome?: string | null;
+  cliente_documento?: string | null;
+  cliente_telefone?: string | null;
+  cliente_email?: string | null;
+  venda_id?: string | null;
+  venda_numero?: string | null;
+  venda_data?: string | null;
+  venda_total?: number | null;
   categoria_nome?: string | null;
   forma_pagamento?: string | null;
   created_at?: string | null;
-  // Auditoria de conciliação iFood
   conciliado_em?: string | null;
   valor_repasse?: number | null;
   taxa_repasse?: number | null;
@@ -58,9 +75,17 @@ interface Props {
   lancamento: LancamentoDetalhe | null;
 }
 
+interface PagamentoHist {
+  id: string;
+  valor: number;
+  data_pagamento: string;
+  forma_pagamento: string | null;
+  observacao: string | null;
+  created_at: string;
+}
+
 function formatDate(d: string | null | undefined): string {
   if (!d) return "—";
-  // Aceita "YYYY-MM-DD" ou ISO completo
   const onlyDate = d.length === 10 ? d : d.slice(0, 10);
   const [y, m, day] = onlyDate.split("-");
   if (!y || !m || !day) return d;
@@ -73,11 +98,20 @@ function statusInfo(l: LancamentoDetalhe): {
 } {
   if (l.status === "pago" || l.status === "recebido") return { label: "Pago", tone: "success" };
   if (l.status === "cancelado") return { label: "Cancelado", tone: "danger" };
-  if (l.status === "parcial") return { label: "Parcial", tone: "info" };
+  if (l.status === "parcial") return { label: "Parcialmente pago", tone: "info" };
   if (l.data_vencimento && new Date(l.data_vencimento) < new Date(new Date().toDateString())) {
     return { label: "Vencido", tone: "danger" };
   }
   return { label: "Pendente", tone: "warning" };
+}
+
+function formatDoc(doc: string | null | undefined): string {
+  if (!doc) return "—";
+  const d = doc.replace(/\D/g, "");
+  if (d.length === 11) return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+  if (d.length === 14)
+    return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
+  return doc;
 }
 
 function Field({
@@ -103,43 +137,143 @@ function Field({
 export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Props) {
   const qc = useQueryClient();
   const [conciliarOpen, setConciliarOpen] = useState(false);
+  const [pagamentoOpen, setPagamentoOpen] = useState(false);
+  const [pagamentoModoTotal, setPagamentoModoTotal] = useState(false);
 
-  const updateStatus = useMutation({
-    mutationFn: async (novoStatus: "pago" | "recebido" | "cancelado") => {
+  // owner_id atual (usuário autenticado) para inserção do pagamento
+  const { data: ownerId = "" } = useQuery({
+    queryKey: ["auth_uid"],
+    queryFn: async () => {
+      const { data } = await supabase.auth.getUser();
+      return data.user?.id ?? "";
+    },
+    staleTime: 60_000,
+  });
+
+  // Carrega histórico de pagamentos do título
+  const { data: pagamentos = [] } = useQuery({
+    queryKey: ["lancamento_pagamentos", lancamento?.id],
+    enabled: open && !!lancamento?.id,
+    queryFn: async (): Promise<PagamentoHist[]> => {
+      if (!lancamento?.id) return [];
+      const { data, error } = await (supabase.from as unknown as (
+        t: string,
+      ) => {
+        select: (cols: string) => {
+          eq: (col: string, val: string) => {
+            order: (
+              col: string,
+              opts?: { ascending?: boolean },
+            ) => Promise<{ data: PagamentoHist[] | null; error: { message: string } | null }>;
+          };
+        };
+      })("lancamento_pagamentos")
+        .select("id, valor, data_pagamento, forma_pagamento, observacao, created_at")
+        .eq("lancamento_id", lancamento.id)
+        .order("data_pagamento", { ascending: false });
+      if (error) throw new Error(error.message);
+      return data ?? [];
+    },
+  });
+
+  const cancelarTitulo = useMutation({
+    mutationFn: async () => {
       if (!lancamento) return;
-      const patch: {
-        status: "pago" | "recebido" | "cancelado";
-        data_pagamento?: string | null;
-        valor_pago?: number;
-      } = { status: novoStatus };
-      if (novoStatus === "pago" || novoStatus === "recebido") {
-        patch.data_pagamento = new Date().toISOString().slice(0, 10);
-        patch.valor_pago = Number(lancamento.valor);
-      }
-      if (novoStatus === "cancelado") {
-        patch.data_pagamento = null;
-        patch.valor_pago = 0;
-      }
       const { error } = await supabase
         .from("financeiro_lancamentos")
-        .update(patch)
+        .update({ status: "cancelado" })
         .eq("id", lancamento.id);
       if (error) throw error;
     },
-    onSuccess: (_d, novoStatus) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["financeiro_lancamentos"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
-      toast.success(
-        novoStatus === "cancelado" ? "Lançamento cancelado." : "Lançamento marcado como pago.",
-      );
+      qc.invalidateQueries({ queryKey: ["financeiro_indicadores_mes"] });
+      toast.success("Título cancelado.");
       onOpenChange(false);
     },
-    onError: (e: Error) => toast.error(e.message ?? "Não foi possível atualizar o lançamento."),
+    onError: (e: Error) => toast.error(e.message ?? "Não foi possível cancelar."),
   });
+
+  const reabrirTitulo = useMutation({
+    mutationFn: async () => {
+      if (!lancamento) return;
+      const totalPago = pagamentos.reduce((s, p) => s + Number(p.valor), 0);
+      const novoStatus: "pendente" | "pago" | "recebido" =
+        totalPago <= 0
+          ? "pendente"
+          : totalPago >= Number(lancamento.valor)
+            ? lancamento.tipo === "pagar"
+              ? "pago"
+              : "recebido"
+            : "pendente"; // 'parcial' não está no enum gerado; mantém pendente
+      const { error } = await supabase
+        .from("financeiro_lancamentos")
+        .update({ status: novoStatus })
+        .eq("id", lancamento.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["financeiro_lancamentos"] });
+      toast.success("Título reaberto.");
+      onOpenChange(false);
+    },
+    onError: (e: Error) => toast.error(e.message ?? "Não foi possível reabrir."),
+  });
+
+  const removerPagamento = useMutation({
+    mutationFn: async (pagId: string) => {
+      const { error } = await (supabase.from as unknown as (
+        t: string,
+      ) => {
+        delete: () => {
+          eq: (col: string, val: string) => Promise<{ error: { message: string } | null }>;
+        };
+      })("lancamento_pagamentos").delete().eq("id", pagId);
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["lancamento_pagamentos", lancamento?.id] });
+      qc.invalidateQueries({ queryKey: ["financeiro_lancamentos"] });
+      qc.invalidateQueries({ queryKey: ["financeiro_indicadores_mes"] });
+      toast.success("Pagamento removido.");
+    },
+    onError: (e: Error) => toast.error(e.message ?? "Falha ao remover."),
+  });
+
+  // hotkeys: P = pagamento parcial, B = baixa total, Esc fecha (já tratado pelo Dialog)
+  useHotkeys(
+    [
+      {
+        key: "p",
+        handler: () => {
+          if (!lancamento) return;
+          if (jaResolvido) return;
+          if (isIfoodPendente) return;
+          setPagamentoModoTotal(false);
+          setPagamentoOpen(true);
+        },
+      },
+      {
+        key: "b",
+        handler: () => {
+          if (!lancamento) return;
+          if (jaResolvido) return;
+          if (isIfoodPendente) return;
+          setPagamentoModoTotal(true);
+          setPagamentoOpen(true);
+        },
+      },
+    ],
+    { enabled: open && !pagamentoOpen && !conciliarOpen, scope: "modal" },
+  );
 
   if (!lancamento) return null;
   const info = statusInfo(lancamento);
   const isPagar = lancamento.tipo === "pagar";
+  const totalPago = Number(lancamento.valor_pago ?? 0);
+  const valorTotal = Number(lancamento.valor);
+  const saldoRestante = Math.max(0, valorTotal - totalPago);
   const jaResolvido =
     lancamento.status === "pago" ||
     lancamento.status === "recebido" ||
@@ -147,51 +281,72 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
   const isIfoodPendente =
     lancamento.forma_pagamento === "ifood" && !jaResolvido && lancamento.tipo === "receber";
   const temAuditoriaRepasse = !!lancamento.conciliado_em;
+  const temCliente = !!(lancamento.cliente_nome || lancamento.cliente_documento);
+  const temVenda = !!(lancamento.venda_id || lancamento.venda_numero);
 
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center justify-between gap-3">
               <span className="truncate">{lancamento.descricao}</span>
               <StatusBadge status={info.label} tone={info.tone} />
             </DialogTitle>
             <DialogDescription>
-              {isPagar ? "Conta a pagar" : "Conta a receber"} •{" "}
-              {formatBRL(Number(lancamento.valor))}
+              {isPagar ? "Conta a pagar" : "Conta a receber"} • {formatBRL(valorTotal)}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
+            {/* Resumo financeiro */}
+            <div className="grid grid-cols-3 gap-3 rounded-md border bg-muted/30 p-3">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Valor original</p>
+                <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
+                  {formatBRL(valorTotal)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Já pago</p>
+                <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-success">
+                  {formatBRL(totalPago)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Saldo restante
+                </p>
+                <p
+                  className={
+                    "mt-0.5 font-mono text-sm font-semibold tabular-nums " +
+                    (saldoRestante > 0 ? "text-warning" : "text-muted-foreground")
+                  }
+                >
+                  {formatBRL(saldoRestante)}
+                </p>
+              </div>
+            </div>
+
+            {/* Datas e status */}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field icon={Wallet} label="Valor">
-                <span className="text-base font-semibold">
-                  {formatBRL(Number(lancamento.valor))}
-                </span>
-              </Field>
               <Field icon={Calendar} label="Vencimento">
                 {formatDate(lancamento.data_vencimento)}
               </Field>
               <Field icon={Calendar} label="Emissão">
                 {formatDate(lancamento.data_emissao ?? null)}
               </Field>
-              <Field icon={CheckCircle2} label="Pagamento">
+              <Field icon={CheckCircle2} label="Último pagamento">
                 {formatDate(lancamento.data_pagamento)}
               </Field>
-              {(lancamento.fornecedor_nome || lancamento.cliente_nome) && (
-                <Field icon={User} label={isPagar ? "Fornecedor" : "Cliente"}>
-                  {lancamento.fornecedor_nome ?? lancamento.cliente_nome ?? "—"}
+              {lancamento.forma_pagamento && (
+                <Field icon={Wallet} label="Forma original">
+                  {lancamento.forma_pagamento}
                 </Field>
               )}
               {lancamento.categoria_nome && (
                 <Field icon={Tag} label="Categoria">
                   {lancamento.categoria_nome}
-                </Field>
-              )}
-              {lancamento.forma_pagamento && (
-                <Field icon={Wallet} label="Forma">
-                  {lancamento.forma_pagamento}
                 </Field>
               )}
               {lancamento.numero_documento && (
@@ -206,6 +361,115 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
               )}
             </div>
 
+            {/* Cliente / Fornecedor */}
+            {(temCliente || lancamento.fornecedor_nome) && (
+              <>
+                <Separator />
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {isPagar ? "Fornecedor" : "Cliente"}
+                  </p>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <Field icon={User} label="Nome">
+                      {lancamento.fornecedor_nome ?? lancamento.cliente_nome ?? "—"}
+                    </Field>
+                    {(lancamento.cliente_documento || lancamento.fornecedor_documento) && (
+                      <Field icon={IdCard} label="CPF/CNPJ">
+                        {formatDoc(
+                          lancamento.cliente_documento ?? lancamento.fornecedor_documento,
+                        )}
+                      </Field>
+                    )}
+                    {(lancamento.cliente_telefone || lancamento.fornecedor_telefone) && (
+                      <Field icon={Phone} label="Telefone">
+                        {lancamento.cliente_telefone ?? lancamento.fornecedor_telefone}
+                      </Field>
+                    )}
+                    {lancamento.cliente_email && (
+                      <Field icon={FileText} label="E-mail">
+                        {lancamento.cliente_email}
+                      </Field>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Venda vinculada */}
+            {temVenda && (
+              <>
+                <Separator />
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Venda vinculada
+                  </p>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <Field icon={ShoppingCart} label="Número">
+                      {lancamento.venda_numero ?? "—"}
+                    </Field>
+                    <Field icon={Calendar} label="Data">
+                      {formatDate(lancamento.venda_data ?? null)}
+                    </Field>
+                    <Field icon={Wallet} label="Total">
+                      {formatBRL(Number(lancamento.venda_total ?? 0))}
+                    </Field>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Histórico de pagamentos */}
+            {pagamentos.length > 0 && (
+              <>
+                <Separator />
+                <div>
+                  <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <History className="h-3.5 w-3.5" />
+                    Histórico de pagamentos ({pagamentos.length})
+                  </p>
+                  <div className="space-y-1.5 rounded-md border">
+                    {pagamentos.map((p) => (
+                      <div
+                        key={p.id}
+                        className="flex items-center justify-between gap-2 border-b px-3 py-2 text-sm last:border-0"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium">
+                            {formatDate(p.data_pagamento)}
+                            {p.forma_pagamento && (
+                              <span className="ml-2 text-xs text-muted-foreground">
+                                {p.forma_pagamento}
+                              </span>
+                            )}
+                          </p>
+                          {p.observacao && (
+                            <p className="truncate text-xs text-muted-foreground">{p.observacao}</p>
+                          )}
+                        </div>
+                        <p className="font-mono font-semibold tabular-nums text-success">
+                          {formatBRL(Number(p.valor))}
+                        </p>
+                        {!jaResolvido && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive hover:bg-destructive/10"
+                            onClick={() => {
+                              if (confirm("Remover este pagamento?")) removerPagamento.mutate(p.id);
+                            }}
+                            disabled={removerPagamento.isPending}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Auditoria iFood */}
             {temAuditoriaRepasse && (
               <>
                 <Separator />
@@ -244,11 +508,6 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
                       </div>
                     )}
                   </div>
-                  {lancamento.observacao_repasse && (
-                    <p className="mt-2 whitespace-pre-wrap border-t border-success/20 pt-2 text-xs text-foreground">
-                      {lancamento.observacao_repasse}
-                    </p>
-                  )}
                 </div>
               </>
             )}
@@ -272,42 +531,71 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
             <Button
               variant="outline"
               onClick={() => onOpenChange(false)}
-              disabled={updateStatus.isPending}
+              disabled={cancelarTitulo.isPending}
             >
               Fechar
             </Button>
-            {!jaResolvido && (
-              <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="flex flex-col gap-2 sm:flex-row">
+              {!jaResolvido && (
                 <Button
                   variant="outline"
-                  onClick={() => updateStatus.mutate("cancelado")}
-                  disabled={updateStatus.isPending}
+                  onClick={() => {
+                    if (confirm("Cancelar este título?")) cancelarTitulo.mutate();
+                  }}
+                  disabled={cancelarTitulo.isPending}
                   className="gap-1.5 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
                 >
                   <XCircle className="h-4 w-4" />
                   Cancelar título
                 </Button>
-                {isIfoodPendente ? (
+              )}
+              {jaResolvido && lancamento.status !== "cancelado" && (
+                <Button
+                  variant="outline"
+                  onClick={() => reabrirTitulo.mutate()}
+                  disabled={reabrirTitulo.isPending}
+                  className="gap-1.5"
+                >
+                  Reabrir
+                </Button>
+              )}
+              {!jaResolvido && isIfoodPendente && (
+                <Button
+                  onClick={() => setConciliarOpen(true)}
+                  className="gap-1.5 bg-success text-success-foreground hover:bg-success/90"
+                >
+                  <Receipt className="h-4 w-4" />
+                  Conciliar iFood
+                </Button>
+              )}
+              {!jaResolvido && !isIfoodPendente && (
+                <>
                   <Button
-                    onClick={() => setConciliarOpen(true)}
-                    disabled={updateStatus.isPending}
-                    className="gap-1.5 bg-success text-success-foreground hover:bg-success/90"
+                    variant="outline"
+                    onClick={() => {
+                      setPagamentoModoTotal(false);
+                      setPagamentoOpen(true);
+                    }}
+                    className="gap-1.5"
                   >
-                    <Receipt className="h-4 w-4" />
-                    Conciliar repasse iFood
+                    <HandCoins className="h-4 w-4" />
+                    Pagamento parcial
+                    <kbd className="ml-1 rounded bg-muted px-1.5 text-[10px]">P</kbd>
                   </Button>
-                ) : (
                   <Button
-                    onClick={() => updateStatus.mutate(isPagar ? "pago" : "recebido")}
-                    disabled={updateStatus.isPending}
+                    onClick={() => {
+                      setPagamentoModoTotal(true);
+                      setPagamentoOpen(true);
+                    }}
                     className="gap-1.5 bg-success text-success-foreground hover:bg-success/90"
                   >
                     <CheckCircle2 className="h-4 w-4" />
                     {isPagar ? "Marcar como pago" : "Marcar como recebido"}
+                    <kbd className="ml-1 rounded bg-background/20 px-1.5 text-[10px]">B</kbd>
                   </Button>
-                )}
-              </div>
-            )}
+                </>
+              )}
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -319,6 +607,18 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
         lancamentoId={lancamento.id}
         valorVenda={Number(lancamento.valor)}
         descricaoVenda={lancamento.descricao}
+      />
+
+      <RegistrarPagamentoDialog
+        open={pagamentoOpen}
+        onOpenChange={setPagamentoOpen}
+        lancamentoId={lancamento.id}
+        ownerId={ownerId}
+        saldoRestante={saldoRestante}
+        valorTotal={valorTotal}
+        descricao={lancamento.descricao}
+        tipo={lancamento.tipo}
+        modoTotal={pagamentoModoTotal}
       />
     </>
   );
