@@ -575,11 +575,12 @@ function FluxoCaixaPanel() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="7d">Últimos 7 dias</SelectItem>
-            <SelectItem value="30d">Últimos 30 dias</SelectItem>
-            <SelectItem value="mes">Este mês</SelectItem>
-            <SelectItem value="ano">Este ano</SelectItem>
-          </SelectContent>
-        </Select>
+              <SelectItem value="30d">Últimos 30 dias</SelectItem>
+              <SelectItem value="mes">Este mês</SelectItem>
+              <SelectItem value="ano">Este ano</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
