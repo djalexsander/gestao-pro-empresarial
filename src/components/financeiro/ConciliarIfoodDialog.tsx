@@ -139,8 +139,8 @@ export function ConciliarIfoodDialog({
           _lancamento_id: lancamentoId,
           _data_repasse: dataRepasse,
           _valor_repasse: valorRepasseNum,
-          _numero_repasse: numeroRepasse || null,
-          _observacao: observacao || null,
+          _numero_repasse: numeroRepasse || undefined,
+          _observacao: observacao || undefined,
         });
         if (error) throw error;
       } else {
@@ -150,8 +150,8 @@ export function ConciliarIfoodDialog({
           _lancamento_ids: Array.from(selecionados),
           _data_repasse: dataRepasse,
           _valor_repasse_total: valorRepasseNum,
-          _numero_repasse: numeroRepasse || null,
-          _observacao: observacao || null,
+          _numero_repasse: numeroRepasse || undefined,
+          _observacao: observacao || undefined,
         });
         if (error) throw error;
       }
