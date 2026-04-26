@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { RequireAdminLike } from "@/components/auth/RequireRole";
 import { RequireErpUnlock } from "@/components/auth/RequireErpUnlock";
+import { RequireTerminalPermissao } from "@/components/auth/RequireTerminalPermissao";
+import { areaTerminalDoPath } from "@/components/auth/areaTerminalDoPath";
 import { AppMenubar } from "./AppMenubar";
 import { AppToolbar } from "./AppToolbar";
 import { ContextSidebar } from "./ContextSidebar";
@@ -56,17 +58,27 @@ export function AppLayout() {
     return (
       <RequireAuth>
         <RequireErpUnlock>
-          <Outlet />
+          <RequireTerminalPermissao area="erp">
+            <Outlet />
+          </RequireTerminalPermissao>
         </RequireErpUnlock>
       </RequireAuth>
     );
   }
 
+  const area = areaTerminalDoPath(pathname);
+
   return (
     <RequireAuth>
       <RequireErpUnlock>
         <RequireAdminLike>
-          <AppShell />
+          {area ? (
+            <RequireTerminalPermissao area={area}>
+              <AppShell />
+            </RequireTerminalPermissao>
+          ) : (
+            <AppShell />
+          )}
         </RequireAdminLike>
       </RequireErpUnlock>
     </RequireAuth>
