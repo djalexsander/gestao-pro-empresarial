@@ -2,18 +2,32 @@ import { useMemo } from "react";
 import { MODULES, type ModuleDef } from "./navigation";
 import { useEmpresaAtual, podeVerFinanceiro } from "@/hooks/useEmpresa";
 import { useMeusModulos } from "@/hooks/useSaasAdmin";
+import { isCaixaAllowedPath, useUserRole } from "@/hooks/useUserRole";
 
 /**
  * Retorna a lista de módulos da navegação:
- * - Filtra por papel do usuário (ex.: gerente operacional não vê financeiro)
- * - Esconde itens vinculados a um módulo SaaS que NÃO esteja liberado
- *   (módulo bloqueado/pendente/cancelado e fora do trial)
+ * - Operador `caixa` (sem outros papéis administrativos) só vê
+ *   Produtos, Estoque, Compras (e PDV — acessado por /pos).
+ * - Demais usuários: filtra por papel (gerente operacional não vê financeiro)
+ *   e esconde itens vinculados a um módulo SaaS NÃO liberado
+ *   (módulo bloqueado/pendente/cancelado e fora do trial).
  */
 export function useFilteredModules(): ModuleDef[] {
   const { papel } = useEmpresaAtual();
   const { data: meusModulos = [] } = useMeusModulos();
+  const { isCaixaOnly } = useUserRole();
 
   return useMemo(() => {
+    // 0. Caixa-only: whitelist estrita (Produtos, Estoque, Compras).
+    if (isCaixaOnly) {
+      return MODULES
+        .map((mod) => ({
+          ...mod,
+          items: mod.items.filter((it) => isCaixaAllowedPath(it.to.split("?")[0])),
+        }))
+        .filter((mod) => mod.items.length > 0);
+    }
+
     // 1. Filtro por papel
     const base = podeVerFinanceiro(papel)
       ? MODULES
@@ -34,5 +48,5 @@ export function useFilteredModules(): ModuleDef[] {
         ),
       }))
       .filter((mod) => mod.items.length > 0);
-  }, [papel, meusModulos]);
+  }, [papel, meusModulos, isCaixaOnly]);
 }
