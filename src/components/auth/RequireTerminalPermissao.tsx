@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useTerminal } from "@/components/auth/TerminalProvider";
 import { useTerminais } from "@/hooks/useTerminais";
+import { useUserRole } from "@/hooks/useUserRole";
 
 /**
  * Tipos de área que o terminal pode acessar.
@@ -38,6 +39,20 @@ export function RequireTerminalPermissao({
   const navigate = useNavigate();
   const { terminal } = useTerminal();
   const { data: terminais = [], isLoading } = useTerminais();
+  const { isAdminLike, isLoading: roleLoading } = useUserRole();
+
+  // Admins, donos e gerentes (isAdminLike) ignoram restrições de terminal.
+  // As permissões granulares de terminal só se aplicam a operadores caixa,
+  // que entram via PIN no PDV. Quem loga com conta admin acessa tudo,
+  // independente do terminal vinculado a este dispositivo.
+  if (roleLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (isAdminLike) return <>{children}</>;
 
   // Sem terminal vinculado neste dispositivo → considera "máquina admin"
   // e libera. A partir do momento em que o admin vincula um terminal, as

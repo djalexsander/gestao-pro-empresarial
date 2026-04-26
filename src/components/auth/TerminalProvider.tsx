@@ -9,7 +9,9 @@ import { toast } from "sonner";
 import { useAuth } from "./AuthProvider";
 import { useTerminaisAtivos } from "@/hooks/useTerminais";
 
-const STORAGE_KEY = "gp.terminal";
+const STORAGE_PREFIX = "gp.terminal:";
+/** Chave legada (antes do isolamento por usuário) — limpamos para evitar vazamento. */
+const LEGACY_STORAGE_KEY = "gp.terminal";
 
 export interface TerminalSelecionado {
   id: string;
@@ -24,10 +26,22 @@ interface TerminalContextValue {
 
 const TerminalContext = createContext<TerminalContextValue | null>(null);
 
-function loadFromStorage(): TerminalSelecionado | null {
+function storageKeyFor(userId: string | null | undefined): string | null {
+  if (!userId) return null;
+  return STORAGE_PREFIX + userId;
+}
+
+function loadFromStorage(userId: string | null | undefined): TerminalSelecionado | null {
   if (typeof window === "undefined") return null;
+  const key = storageKeyFor(userId);
+  if (!key) return null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    // Limpa chave legada (sem isolamento por usuário) para impedir
+    // que o terminal de uma empresa vaze para outra conta no mesmo navegador.
+    if (localStorage.getItem(LEGACY_STORAGE_KEY)) {
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+    }
+    const raw = localStorage.getItem(key);
     if (!raw) return null;
     return JSON.parse(raw) as TerminalSelecionado;
   } catch {
@@ -36,42 +50,46 @@ function loadFromStorage(): TerminalSelecionado | null {
 }
 
 /**
- * Persiste o terminal selecionado deste dispositivo em localStorage
- * (sobrevive a logout para futuro uso com Tauri = "este dispositivo é o caixa X").
+ * Persiste o terminal selecionado deste dispositivo em localStorage,
+ * **isolado por usuário autenticado**. Cada conta tem seu próprio terminal
+ * vinculado neste dispositivo — não há vazamento entre empresas.
  *
- * Também valida automaticamente o terminal armazenado contra a lista atual
- * de terminais ativos da empresa — se o terminal foi excluído, desativado
- * ou pertence a outra empresa, limpa o cache para forçar nova seleção.
+ * Também valida o terminal armazenado contra a lista atual de terminais
+ * ativos da empresa do usuário logado: se foi excluído, desativado ou
+ * pertence a outra empresa, limpa o cache para forçar nova seleção.
  */
 export function TerminalProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const [terminal, setTerminalState] = useState<TerminalSelecionado | null>(
-    () => loadFromStorage(),
-  );
+  const [terminal, setTerminalState] = useState<TerminalSelecionado | null>(null);
 
-  const setTerminal = useCallback((t: TerminalSelecionado | null) => {
-    setTerminalState(t);
-    try {
-      if (t) localStorage.setItem(STORAGE_KEY, JSON.stringify(t));
-      else localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      /* ignore */
-    }
-  }, []);
+  const setTerminal = useCallback(
+    (t: TerminalSelecionado | null) => {
+      setTerminalState(t);
+      const key = storageKeyFor(user?.id);
+      if (!key) return;
+      try {
+        if (t) localStorage.setItem(key, JSON.stringify(t));
+        else localStorage.removeItem(key);
+      } catch {
+        /* ignore */
+      }
+    },
+    [user?.id],
+  );
 
   const limparTerminal = useCallback(() => setTerminal(null), [setTerminal]);
 
-  // Re-hidrata quando o usuário faz login (caso outra aba tenha mudado)
+  // Re-hidrata sempre que o usuário muda (login/logout/troca de conta).
   useEffect(() => {
-    if (user) {
-      const t = loadFromStorage();
-      if (t && (!terminal || terminal.id !== t.id)) setTerminalState(t);
+    if (!user) {
+      setTerminalState(null);
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+    const t = loadFromStorage(user.id);
+    setTerminalState(t);
+  }, [user?.id]);
 
   // Valida o terminal armazenado contra a lista real do servidor.
-  // Só roda se há usuário logado E há terminal cacheado.
   const { data: terminaisAtivos = [], isSuccess } = useTerminaisAtivos();
 
   useEffect(() => {
@@ -79,11 +97,10 @@ export function TerminalProvider({ children }: { children: React.ReactNode }) {
     const aindaExiste = terminaisAtivos.some((t) => t.id === terminal.id);
     if (!aindaExiste) {
       toast.warning(
-        "O terminal vinculado a este dispositivo não existe mais. Selecione outro.",
+        "O terminal vinculado a este dispositivo não existe mais nesta empresa. Selecione outro.",
       );
       setTerminal(null);
     } else {
-      // Mantém o nome sincronizado caso tenha sido renomeado
       const atualizado = terminaisAtivos.find((t) => t.id === terminal.id);
       if (atualizado && atualizado.nome !== terminal.nome) {
         setTerminal({ id: atualizado.id, nome: atualizado.nome });
