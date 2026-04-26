@@ -199,7 +199,7 @@ export function ConciliarIfoodDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="flex-1 space-y-4 overflow-y-auto pr-1">
           {mode === "lote" && (
             <div className="rounded-md border border-border">
               <ScrollArea className="h-[260px]">
