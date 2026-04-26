@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Receipt, Wallet, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import { useHotkeys } from "@/hooks/useHotkeys";
 import {
   Dialog,
   DialogContent,
@@ -181,6 +182,39 @@ export function ConciliarIfoodDialog({
     });
   };
 
+  const podeConfirmar =
+    !conciliar.isPending &&
+    !valorMaiorQueBruto &&
+    valorRepasseNum > 0 &&
+    !!dataRepasse &&
+    (mode !== "lote" || selecionados.size > 0);
+
+  // Atalhos: Enter confirma, Esc fecha. Funciona mesmo com foco em inputs.
+  useHotkeys(
+    [
+      {
+        key: "Enter",
+        allowInInputs: true,
+        handler: (e) => {
+          const active = document.activeElement as HTMLElement | null;
+          // Permite quebra de linha no textarea de observação
+          if (active && active.tagName === "TEXTAREA") return;
+          if (!podeConfirmar) return;
+          e.preventDefault();
+          conciliar.mutate();
+        },
+      },
+      {
+        key: "Escape",
+        allowInInputs: true,
+        handler: () => {
+          if (!conciliar.isPending) onOpenChange(false);
+        },
+      },
+    ],
+    { enabled: open, scope: "modal" },
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[90vh] flex-col sm:max-w-2xl">
@@ -351,20 +385,16 @@ export function ConciliarIfoodDialog({
             onClick={() => onOpenChange(false)}
             disabled={conciliar.isPending}
           >
-            Cancelar
+            Cancelar <kbd className="ml-2 hidden rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground sm:inline">Esc</kbd>
           </Button>
           <Button
             onClick={() => conciliar.mutate()}
-            disabled={
-              conciliar.isPending ||
-              valorMaiorQueBruto ||
-              valorRepasseNum <= 0 ||
-              (mode === "lote" && selecionados.size === 0)
-            }
+            disabled={!podeConfirmar}
             className="gap-1.5 bg-success text-success-foreground hover:bg-success/90"
           >
             <CheckCircle2 className="h-4 w-4" />
             Confirmar repasse
+            <kbd className="ml-1 hidden rounded bg-success-foreground/15 px-1.5 py-0.5 text-[10px] font-medium sm:inline">Enter</kbd>
           </Button>
         </DialogFooter>
       </DialogContent>
