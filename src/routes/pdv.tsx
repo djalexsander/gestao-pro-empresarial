@@ -688,7 +688,44 @@ function PDVPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {podeAcessarRapido && (
+            <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/30 px-1.5 py-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2.5"
+                onClick={() => setQuickView("produtos")}
+                title="Abrir Produtos (F1)"
+              >
+                <Package className="h-4 w-4" />
+                Produtos
+                <PdvKbd className="ml-0.5">F1</PdvKbd>
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2.5"
+                onClick={() => setQuickView("estoque")}
+                title="Abrir Estoque (F2)"
+              >
+                <Boxes className="h-4 w-4" />
+                Estoque
+                <PdvKbd className="ml-0.5">F2</PdvKbd>
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2.5"
+                onClick={() => setQuickView("compras")}
+                title="Abrir Compras (F3)"
+              >
+                <ShoppingCart className="h-4 w-4" />
+                Compras
+                <PdvKbd className="ml-0.5">F3</PdvKbd>
+              </Button>
+            </div>
+          )}
           <Popover open={clientePopoverOpen} onOpenChange={setClientePopoverOpen}>
             <PopoverTrigger asChild>
               <Button variant="outline" size="sm" className="gap-1.5">
