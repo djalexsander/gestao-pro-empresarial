@@ -189,14 +189,14 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
     mutationFn: async () => {
       if (!lancamento) return;
       const totalPago = pagamentos.reduce((s, p) => s + Number(p.valor), 0);
-      const novoStatus =
+      const novoStatus: "pendente" | "pago" | "recebido" =
         totalPago <= 0
           ? "pendente"
           : totalPago >= Number(lancamento.valor)
             ? lancamento.tipo === "pagar"
               ? "pago"
               : "recebido"
-            : "parcial";
+            : "pendente"; // 'parcial' não está no enum gerado; mantém pendente
       const { error } = await supabase
         .from("financeiro_lancamentos")
         .update({ status: novoStatus })
