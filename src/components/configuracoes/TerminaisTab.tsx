@@ -19,8 +19,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Loader2, Plus, Trash2, Power, PowerOff, Monitor, KeyRound, Copy,
-  Server, Network, Wifi, WifiOff, UserCircle2, Crown,
+  Server, Network, Wifi, WifiOff, UserCircle2, Crown, ShieldCheck,
 } from "lucide-react";
+import { TerminalPermissoesDialog } from "./TerminalPermissoesDialog";
 import { toast } from "sonner";
 import {
   useTerminais, useCriarTerminal, useAtualizarTerminal,
@@ -38,6 +39,7 @@ export function TerminaisTab() {
   const [excluir, setExcluir] = useState<Terminal | null>(null);
   const [tokenInfo, setTokenInfo] = useState<{ nome: string; token: string } | null>(null);
   const [promover, setPromover] = useState<Terminal | null>(null);
+  const [permissoesAlvo, setPermissoesAlvo] = useState<Terminal | null>(null);
 
   const toggleMut = useToggleTerminalAtivo();
   const excluirMut = useExcluirTerminal();
@@ -239,6 +241,13 @@ export function TerminaisTab() {
                               <Crown className="h-4 w-4" />
                             </Button>
                           )}
+                          <Button
+                            variant="ghost" size="sm"
+                            onClick={() => setPermissoesAlvo(t)}
+                            title="Permissões deste terminal"
+                          >
+                            <ShieldCheck className="h-4 w-4 text-primary" />
+                          </Button>
                           <Button variant="ghost" size="sm" onClick={() => setEditar(t)} title="Editar">
                             <KeyRound className="h-4 w-4" />
                           </Button>
@@ -274,6 +283,12 @@ export function TerminaisTab() {
           open={novoOpen || !!editar}
           terminal={editar}
           onOpenChange={(o) => { if (!o) { setNovoOpen(false); setEditar(null); } }}
+        />
+
+        <TerminalPermissoesDialog
+          open={!!permissoesAlvo}
+          terminal={permissoesAlvo}
+          onOpenChange={(o) => !o && setPermissoesAlvo(null)}
         />
 
         <AlertDialog open={!!excluir} onOpenChange={(o) => !o && setExcluir(null)}>

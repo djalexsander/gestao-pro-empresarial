@@ -1734,6 +1734,12 @@ export type Database = {
           owner_id: string
           papel: string
           pareamento_token: string | null
+          pode_cadastros: boolean
+          pode_configuracoes: boolean
+          pode_erp: boolean
+          pode_financeiro: boolean
+          pode_pdv: boolean
+          pode_relatorios: boolean
           ultimo_uso: string | null
           updated_at: string
           user_agent: string | null
@@ -1752,6 +1758,12 @@ export type Database = {
           owner_id: string
           papel?: string
           pareamento_token?: string | null
+          pode_cadastros?: boolean
+          pode_configuracoes?: boolean
+          pode_erp?: boolean
+          pode_financeiro?: boolean
+          pode_pdv?: boolean
+          pode_relatorios?: boolean
           ultimo_uso?: string | null
           updated_at?: string
           user_agent?: string | null
@@ -1770,6 +1782,12 @@ export type Database = {
           owner_id?: string
           papel?: string
           pareamento_token?: string | null
+          pode_cadastros?: boolean
+          pode_configuracoes?: boolean
+          pode_erp?: boolean
+          pode_financeiro?: boolean
+          pode_pdv?: boolean
+          pode_relatorios?: boolean
           ultimo_uso?: string | null
           updated_at?: string
           user_agent?: string | null
@@ -2735,6 +2753,18 @@ export type Database = {
           user_agent: string
         }[]
       }
+      terminal_atualizar_permissoes: {
+        Args: {
+          _pode_cadastros: boolean
+          _pode_configuracoes: boolean
+          _pode_erp: boolean
+          _pode_financeiro: boolean
+          _pode_pdv: boolean
+          _pode_relatorios: boolean
+          _terminal_id: string
+        }
+        Returns: undefined
+      }
       terminal_definir_servidor: {
         Args: { _terminal_id: string }
         Returns: undefined
@@ -2754,6 +2784,7 @@ export type Database = {
         Args: { _terminal_id: string }
         Returns: undefined
       }
+      terminal_ping: { Args: never; Returns: string }
       terminal_resolver: {
         Args: { _identificador?: string; _token?: string }
         Returns: {

@@ -15,6 +15,7 @@ import { useOperador } from "@/components/auth/OperadorProvider";
 import { useTerminal } from "@/components/auth/TerminalProvider";
 import { OperadorPinSelector } from "@/components/auth/OperadorPinDialog";
 import { TerminalSelector, TerminalAtualBadge } from "@/components/auth/TerminalSelector";
+import { ConexaoStatusBanner } from "@/components/auth/ConexaoStatusBanner";
 import { useCaixaAberto, useCaixaResumo } from "@/hooks/useCaixa";
 import { AbrirCaixaDialog } from "@/components/caixa/AbrirCaixaDialog";
 import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
@@ -64,6 +65,7 @@ function PosTerminalScreen() {
   const navigate = useNavigate();
   return (
     <div className="flex min-h-screen flex-col bg-background">
+      <ConexaoStatusBanner />
       <header className="flex items-center justify-between border-b border-border bg-card px-6 py-3">
         <div className="flex items-center gap-2">
           <ShoppingCart className="h-5 w-5 text-primary" />
@@ -99,6 +101,7 @@ function PosLoginScreen() {
   const navigate = useNavigate();
   return (
     <div className="flex min-h-screen flex-col bg-background">
+      <ConexaoStatusBanner />
       <header className="flex items-center justify-between border-b border-border bg-card px-6 py-3">
         <div className="flex items-center gap-2">
           <ShoppingCart className="h-5 w-5 text-primary" />
@@ -157,6 +160,7 @@ function PosHomeScreen() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
+      <ConexaoStatusBanner />
       <header className="flex items-center justify-between border-b border-border bg-card px-4 py-2.5 sm:px-6">
         <div className="flex items-center gap-3">
           <ShoppingCart className="h-5 w-5 text-primary" />
@@ -168,6 +172,7 @@ function PosHomeScreen() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
+          <ConexaoStatusBanner compact />
           <TerminalAtualBadge />
           {caixaAberto ? (
             <Badge variant="default" className="bg-emerald-600 hover:bg-emerald-600">
