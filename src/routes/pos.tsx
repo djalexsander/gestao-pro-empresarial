@@ -15,6 +15,7 @@ import { useOperador } from "@/components/auth/OperadorProvider";
 import { useTerminal } from "@/components/auth/TerminalProvider";
 import { OperadorPinSelector } from "@/components/auth/OperadorPinDialog";
 import { TerminalSelector, TerminalAtualBadge } from "@/components/auth/TerminalSelector";
+import { ConexaoStatusBanner } from "@/components/auth/ConexaoStatusBanner";
 import { useCaixaAberto, useCaixaResumo } from "@/hooks/useCaixa";
 import { AbrirCaixaDialog } from "@/components/caixa/AbrirCaixaDialog";
 import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
