@@ -948,6 +948,32 @@ function FluxoCaixaPanel() {
         .limit(10000);
       if (errPag) throw errPag;
 
+      // 2.1) Buscar lançamentos financeiros vinculados a essas vendas
+      // (para saber quanto de iFood/Fiado/Outros já foi efetivamente recebido)
+      const { data: lancsVinc, error: errLanc } = await supabase
+        .from("financeiro_lancamentos")
+        .select("venda_id, forma_pagamento, valor, valor_pago, status, conciliado_em")
+        .in("venda_id", vendaIds)
+        .eq("tipo", "receber")
+        .limit(20000);
+      if (errLanc) throw errLanc;
+
+      // Mapa: (venda_id|forma) -> { recebido, total }
+      const lancMap = new Map<string, { recebido: number; total: number }>();
+      for (const l of lancsVinc ?? []) {
+        if (!l.venda_id || !l.forma_pagamento) continue;
+        const key = `${l.venda_id}|${l.forma_pagamento}`;
+        const cur = lancMap.get(key) ?? { recebido: 0, total: 0 };
+        const valor = Number(l.valor) || 0;
+        const pago = Number(l.valor_pago) || 0;
+        cur.total += valor;
+        // Considera recebido se status pago/recebido OU iFood conciliado
+        const efetivado =
+          l.status === "pago" || l.status === "recebido" || !!l.conciliado_em;
+        cur.recebido += efetivado ? (pago > 0 ? pago : valor) : pago;
+        lancMap.set(key, cur);
+      }
+
       const totals = new Map<string, { recebido: number; aReceber: number }>();
       for (const r of pagamentos ?? []) {
         const venda = vendaMap.get(r.venda_id);
@@ -955,16 +981,29 @@ function FluxoCaixaPanel() {
         const forma = r.forma_pagamento;
         const cur = totals.get(forma) ?? { recebido: 0, aReceber: 0 };
         const valorBruto = Number(r.valor) || 0;
-        const recebido =
-          venda.status_pagamento === "pago"
-            ? valorBruto
-            : venda.status_pagamento === "parcial"
-              ? Number(r.valor_recebido ?? 0)
-              : 0;
-        // iFood/Fiado nunca contam como "recebido imediato"
-        if (forma === "ifood" || forma === "fiado") {
-          cur.aReceber += valorBruto;
+
+        // Para iFood/Fiado/Outro: usar lançamento financeiro como fonte da verdade
+        // (esses são "a receber" e podem ser quitados depois)
+        if (forma === "ifood" || forma === "fiado" || forma === "outro") {
+          const key = `${r.venda_id}|${forma}`;
+          const lanc = lancMap.get(key);
+          if (lanc) {
+            // Proporcional caso haja múltiplos pagamentos com a mesma forma
+            const recLanc = Math.min(lanc.recebido, valorBruto);
+            cur.recebido += recLanc;
+            cur.aReceber += Math.max(valorBruto - recLanc, 0);
+          } else {
+            // Sem lançamento -> ainda não recebido
+            cur.aReceber += valorBruto;
+          }
         } else {
+          // Dinheiro / PIX / Cartão: já entram como recebido conforme status da venda
+          const recebido =
+            venda.status_pagamento === "pago"
+              ? valorBruto
+              : venda.status_pagamento === "parcial"
+                ? Number(r.valor_recebido ?? 0)
+                : 0;
           cur.recebido += recebido;
           cur.aReceber += valorBruto - recebido;
         }
