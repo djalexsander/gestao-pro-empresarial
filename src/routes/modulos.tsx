@@ -195,13 +195,15 @@ function MeuPlanoPage() {
       <Separator />
 
       {/* === Módulos disponíveis para contratação === */}
-      <section className="space-y-3">
+      <section id="modulos-disponiveis" className="space-y-3 scroll-mt-20">
         <div>
-          <h2 className="text-xl font-semibold tracking-tight">
+          <h2 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
+            <Sparkles className="h-5 w-5 text-primary" />
             Módulos disponíveis para contratação
           </h2>
           <p className="text-sm text-muted-foreground">
-            Adicione funcionalidades extras conforme sua necessidade.
+            Expanda seu sistema com funcionalidades extras. Cada módulo é
+            cobrado separadamente do Plano Base.
           </p>
         </div>
 
