@@ -1,12 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PageHeader } from "@/components/shared/PageHeader";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTheme } from "@/components/theme/ThemeProvider";
+import { EmpresaTab } from "@/components/configuracoes/EmpresaTab";
 import { FuncionariosTab } from "@/components/configuracoes/FuncionariosTab";
 import { TerminaisTab } from "@/components/configuracoes/TerminaisTab";
 import { SociosTab } from "@/components/configuracoes/SociosTab";
@@ -42,36 +40,7 @@ function SettingsPage() {
         </TabsList>
 
         <TabsContent value="empresa" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Dados da empresa</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="razao">Razão social</Label>
-                <Input id="razao" defaultValue="Minha Empresa Ltda" />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="cnpj">CNPJ</Label>
-                <Input id="cnpj" defaultValue="00.000.000/0001-00" />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="email">E-mail comercial</Label>
-                <Input id="email" type="email" defaultValue="contato@empresa.com" />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="tel">Telefone</Label>
-                <Input id="tel" defaultValue="(11) 0000-0000" />
-              </div>
-              <div className="space-y-1.5 md:col-span-2">
-                <Label htmlFor="end">Endereço</Label>
-                <Input id="end" defaultValue="Av. Principal, 1000 - Centro - São Paulo/SP" />
-              </div>
-              <div className="md:col-span-2">
-                <Button>Salvar alterações</Button>
-              </div>
-            </CardContent>
-          </Card>
+          <EmpresaTab />
         </TabsContent>
 
         <TabsContent value="planos" className="mt-4">
