@@ -370,31 +370,44 @@ function FluxoCaixaPanel() {
     queryFn: async () => {
       const inicioTs = `${inicio}T00:00:00`;
       const fimTs = `${fim}T23:59:59.999`;
-      const { data, error } = await supabase
-        .from("venda_pagamentos")
-        .select(
-          "forma_pagamento, valor, valor_recebido, venda:vendas!inner(status, status_pagamento, data_finalizacao)",
-        )
-        .gte("venda.data_finalizacao", inicioTs)
-        .lte("venda.data_finalizacao", fimTs)
+
+      // 1) Buscar vendas finalizadas no período (não canceladas)
+      const { data: vendasData, error: errVendas } = await supabase
+        .from("vendas")
+        .select("id, status, status_pagamento")
+        .gte("data_finalizacao", inicioTs)
+        .lte("data_finalizacao", fimTs)
+        .neq("status", "cancelada")
         .limit(5000);
-      if (error) throw error;
-      type Row = {
-        forma_pagamento: string;
-        valor: number;
-        valor_recebido: number | null;
-        venda: { status: string; status_pagamento: string } | null;
-      };
+      if (errVendas) throw errVendas;
+
+      const vendaIds = (vendasData ?? []).map((v) => v.id);
+      if (vendaIds.length === 0) {
+        return [] as { forma: string; recebido: number; aReceber: number }[];
+      }
+      const vendaMap = new Map(
+        (vendasData ?? []).map((v) => [v.id, v] as const),
+      );
+
+      // 2) Buscar pagamentos dessas vendas
+      const { data: pagamentos, error: errPag } = await supabase
+        .from("venda_pagamentos")
+        .select("forma_pagamento, valor, valor_recebido, venda_id")
+        .in("venda_id", vendaIds)
+        .limit(10000);
+      if (errPag) throw errPag;
+
       const totals = new Map<string, { recebido: number; aReceber: number }>();
-      for (const r of (data ?? []) as Row[]) {
-        if (!r.venda || r.venda.status === "cancelada") continue;
+      for (const r of pagamentos ?? []) {
+        const venda = vendaMap.get(r.venda_id);
+        if (!venda) continue;
         const forma = r.forma_pagamento;
         const cur = totals.get(forma) ?? { recebido: 0, aReceber: 0 };
         const valorBruto = Number(r.valor) || 0;
         const recebido =
-          r.venda.status_pagamento === "pago"
+          venda.status_pagamento === "pago"
             ? valorBruto
-            : r.venda.status_pagamento === "parcial"
+            : venda.status_pagamento === "parcial"
               ? Number(r.valor_recebido ?? 0)
               : 0;
         // iFood/Fiado nunca contam como "recebido imediato"
