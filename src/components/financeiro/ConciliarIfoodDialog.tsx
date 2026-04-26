@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Receipt, Wallet, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import { useHotkeys } from "@/hooks/useHotkeys";
 import {
   Dialog,
   DialogContent,
