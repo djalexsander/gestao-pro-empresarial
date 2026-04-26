@@ -67,7 +67,10 @@ function formatDate(d: string | null | undefined): string {
   return `${day}/${m}/${y}`;
 }
 
-function statusInfo(l: LancamentoDetalhe): { label: string; tone: "success" | "warning" | "danger" | "neutral" | "info" } {
+function statusInfo(l: LancamentoDetalhe): {
+  label: string;
+  tone: "success" | "warning" | "danger" | "neutral" | "info";
+} {
   if (l.status === "pago" || l.status === "recebido") return { label: "Pago", tone: "success" };
   if (l.status === "cancelado") return { label: "Cancelado", tone: "danger" };
   if (l.status === "parcial") return { label: "Parcial", tone: "info" };
@@ -77,7 +80,15 @@ function statusInfo(l: LancamentoDetalhe): { label: string; tone: "success" | "w
   return { label: "Pendente", tone: "warning" };
 }
 
-function Field({ icon: Icon, label, children }: { icon: typeof Calendar; label: string; children: React.ReactNode }) {
+function Field({
+  icon: Icon,
+  label,
+  children,
+}: {
+  icon: typeof Calendar;
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex items-start gap-2.5">
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -134,9 +145,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
     lancamento.status === "recebido" ||
     lancamento.status === "cancelado";
   const isIfoodPendente =
-    lancamento.forma_pagamento === "ifood" &&
-    !jaResolvido &&
-    lancamento.tipo === "receber";
+    lancamento.forma_pagamento === "ifood" && !jaResolvido && lancamento.tipo === "receber";
   const temAuditoriaRepasse = !!lancamento.conciliado_em;
 
   return (
@@ -149,14 +158,17 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
               <StatusBadge status={info.label} tone={info.tone} />
             </DialogTitle>
             <DialogDescription>
-              {isPagar ? "Conta a pagar" : "Conta a receber"} • {formatBRL(Number(lancamento.valor))}
+              {isPagar ? "Conta a pagar" : "Conta a receber"} •{" "}
+              {formatBRL(Number(lancamento.valor))}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field icon={Wallet} label="Valor">
-                <span className="text-base font-semibold">{formatBRL(Number(lancamento.valor))}</span>
+                <span className="text-base font-semibold">
+                  {formatBRL(Number(lancamento.valor))}
+                </span>
               </Field>
               <Field icon={Calendar} label="Vencimento">
                 {formatDate(lancamento.data_vencimento)}
@@ -245,7 +257,9 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
               <>
                 <Separator />
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Observações</p>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Observações
+                  </p>
                   <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">
                     {lancamento.observacoes}
                   </p>

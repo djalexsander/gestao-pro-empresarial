@@ -62,11 +62,7 @@ import {
   type DetalheRow,
 } from "@/components/financeiro/BlocoDetalheDialog";
 import { useFinanceiroIndicadores } from "@/hooks/useFinanceiroIndicadores";
-import {
-  exportarBlocoCSV,
-  exportarBlocoPDF,
-} from "@/lib/export-bloco";
-
+import { exportarBlocoCSV, exportarBlocoPDF } from "@/lib/export-bloco";
 
 type FinTab = "receber" | "pagar" | "fluxo";
 
@@ -137,9 +133,7 @@ function buildConsolidado(args: {
   saldo: number;
   receber: Lancamento[];
   pagar: Lancamento[];
-  ind:
-    | ReturnType<typeof useFinanceiroIndicadores>["data"]
-    | undefined;
+  ind: ReturnType<typeof useFinanceiroIndicadores>["data"] | undefined;
 }): ConsolidadoRow[] {
   const { totalRec, totalPay, saldo, receber, pagar, ind } = args;
   const rows: ConsolidadoRow[] = [
@@ -419,7 +413,6 @@ function FinanceContent() {
         </div>
       </div>
 
-
       <Tabs
         value={activeTab}
         onValueChange={(v) =>
@@ -645,9 +638,7 @@ function BlocoModais({
           },
         ]}
         alertaSemCusto={
-          ind.qtdItensSemCusto > 0
-            ? { qtd: ind.qtdItensSemCusto, total: semCustoTotal }
-            : null
+          ind.qtdItensSemCusto > 0 ? { qtd: ind.qtdItensSemCusto, total: semCustoTotal } : null
         }
         colunas={[
           { key: "numero", header: "Venda" },
@@ -699,9 +690,7 @@ function BlocoModais({
     );
   }
   if (bloco === "ifood") {
-    const ifoodLanc = receber.filter(
-      (l) => l.forma_pagamento === "ifood" && !l.conciliado_em,
-    );
+    const ifoodLanc = receber.filter((l) => l.forma_pagamento === "ifood" && !l.conciliado_em);
     return (
       <BlocoDetalheDialog
         open
@@ -828,11 +817,17 @@ function LancamentosTable({
                 <TableRow
                   key={i.id}
                   onClick={() => onSelect?.(i)}
-                  className={onSelect ? "cursor-pointer transition-colors hover:bg-muted/50" : undefined}
+                  className={
+                    onSelect ? "cursor-pointer transition-colors hover:bg-muted/50" : undefined
+                  }
                 >
                   <TableCell className="font-medium">{i.descricao}</TableCell>
-                  <TableCell className="text-muted-foreground">{formatDate(i.data_vencimento)}</TableCell>
-                  <TableCell className="text-right font-medium">{formatBRL(Number(i.valor))}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {formatDate(i.data_vencimento)}
+                  </TableCell>
+                  <TableCell className="text-right font-medium">
+                    {formatBRL(Number(i.valor))}
+                  </TableCell>
                   <TableCell>
                     <StatusBadge status={statusLabel(i)} />
                   </TableCell>
@@ -943,9 +938,7 @@ function FluxoCaixaPanel() {
       if (vendaIds.length === 0) {
         return [] as { forma: string; recebido: number; aReceber: number }[];
       }
-      const vendaMap = new Map(
-        (vendasData ?? []).map((v) => [v.id, v] as const),
-      );
+      const vendaMap = new Map((vendasData ?? []).map((v) => [v.id, v] as const));
 
       // 2) Buscar pagamentos dessas vendas
       const { data: pagamentos, error: errPag } = await supabase
@@ -1002,28 +995,30 @@ function FluxoCaixaPanel() {
         .limit(2000);
       if (errMovs) throw errMovs;
 
-      const movRows: FluxoRow[] = (movs ?? []).map((m: {
-        id: string;
-        tipo: string;
-        valor: number;
-        motivo: string | null;
-        created_at: string;
-      }) => {
-        const tipo = m.tipo as FluxoTipo;
-        // Sinal: entrada (+) ou saída (-)
-        let valor = Number(m.valor) || 0;
-        if (tipo === "sangria" || tipo === "fechamento") valor = -Math.abs(valor);
-        else valor = Math.abs(valor);
-        // "fechamento" entra com valor 0 normalmente — manter informativo.
-        return {
-          id: `mov-${m.id}`,
-          data: m.created_at,
-          tipo,
-          origem: "caixa",
-          descricao: m.motivo ?? TIPO_LABEL[tipo] ?? "Movimento de caixa",
-          valor,
-        };
-      });
+      const movRows: FluxoRow[] = (movs ?? []).map(
+        (m: {
+          id: string;
+          tipo: string;
+          valor: number;
+          motivo: string | null;
+          created_at: string;
+        }) => {
+          const tipo = m.tipo as FluxoTipo;
+          // Sinal: entrada (+) ou saída (-)
+          let valor = Number(m.valor) || 0;
+          if (tipo === "sangria" || tipo === "fechamento") valor = -Math.abs(valor);
+          else valor = Math.abs(valor);
+          // "fechamento" entra com valor 0 normalmente — manter informativo.
+          return {
+            id: `mov-${m.id}`,
+            data: m.created_at,
+            tipo,
+            origem: "caixa",
+            descricao: m.motivo ?? TIPO_LABEL[tipo] ?? "Movimento de caixa",
+            valor,
+          };
+        },
+      );
 
       // 2) Lançamentos financeiros pagos/recebidos NÃO vinculados a caixa
       //    (evita duplicar vendas que já entram via caixa_movimentos).
@@ -1101,8 +1096,8 @@ function FluxoCaixaPanel() {
     <div className="space-y-4">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
         <div className="text-sm text-muted-foreground">
-          Consolida movimentos do <strong>Caixa/Operacional</strong> e lançamentos
-          do <strong>Financeiro</strong> sem duplicar vendas já registradas no caixa.
+          Consolida movimentos do <strong>Caixa/Operacional</strong> e lançamentos do{" "}
+          <strong>Financeiro</strong> sem duplicar vendas já registradas no caixa.
         </div>
         <div className="flex w-full gap-2 sm:w-auto">
           <Button
@@ -1160,10 +1155,7 @@ function FluxoCaixaPanel() {
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
               {porForma.map((p) => (
-                <div
-                  key={p.forma}
-                  className="rounded-md border border-border bg-card/40 p-3"
-                >
+                <div key={p.forma} className="rounded-md border border-border bg-card/40 p-3">
                   <p className="text-xs text-muted-foreground">
                     {FORMA_LABELS[p.forma] ?? p.forma}
                   </p>
