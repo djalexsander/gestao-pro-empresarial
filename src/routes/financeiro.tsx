@@ -217,9 +217,9 @@ function FinanceContent() {
 
   const handleExportConsolidadoCSV = () =>
     exportarBlocoCSV("financeiro_consolidado", consolidado, [
-      { header: "Indicador", accessor: (r) => r.indicador, type: "text" },
-      { header: "Quantidade", accessor: (r) => r.quantidade, type: "integer" },
-      { header: "Valor (R$)", accessor: (r) => r.valor, type: "currency" },
+      { header: "Indicador", accessor: (r: ConsolidadoRow) => r.indicador, type: "text" },
+      { header: "Quantidade", accessor: (r: ConsolidadoRow) => r.quantidade, type: "integer" },
+      { header: "Valor (R$)", accessor: (r: ConsolidadoRow) => r.valor, type: "currency" },
     ]);
 
   const handleExportConsolidadoPDF = () =>
