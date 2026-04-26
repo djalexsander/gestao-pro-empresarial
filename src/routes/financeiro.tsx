@@ -41,16 +41,7 @@ export const Route = createFileRoute("/financeiro")({
   component: FinancePage,
 });
 
-type Lancamento = {
-  id: string;
-  descricao: string;
-  valor: number;
-  valor_pago: number | null;
-  data_vencimento: string;
-  data_pagamento: string | null;
-  tipo: "receber" | "pagar";
-  status: "pendente" | "recebido" | "pago" | "cancelado" | "parcial" | "vencido";
-};
+type Lancamento = LancamentoDetalhe;
 
 function statusLabel(l: Lancamento): string {
   if (l.status === "pago" || l.status === "recebido") return "Pago";
