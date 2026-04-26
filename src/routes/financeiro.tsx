@@ -550,6 +550,8 @@ function FluxoCaixaPanel() {
     return rows.map((r) => ({ ...r, saldoAcumulado: map.get(r.id) ?? 0 }));
   }, [rows]);
 
+  const [conciliarLoteOpen, setConciliarLoteOpen] = useState(false);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
@@ -557,12 +559,22 @@ function FluxoCaixaPanel() {
           Consolida movimentos do <strong>Caixa/Operacional</strong> e lançamentos
           do <strong>Financeiro</strong> sem duplicar vendas já registradas no caixa.
         </div>
-        <Select value={periodo} onValueChange={(v) => setPeriodo(v as FluxoPeriodo)}>
-          <SelectTrigger className="w-full sm:w-44">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="7d">Últimos 7 dias</SelectItem>
+        <div className="flex w-full gap-2 sm:w-auto">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setConciliarLoteOpen(true)}
+            className="gap-1.5"
+          >
+            <Receipt className="h-4 w-4" />
+            Conciliar repasse iFood
+          </Button>
+          <Select value={periodo} onValueChange={(v) => setPeriodo(v as FluxoPeriodo)}>
+            <SelectTrigger className="w-full sm:w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7d">Últimos 7 dias</SelectItem>
             <SelectItem value="30d">Últimos 30 dias</SelectItem>
             <SelectItem value="mes">Este mês</SelectItem>
             <SelectItem value="ano">Este ano</SelectItem>
