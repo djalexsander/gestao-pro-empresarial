@@ -95,6 +95,7 @@ function FinanceContent() {
         .select(
           `id, descricao, valor, valor_pago, data_vencimento, data_pagamento, data_emissao,
            tipo, status, observacoes, numero_documento, forma_pagamento, created_at,
+           conciliado_em, valor_repasse, taxa_repasse, numero_repasse, observacao_repasse,
            fornecedor:fornecedores(razao_social, nome_fantasia),
            cliente:clientes(nome),
            categoria:categorias_financeiras(nome)`,
@@ -115,6 +116,11 @@ function FinanceContent() {
         numero_documento: string | null;
         forma_pagamento: string | null;
         created_at: string | null;
+        conciliado_em: string | null;
+        valor_repasse: number | null;
+        taxa_repasse: number | null;
+        numero_repasse: string | null;
+        observacao_repasse: string | null;
         fornecedor: { razao_social: string | null; nome_fantasia: string | null } | null;
         cliente: { nome: string | null } | null;
         categoria: { nome: string | null } | null;
@@ -133,6 +139,11 @@ function FinanceContent() {
         numero_documento: r.numero_documento,
         forma_pagamento: r.forma_pagamento,
         created_at: r.created_at,
+        conciliado_em: r.conciliado_em,
+        valor_repasse: r.valor_repasse,
+        taxa_repasse: r.taxa_repasse,
+        numero_repasse: r.numero_repasse,
+        observacao_repasse: r.observacao_repasse,
         fornecedor_nome: r.fornecedor?.nome_fantasia ?? r.fornecedor?.razao_social ?? null,
         cliente_nome: r.cliente?.nome ?? null,
         categoria_nome: r.categoria?.nome ?? null,
