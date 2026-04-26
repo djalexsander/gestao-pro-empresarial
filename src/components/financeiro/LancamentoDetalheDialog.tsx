@@ -613,7 +613,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
         open={pagamentoOpen}
         onOpenChange={setPagamentoOpen}
         lancamentoId={lancamento.id}
-        ownerId=""
+        ownerId={ownerId}
         saldoRestante={saldoRestante}
         valorTotal={valorTotal}
         descricao={lancamento.descricao}
