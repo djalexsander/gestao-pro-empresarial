@@ -27,9 +27,11 @@ import { useHotkeys } from "@/hooks/useHotkeys";
 type FormaPag =
   | "dinheiro"
   | "pix"
-  | "credito"
-  | "debito"
+  | "cartao_credito"
+  | "cartao_debito"
   | "boleto"
+  | "transferencia"
+  | "cheque"
   | "fiado"
   | "ifood"
   | "outro";
