@@ -1,6 +1,22 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { ArrowDownToLine, ArrowUpFromLine, Plus, TrendingUp } from "lucide-react";
+import {
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Plus,
+  TrendingUp,
+  ShoppingCart,
+  Package,
+  Wallet,
+  Clock,
+  AlertTriangle,
+  Receipt,
+  HandCoins,
+  UtensilsCrossed,
+  Download,
+  FileText,
+  Sheet as SheetIcon,
+} from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
@@ -8,6 +24,12 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -34,7 +56,17 @@ import {
   type LancamentoDetalhe,
 } from "@/components/financeiro/LancamentoDetalheDialog";
 import { ConciliarIfoodDialog } from "@/components/financeiro/ConciliarIfoodDialog";
-import { Receipt } from "lucide-react";
+import {
+  BlocoDetalheDialog,
+  type DetalheColumn,
+  type DetalheRow,
+} from "@/components/financeiro/BlocoDetalheDialog";
+import { useFinanceiroIndicadores } from "@/hooks/useFinanceiroIndicadores";
+import {
+  exportarBlocoCSV,
+  exportarBlocoPDF,
+} from "@/lib/export-bloco";
+
 
 type FinTab = "receber" | "pagar" | "fluxo";
 
@@ -81,11 +113,63 @@ function FinancePage() {
   );
 }
 
+type BlocoChave =
+  | "receber"
+  | "pagar"
+  | "saldo"
+  | "vendido"
+  | "custo"
+  | "lucro"
+  | "fiado"
+  | "ifood"
+  | "recebidoHoje"
+  | "vencidos";
+
+interface ConsolidadoRow {
+  indicador: string;
+  quantidade: number;
+  valor: number;
+}
+
+function buildConsolidado(args: {
+  totalRec: number;
+  totalPay: number;
+  saldo: number;
+  receber: Lancamento[];
+  pagar: Lancamento[];
+  ind:
+    | ReturnType<typeof useFinanceiroIndicadores>["data"]
+    | undefined;
+}): ConsolidadoRow[] {
+  const { totalRec, totalPay, saldo, receber, pagar, ind } = args;
+  const rows: ConsolidadoRow[] = [
+    { indicador: "Total a receber", quantidade: receber.length, valor: totalRec },
+    { indicador: "Total a pagar", quantidade: pagar.length, valor: totalPay },
+    { indicador: "Saldo previsto", quantidade: 0, valor: saldo },
+  ];
+  if (ind) {
+    rows.push(
+      { indicador: "Total vendido (mês)", quantidade: ind.qtdVendas, valor: ind.totalVendido },
+      { indicador: "Custo dos produtos vendidos", quantidade: ind.qtdItens, valor: ind.custoTotal },
+      { indicador: "Lucro bruto", quantidade: 0, valor: ind.lucroBruto },
+      { indicador: "Fiado em aberto", quantidade: ind.qtdFiado, valor: ind.fiadoEmAberto },
+      { indicador: "iFood a repassar", quantidade: ind.qtdIfood, valor: ind.ifoodAReceber },
+      { indicador: "Recebido hoje", quantidade: ind.qtdRecebimentosHoje, valor: ind.recebidoHoje },
+      { indicador: "Vencidos", quantidade: ind.qtdVencidos, valor: ind.vencidosTotal },
+    );
+  }
+  return rows;
+}
+
 function FinanceContent() {
   const { tab } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   const activeTab: FinTab = tab ?? "receber";
   const [selected, setSelected] = useState<Lancamento | null>(null);
+  const [blocoAberto, setBlocoAberto] = useState<BlocoChave | null>(null);
+
+  const indicadores = useFinanceiroIndicadores();
+  const ind = indicadores.data;
 
   const { data: lancamentos = [], isLoading } = useQuery({
     queryKey: ["financeiro_lancamentos"],
@@ -162,41 +246,179 @@ function FinanceContent() {
   const totalPay = pagar.reduce((s, l) => s + Number(l.valor) - Number(l.valor_pago ?? 0), 0);
   const saldo = totalRec - totalPay;
 
+  const consolidado = useMemo(
+    () => buildConsolidado({ totalRec, totalPay, saldo, receber, pagar, ind }),
+    [totalRec, totalPay, saldo, receber, pagar, ind],
+  );
+
+  const handleExportConsolidadoCSV = () =>
+    exportarBlocoCSV("financeiro_consolidado", consolidado, [
+      { header: "Indicador", accessor: (r: ConsolidadoRow) => r.indicador, type: "text" },
+      { header: "Quantidade", accessor: (r: ConsolidadoRow) => r.quantidade, type: "integer" },
+      { header: "Valor (R$)", accessor: (r: ConsolidadoRow) => r.valor, type: "currency" },
+    ]);
+
+  const handleExportConsolidadoPDF = () =>
+    exportarBlocoPDF({
+      titulo: "Financeiro — Resumo consolidado",
+      subtitulo: ind
+        ? `Período: ${formatDate(ind.periodo.inicio)} a ${formatDate(ind.periodo.fim)}`
+        : "Mês atual",
+      tabela: {
+        header: ["Indicador", "Quantidade", "Valor"],
+        rows: consolidado,
+        formatRow: (r) => [r.indicador, String(r.quantidade), formatBRL(r.valor)],
+      },
+    });
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Financeiro"
-        description="Acompanhe entradas, saídas e o fluxo de caixa."
+        description="Acompanhe entradas, saídas, lucro e fluxo de caixa."
         actions={
-          <Button size="sm" className="gap-1.5">
-            <Plus className="h-4 w-4" />
-            Novo lançamento
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline" className="gap-1.5">
+                  <Download className="h-4 w-4" />
+                  Exportar resumo
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleExportConsolidadoCSV} className="gap-2">
+                  <SheetIcon className="h-4 w-4" /> CSV (Excel)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportConsolidadoPDF} className="gap-2">
+                  <FileText className="h-4 w-4" /> PDF
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button size="sm" className="gap-1.5">
+              <Plus className="h-4 w-4" />
+              Novo lançamento
+            </Button>
+          </div>
         }
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatCard
-          label="Total a receber"
-          value={formatBRL(totalRec)}
-          icon={ArrowDownToLine}
-          iconTone="success"
-          hint={`${receber.length} títulos`}
-        />
-        <StatCard
-          label="Total a pagar"
-          value={formatBRL(totalPay)}
-          icon={ArrowUpFromLine}
-          iconTone="warning"
-          hint={`${pagar.length} títulos`}
-        />
-        <StatCard
-          label="Saldo previsto"
-          value={formatBRL(saldo)}
-          icon={TrendingUp}
-          iconTone={saldo >= 0 ? "success" : "danger"}
-        />
+      {/* Bloco 1: Posição financeira */}
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Posição financeira
+        </p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <StatCard
+            label="Total a receber"
+            value={formatBRL(totalRec)}
+            icon={ArrowDownToLine}
+            iconTone="success"
+            hint={`${receber.length} títulos`}
+            onClick={() => setBlocoAberto("receber")}
+          />
+          <StatCard
+            label="Total a pagar"
+            value={formatBRL(totalPay)}
+            icon={ArrowUpFromLine}
+            iconTone="warning"
+            hint={`${pagar.length} títulos`}
+            onClick={() => setBlocoAberto("pagar")}
+          />
+          <StatCard
+            label="Saldo previsto"
+            value={formatBRL(saldo)}
+            icon={TrendingUp}
+            iconTone={saldo >= 0 ? "success" : "danger"}
+            onClick={() => setBlocoAberto("saldo")}
+          />
+        </div>
       </div>
+
+      {/* Bloco 2: Performance do mês */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Performance do mês
+          </p>
+          {ind && (
+            <span className="text-[11px] text-muted-foreground">
+              {formatDate(ind.periodo.inicio)} → {formatDate(ind.periodo.fim)}
+            </span>
+          )}
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <StatCard
+            label="Total vendido"
+            value={formatBRL(ind?.totalVendido ?? 0)}
+            icon={ShoppingCart}
+            iconTone="info"
+            hint={`${ind?.qtdVendas ?? 0} vendas`}
+            onClick={() => setBlocoAberto("vendido")}
+          />
+          <StatCard
+            label="Custo dos produtos vendidos"
+            value={formatBRL(ind?.custoTotal ?? 0)}
+            icon={Package}
+            iconTone="warning"
+            hint={
+              ind && ind.qtdItensSemCusto > 0
+                ? `${ind.qtdItensSemCusto} sem custo`
+                : `${ind?.qtdItens ?? 0} itens`
+            }
+            onClick={() => setBlocoAberto("custo")}
+          />
+          <StatCard
+            label="Lucro bruto"
+            value={formatBRL(ind?.lucroBruto ?? 0)}
+            icon={TrendingUp}
+            iconTone={(ind?.lucroBruto ?? 0) >= 0 ? "success" : "danger"}
+            hint={`Margem ${(ind?.margemPct ?? 0).toFixed(1)}%`}
+            onClick={() => setBlocoAberto("lucro")}
+          />
+        </div>
+      </div>
+
+      {/* Bloco 3: A receber por origem + operacional */}
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          A receber por origem e operacional
+        </p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            label="Fiado em aberto"
+            value={formatBRL(ind?.fiadoEmAberto ?? 0)}
+            icon={HandCoins}
+            iconTone="info"
+            hint={`${ind?.qtdFiado ?? 0} títulos`}
+            onClick={() => setBlocoAberto("fiado")}
+          />
+          <StatCard
+            label="iFood a repassar"
+            value={formatBRL(ind?.ifoodAReceber ?? 0)}
+            icon={UtensilsCrossed}
+            iconTone="warning"
+            hint={`${ind?.qtdIfood ?? 0} pendentes`}
+            onClick={() => setBlocoAberto("ifood")}
+          />
+          <StatCard
+            label="Recebido hoje"
+            value={formatBRL(ind?.recebidoHoje ?? 0)}
+            icon={Wallet}
+            iconTone="success"
+            hint={`${ind?.qtdRecebimentosHoje ?? 0} recebimentos`}
+            onClick={() => setBlocoAberto("recebidoHoje")}
+          />
+          <StatCard
+            label="Vencidos"
+            value={formatBRL(ind?.vencidosTotal ?? 0)}
+            icon={AlertTriangle}
+            iconTone="danger"
+            hint={`${ind?.qtdVencidos ?? 0} títulos`}
+            onClick={() => setBlocoAberto("vencidos")}
+          />
+        </div>
+      </div>
+
 
       <Tabs
         value={activeTab}
@@ -238,8 +460,331 @@ function FinanceContent() {
         onOpenChange={(o) => !o && setSelected(null)}
         lancamento={selected}
       />
+
+      <BlocoModais
+        bloco={blocoAberto}
+        onClose={() => setBlocoAberto(null)}
+        receber={receber}
+        pagar={pagar}
+        totalRec={totalRec}
+        totalPay={totalPay}
+        saldo={saldo}
+        ind={ind}
+      />
     </div>
   );
+}
+
+function BlocoModais({
+  bloco,
+  onClose,
+  receber,
+  pagar,
+  totalRec,
+  totalPay,
+  saldo,
+  ind,
+}: {
+  bloco: BlocoChave | null;
+  onClose: () => void;
+  receber: Lancamento[];
+  pagar: Lancamento[];
+  totalRec: number;
+  totalPay: number;
+  saldo: number;
+  ind: ReturnType<typeof useFinanceiroIndicadores>["data"] | undefined;
+}) {
+  if (!bloco) return null;
+
+  const lancamentoCols: DetalheColumn[] = [
+    { key: "descricao", header: "Descrição" },
+    { key: "vencimento", header: "Vencimento", format: "date" },
+    { key: "valor", header: "Valor", format: "currency", align: "right" },
+    { key: "status", header: "Status" },
+  ];
+
+  const lancRows = (items: Lancamento[]): DetalheRow[] =>
+    items.map((l) => ({
+      id: l.id,
+      descricao: l.descricao,
+      vencimento: l.data_vencimento,
+      valor: Number(l.valor) - Number(l.valor_pago ?? 0),
+      status: statusLabel(l),
+    }));
+
+  if (bloco === "receber") {
+    return (
+      <BlocoDetalheDialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        titulo="Total a receber"
+        subtitulo="Títulos em aberto a receber"
+        origem="financeiro_lancamentos"
+        resumo={[
+          { label: "Total em aberto", valor: formatBRL(totalRec), tone: "success" },
+          { label: "Qtd. títulos", valor: String(receber.length) },
+        ]}
+        colunas={lancamentoCols}
+        rows={lancRows(receber)}
+      />
+    );
+  }
+  if (bloco === "pagar") {
+    return (
+      <BlocoDetalheDialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        titulo="Total a pagar"
+        subtitulo="Contas a pagar em aberto"
+        origem="financeiro_lancamentos"
+        resumo={[
+          { label: "Total em aberto", valor: formatBRL(totalPay), tone: "danger" },
+          { label: "Qtd. títulos", valor: String(pagar.length) },
+        ]}
+        colunas={lancamentoCols}
+        rows={lancRows(pagar)}
+      />
+    );
+  }
+  if (bloco === "saldo") {
+    return (
+      <BlocoDetalheDialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        titulo="Saldo previsto"
+        subtitulo="Composição: a receber − a pagar"
+        origem="financeiro_lancamentos"
+        resumo={[
+          { label: "A receber", valor: formatBRL(totalRec), tone: "success" },
+          { label: "A pagar", valor: formatBRL(totalPay), tone: "danger" },
+          { label: "Saldo", valor: formatBRL(saldo), tone: saldo >= 0 ? "success" : "danger" },
+        ]}
+        colunas={[
+          { key: "indicador", header: "Indicador" },
+          { key: "valor", header: "Valor", format: "currency", align: "right" },
+        ]}
+        rows={[
+          { id: "r", indicador: "Total a receber", valor: totalRec },
+          { id: "p", indicador: "Total a pagar", valor: -totalPay },
+          { id: "s", indicador: "Saldo previsto", valor: saldo },
+        ]}
+      />
+    );
+  }
+
+  // Blocos baseados em ind (mês atual)
+  if (!ind) {
+    return (
+      <BlocoDetalheDialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        titulo="Carregando…"
+        origem="—"
+        resumo={[]}
+        colunas={[{ key: "info", header: "Status" }]}
+        rows={[{ id: "1", info: "Aguardando dados do mês" }]}
+      />
+    );
+  }
+
+  const periodoLabel = `${formatDate(ind.periodo.inicio)} a ${formatDate(ind.periodo.fim)}`;
+
+  if (bloco === "vendido") {
+    return (
+      <BlocoDetalheDialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        titulo="Total vendido"
+        subtitulo={`Período: ${periodoLabel}`}
+        origem="vendas finalizadas"
+        resumo={[
+          { label: "Total vendido", valor: formatBRL(ind.totalVendido), tone: "success" },
+          { label: "Qtd. vendas", valor: String(ind.qtdVendas) },
+          {
+            label: "Ticket médio",
+            valor: formatBRL(ind.qtdVendas > 0 ? ind.totalVendido / ind.qtdVendas : 0),
+          },
+        ]}
+        colunas={[
+          { key: "numero", header: "Nº" },
+          { key: "data", header: "Data", format: "datetime" },
+          { key: "cliente", header: "Cliente" },
+          { key: "forma", header: "Forma" },
+          { key: "total", header: "Total", format: "currency", align: "right" },
+        ]}
+        rows={ind.vendasDetalhe.map((v) => ({
+          id: v.id,
+          numero: v.numero,
+          data: v.data,
+          cliente: v.cliente_nome ?? "Consumidor final",
+          forma: v.forma_pagamento ?? "—",
+          total: v.total,
+        }))}
+      />
+    );
+  }
+  if (bloco === "custo" || bloco === "lucro") {
+    const isLucro = bloco === "lucro";
+    const semCustoTotal = ind.itensDetalhe
+      .filter((i) => i.sem_custo)
+      .reduce((s, i) => s + i.total_venda, 0);
+    return (
+      <BlocoDetalheDialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        titulo={isLucro ? "Lucro bruto" : "Custo dos produtos vendidos"}
+        subtitulo={`Período: ${periodoLabel}`}
+        origem="venda_itens × produtos.preco_custo"
+        resumo={[
+          { label: "Total vendido", valor: formatBRL(ind.totalVendido) },
+          { label: "Custo total", valor: formatBRL(ind.custoTotal), tone: "danger" },
+          {
+            label: "Lucro bruto",
+            valor: formatBRL(ind.lucroBruto),
+            tone: ind.lucroBruto >= 0 ? "success" : "danger",
+          },
+        ]}
+        alertaSemCusto={
+          ind.qtdItensSemCusto > 0
+            ? { qtd: ind.qtdItensSemCusto, total: semCustoTotal }
+            : null
+        }
+        colunas={[
+          { key: "numero", header: "Venda" },
+          { key: "produto", header: "Produto" },
+          { key: "qtd", header: "Qtd", format: "number", align: "right" },
+          { key: "venda", header: "Total venda", format: "currency", align: "right" },
+          { key: "custo", header: "Custo", format: "currency", align: "right" },
+          { key: "lucro", header: "Lucro", format: "currency", align: "right" },
+        ]}
+        rows={ind.itensDetalhe.map((it, idx) => ({
+          id: `${it.venda_id}-${idx}`,
+          numero: it.venda_numero,
+          produto: it.sem_custo ? `${it.produto_nome} ⚠` : it.produto_nome,
+          qtd: it.quantidade,
+          venda: it.total_venda,
+          custo: it.total_custo,
+          lucro: it.lucro,
+        }))}
+      />
+    );
+  }
+  if (bloco === "fiado") {
+    const fiadosLanc = receber.filter((l) => l.forma_pagamento === "fiado");
+    return (
+      <BlocoDetalheDialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        titulo="Fiado em aberto"
+        subtitulo="Vendas em fiado pendentes de recebimento"
+        origem="financeiro_lancamentos (forma=fiado)"
+        resumo={[
+          { label: "Total fiado", valor: formatBRL(ind.fiadoEmAberto), tone: "info" },
+          { label: "Qtd. títulos", valor: String(ind.qtdFiado) },
+        ]}
+        colunas={[
+          { key: "descricao", header: "Descrição" },
+          { key: "cliente", header: "Cliente" },
+          { key: "vencimento", header: "Vencimento", format: "date" },
+          { key: "valor", header: "Valor", format: "currency", align: "right" },
+        ]}
+        rows={fiadosLanc.map((l) => ({
+          id: l.id,
+          descricao: l.descricao,
+          cliente: l.cliente_nome ?? "—",
+          vencimento: l.data_vencimento,
+          valor: Number(l.valor) - Number(l.valor_pago ?? 0),
+        }))}
+      />
+    );
+  }
+  if (bloco === "ifood") {
+    const ifoodLanc = receber.filter(
+      (l) => l.forma_pagamento === "ifood" && !l.conciliado_em,
+    );
+    return (
+      <BlocoDetalheDialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        titulo="iFood a repassar"
+        subtitulo="Vendas iFood aguardando conciliação"
+        origem="financeiro_lancamentos (forma=ifood, não conciliado)"
+        resumo={[
+          { label: "Total iFood", valor: formatBRL(ind.ifoodAReceber), tone: "info" },
+          { label: "Qtd. pendentes", valor: String(ind.qtdIfood) },
+        ]}
+        colunas={[
+          { key: "descricao", header: "Descrição" },
+          { key: "vencimento", header: "Vencimento", format: "date" },
+          { key: "valor", header: "Valor", format: "currency", align: "right" },
+        ]}
+        rows={ifoodLanc.map((l) => ({
+          id: l.id,
+          descricao: l.descricao,
+          vencimento: l.data_vencimento,
+          valor: Number(l.valor) - Number(l.valor_pago ?? 0),
+        }))}
+      />
+    );
+  }
+  if (bloco === "recebidoHoje") {
+    return (
+      <BlocoDetalheDialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        titulo="Recebido hoje"
+        subtitulo={`Recebimentos do dia ${formatDate(ind.periodo.hoje)}`}
+        origem="financeiro_lancamentos (data_pagamento = hoje)"
+        resumo={[
+          { label: "Total recebido", valor: formatBRL(ind.recebidoHoje), tone: "success" },
+          { label: "Qtd. recebimentos", valor: String(ind.qtdRecebimentosHoje) },
+        ]}
+        colunas={[{ key: "info", header: "Detalhes" }]}
+        rows={[
+          {
+            id: "1",
+            info:
+              ind.qtdRecebimentosHoje > 0
+                ? `${ind.qtdRecebimentosHoje} recebimentos totalizando ${formatBRL(ind.recebidoHoje)}`
+                : "Nenhum recebimento registrado hoje",
+          },
+        ]}
+      />
+    );
+  }
+  if (bloco === "vencidos") {
+    const vencidosLanc = [...receber, ...pagar].filter((l) => {
+      if (!l.data_vencimento) return false;
+      return new Date(l.data_vencimento) < new Date(new Date().toDateString());
+    });
+    return (
+      <BlocoDetalheDialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        titulo="Vencidos"
+        subtitulo="Títulos com vencimento anterior a hoje"
+        origem="financeiro_lancamentos"
+        resumo={[
+          { label: "Total vencido", valor: formatBRL(ind.vencidosTotal), tone: "danger" },
+          { label: "Qtd. títulos", valor: String(ind.qtdVencidos) },
+        ]}
+        colunas={[
+          { key: "descricao", header: "Descrição" },
+          { key: "tipo", header: "Tipo" },
+          { key: "vencimento", header: "Vencimento", format: "date" },
+          { key: "valor", header: "Valor", format: "currency", align: "right" },
+        ]}
+        rows={vencidosLanc.map((l) => ({
+          id: l.id,
+          descricao: l.descricao,
+          tipo: l.tipo === "receber" ? "A receber" : "A pagar",
+          vencimento: l.data_vencimento,
+          valor: Number(l.valor) - Number(l.valor_pago ?? 0),
+        }))}
+      />
+    );
+  }
+  return null;
 }
 
 function LancamentosTable({
