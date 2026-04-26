@@ -418,9 +418,36 @@ function PDVPage() {
     }, 350);
   }
 
-  // F7 nova venda · F8 limpar · F9 buscar produto · F10 finalizar
+  // F1 produtos · F2 estoque · F3 compras · F7 nova · F8 limpar · F9 buscar · F10 finalizar
   useHotkeys(
     [
+      {
+        key: "F1",
+        allowInInputs: true,
+        handler: () => {
+          if (!podeAcessarRapido || quickView) return;
+          flashHotkey("F1");
+          setQuickView("produtos");
+        },
+      },
+      {
+        key: "F2",
+        allowInInputs: true,
+        handler: () => {
+          if (!podeAcessarRapido || quickView) return;
+          flashHotkey("F2");
+          setQuickView("estoque");
+        },
+      },
+      {
+        key: "F3",
+        allowInInputs: true,
+        handler: () => {
+          if (!podeAcessarRapido || quickView) return;
+          flashHotkey("F3");
+          setQuickView("compras");
+        },
+      },
       {
         key: "F7",
         allowInInputs: true,
@@ -478,7 +505,7 @@ function PDVPage() {
       // Escopo "page": atalhos do PDV ficam suspensos automaticamente
       // enquanto qualquer modal (Finalizar, Sucesso, Scanner) estiver no
       // topo do stack. Os guards abaixo são redundância defensiva.
-      enabled: !finalizarOpen && !sucessoOpen && !scannerOpen,
+      enabled: !finalizarOpen && !sucessoOpen && !scannerOpen && !quickView,
       scope: "page",
     },
   );
