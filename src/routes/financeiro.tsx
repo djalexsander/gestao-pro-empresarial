@@ -398,7 +398,7 @@ function FluxoCaixaPanel() {
         .select(
           "id, descricao, tipo, valor, valor_pago, data_pagamento, status, caixa_id, venda_id",
         )
-        .in("status", ["pago", "recebido", "parcial"])
+        .in("status", ["pago", "recebido"])
         .is("caixa_id", null)
         .is("venda_id", null)
         .gte("data_pagamento", inicio)
@@ -407,15 +407,16 @@ function FluxoCaixaPanel() {
         .limit(2000);
       if (errLancs) throw errLancs;
 
-      const lancRows: FluxoRow[] = (lancs ?? []).map((l: {
+      type LancRowDb = {
         id: string;
         descricao: string;
-        tipo: "receber" | "pagar";
+        tipo: "receber" | "pagar" | "receita" | "despesa";
         valor: number;
         valor_pago: number | null;
         data_pagamento: string | null;
         status: string;
-      }) => {
+      };
+      const lancRows: FluxoRow[] = ((lancs ?? []) as LancRowDb[]).map((l) => {
         const v = Number(l.valor_pago ?? l.valor) || 0;
         const isReceita = l.tipo === "receber";
         return {
