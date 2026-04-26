@@ -1,13 +1,22 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ArrowDownToLine, ArrowUpFromLine, Plus, TrendingUp } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import {
   Table,
   TableBody,
@@ -207,11 +216,7 @@ function FinanceContent() {
         </TabsContent>
 
         <TabsContent value="fluxo" className="mt-4">
-          <Card>
-            <CardContent className="p-8 text-center text-muted-foreground">
-              <p className="text-sm">Visualização de fluxo de caixa em construção.</p>
-            </CardContent>
-          </Card>
+          <FluxoCaixaPanel />
         </TabsContent>
       </Tabs>
 
@@ -280,5 +285,292 @@ function LancamentosTable({
         </Table>
       </CardContent>
     </Card>
+  );
+}
+
+// ============================================================================
+// Fluxo de Caixa — consolidado a partir do módulo Caixa/Operacional
+// (aberturas, vendas, sangrias, suprimentos, fechamentos) + lançamentos
+// financeiros pagos/recebidos que NÃO vieram do caixa (para evitar duplicação).
+// ============================================================================
+
+type FluxoPeriodo = "7d" | "30d" | "mes" | "ano";
+
+type FluxoTipo =
+  | "abertura"
+  | "venda"
+  | "sangria"
+  | "suprimento"
+  | "fechamento"
+  | "receita"
+  | "despesa";
+
+interface FluxoRow {
+  id: string;
+  data: string; // ISO timestamp
+  tipo: FluxoTipo;
+  origem: "caixa" | "financeiro";
+  descricao: string;
+  valor: number; // positivo = entrada, negativo = saída
+  status?: string | null;
+}
+
+function calcRangeFluxo(p: FluxoPeriodo): { inicio: string; fim: string } {
+  const today = new Date();
+  const fim = today.toISOString().slice(0, 10);
+  let inicio = new Date(today);
+  if (p === "7d") inicio.setDate(today.getDate() - 6);
+  else if (p === "30d") inicio.setDate(today.getDate() - 29);
+  else if (p === "mes") inicio = new Date(today.getFullYear(), today.getMonth(), 1);
+  else inicio = new Date(today.getFullYear(), 0, 1);
+  return { inicio: inicio.toISOString().slice(0, 10), fim };
+}
+
+function formatDateTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${dd}/${mm}/${yyyy} ${hh}:${mi}`;
+}
+
+const TIPO_LABEL: Record<FluxoTipo, string> = {
+  abertura: "Abertura de caixa",
+  venda: "Venda",
+  sangria: "Sangria",
+  suprimento: "Suprimento",
+  fechamento: "Fechamento de caixa",
+  receita: "Receita",
+  despesa: "Despesa",
+};
+
+function FluxoCaixaPanel() {
+  const [periodo, setPeriodo] = useState<FluxoPeriodo>("30d");
+  const { inicio, fim } = useMemo(() => calcRangeFluxo(periodo), [periodo]);
+
+  const { data: rows = [], isLoading } = useQuery({
+    queryKey: ["financeiro", "fluxo-caixa", inicio, fim],
+    queryFn: async (): Promise<FluxoRow[]> => {
+      // Range em timestamp para cobrir o dia inteiro do "fim".
+      const inicioTs = `${inicio}T00:00:00`;
+      const fimTs = `${fim}T23:59:59.999`;
+
+      // 1) Movimentos do caixa (abertura, sangria, suprimento, fechamento, venda)
+      const { data: movs, error: errMovs } = await supabase
+        .from("caixa_movimentos")
+        .select("id, tipo, valor, motivo, created_at, caixa_id, venda_id")
+        .gte("created_at", inicioTs)
+        .lte("created_at", fimTs)
+        .order("created_at", { ascending: false })
+        .limit(2000);
+      if (errMovs) throw errMovs;
+
+      const movRows: FluxoRow[] = (movs ?? []).map((m: {
+        id: string;
+        tipo: string;
+        valor: number;
+        motivo: string | null;
+        created_at: string;
+      }) => {
+        const tipo = m.tipo as FluxoTipo;
+        // Sinal: entrada (+) ou saída (-)
+        let valor = Number(m.valor) || 0;
+        if (tipo === "sangria" || tipo === "fechamento") valor = -Math.abs(valor);
+        else valor = Math.abs(valor);
+        // "fechamento" entra com valor 0 normalmente — manter informativo.
+        return {
+          id: `mov-${m.id}`,
+          data: m.created_at,
+          tipo,
+          origem: "caixa",
+          descricao: m.motivo ?? TIPO_LABEL[tipo] ?? "Movimento de caixa",
+          valor,
+        };
+      });
+
+      // 2) Lançamentos financeiros pagos/recebidos NÃO vinculados a caixa
+      //    (evita duplicar vendas que já entram via caixa_movimentos).
+      const { data: lancs, error: errLancs } = await supabase
+        .from("financeiro_lancamentos")
+        .select(
+          "id, descricao, tipo, valor, valor_pago, data_pagamento, status, caixa_id, venda_id",
+        )
+        .in("status", ["pago", "recebido"])
+        .is("caixa_id", null)
+        .is("venda_id", null)
+        .gte("data_pagamento", inicio)
+        .lte("data_pagamento", fim)
+        .order("data_pagamento", { ascending: false })
+        .limit(2000);
+      if (errLancs) throw errLancs;
+
+      type LancRowDb = {
+        id: string;
+        descricao: string;
+        tipo: "receber" | "pagar" | "receita" | "despesa";
+        valor: number;
+        valor_pago: number | null;
+        data_pagamento: string | null;
+        status: string;
+      };
+      const lancRows: FluxoRow[] = ((lancs ?? []) as LancRowDb[]).map((l) => {
+        const v = Number(l.valor_pago ?? l.valor) || 0;
+        const isReceita = l.tipo === "receber" || l.tipo === "receita";
+        return {
+          id: `lanc-${l.id}`,
+          data: l.data_pagamento ?? `${inicio}T00:00:00`,
+          tipo: isReceita ? "receita" : "despesa",
+          origem: "financeiro",
+          descricao: l.descricao,
+          valor: isReceita ? Math.abs(v) : -Math.abs(v),
+          status: l.status,
+        };
+      });
+
+      const all = [...movRows, ...lancRows].sort((a, b) =>
+        a.data < b.data ? 1 : a.data > b.data ? -1 : 0,
+      );
+      return all;
+    },
+    staleTime: 15_000,
+  });
+
+  const totais = useMemo(() => {
+    let entradas = 0;
+    let saidas = 0;
+    for (const r of rows) {
+      if (r.tipo === "fechamento") continue; // informativo
+      if (r.valor >= 0) entradas += r.valor;
+      else saidas += Math.abs(r.valor);
+    }
+    return { entradas, saidas, saldo: entradas - saidas };
+  }, [rows]);
+
+  // Saldo acumulado (a partir do mais antigo).
+  const rowsComSaldo = useMemo(() => {
+    const ordenadas = [...rows].sort((a, b) => (a.data < b.data ? -1 : 1));
+    let acc = 0;
+    const map = new Map<string, number>();
+    for (const r of ordenadas) {
+      if (r.tipo !== "fechamento") acc += r.valor;
+      map.set(r.id, acc);
+    }
+    return rows.map((r) => ({ ...r, saldoAcumulado: map.get(r.id) ?? 0 }));
+  }, [rows]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+        <div className="text-sm text-muted-foreground">
+          Consolida movimentos do <strong>Caixa/Operacional</strong> e lançamentos
+          do <strong>Financeiro</strong> sem duplicar vendas já registradas no caixa.
+        </div>
+        <Select value={periodo} onValueChange={(v) => setPeriodo(v as FluxoPeriodo)}>
+          <SelectTrigger className="w-full sm:w-44">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="7d">Últimos 7 dias</SelectItem>
+            <SelectItem value="30d">Últimos 30 dias</SelectItem>
+            <SelectItem value="mes">Este mês</SelectItem>
+            <SelectItem value="ano">Este ano</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <StatCard
+          label="Entradas no período"
+          value={formatBRL(totais.entradas)}
+          icon={ArrowDownToLine}
+          iconTone="success"
+        />
+        <StatCard
+          label="Saídas no período"
+          value={formatBRL(totais.saidas)}
+          icon={ArrowUpFromLine}
+          iconTone="warning"
+        />
+        <StatCard
+          label="Saldo do período"
+          value={formatBRL(totais.saldo)}
+          icon={TrendingUp}
+          iconTone={totais.saldo >= 0 ? "success" : "danger"}
+        />
+      </div>
+
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[160px]">Data</TableHead>
+                <TableHead>Tipo</TableHead>
+                <TableHead>Descrição</TableHead>
+                <TableHead>Origem</TableHead>
+                <TableHead className="text-right">Valor</TableHead>
+                <TableHead className="text-right">Saldo acumulado</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                    Carregando…
+                  </TableCell>
+                </TableRow>
+              ) : rowsComSaldo.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                    Nenhuma movimentação no período selecionado.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                rowsComSaldo.map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell className="text-muted-foreground">
+                      {formatDateTime(r.data)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="font-normal">
+                        {TIPO_LABEL[r.tipo]}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="font-medium">{r.descricao}</TableCell>
+                    <TableCell>
+                      <span
+                        className={cn(
+                          "rounded-md px-2 py-0.5 text-xs",
+                          r.origem === "caixa"
+                            ? "bg-primary/10 text-primary"
+                            : "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        {r.origem === "caixa" ? "Caixa" : "Financeiro"}
+                      </span>
+                    </TableCell>
+                    <TableCell
+                      className={cn(
+                        "text-right font-medium",
+                        r.valor > 0 && "text-success",
+                        r.valor < 0 && "text-destructive",
+                      )}
+                    >
+                      {r.valor === 0 ? "—" : formatBRL(r.valor)}
+                    </TableCell>
+                    <TableCell className="text-right text-muted-foreground">
+                      {formatBRL(r.saldoAcumulado)}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
