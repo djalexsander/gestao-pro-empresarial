@@ -123,10 +123,21 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
               <Row label="Cartão débito" value={formatBRL(resumo?.total_debito ?? 0)} tone="muted" />
               <Row label="Cartão crédito" value={formatBRL(resumo?.total_credito ?? 0)} tone="muted" />
               <Row label="Boleto" value={formatBRL(resumo?.total_boleto ?? 0)} tone="muted" />
+              {(resumo?.total_ifood ?? 0) > 0 && (
+                <Row label="iFood (a receber)" value={formatBRL(resumo?.total_ifood ?? 0)} tone="muted" />
+              )}
+              {(resumo?.total_fiado ?? 0) > 0 && (
+                <Row label="Fiado (a receber)" value={formatBRL(resumo?.total_fiado ?? 0)} tone="muted" />
+              )}
               {(resumo?.total_outros ?? 0) > 0 && (
                 <Row label="Outros" value={formatBRL(resumo?.total_outros ?? 0)} tone="muted" />
               )}
             </div>
+            {((resumo?.total_ifood ?? 0) > 0 || (resumo?.total_fiado ?? 0) > 0) && (
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                iFood e Fiado não somam no dinheiro físico esperado — viram contas a receber no Financeiro.
+              </p>
+            )}
           </div>
 
           {/* Esperado em dinheiro */}

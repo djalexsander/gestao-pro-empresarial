@@ -91,6 +91,8 @@ interface CaixaRow {
   total_debito: number;
   total_credito: number;
   total_boleto: number;
+  total_ifood: number;
+  total_fiado: number;
   total_outros: number;
   valor_esperado: number | null;
   valor_informado: number | null;
@@ -213,7 +215,7 @@ function Conteudo() {
       let q = supabase
         .from("caixas")
         .select(
-          "id, operador_id, terminal_id, data_abertura, data_fechamento, valor_inicial, total_vendas, total_sangrias, total_suprimentos, total_dinheiro, total_pix, total_debito, total_credito, total_boleto, total_outros, valor_esperado, valor_informado, diferenca, status, observacao, observacao_fechamento, qtd_vendas",
+          "id, operador_id, terminal_id, data_abertura, data_fechamento, valor_inicial, total_vendas, total_sangrias, total_suprimentos, total_dinheiro, total_pix, total_debito, total_credito, total_boleto, total_ifood, total_fiado, total_outros, valor_esperado, valor_informado, diferenca, status, observacao, observacao_fechamento, qtd_vendas",
         )
         .gte("data_abertura", ini.toISOString())
         .lte("data_abertura", fim.toISOString())
@@ -254,6 +256,8 @@ function Conteudo() {
         total_debito: Number(c.total_debito) || 0,
         total_credito: Number(c.total_credito) || 0,
         total_boleto: Number(c.total_boleto) || 0,
+        total_ifood: Number(c.total_ifood) || 0,
+        total_fiado: Number(c.total_fiado) || 0,
         total_outros: Number(c.total_outros) || 0,
         valor_esperado: c.valor_esperado != null ? Number(c.valor_esperado) : null,
         valor_informado: c.valor_informado != null ? Number(c.valor_informado) : null,
@@ -843,6 +847,8 @@ function DetalheCaixaDialog({
             <FormaPgto icon={CreditCard} label="Débito" value={caixa.total_debito} />
             <FormaPgto icon={CreditCard} label="Crédito" value={caixa.total_credito} />
             <FormaPgto icon={CreditCard} label="Boleto" value={caixa.total_boleto} />
+            <FormaPgto icon={Wallet} label="iFood" value={caixa.total_ifood} />
+            <FormaPgto icon={Wallet} label="Fiado" value={caixa.total_fiado} />
             <FormaPgto icon={Wallet} label="Outros" value={caixa.total_outros} />
           </div>
         </div>

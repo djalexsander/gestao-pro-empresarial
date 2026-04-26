@@ -14,6 +14,7 @@ import {
   ArrowRightLeft,
   Plus,
   Trash2,
+  UtensilsCrossed,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -79,7 +80,8 @@ const FORMAS: FormaPagamentoOption[] = [
   { key: "cartao_debito", label: "Débito", icon: CreditCard, shortcut: "F3" },
   { key: "cartao_credito", label: "Crédito", icon: CreditCard, shortcut: "F4" },
   { key: "boleto", label: "Boleto", icon: FileText, shortcut: "F5", pendentePorPadrao: true },
-  { key: "outro", label: "Fiado", icon: Clock, shortcut: "F6", pendentePorPadrao: true },
+  { key: "fiado", label: "Fiado", icon: Clock, shortcut: "F6", pendentePorPadrao: true },
+  { key: "ifood", label: "iFood", icon: UtensilsCrossed, shortcut: "F7", pendentePorPadrao: true },
 ];
 
 const FORMA_BY_KEY: Record<FormaPagamento, FormaPagamentoOption> = FORMAS.reduce(
@@ -425,7 +427,7 @@ export function FinalizarVendaDialog({
           <DialogDescription className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span>Distribua o total entre uma ou mais formas de pagamento.</span>
             <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-              <Kbd>F1-F6</Kbd>
+              <Kbd>F1-F7</Kbd>
               <span>forma</span>
               <Kbd>Enter</Kbd>
               <span>confirmar</span>
@@ -492,7 +494,7 @@ export function FinalizarVendaDialog({
                   </div>
 
                   {/* Seletor de forma */}
-                  <div className="mb-3 grid grid-cols-6 gap-1.5">
+                  <div className="mb-3 grid grid-cols-4 gap-1.5 sm:grid-cols-7">
                     {FORMAS.map((f) => {
                       const Icon = f.icon;
                       const active = p.forma === f.key;

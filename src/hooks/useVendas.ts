@@ -8,6 +8,8 @@ export type FormaPagamento =
   | "cartao_debito"
   | "cartao_credito"
   | "boleto"
+  | "ifood"
+  | "fiado"
   | "transferencia"
   | "cheque"
   | "outro";
