@@ -5,6 +5,7 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { useOperador } from "@/components/auth/OperadorProvider";
 import { useTerminal } from "@/components/auth/TerminalProvider";
 import { useCaixaAberto } from "@/hooks/useCaixa";
+import { useTerminalHeartbeat } from "@/hooks/useTerminalHeartbeat";
 
 /**
  * Guard para a rota /pdv.
@@ -25,6 +26,8 @@ export function RequirePosSession({ children }: { children: React.ReactNode }) {
   const { data: caixaAberto, isLoading: loadingCaixa } = useCaixaAberto(
     operador?.id ?? null,
   );
+  // Heartbeat: marca este terminal como online enquanto o PDV estiver aberto.
+  useTerminalHeartbeat();
 
   const precondicoesOk = !!user && !!terminal && !!operador;
 
