@@ -34,6 +34,7 @@ import { Route as RelatoriosFiscalRouteImport } from './routes/relatorios.fiscal
 import { Route as RelatoriosFinanceiroRouteImport } from './routes/relatorios.financeiro'
 import { Route as RelatoriosEstoqueRouteImport } from './routes/relatorios.estoque'
 import { Route as RelatoriosDreRouteImport } from './routes/relatorios.dre'
+import { Route as RelatoriosContasReceberRouteImport } from './routes/relatorios.contas-receber'
 import { Route as RelatoriosComprasRouteImport } from './routes/relatorios.compras'
 import { Route as RelatoriosCaixaRouteImport } from './routes/relatorios.caixa'
 import { Route as AdminUsuariosRouteImport } from './routes/admin.usuarios'
@@ -172,6 +173,11 @@ const RelatoriosDreRoute = RelatoriosDreRouteImport.update({
   path: '/dre',
   getParentRoute: () => RelatoriosRoute,
 } as any)
+const RelatoriosContasReceberRoute = RelatoriosContasReceberRouteImport.update({
+  id: '/contas-receber',
+  path: '/contas-receber',
+  getParentRoute: () => RelatoriosRoute,
+} as any)
 const RelatoriosComprasRoute = RelatoriosComprasRouteImport.update({
   id: '/compras',
   path: '/compras',
@@ -264,6 +270,7 @@ export interface FileRoutesByFullPath {
   '/admin/usuarios': typeof AdminUsuariosRoute
   '/relatorios/caixa': typeof RelatoriosCaixaRoute
   '/relatorios/compras': typeof RelatoriosComprasRoute
+  '/relatorios/contas-receber': typeof RelatoriosContasReceberRoute
   '/relatorios/dre': typeof RelatoriosDreRoute
   '/relatorios/estoque': typeof RelatoriosEstoqueRoute
   '/relatorios/financeiro': typeof RelatoriosFinanceiroRoute
@@ -302,6 +309,7 @@ export interface FileRoutesByTo {
   '/admin/usuarios': typeof AdminUsuariosRoute
   '/relatorios/caixa': typeof RelatoriosCaixaRoute
   '/relatorios/compras': typeof RelatoriosComprasRoute
+  '/relatorios/contas-receber': typeof RelatoriosContasReceberRoute
   '/relatorios/dre': typeof RelatoriosDreRoute
   '/relatorios/estoque': typeof RelatoriosEstoqueRoute
   '/relatorios/financeiro': typeof RelatoriosFinanceiroRoute
@@ -342,6 +350,7 @@ export interface FileRoutesById {
   '/admin/usuarios': typeof AdminUsuariosRoute
   '/relatorios/caixa': typeof RelatoriosCaixaRoute
   '/relatorios/compras': typeof RelatoriosComprasRoute
+  '/relatorios/contas-receber': typeof RelatoriosContasReceberRoute
   '/relatorios/dre': typeof RelatoriosDreRoute
   '/relatorios/estoque': typeof RelatoriosEstoqueRoute
   '/relatorios/financeiro': typeof RelatoriosFinanceiroRoute
@@ -383,6 +392,7 @@ export interface FileRouteTypes {
     | '/admin/usuarios'
     | '/relatorios/caixa'
     | '/relatorios/compras'
+    | '/relatorios/contas-receber'
     | '/relatorios/dre'
     | '/relatorios/estoque'
     | '/relatorios/financeiro'
@@ -421,6 +431,7 @@ export interface FileRouteTypes {
     | '/admin/usuarios'
     | '/relatorios/caixa'
     | '/relatorios/compras'
+    | '/relatorios/contas-receber'
     | '/relatorios/dre'
     | '/relatorios/estoque'
     | '/relatorios/financeiro'
@@ -460,6 +471,7 @@ export interface FileRouteTypes {
     | '/admin/usuarios'
     | '/relatorios/caixa'
     | '/relatorios/compras'
+    | '/relatorios/contas-receber'
     | '/relatorios/dre'
     | '/relatorios/estoque'
     | '/relatorios/financeiro'
@@ -667,6 +679,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RelatoriosDreRouteImport
       parentRoute: typeof RelatoriosRoute
     }
+    '/relatorios/contas-receber': {
+      id: '/relatorios/contas-receber'
+      path: '/contas-receber'
+      fullPath: '/relatorios/contas-receber'
+      preLoaderRoute: typeof RelatoriosContasReceberRouteImport
+      parentRoute: typeof RelatoriosRoute
+    }
     '/relatorios/compras': {
       id: '/relatorios/compras'
       path: '/compras'
@@ -787,6 +806,7 @@ const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 interface RelatoriosRouteChildren {
   RelatoriosCaixaRoute: typeof RelatoriosCaixaRoute
   RelatoriosComprasRoute: typeof RelatoriosComprasRoute
+  RelatoriosContasReceberRoute: typeof RelatoriosContasReceberRoute
   RelatoriosDreRoute: typeof RelatoriosDreRoute
   RelatoriosEstoqueRoute: typeof RelatoriosEstoqueRoute
   RelatoriosFinanceiroRoute: typeof RelatoriosFinanceiroRoute
@@ -798,6 +818,7 @@ interface RelatoriosRouteChildren {
 const RelatoriosRouteChildren: RelatoriosRouteChildren = {
   RelatoriosCaixaRoute: RelatoriosCaixaRoute,
   RelatoriosComprasRoute: RelatoriosComprasRoute,
+  RelatoriosContasReceberRoute: RelatoriosContasReceberRoute,
   RelatoriosDreRoute: RelatoriosDreRoute,
   RelatoriosEstoqueRoute: RelatoriosEstoqueRoute,
   RelatoriosFinanceiroRoute: RelatoriosFinanceiroRoute,
