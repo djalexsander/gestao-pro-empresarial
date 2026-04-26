@@ -8,9 +8,11 @@ const FORMA_LABEL: Record<FormaPagamento, string> = {
   cartao_debito: "CARTAO DEBITO",
   cartao_credito: "CARTAO CREDITO",
   boleto: "BOLETO",
+  ifood: "IFOOD",
+  fiado: "FIADO",
   transferencia: "TRANSFERENCIA",
   cheque: "CHEQUE",
-  outro: "OUTRO / FIADO",
+  outro: "OUTRO",
 };
 
 const STATUS_LABEL: Record<StatusPagamento, string> = {

@@ -63,9 +63,11 @@ const FORMA_LABEL: Record<FormaPagamento, string> = {
   cartao_debito: "Cartão de débito",
   cartao_credito: "Cartão de crédito",
   boleto: "Boleto",
+  ifood: "iFood",
+  fiado: "Fiado",
   transferencia: "Transferência",
   cheque: "Cheque",
-  outro: "Fiado / Outro",
+  outro: "Outro",
 };
 
 export function VendaSucessoDialog({
