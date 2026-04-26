@@ -125,6 +125,42 @@ type BlocoChave =
   | "recebidoHoje"
   | "vencidos";
 
+interface ConsolidadoRow {
+  indicador: string;
+  quantidade: number;
+  valor: number;
+}
+
+function buildConsolidado(args: {
+  totalRec: number;
+  totalPay: number;
+  saldo: number;
+  receber: Lancamento[];
+  pagar: Lancamento[];
+  ind:
+    | ReturnType<typeof useFinanceiroIndicadores>["data"]
+    | undefined;
+}): ConsolidadoRow[] {
+  const { totalRec, totalPay, saldo, receber, pagar, ind } = args;
+  const rows: ConsolidadoRow[] = [
+    { indicador: "Total a receber", quantidade: receber.length, valor: totalRec },
+    { indicador: "Total a pagar", quantidade: pagar.length, valor: totalPay },
+    { indicador: "Saldo previsto", quantidade: 0, valor: saldo },
+  ];
+  if (ind) {
+    rows.push(
+      { indicador: "Total vendido (mês)", quantidade: ind.qtdVendas, valor: ind.totalVendido },
+      { indicador: "Custo dos produtos vendidos", quantidade: ind.qtdItens, valor: ind.custoTotal },
+      { indicador: "Lucro bruto", quantidade: 0, valor: ind.lucroBruto },
+      { indicador: "Fiado em aberto", quantidade: ind.qtdFiado, valor: ind.fiadoEmAberto },
+      { indicador: "iFood a repassar", quantidade: ind.qtdIfood, valor: ind.ifoodAReceber },
+      { indicador: "Recebido hoje", quantidade: ind.qtdRecebimentosHoje, valor: ind.recebidoHoje },
+      { indicador: "Vencidos", quantidade: ind.qtdVencidos, valor: ind.vencidosTotal },
+    );
+  }
+  return rows;
+}
+
 function FinanceContent() {
   const { tab } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
