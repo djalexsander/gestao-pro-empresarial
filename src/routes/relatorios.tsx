@@ -39,7 +39,7 @@ interface Report {
   description: string;
   icon: LucideIcon;
   tone: string;
-  route: "/relatorios/vendas" | "/relatorios/compras" | "/relatorios/estoque" | "/relatorios/fluxo-caixa" | "/relatorios/caixa" | "/relatorios/financeiro" | "/relatorios/dre" | "/relatorios/fiscal";
+  route: "/relatorios/vendas" | "/relatorios/compras" | "/relatorios/estoque" | "/relatorios/fluxo-caixa" | "/relatorios/caixa" | "/relatorios/financeiro" | "/relatorios/contas-receber" | "/relatorios/dre" | "/relatorios/fiscal";
   filenamePrefix: string;
   /** Carrega + colunas para export rápido a partir do card. */
   exporter: () => Promise<{ rows: any[]; columns: CsvColumn<any>[] }>;
