@@ -41,7 +41,7 @@ import { formatBRL } from "@/lib/mock-data";
 import { exportRowsToCSV, type CsvColumn } from "@/lib/export-csv";
 import { LancamentoDetalheDialog, type LancamentoDetalhe } from "@/components/financeiro/LancamentoDetalheDialog";
 import { cn } from "@/lib/utils";
-import { formatDocumento } from "@/lib/documento";
+import { formatarDocumento } from "@/lib/documento";
 
 export const Route = createFileRoute("/relatorios/contas-receber")({
   head: () => ({
