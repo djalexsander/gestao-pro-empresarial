@@ -33,6 +33,8 @@ import {
   LancamentoDetalheDialog,
   type LancamentoDetalhe,
 } from "@/components/financeiro/LancamentoDetalheDialog";
+import { ConciliarIfoodDialog } from "@/components/financeiro/ConciliarIfoodDialog";
+import { Receipt } from "lucide-react";
 
 type FinTab = "receber" | "pagar" | "fluxo";
 
@@ -93,6 +95,7 @@ function FinanceContent() {
         .select(
           `id, descricao, valor, valor_pago, data_vencimento, data_pagamento, data_emissao,
            tipo, status, observacoes, numero_documento, forma_pagamento, created_at,
+           conciliado_em, valor_repasse, taxa_repasse, numero_repasse, observacao_repasse,
            fornecedor:fornecedores(razao_social, nome_fantasia),
            cliente:clientes(nome),
            categoria:categorias_financeiras(nome)`,
@@ -113,6 +116,11 @@ function FinanceContent() {
         numero_documento: string | null;
         forma_pagamento: string | null;
         created_at: string | null;
+        conciliado_em: string | null;
+        valor_repasse: number | null;
+        taxa_repasse: number | null;
+        numero_repasse: string | null;
+        observacao_repasse: string | null;
         fornecedor: { razao_social: string | null; nome_fantasia: string | null } | null;
         cliente: { nome: string | null } | null;
         categoria: { nome: string | null } | null;
@@ -131,6 +139,11 @@ function FinanceContent() {
         numero_documento: r.numero_documento,
         forma_pagamento: r.forma_pagamento,
         created_at: r.created_at,
+        conciliado_em: r.conciliado_em,
+        valor_repasse: r.valor_repasse,
+        taxa_repasse: r.taxa_repasse,
+        numero_repasse: r.numero_repasse,
+        observacao_repasse: r.observacao_repasse,
         fornecedor_nome: r.fornecedor?.nome_fantasia ?? r.fornecedor?.razao_social ?? null,
         cliente_nome: r.cliente?.nome ?? null,
         categoria_nome: r.categoria?.nome ?? null,
@@ -537,6 +550,8 @@ function FluxoCaixaPanel() {
     return rows.map((r) => ({ ...r, saldoAcumulado: map.get(r.id) ?? 0 }));
   }, [rows]);
 
+  const [conciliarLoteOpen, setConciliarLoteOpen] = useState(false);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
@@ -544,17 +559,28 @@ function FluxoCaixaPanel() {
           Consolida movimentos do <strong>Caixa/Operacional</strong> e lançamentos
           do <strong>Financeiro</strong> sem duplicar vendas já registradas no caixa.
         </div>
-        <Select value={periodo} onValueChange={(v) => setPeriodo(v as FluxoPeriodo)}>
-          <SelectTrigger className="w-full sm:w-44">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="7d">Últimos 7 dias</SelectItem>
-            <SelectItem value="30d">Últimos 30 dias</SelectItem>
-            <SelectItem value="mes">Este mês</SelectItem>
-            <SelectItem value="ano">Este ano</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex w-full gap-2 sm:w-auto">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setConciliarLoteOpen(true)}
+            className="gap-1.5"
+          >
+            <Receipt className="h-4 w-4" />
+            Conciliar repasse iFood
+          </Button>
+          <Select value={periodo} onValueChange={(v) => setPeriodo(v as FluxoPeriodo)}>
+            <SelectTrigger className="w-full sm:w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7d">Últimos 7 dias</SelectItem>
+              <SelectItem value="30d">Últimos 30 dias</SelectItem>
+              <SelectItem value="mes">Este mês</SelectItem>
+              <SelectItem value="ano">Este ano</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
