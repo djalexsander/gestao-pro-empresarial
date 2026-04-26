@@ -144,14 +144,14 @@ function useMeusPagamentos(empresaId?: string | null) {
  * Componente principal
  * =======================================================*/
 export function PlanosModulosTab() {
-  const { empresa } = useEmpresaAtual();
+  const { empresaAtual } = useEmpresaAtual();
   const { data: assinatura, isLoading: loadingAss } = useMinhaAssinatura();
   const { data: meusModulos = [], isLoading: loadingMods } = useMeusModulos();
   const { data: planos = [], isLoading: loadingPlanos } = usePlanosDisponiveis();
   const { data: modulosDisp = [], isLoading: loadingModsDisp } =
     useModulosDisponiveisCliente();
   const { data: pagamentos = [], isLoading: loadingPag } = useMeusPagamentos(
-    empresa?.id,
+    empresaAtual?.id,
   );
 
   /* ---- Plano atual ---- */
