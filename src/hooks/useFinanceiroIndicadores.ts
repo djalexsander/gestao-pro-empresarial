@@ -120,14 +120,16 @@ export function useFinanceiroIndicadores() {
 
         const vendaMap = new Map(vendas.map((v) => [v.id, v] as const));
 
-        itens = ((itensData ?? []) as Array<{
-          venda_id: string;
-          produto_id: string;
-          quantidade: number;
-          preco_unitario: number;
-          total: number;
-          produto: { nome: string | null; preco_custo: number | null } | null;
-        }>).map((it) => {
+        itens = (
+          (itensData ?? []) as Array<{
+            venda_id: string;
+            produto_id: string;
+            quantidade: number;
+            preco_unitario: number;
+            total: number;
+            produto: { nome: string | null; preco_custo: number | null } | null;
+          }>
+        ).map((it) => {
           const v = vendaMap.get(it.venda_id);
           const qtd = Number(it.quantidade) || 0;
           const precoCusto = Number(it.produto?.preco_custo ?? 0) || 0;

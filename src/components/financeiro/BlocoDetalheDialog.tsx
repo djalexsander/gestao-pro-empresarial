@@ -27,11 +27,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { formatBRL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
-import {
-  exportarBlocoCSV,
-  exportarBlocoPDF,
-  exportarBlocoPNG,
-} from "@/lib/export-bloco";
+import { exportarBlocoCSV, exportarBlocoPDF, exportarBlocoPNG } from "@/lib/export-bloco";
 import type { CsvColumn } from "@/lib/export-csv";
 
 export interface DetalheRow {
@@ -144,8 +140,7 @@ export function BlocoDetalheDialog({
           ? {
               header: colunas.map((c) => c.header),
               rows,
-              formatRow: (r) =>
-                colunas.map((c) => formatCell(r[c.key], c.format)),
+              formatRow: (r) => colunas.map((c) => formatCell(r[c.key], c.format)),
             }
           : undefined,
     });
@@ -175,10 +170,7 @@ export function BlocoDetalheDialog({
           {resumo.length > 0 && (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               {resumo.map((r) => (
-                <div
-                  key={r.label}
-                  className="rounded-md border border-border bg-card/40 p-3"
-                >
+                <div key={r.label} className="rounded-md border border-border bg-card/40 p-3">
                   <p className="text-xs text-muted-foreground">{r.label}</p>
                   <p
                     className={cn(
@@ -199,8 +191,8 @@ export function BlocoDetalheDialog({
                 ⚠ {alertaSemCusto.qtd} item(ns) sem custo cadastrado
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Esses itens entram com custo R$ 0,00. O lucro pode estar superestimado em
-                até {formatBRL(alertaSemCusto.total)}.
+                Esses itens entram com custo R$ 0,00. O lucro pode estar superestimado em até{" "}
+                {formatBRL(alertaSemCusto.total)}.
               </p>
             </div>
           )}

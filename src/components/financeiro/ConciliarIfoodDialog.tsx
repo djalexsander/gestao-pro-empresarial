@@ -87,9 +87,7 @@ export function ConciliarIfoodDialog({
     queryFn: async (): Promise<PendenteRow[]> => {
       const { data, error } = await supabase
         .from("financeiro_lancamentos")
-        .select(
-          "id, descricao, valor, data_emissao, cliente:clientes(nome)",
-        )
+        .select("id, descricao, valor, data_emissao, cliente:clientes(nome)")
         .eq("forma_pagamento", "ifood")
         .eq("status", "pendente")
         .order("data_emissao", { ascending: true })
@@ -144,8 +142,7 @@ export function ConciliarIfoodDialog({
         });
         if (error) throw error;
       } else {
-        if (selecionados.size === 0)
-          throw new Error("Selecione ao menos um lançamento.");
+        if (selecionados.size === 0) throw new Error("Selecione ao menos um lançamento.");
         const { error } = await supabase.rpc("conciliar_ifood_lote", {
           _lancamento_ids: Array.from(selecionados),
           _data_repasse: dataRepasse,
@@ -194,7 +191,7 @@ export function ConciliarIfoodDialog({
           </DialogTitle>
           <DialogDescription>
             {mode === "individual"
-              ? descricaoVenda ?? "Confirme o recebimento do repasse desta venda."
+              ? (descricaoVenda ?? "Confirme o recebimento do repasse desta venda.")
               : "Selecione as vendas iFood pendentes que entraram neste repasse."}
           </DialogDescription>
         </DialogHeader>
@@ -208,9 +205,7 @@ export function ConciliarIfoodDialog({
                     <TableRow>
                       <TableHead className="w-10">
                         <Checkbox
-                          checked={
-                            pendentes.length > 0 && selecionados.size === pendentes.length
-                          }
+                          checked={pendentes.length > 0 && selecionados.size === pendentes.length}
                           onCheckedChange={(c) => toggleAll(c === true)}
                           aria-label="Selecionar todos"
                         />
@@ -338,20 +333,24 @@ export function ConciliarIfoodDialog({
 
           {valorMaiorQueBruto && (
             <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              O valor recebido não pode ser maior que o valor bruto.
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />O valor recebido não pode ser maior
+              que o valor bruto.
             </div>
           )}
           {taxa > 0 && !valorMaiorQueBruto && (
             <p className="text-xs text-muted-foreground">
-              <Wallet className="mr-1 inline h-3 w-3" />A diferença será registrada
-              automaticamente como despesa <strong>Taxa iFood</strong>.
+              <Wallet className="mr-1 inline h-3 w-3" />A diferença será registrada automaticamente
+              como despesa <strong>Taxa iFood</strong>.
             </p>
           )}
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={conciliar.isPending}>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={conciliar.isPending}
+          >
             Cancelar
           </Button>
           <Button
