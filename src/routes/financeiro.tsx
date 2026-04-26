@@ -347,9 +347,72 @@ const TIPO_LABEL: Record<FluxoTipo, string> = {
   despesa: "Despesa",
 };
 
+const FORMA_LABELS: Record<string, string> = {
+  dinheiro: "Dinheiro",
+  pix: "PIX",
+  cartao_debito: "Débito",
+  cartao_credito: "Crédito",
+  boleto: "Boleto",
+  ifood: "iFood",
+  fiado: "Fiado",
+  transferencia: "Transferência",
+  cheque: "Cheque",
+  outro: "Outro",
+};
+
 function FluxoCaixaPanel() {
   const [periodo, setPeriodo] = useState<FluxoPeriodo>("30d");
   const { inicio, fim } = useMemo(() => calcRangeFluxo(periodo), [periodo]);
+
+  // Breakdown por forma de pagamento das vendas no período
+  const { data: porForma = [] } = useQuery({
+    queryKey: ["financeiro", "fluxo-por-forma", inicio, fim],
+    queryFn: async () => {
+      const inicioTs = `${inicio}T00:00:00`;
+      const fimTs = `${fim}T23:59:59.999`;
+      const { data, error } = await supabase
+        .from("venda_pagamentos")
+        .select(
+          "forma_pagamento, valor, valor_recebido, venda:vendas!inner(status, status_pagamento, data_finalizacao)",
+        )
+        .gte("venda.data_finalizacao", inicioTs)
+        .lte("venda.data_finalizacao", fimTs)
+        .limit(5000);
+      if (error) throw error;
+      type Row = {
+        forma_pagamento: string;
+        valor: number;
+        valor_recebido: number | null;
+        venda: { status: string; status_pagamento: string } | null;
+      };
+      const totals = new Map<string, { recebido: number; aReceber: number }>();
+      for (const r of (data ?? []) as Row[]) {
+        if (!r.venda || r.venda.status === "cancelada") continue;
+        const forma = r.forma_pagamento;
+        const cur = totals.get(forma) ?? { recebido: 0, aReceber: 0 };
+        const valorBruto = Number(r.valor) || 0;
+        const recebido =
+          r.venda.status_pagamento === "pago"
+            ? valorBruto
+            : r.venda.status_pagamento === "parcial"
+              ? Number(r.valor_recebido ?? 0)
+              : 0;
+        // iFood/Fiado nunca contam como "recebido imediato"
+        if (forma === "ifood" || forma === "fiado") {
+          cur.aReceber += valorBruto;
+        } else {
+          cur.recebido += recebido;
+          cur.aReceber += valorBruto - recebido;
+        }
+        totals.set(forma, cur);
+      }
+      return Array.from(totals.entries())
+        .map(([forma, v]) => ({ forma, ...v }))
+        .filter((e) => e.recebido > 0 || e.aReceber > 0)
+        .sort((a, b) => b.recebido + b.aReceber - (a.recebido + a.aReceber));
+    },
+    staleTime: 15_000,
+  });
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["financeiro", "fluxo-caixa", inicio, fim],
@@ -501,6 +564,39 @@ function FluxoCaixaPanel() {
           iconTone={totais.saldo >= 0 ? "success" : "danger"}
         />
       </div>
+
+      {porForma.length > 0 && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold">Recebido por forma de pagamento</h3>
+              <span className="text-[11px] text-muted-foreground">
+                Vendas finalizadas no período
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+              {porForma.map((p) => (
+                <div
+                  key={p.forma}
+                  className="rounded-md border border-border bg-card/40 p-3"
+                >
+                  <p className="text-xs text-muted-foreground">
+                    {FORMA_LABELS[p.forma] ?? p.forma}
+                  </p>
+                  <p className="font-mono text-base font-semibold tabular-nums">
+                    {formatBRL(p.recebido)}
+                  </p>
+                  {p.aReceber > 0.005 && (
+                    <p className="mt-0.5 text-[11px] text-warning">
+                      A receber: {formatBRL(p.aReceber)}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardContent className="p-0">
