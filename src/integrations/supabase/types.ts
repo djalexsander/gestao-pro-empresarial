@@ -1724,37 +1724,55 @@ export type Database = {
           ativo: boolean
           created_at: string
           descricao: string | null
+          heartbeat_at: string | null
           id: string
           identificador_dispositivo: string | null
+          ip_local: string | null
           nome: string
+          operador_atual_id: string | null
+          operador_atual_nome: string | null
           owner_id: string
+          papel: string
           pareamento_token: string | null
           ultimo_uso: string | null
           updated_at: string
+          user_agent: string | null
         }
         Insert: {
           ativo?: boolean
           created_at?: string
           descricao?: string | null
+          heartbeat_at?: string | null
           id?: string
           identificador_dispositivo?: string | null
+          ip_local?: string | null
           nome: string
+          operador_atual_id?: string | null
+          operador_atual_nome?: string | null
           owner_id: string
+          papel?: string
           pareamento_token?: string | null
           ultimo_uso?: string | null
           updated_at?: string
+          user_agent?: string | null
         }
         Update: {
           ativo?: boolean
           created_at?: string
           descricao?: string | null
+          heartbeat_at?: string | null
           id?: string
           identificador_dispositivo?: string | null
+          ip_local?: string | null
           nome?: string
+          operador_atual_id?: string | null
+          operador_atual_nome?: string | null
           owner_id?: string
+          papel?: string
           pareamento_token?: string | null
           ultimo_uso?: string | null
           updated_at?: string
+          user_agent?: string | null
         }
         Relationships: []
       }
@@ -2704,14 +2722,38 @@ export type Database = {
           caixa_aberto_id: string
           created_at: string
           descricao: string
+          heartbeat_at: string
           id: string
           identificador_dispositivo: string
+          ip_local: string
           nome: string
+          operador_atual_id: string
+          operador_atual_nome: string
+          papel: string
           pareamento_token: string
           ultimo_uso: string
+          user_agent: string
         }[]
       }
+      terminal_definir_servidor: {
+        Args: { _terminal_id: string }
+        Returns: undefined
+      }
       terminal_gerar_token: { Args: { _terminal_id: string }; Returns: string }
+      terminal_heartbeat: {
+        Args: {
+          _ip_local?: string
+          _operador_id?: string
+          _operador_nome?: string
+          _terminal_id: string
+          _user_agent?: string
+        }
+        Returns: undefined
+      }
+      terminal_limpar_operador: {
+        Args: { _terminal_id: string }
+        Returns: undefined
+      }
       terminal_resolver: {
         Args: { _identificador?: string; _token?: string }
         Returns: {
