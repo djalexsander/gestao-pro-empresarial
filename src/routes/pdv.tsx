@@ -721,6 +721,8 @@ function PDVPage() {
                     <span className="mx-1 text-border">·</span>
                   </>
                 )}
+                <PdvKbd flash={hotkeyFlash === "F4"}>F4</PdvKbd>
+                <span>cliente</span>
                 <PdvKbd flash={hotkeyFlash === "F7"}>F7</PdvKbd>
                 <span>nova</span>
                 <PdvKbd flash={hotkeyFlash === "F8"}>F8</PdvKbd>
