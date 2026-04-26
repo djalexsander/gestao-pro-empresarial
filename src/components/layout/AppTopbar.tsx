@@ -1,4 +1,5 @@
-import { Crown, Menu, Plus, Search, ShoppingCart } from "lucide-react";
+import { useState } from "react";
+import { Crown, Menu, Monitor, Plus, Search, ShoppingCart } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +15,9 @@ import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { NotificationsBell } from "./NotificationsBell";
 import { EmpresaSwitcher } from "./EmpresaSwitcher";
+import { TerminalVinculoDialog } from "@/components/auth/TerminalVinculoDialog";
+import { useTerminal } from "@/components/auth/TerminalProvider";
+import { Badge } from "@/components/ui/badge";
 
 interface AppTopbarProps {
   onMobileMenuClick: () => void;
@@ -41,6 +45,8 @@ export function AppTopbar({ onMobileMenuClick }: AppTopbarProps) {
 
       <div className="ml-auto flex items-center gap-2">
         <EmpresaSwitcher />
+
+        <TerminalVinculoButton />
 
         <Button
           asChild
@@ -96,6 +102,42 @@ export function AppTopbar({ onMobileMenuClick }: AppTopbarProps) {
         <UserMenu />
       </div>
     </header>
+  );
+}
+
+function TerminalVinculoButton() {
+  const [open, setOpen] = useState(false);
+  const { terminal } = useTerminal();
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        className="hidden md:inline-flex h-10 gap-1.5"
+        onClick={() => setOpen(true)}
+        title="Terminal vinculado a este dispositivo"
+      >
+        <Monitor className="h-4 w-4" />
+        <span className="max-w-[120px] truncate">
+          {terminal?.nome ?? "Sem terminal"}
+        </span>
+        {!terminal && (
+          <Badge variant="secondary" className="h-5 px-1 text-[10px]">
+            !
+          </Badge>
+        )}
+      </Button>
+      <Button
+        variant="outline"
+        size="icon"
+        className="md:hidden h-10 w-10"
+        onClick={() => setOpen(true)}
+        aria-label="Terminal vinculado"
+      >
+        <Monitor className="h-4 w-4" />
+      </Button>
+      <TerminalVinculoDialog open={open} onOpenChange={setOpen} />
+    </>
   );
 }
 
