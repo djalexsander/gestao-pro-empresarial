@@ -706,6 +706,12 @@ function FluxoCaixaPanel() {
           </Table>
         </CardContent>
       </Card>
+
+      <ConciliarIfoodDialog
+        open={conciliarLoteOpen}
+        onOpenChange={setConciliarLoteOpen}
+        mode="lote"
+      />
     </div>
   );
 }
