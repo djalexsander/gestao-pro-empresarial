@@ -20,6 +20,8 @@ export interface Caixa {
   total_debito: number;
   total_credito: number;
   total_boleto: number;
+  total_ifood: number;
+  total_fiado: number;
   total_outros: number;
   total_sangrias: number;
   total_suprimentos: number;
@@ -46,6 +48,8 @@ export interface CaixaResumo {
   total_debito: number;
   total_credito: number;
   total_boleto: number;
+  total_ifood: number;
+  total_fiado: number;
   total_outros: number;
   total_sangrias: number;
   total_suprimentos: number;
