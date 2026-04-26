@@ -345,12 +345,12 @@ function PlanoAtualCard({
             <Separator />
             <div>
               <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Benefícios incluídos
+                O que está incluído no Plano Base
               </p>
               <ul className="grid gap-2 text-sm sm:grid-cols-2">
                 <li className="flex items-start gap-2">
                   <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-                  <span>Acesso completo ao ERP</span>
+                  <span>Acesso às funcionalidades essenciais do sistema</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
@@ -373,6 +373,16 @@ function PlanoAtualCard({
                   <span>Suporte por e-mail</span>
                 </li>
               </ul>
+              <div className="mt-3 flex items-start gap-2 rounded-md border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                <span>
+                  <strong className="text-foreground">
+                    Módulos adicionais
+                  </strong>{" "}
+                  (como Financeiro, Relatórios avançados e outros) são
+                  contratados separadamente do Plano Base.
+                </span>
+              </div>
             </div>
           </>
         )}
@@ -380,9 +390,72 @@ function PlanoAtualCard({
         {assinatura?.readonly && (
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
             Sua assinatura está em modo somente leitura. Regularize o pagamento
-            para liberar o ERP completo.
+            para liberar o sistema novamente.
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/* =========================================================
+ * Resumo visual do acesso (Plano Base + módulos)
+ * =======================================================*/
+function ResumoAcessoCard({
+  temPlano,
+  qtdModulos,
+}: {
+  temPlano: boolean;
+  qtdModulos: number;
+}) {
+  return (
+    <Card className="border-primary/20 bg-muted/30">
+      <CardContent className="flex flex-wrap items-center justify-between gap-4 py-4">
+        <div className="flex items-center gap-4">
+          <div className="rounded-full bg-primary/10 p-2">
+            <Check className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">
+              Seu acesso atual inclui
+            </p>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
+              <Badge
+                variant={temPlano ? "default" : "outline"}
+                className="gap-1"
+              >
+                {temPlano ? (
+                  <Check className="h-3 w-3" />
+                ) : (
+                  <Lock className="h-3 w-3" />
+                )}
+                Plano Base
+              </Badge>
+              <span className="text-muted-foreground">+</span>
+              <Badge
+                variant={qtdModulos > 0 ? "default" : "secondary"}
+                className="gap-1"
+              >
+                <Puzzle className="h-3 w-3" />
+                {qtdModulos === 0
+                  ? "Nenhum módulo adicional"
+                  : `${qtdModulos} módulo(s) ativo(s)`}
+              </Badge>
+            </div>
+          </div>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            document
+              .getElementById("modulos-disponiveis")
+              ?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }}
+        >
+          <Sparkles className="mr-2 h-4 w-4" />
+          Gerenciar módulos
+        </Button>
       </CardContent>
     </Card>
   );
