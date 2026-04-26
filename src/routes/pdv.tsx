@@ -224,6 +224,12 @@ function PDVPage() {
   // ============ Busca por CPF/CNPJ ============
   const [docQuery, setDocQuery] = useState("");
   const [docLookupBusy, setDocLookupBusy] = useState(false);
+  // Quando true, a busca por Enter já foi disparada e não encontrou cliente.
+  // Habilita ArrowDown para mover foco até "Cadastrar com este documento".
+  const [docBuscaSemResultado, setDocBuscaSemResultado] = useState(false);
+  const docQueryInputRef = useRef<HTMLInputElement>(null);
+  const cadastrarComDocBtnRef = useRef<HTMLButtonElement>(null);
+  const cadastrarNovoBtnRef = useRef<HTMLButtonElement>(null);
   const docInfo = validarDocumento(docQuery);
   const docDigits = somenteDigitos(docQuery);
   const matchLocalPorDoc = useMemo<ClienteLite | null>(() => {
@@ -233,13 +239,20 @@ function PDVPage() {
     );
   }, [clientes, docDigits]);
 
+  // Reset da flag de "sem resultado" sempre que o usuário muda o documento.
+  useEffect(() => {
+    setDocBuscaSemResultado(false);
+  }, [docQuery]);
+
   async function handleSelecionarPorDoc() {
     if (!docInfo.tipo) {
       toast.warning("Digite um CPF (11) ou CNPJ (14) completo.");
+      docQueryInputRef.current?.focus();
       return;
     }
     if (!docInfo.valido) {
       toast.error(`${docInfo.tipo} inválido. Confira os dígitos.`);
+      docQueryInputRef.current?.focus();
       return;
     }
     // Hit local primeiro
@@ -247,6 +260,7 @@ function PDVPage() {
       setCliente(matchLocalPorDoc);
       setClientePopoverOpen(false);
       setDocQuery("");
+      setDocBuscaSemResultado(false);
       som.beep("ok");
       toast.success(`Cliente "${matchLocalPorDoc.nome}" selecionado.`);
       return;
@@ -265,12 +279,14 @@ function PDVPage() {
         setCliente(lite);
         setClientePopoverOpen(false);
         setDocQuery("");
+        setDocBuscaSemResultado(false);
         som.beep("ok");
         toast.success(`Cliente "${found.nome}" selecionado.`);
       } else {
         som.beep("warn");
+        setDocBuscaSemResultado(true);
         toast.message("Nenhum cliente com este documento.", {
-          description: "Use 'Cadastrar com este documento' para criar agora.",
+          description: "↓ para selecionar 'Cadastrar com este documento' e Enter.",
         });
       }
     } catch (e) {
@@ -279,6 +295,28 @@ function PDVPage() {
       setDocLookupBusy(false);
     }
   }
+
+  // F4 = abrir popover de cliente / focar no campo de CPF/CNPJ.
+  // Se já estiver aberto, apenas reposiciona o foco no input.
+  function abrirOuFocarBuscaCliente() {
+    if (!clientePopoverOpen) {
+      setClientePopoverOpen(true);
+      // Foco será aplicado pelo efeito abaixo, quando o popover montar.
+    } else {
+      docQueryInputRef.current?.focus();
+      docQueryInputRef.current?.select();
+    }
+  }
+
+  // Foco automático no input de CPF/CNPJ ao abrir o popover de cliente.
+  useEffect(() => {
+    if (!clientePopoverOpen) return;
+    const t = setTimeout(() => {
+      docQueryInputRef.current?.focus();
+      docQueryInputRef.current?.select();
+    }, 60);
+    return () => clearTimeout(t);
+  }, [clientePopoverOpen]);
 
   function handleCadastrarComDoc() {
     if (!docInfo.tipo) {
