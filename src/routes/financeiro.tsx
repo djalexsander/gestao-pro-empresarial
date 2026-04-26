@@ -33,6 +33,8 @@ import {
   LancamentoDetalheDialog,
   type LancamentoDetalhe,
 } from "@/components/financeiro/LancamentoDetalheDialog";
+import { ConciliarIfoodDialog } from "@/components/financeiro/ConciliarIfoodDialog";
+import { Receipt } from "lucide-react";
 
 type FinTab = "receber" | "pagar" | "fluxo";
 
