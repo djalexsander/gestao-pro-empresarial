@@ -17,6 +17,8 @@ import {
   Eraser,
   LogOut,
   ArrowLeft,
+  Boxes,
+  ShoppingCart,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,6 +80,11 @@ import { useTerminal } from "@/components/auth/TerminalProvider";
 import { TerminalAtualBadge } from "@/components/auth/TerminalSelector";
 import { RequirePosSession } from "@/components/auth/RequirePosSession";
 import { PdvErrorBoundary } from "@/components/pdv/PdvErrorBoundary";
+import {
+  PdvQuickViewDialog,
+  type PdvQuickViewKey,
+} from "@/components/pdv/PdvQuickViewDialog";
+import { useUserRole } from "@/hooks/useUserRole";
 import { useCaixaAberto, useCaixaResumo } from "@/hooks/useCaixa";
 import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
 import { toast } from "sonner";
