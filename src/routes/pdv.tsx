@@ -924,13 +924,20 @@ function PDVPage() {
                 </CommandList>
                 <div className="border-t border-border p-2">
                   <Button
+                    ref={cadastrarNovoBtnRef}
                     variant="ghost"
                     size="sm"
-                    className="w-full justify-start gap-2 text-primary hover:text-primary"
+                    className="w-full justify-start gap-2 text-primary hover:text-primary focus-visible:ring-2 focus-visible:ring-primary"
                     onClick={() => {
                       setClientePopoverOpen(false);
-                      setNovoClienteDoc(null);
+                      setNovoClienteDoc(docDigits || null);
                       setNovoClienteOpen(true);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        docQueryInputRef.current?.focus();
+                      }
                     }}
                   >
                     <UserPlus className="h-4 w-4" />
