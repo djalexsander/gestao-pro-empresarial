@@ -1276,16 +1276,38 @@ function FluxoCaixaPanel() {
                 </TableRow>
               ) : (
                 rowsComSaldo.map((r) => (
-                  <TableRow key={r.id}>
+                  <TableRow
+                    key={r.id}
+                    className={cn(r.operacional && "bg-muted/30")}
+                  >
                     <TableCell className="text-muted-foreground">
                       {formatDateTime(r.data)}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="font-normal">
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "font-normal",
+                          r.operacional &&
+                            "border-info/40 bg-info/10 text-info",
+                        )}
+                      >
                         {TIPO_LABEL[r.tipo]}
+                        {r.operacional && (
+                          <span className="ml-1 text-[10px] opacity-80">
+                            • operacional
+                          </span>
+                        )}
                       </Badge>
                     </TableCell>
-                    <TableCell className="font-medium">{r.descricao}</TableCell>
+                    <TableCell
+                      className={cn(
+                        "font-medium",
+                        r.operacional && "text-muted-foreground",
+                      )}
+                    >
+                      {r.descricao}
+                    </TableCell>
                     <TableCell>
                       <span
                         className={cn(
@@ -1300,14 +1322,23 @@ function FluxoCaixaPanel() {
                     </TableCell>
                     <TableCell
                       className={cn(
-                        "text-right font-medium",
-                        r.valor > 0 && "text-success",
-                        r.valor < 0 && "text-destructive",
+                        "text-right font-medium tabular-nums",
+                        r.operacional
+                          ? "text-muted-foreground italic"
+                          : r.valor > 0
+                            ? "text-success"
+                            : r.valor < 0
+                              ? "text-destructive"
+                              : "",
                       )}
                     >
-                      {r.valor === 0 ? "—" : formatBRL(r.valor)}
+                      {r.valor === 0
+                        ? "—"
+                        : r.operacional
+                          ? `(${formatBRL(Math.abs(r.valor))})`
+                          : formatBRL(r.valor)}
                     </TableCell>
-                    <TableCell className="text-right text-muted-foreground">
+                    <TableCell className="text-right text-muted-foreground tabular-nums">
                       {formatBRL(r.saldoAcumulado)}
                     </TableCell>
                   </TableRow>
