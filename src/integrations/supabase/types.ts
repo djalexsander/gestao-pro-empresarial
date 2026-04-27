@@ -53,6 +53,60 @@ export type Database = {
         }
         Relationships: []
       }
+      balanca_config: {
+        Row: {
+          ativo: boolean
+          casas_decimais_peso: number
+          casas_decimais_valor: number
+          comprimento_total: number
+          created_at: string
+          digitos_codigo_produto: number
+          digitos_peso_valor: number
+          inicio_codigo_produto: number
+          inicio_peso_valor: number
+          observacoes: string | null
+          owner_id: string
+          prefixos: string[]
+          tipo_codigo: string
+          updated_at: string
+          validar_dv: boolean
+        }
+        Insert: {
+          ativo?: boolean
+          casas_decimais_peso?: number
+          casas_decimais_valor?: number
+          comprimento_total?: number
+          created_at?: string
+          digitos_codigo_produto?: number
+          digitos_peso_valor?: number
+          inicio_codigo_produto?: number
+          inicio_peso_valor?: number
+          observacoes?: string | null
+          owner_id: string
+          prefixos?: string[]
+          tipo_codigo?: string
+          updated_at?: string
+          validar_dv?: boolean
+        }
+        Update: {
+          ativo?: boolean
+          casas_decimais_peso?: number
+          casas_decimais_valor?: number
+          comprimento_total?: number
+          created_at?: string
+          digitos_codigo_produto?: number
+          digitos_peso_valor?: number
+          inicio_codigo_produto?: number
+          inicio_peso_valor?: number
+          observacoes?: string | null
+          owner_id?: string
+          prefixos?: string[]
+          tipo_codigo?: string
+          updated_at?: string
+          validar_dv?: boolean
+        }
+        Relationships: []
+      }
       caixa_movimentos: {
         Row: {
           caixa_id: string
@@ -1590,6 +1644,8 @@ export type Database = {
       }
       produtos: {
         Row: {
+          aceita_etiqueta_balanca: boolean
+          casas_decimais_quantidade: number
           categoria_id: string | null
           cest: string | null
           codigo_barras: string | null
@@ -1606,6 +1662,7 @@ export type Database = {
           observacao_tecnica: string | null
           origem: string | null
           owner_id: string
+          plu: string | null
           preco_custo: number
           preco_venda: number
           qr_code: string | null
@@ -1614,8 +1671,11 @@ export type Database = {
           tipo_identificacao_principal: string
           unidade: string
           updated_at: string
+          vendido_por_peso: boolean
         }
         Insert: {
+          aceita_etiqueta_balanca?: boolean
+          casas_decimais_quantidade?: number
           categoria_id?: string | null
           cest?: string | null
           codigo_barras?: string | null
@@ -1632,6 +1692,7 @@ export type Database = {
           observacao_tecnica?: string | null
           origem?: string | null
           owner_id: string
+          plu?: string | null
           preco_custo?: number
           preco_venda?: number
           qr_code?: string | null
@@ -1640,8 +1701,11 @@ export type Database = {
           tipo_identificacao_principal?: string
           unidade?: string
           updated_at?: string
+          vendido_por_peso?: boolean
         }
         Update: {
+          aceita_etiqueta_balanca?: boolean
+          casas_decimais_quantidade?: number
           categoria_id?: string | null
           cest?: string | null
           codigo_barras?: string | null
@@ -1658,6 +1722,7 @@ export type Database = {
           observacao_tecnica?: string | null
           origem?: string | null
           owner_id?: string
+          plu?: string | null
           preco_custo?: number
           preco_venda?: number
           qr_code?: string | null
@@ -1666,6 +1731,7 @@ export type Database = {
           tipo_identificacao_principal?: string
           unidade?: string
           updated_at?: string
+          vendido_por_peso?: boolean
         }
         Relationships: [
           {
