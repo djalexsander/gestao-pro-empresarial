@@ -499,14 +499,26 @@ function PDVPage() {
           });
           return;
         }
-        addItemFromProduto({
-          produto_id: found.produto_id,
-          sku: found.sku,
-          nome: found.nome,
-          unidade: found.unidade,
-          preco_venda: found.preco_venda,
-        });
-        toast.success(`+ ${found.nome}`, { duration: 1200 });
+        const qtdAplicada = multiplicador > 1 ? multiplicador : 1;
+        addItemFromProduto(
+          {
+            produto_id: found.produto_id,
+            sku: found.sku,
+            nome: found.nome,
+            unidade: found.unidade,
+            preco_venda: found.preco_venda,
+          },
+          { quantidade: qtdAplicada },
+        );
+        if (qtdAplicada > 1) {
+          toast.success(
+            `+ ${found.nome} × ${qtdAplicada}`,
+            { duration: 1400 },
+          );
+          setMultiplicador(1); // reset após aplicar
+        } else {
+          toast.success(`+ ${found.nome}`, { duration: 1200 });
+        }
         return;
       }
 
