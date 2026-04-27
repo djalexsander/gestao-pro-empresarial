@@ -180,7 +180,7 @@ export function BlocoDetalheDialog({
           {subtitulo && <DialogDescription>{subtitulo}</DialogDescription>}
         </DialogHeader>
 
-        <div ref={conteudoRef} className="space-y-4 bg-background p-1">
+        <div className="space-y-4 bg-background p-1">
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <Badge variant="outline" className="font-normal">
               Origem: {origem}
