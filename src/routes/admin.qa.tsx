@@ -144,9 +144,8 @@ function QaPage() {
     });
   };
   const onPNG = async () => {
-    if (!reportRef.current) return;
     if (!ativa) return toast.error("Inicie uma rodada de validação.");
-    await exportarRelatorioQaPNG(reportRef.current, ativa.titulo);
+    await exportarRelatorioQaPNG({ validacao: ativa, modulos, itens, avaliacoes, resumo });
   };
 
   return (
