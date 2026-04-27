@@ -839,7 +839,7 @@ function PDVPage() {
     setItems([]);
     setObservacao("");
     setLastAddedKey(null);
-    setTimeout(() => scanInputRef.current?.focus(), DEFAULT_FOCUS_DELAY);
+    focusScanInput(DEFAULT_FOCUS_DELAY);
   }
 
   function cancelVenda() {
@@ -1273,7 +1273,13 @@ function PDVPage() {
 
             {/* Busca manual inline */}
             <div className="mt-3 flex items-center gap-2">
-              <Popover open={searchPopoverOpen} onOpenChange={setSearchPopoverOpen}>
+              <Popover
+                open={searchPopoverOpen}
+                onOpenChange={(open) => {
+                  if (open) blockScanFocus();
+                  setSearchPopoverOpen(open);
+                }}
+              >
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
@@ -1292,6 +1298,7 @@ function PDVPage() {
                   <Command shouldFilter={false}>
                     <CommandInput
                       ref={manualSearchInputRef}
+                      data-pdv-manual-search-input="true"
                       value={manualQuery}
                       onValueChange={setManualQuery}
                       placeholder="Nome, SKU, código de barras…"
@@ -1635,7 +1642,7 @@ function PDVPage() {
         onOpenChange={setConsultaPrecoOpen}
         balancaConfig={balancaCfg ?? null}
         onClosed={() => {
-          setTimeout(() => scanInputRef.current?.focus(), DEFAULT_FOCUS_DELAY);
+          focusScanInput(DEFAULT_FOCUS_DELAY);
         }}
       />
 
@@ -1648,7 +1655,8 @@ function PDVPage() {
           toast.success(`Multiplicador ativo: ${q}× — bique o produto.`, {
             duration: 2000,
           });
-          setTimeout(() => scanInputRef.current?.focus(), DEFAULT_FOCUS_DELAY);
+          scanFocusBlockedRef.current = false;
+          focusScanInput(DEFAULT_FOCUS_DELAY);
         }}
       />
 
