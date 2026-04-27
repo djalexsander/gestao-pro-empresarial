@@ -93,6 +93,7 @@ import {
 import { useUserRole } from "@/hooks/useUserRole";
 import { useCaixaAberto, useCaixaResumo } from "@/hooks/useCaixa";
 import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
+import { MovimentoCaixaDialog } from "@/components/caixa/MovimentoCaixaDialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatBRL } from "@/lib/mock-data";
