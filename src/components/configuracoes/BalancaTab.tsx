@@ -287,7 +287,7 @@ export function BalancaTab() {
             <div className="rounded-lg border border-border p-4 space-y-2 text-sm">
               {parseResult.ok ? (
                 <>
-                  <div className="flex items-center gap-2 text-emerald-600">
+                  <div className="flex items-center gap-2 text-primary">
                     <CheckCircle2 className="h-4 w-4" />
                     <span className="font-medium">Etiqueta válida</span>
                   </div>
