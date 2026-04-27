@@ -1,4 +1,3 @@
-import { useRef } from "react";
 import { Download, FileImage, FileText, Sheet } from "lucide-react";
 import {
   Dialog,
@@ -114,8 +113,6 @@ export function BlocoDetalheDialog({
   emptyMessage = "Sem dados para exibir.",
   alertaSemCusto,
 }: BlocoDetalheProps) {
-  const conteudoRef = useRef<HTMLDivElement>(null);
-
   const csvCols: CsvColumn<DetalheRow>[] = colunas.map((c) => ({
     header: c.header,
     accessor: (r) => (r[c.key] ?? "") as string | number,
@@ -150,11 +147,30 @@ export function BlocoDetalheDialog({
           : undefined,
     });
 
-  const handlePNG = async () => {
-    if (conteudoRef.current) {
-      await exportarBlocoPNG(conteudoRef.current, titulo, { titulo, periodo });
-    }
-  };
+  const handlePNG = () =>
+    exportarBlocoPNG(titulo, {
+      titulo,
+      subtitulo: subtitulo ?? undefined,
+      origem,
+      periodo,
+      resumo: resumo.map((r) => ({ label: r.label, valor: r.valor, tone: r.tone })),
+      alerta:
+        alertaSemCusto && alertaSemCusto.qtd > 0
+          ? {
+              titulo: `${alertaSemCusto.qtd} item(ns) sem custo cadastrado`,
+              descricao: `Esses itens entram com custo R$ 0,00. O lucro pode estar superestimado em até ${formatBRL(alertaSemCusto.total)}.`,
+            }
+          : null,
+      tabela: {
+        columns: colunas.map((c) => ({
+          header: c.header,
+          align: c.align ?? "left",
+          weight: c.format === "currency" ? 1.1 : c.key === "produto_nome" || c.key === "descricao" || c.key === "nome" ? 1.8 : 1,
+        })),
+        rows: rows.map((r) => colunas.map((c) => formatCell(r[c.key], c.format))),
+        emptyMessage,
+      },
+    });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -164,7 +180,7 @@ export function BlocoDetalheDialog({
           {subtitulo && <DialogDescription>{subtitulo}</DialogDescription>}
         </DialogHeader>
 
-        <div ref={conteudoRef} className="space-y-4 bg-background p-1">
+        <div className="space-y-4 bg-background p-1">
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <Badge variant="outline" className="font-normal">
               Origem: {origem}

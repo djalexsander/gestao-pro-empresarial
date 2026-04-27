@@ -123,7 +123,6 @@ function QaPage() {
   const [finalizarOpen, setFinalizarOpen] = useState(false);
   const [obsFinal, setObsFinal] = useState("");
 
-  const reportRef = useRef<HTMLDivElement>(null);
 
   const resumo = useMemo(() => calcularResumoQa(itens, avaliacoes), [itens, avaliacoes]);
 
@@ -144,9 +143,8 @@ function QaPage() {
     });
   };
   const onPNG = async () => {
-    if (!reportRef.current) return;
     if (!ativa) return toast.error("Inicie uma rodada de validação.");
-    await exportarRelatorioQaPNG(reportRef.current, ativa.titulo);
+    await exportarRelatorioQaPNG({ validacao: ativa, modulos, itens, avaliacoes, resumo });
   };
 
   return (
@@ -196,7 +194,7 @@ function QaPage() {
         }
       />
 
-      <div ref={reportRef} className="space-y-6">
+      <div className="space-y-6">
         {/* Visão geral */}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <KpiCard label="Conclusão" value={`${resumo.pctConcluido}%`} progress={resumo.pctConcluido} />
