@@ -4,6 +4,7 @@ import { RequireAuth } from "@/components/auth/RequireAuth";
 import { RequireAdminLike } from "@/components/auth/RequireRole";
 import { RequireErpUnlock } from "@/components/auth/RequireErpUnlock";
 import { RequireTerminalPermissao } from "@/components/auth/RequireTerminalPermissao";
+import { RequireNotMaster } from "@/components/admin/RequireNotMaster";
 import { areaTerminalDoPath } from "@/components/auth/areaTerminalDoPath";
 import { AppMenubar } from "./AppMenubar";
 import { AppToolbar } from "./AppToolbar";
