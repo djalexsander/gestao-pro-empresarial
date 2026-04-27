@@ -55,6 +55,10 @@ import {
   buscarProdutoPorCodigo,
   type ProdutoBuscaResult,
 } from "@/hooks/useProdutoCodigo";
+import { buscarProdutoPorPlu } from "@/hooks/useProdutoPorPlu";
+import { useBalancaConfig } from "@/hooks/useBalancaConfig";
+import { parseEtiquetaBalanca, calcularPesoEValor } from "@/lib/balanca";
+import { PesoDialog } from "@/components/pdv/PesoDialog";
 import { useScanner } from "@/hooks/useScanner";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { useProdutos } from "@/hooks/useProdutos";
