@@ -316,22 +316,16 @@ function FinanceContent() {
         description="Acompanhe entradas, saídas, lucro e fluxo de caixa."
         actions={
           <div className="flex flex-wrap gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="outline" className="gap-1.5">
-                  <Download className="h-4 w-4" />
-                  Exportar resumo
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleExportConsolidadoCSV} className="gap-2">
-                  <SheetIcon className="h-4 w-4" /> CSV (Excel)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleExportConsolidadoPDF} className="gap-2">
-                  <FileText className="h-4 w-4" /> PDF
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => setExportOpen(true)}
+              disabled={exporting}
+            >
+              <Download className="h-4 w-4" />
+              Exportar resumo
+            </Button>
             <Button size="sm" className="gap-1.5">
               <Plus className="h-4 w-4" />
               Novo lançamento
