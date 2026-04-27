@@ -324,8 +324,15 @@ function SalesPage() {
                       key={v.id}
                       className={cn(cancelada && "opacity-60")}
                     >
-                      <TableCell className="font-mono text-xs text-muted-foreground">
-                        {v.numero}
+                      <TableCell className="font-mono text-xs">
+                        <button
+                          type="button"
+                          onClick={() => setDetalheId(v.id)}
+                          className="rounded-sm text-muted-foreground underline-offset-4 transition-colors hover:text-primary hover:underline focus-visible:text-primary focus-visible:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          title="Ver detalhes da venda"
+                        >
+                          {v.numero}
+                        </button>
                       </TableCell>
                       <TableCell className="font-medium">
                         {v.cliente_nome ?? (
