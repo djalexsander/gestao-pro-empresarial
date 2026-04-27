@@ -195,6 +195,9 @@ function PDVPage() {
   const [items, setItems] = useState<VendaItem[]>([]);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [consultaPrecoOpen, setConsultaPrecoOpen] = useState(false);
+  const [multDialogOpen, setMultDialogOpen] = useState(false);
+  /** Multiplicador ativo aplicado à PRÓXIMA bipagem de produto não-pesado. */
+  const [multiplicador, setMultiplicador] = useState<number>(1);
   const [confirmClear, setConfirmClear] = useState<null | "clear" | "cancel">(
     null,
   );
