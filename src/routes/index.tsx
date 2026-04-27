@@ -354,6 +354,7 @@ function DashboardPage() {
           hint="vs. mês anterior"
           icon={TrendingUp}
           iconTone="primary"
+          onClick={() => abrirKpi("vendas")}
         />
         <StatCard
           label="Compras do mês"
@@ -363,6 +364,7 @@ function DashboardPage() {
           hint="vs. mês anterior"
           icon={ShoppingCart}
           iconTone="info"
+          onClick={() => abrirKpi("compras")}
         />
         <StatCard
           label="Lucro do mês"
@@ -370,6 +372,7 @@ function DashboardPage() {
           hint={`margem ${data.margem.toFixed(1)}%`}
           icon={Wallet}
           iconTone={data.lucroMes >= 0 ? "success" : "danger"}
+          onClick={() => abrirKpi("lucro")}
         />
         <StatCard
           label="Contas a pagar"
@@ -377,6 +380,7 @@ function DashboardPage() {
           hint={`${data.qtdContasPagar} ${data.qtdContasPagar === 1 ? "título aberto" : "títulos abertos"}`}
           icon={ArrowUpFromLine}
           iconTone="warning"
+          onClick={() => abrirKpi("contas-pagar")}
         />
         <StatCard
           label="Contas a receber"
@@ -384,6 +388,7 @@ function DashboardPage() {
           hint={`${data.qtdContasReceber} ${data.qtdContasReceber === 1 ? "título aberto" : "títulos abertos"}`}
           icon={ArrowDownToLine}
           iconTone="success"
+          onClick={() => abrirKpi("contas-receber")}
         />
         <StatCard
           label="Estoque baixo"
@@ -391,6 +396,7 @@ function DashboardPage() {
           hint={data.estoqueBaixo === 1 ? "produto crítico" : "produtos críticos"}
           icon={AlertTriangle}
           iconTone="danger"
+          onClick={() => abrirKpi("estoque-baixo")}
         />
       </div>
 
