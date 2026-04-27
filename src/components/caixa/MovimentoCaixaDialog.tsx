@@ -116,6 +116,17 @@ export function MovimentoCaixaDialog({ open, onOpenChange, caixaId, tipo }: Prop
             />
           </div>
 
+          <div
+            className={cn(
+              "rounded-md border p-3 text-xs",
+              tipo === "suprimento"
+                ? "border-success/30 bg-success/10 text-success"
+                : "border-destructive/30 bg-destructive/10 text-destructive",
+            )}
+          >
+            {meta.hint}
+          </div>
+
           <DialogFooter>
             <Button
               type="button"
