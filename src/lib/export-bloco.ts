@@ -1,16 +1,19 @@
-// Exportação de blocos financeiros em PDF, PNG ou CSV.
+// Exportação de blocos financeiros em PDF, PNG (Canvas nativo) ou CSV.
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { toPng } from "html-to-image";
 import { toCSV, downloadCSV, csvFilename, type CsvColumn } from "@/lib/export-csv";
-import { applyPrintTheme, PRINT_THEME, waitForRenderReady } from "@/lib/export-png-theme";
 import {
   fetchEmpresaHeader,
   desenharCabecalhoPDF,
   adicionarRodapePaginacao,
   montarCabecalhoCSV,
-  criarCabecalhoPNGElement,
 } from "@/lib/export-empresa-header";
+import {
+  renderReportCanvas,
+  downloadCanvasAsPng,
+  type CanvasResumoCard,
+  type CanvasColumn,
+} from "@/lib/export-png-canvas";
 
 function tsFilename(prefix: string, ext: string): string {
   const d = new Date();
