@@ -382,20 +382,28 @@ function PDVPage() {
   }, [items]);
 
   // ============ Adicionar item ============
-  function addItemFromProduto(p: {
-    produto_id: string;
-    sku: string;
-    nome: string;
-    unidade: string;
-    preco_venda: number;
-  }) {
+  function addItemFromProduto(
+    p: {
+      produto_id: string;
+      sku: string;
+      nome: string;
+      unidade: string;
+      preco_venda: number;
+    },
+    opts?: { quantidade?: number; precoUnitario?: number; mergeable?: boolean },
+  ) {
+    const qty = opts?.quantidade ?? 1;
+    const preco = opts?.precoUnitario ?? Number(p.preco_venda) || 0;
+    const mergeable = opts?.mergeable ?? true;
     setItems((prev) => {
-      const idx = prev.findIndex((it) => it.produto_id === p.produto_id);
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = { ...next[idx], quantidade: next[idx].quantidade + 1 };
-        setLastAddedKey(next[idx].key);
-        return next;
+      if (mergeable) {
+        const idx = prev.findIndex((it) => it.produto_id === p.produto_id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = { ...next[idx], quantidade: next[idx].quantidade + qty };
+          setLastAddedKey(next[idx].key);
+          return next;
+        }
       }
       const novo: VendaItem = {
         key: `${p.produto_id}-${Date.now()}`,
@@ -403,8 +411,8 @@ function PDVPage() {
         sku: p.sku,
         nome: p.nome,
         unidade: p.unidade,
-        preco_unitario: Number(p.preco_venda) || 0,
-        quantidade: 1,
+        preco_unitario: preco,
+        quantidade: qty,
         desconto: 0,
       };
       setLastAddedKey(novo.key);
@@ -412,12 +420,24 @@ function PDVPage() {
     });
   }
 
+  // ============ Balança / peso ============
+  const { data: balancaCfg } = useBalancaConfig();
+  const [pesoDialog, setPesoDialog] = useState<{
+    produto_id: string;
+    sku: string;
+    nome: string;
+    unidade: string;
+    preco_venda: number;
+    casas_decimais: number;
+  } | null>(null);
+
   // ============ Buscar por código ============
   async function handleScanCode(value: string) {
     const v = value.trim();
     if (!v) return;
     setBusy(true);
     try {
+      // 1) Tenta produto normal pelo código exato
       const found = await buscarProdutoPorCodigo(v);
       if (found) {
         if (found.status !== "ativo") {
@@ -425,6 +445,20 @@ function PDVPage() {
           toast.warning(`Produto "${found.nome}" está ${found.status}.`);
         } else {
           som.beep("ok");
+        }
+        // Se for vendido por peso, abre diálogo de peso ao bipar PLU/SKU avulso
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const fAny = found as any;
+        if (fAny.vendido_por_peso) {
+          setPesoDialog({
+            produto_id: found.produto_id,
+            sku: found.sku,
+            nome: found.nome,
+            unidade: found.unidade,
+            preco_venda: found.preco_venda,
+            casas_decimais: Number(fAny.casas_decimais_quantidade ?? 3),
+          });
+          return;
         }
         addItemFromProduto({
           produto_id: found.produto_id,
@@ -434,10 +468,62 @@ function PDVPage() {
           preco_venda: found.preco_venda,
         });
         toast.success(`+ ${found.nome}`, { duration: 1200 });
-      } else {
-        som.beep("error");
-        toast.error(`Produto não encontrado para "${v}"`);
+        return;
       }
+
+      // 2) Não achou — se balança ativa, tenta interpretar como etiqueta
+      if (balancaCfg?.ativo) {
+        const parsed = parseEtiquetaBalanca(v, balancaCfg);
+        if (parsed.ok) {
+          const prod = await buscarProdutoPorPlu(parsed.plu);
+          if (!prod) {
+            som.beep("error");
+            toast.error("Produto da etiqueta não encontrado. Verifique o PLU.");
+            return;
+          }
+          if (!prod.vendido_por_peso || !prod.aceita_etiqueta_balanca) {
+            som.beep("error");
+            toast.error(
+              "Produto encontrado, mas não está configurado para venda por peso/etiqueta.",
+            );
+            return;
+          }
+          if (prod.preco_venda <= 0) {
+            som.beep("error");
+            toast.error("Preço por KG zerado. Configure o produto.");
+            return;
+          }
+          const calc = calcularPesoEValor(parsed, prod.preco_venda);
+          if ("erro" in calc) {
+            som.beep("error");
+            toast.error(calc.erro);
+            return;
+          }
+          som.beep("ok");
+          addItemFromProduto(
+            {
+              produto_id: prod.produto_id,
+              sku: prod.sku,
+              nome: prod.nome,
+              unidade: "KG",
+              preco_venda: prod.preco_venda,
+            },
+            {
+              quantidade: calc.quantidade,
+              precoUnitario: prod.preco_venda,
+              mergeable: false,
+            },
+          );
+          toast.success(
+            `+ ${prod.nome} • ${calc.quantidade.toFixed(3)} KG = R$ ${calc.valor_total.toFixed(2)}`,
+            { duration: 1800 },
+          );
+          return;
+        }
+      }
+
+      som.beep("error");
+      toast.error(`Produto não encontrado para "${v}"`);
     } catch (e) {
       som.beep("error");
       toast.error((e as Error).message);
