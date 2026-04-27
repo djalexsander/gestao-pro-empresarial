@@ -293,11 +293,7 @@ export function KpiDetailDialog({
               : "—";
           const venc = l.data_vencimento ?? "";
           const status =
-            l.status === "parcial"
-              ? "parcial"
-              : venc && venc < hojeStr
-                ? "vencido"
-                : (l.status ?? "aberto");
+            venc && venc < hojeStr ? "vencido" : (l.status ?? "aberto");
           return {
             identificador: contraparte,
             data: venc,
