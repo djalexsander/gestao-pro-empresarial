@@ -665,6 +665,14 @@ function PDVPage() {
         },
       },
       {
+        key: "F5",
+        allowInInputs: true,
+        handler: () => {
+          flashHotkey("F5");
+          setMultDialogOpen(true);
+        },
+      },
+      {
         key: "F6",
         allowInInputs: true,
         handler: () => {
