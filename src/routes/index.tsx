@@ -155,6 +155,13 @@ function DashboardPage() {
   const defaultRange = useMemo(() => getRangeFromPeriodo("mes"), []);
   const [inicio, setInicio] = useState(formatDateInput(defaultRange.inicio));
   const [fim, setFim] = useState(formatDateInput(defaultRange.fim));
+  const [kpiTipo, setKpiTipo] = useState<KpiTipo | null>(null);
+  const [kpiOpen, setKpiOpen] = useState(false);
+
+  function abrirKpi(tipo: KpiTipo) {
+    setKpiTipo(tipo);
+    setKpiOpen(true);
+  }
 
   function aplicarPeriodo(value: DashboardPeriodo) {
     const range = getRangeFromPeriodo(value);
