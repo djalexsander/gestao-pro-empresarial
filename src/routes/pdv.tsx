@@ -1285,31 +1285,10 @@ function PDVPage() {
                             </p>
                           )}
                         </div>
-                        <div className="flex items-center justify-center gap-1">
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => incQty(it.key, -1)}
-                          >
-                            <Minus className="h-3 w-3" />
-                          </Button>
-                          <Input
-                            type="number"
-                            value={it.quantidade}
-                            onChange={(e) => updateQty(it.key, Number(e.target.value))}
-                            className="h-7 w-14 px-1 text-center font-mono"
-                            min="0.001"
-                            step="any"
-                          />
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => incQty(it.key, 1)}
-                          >
-                            <Plus className="h-3 w-3" />
-                          </Button>
+                        <div className="text-center font-mono text-sm tabular-nums">
+                          {it.vendido_por_peso
+                            ? `${it.quantidade.toFixed(it.casas_decimais ?? 3)} ${it.unidade || "KG"}`
+                            : `${it.quantidade} ${it.unidade || "un."}`}
                         </div>
                         <div className="text-right tabular-nums">
                           {formatBRL(it.preco_unitario)}
