@@ -1,8 +1,12 @@
-// Exportação do relatório final de QA (PDF e PNG via html-to-image).
+// Exportação do relatório final de QA (PDF e PNG via Canvas 2D nativo).
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { toPng } from "html-to-image";
-import { applyPrintTheme, PRINT_THEME, waitForRenderReady } from "@/lib/export-png-theme";
+import {
+  renderReportCanvas,
+  downloadCanvasAsPng,
+  type CanvasResumoCard,
+} from "@/lib/export-png-canvas";
+import { fetchEmpresaHeader } from "@/lib/export-empresa-header";
 import type {
   QaItem,
   QaModulo,
