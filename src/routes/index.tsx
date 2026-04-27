@@ -663,6 +663,17 @@ function DashboardPage() {
         loading={exporting}
         onChoose={(f) => exportarDashboard(f)}
       />
+
+      <KpiDetailDialog
+        open={kpiOpen}
+        onOpenChange={setKpiOpen}
+        tipo={kpiTipo}
+        periodo={{
+          inicio,
+          fim,
+          label: `${formatPeriodoBR(inicio)} a ${formatPeriodoBR(fim)}`,
+        }}
+      />
     </div>
   );
 }
