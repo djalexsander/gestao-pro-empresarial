@@ -378,12 +378,13 @@ function PDVPage() {
       !searchPopoverOpen &&
       !confirmClear &&
       !finalizarOpen &&
-      !sucessoOpen
+      !sucessoOpen &&
+      !multDialogOpen
     ) {
       const t = setTimeout(() => scanInputRef.current?.focus(), DEFAULT_FOCUS_DELAY);
       return () => clearTimeout(t);
     }
-  }, [scannerOpen, clientePopoverOpen, searchPopoverOpen, confirmClear, finalizarOpen, sucessoOpen]);
+  }, [scannerOpen, clientePopoverOpen, searchPopoverOpen, confirmClear, finalizarOpen, sucessoOpen, multDialogOpen]);
 
   // ============ Totais ============
   const totals = useMemo(() => {
