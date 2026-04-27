@@ -519,14 +519,14 @@ function Conteudo() {
         <StatCard
           label="Entradas"
           value={formatBRL(metricas.entradas)}
-          hint="Valor inicial + vendas + suprimentos"
+          hint="Valor inicial + vendas + suprimento de caixa"
           icon={ArrowUpRight}
           iconTone="success"
         />
         <StatCard
           label="Saídas"
           value={formatBRL(metricas.saidas)}
-          hint="Sangrias e retiradas"
+          hint="Sangria de caixa"
           icon={ArrowDownRight}
           iconTone="warning"
         />
