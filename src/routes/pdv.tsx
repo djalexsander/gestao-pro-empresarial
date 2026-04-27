@@ -363,6 +363,18 @@ function PDVPage() {
   const som = useSomPDV();
 
   const scanInputRef = useRef<HTMLInputElement>(null);
+  const manualSearchInputRef = useRef<HTMLInputElement>(null);
+
+  // Quando a busca manual abrir (clique ou F9), garante foco no campo de
+  // pesquisa imediatamente, sem precisar do mouse.
+  useEffect(() => {
+    if (!searchPopoverOpen) return;
+    const id = requestAnimationFrame(() => {
+      manualSearchInputRef.current?.focus();
+      manualSearchInputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [searchPopoverOpen]);
 
   // Foco automático no campo de leitura
   useEffect(() => {
@@ -1204,9 +1216,11 @@ function PDVPage() {
                 <PopoverContent align="start" className="w-[420px] p-0">
                   <Command shouldFilter={false}>
                     <CommandInput
+                      ref={manualSearchInputRef}
                       value={manualQuery}
                       onValueChange={setManualQuery}
                       placeholder="Nome, SKU, código de barras…"
+                      autoFocus
                     />
                     <CommandList>
                       <CommandEmpty>
