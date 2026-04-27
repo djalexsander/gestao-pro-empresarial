@@ -156,6 +156,7 @@ function PDVPage() {
   // exitAfterClose = quando o caixa for fechado com sucesso, encerra a sessão
   // do operador e volta para /pos. Usado nos botões Voltar e Encerrar.
   const [fecharCaixaOpen, setFecharCaixaOpen] = useState(false);
+  const [movCaixaDialog, setMovCaixaDialog] = useState<null | "sangria" | "suprimento">(null);
   const exitAfterCloseRef = useRef(false);
 
   // Quando o caixa some (foi fechado), saímos do PDV de volta para /pos
