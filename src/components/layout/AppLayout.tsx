@@ -12,7 +12,7 @@ import { ContextSidebar } from "./ContextSidebar";
 import { MobileNavSheet } from "./MobileNavSheet";
 import { findModuleByPath, type ModuleKey } from "./navigation";
 import { useIsSuperAdmin } from "@/hooks/useAdmin";
-import { Link } from "@tanstack/react-router";
+import { ShieldCheck } from "lucide-react";
 import { ShieldCheck } from "lucide-react";
 import { AssinaturaBanner } from "./AssinaturaBanner";
 import { useMode } from "@/components/modes/ModeProvider";
