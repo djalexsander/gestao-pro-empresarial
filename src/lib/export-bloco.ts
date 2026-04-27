@@ -3,6 +3,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { toPng } from "html-to-image";
 import { exportRowsToCSV, type CsvColumn } from "@/lib/export-csv";
+import { applyPrintTheme, PRINT_THEME, waitForRenderReady } from "@/lib/export-png-theme";
 
 function tsFilename(prefix: string, ext: string): string {
   const d = new Date();
@@ -81,11 +82,9 @@ export function exportarBlocoPDF<T>(opts: ExportPdfOptions<T>) {
 }
 
 export async function exportarBlocoPNG(element: HTMLElement, prefix: string) {
-  // html-to-image suporta cores modernas (oklch, color-mix etc.) que o html2canvas v1 não renderiza.
-  const bg = getComputedStyle(document.body).backgroundColor || "#ffffff";
-
-  // Clona o elemento para fora do dialog, expandindo qualquer área com scroll
-  // (ScrollArea/overflow) para que a captura inclua todas as colunas e linhas.
+  // Clonamos o nó e aplicamos um tema "claro forçado" só na cópia, para que
+  // html-to-image gere um PNG legível (fundo branco, texto preto). O DOM
+  // visível ao usuário continua intocado.
   const clone = element.cloneNode(true) as HTMLElement;
 
   // Expande Radix ScrollArea: viewport tem overflow oculto e o conteúdo é limitado.
@@ -107,23 +106,27 @@ export async function exportarBlocoPNG(element: HTMLElement, prefix: string) {
     el.style.display = "none";
   });
 
-  // Garante largura suficiente para todas as colunas (usa scrollWidth do original).
-  const fullWidth = Math.max(element.scrollWidth, element.offsetWidth);
+  const fullWidth = Math.max(element.scrollWidth, element.offsetWidth, 1024);
   const wrapper = document.createElement("div");
   wrapper.style.position = "fixed";
   wrapper.style.top = "0";
   wrapper.style.left = "-99999px";
   wrapper.style.width = `${fullWidth}px`;
-  wrapper.style.background = bg;
-  wrapper.style.padding = "16px";
+  wrapper.style.background = PRINT_THEME.bg;
+  wrapper.style.padding = "24px";
+  wrapper.style.fontFamily = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
   clone.style.width = "100%";
   wrapper.appendChild(clone);
   document.body.appendChild(wrapper);
 
+  // Aplica tema claro DEPOIS de anexar (precisamos de getComputedStyle).
+  applyPrintTheme(wrapper);
+  await waitForRenderReady();
+
   try {
     const dataUrl = await toPng(wrapper, {
       pixelRatio: 2,
-      backgroundColor: bg,
+      backgroundColor: PRINT_THEME.bg,
       cacheBust: true,
       width: wrapper.scrollWidth,
       height: wrapper.scrollHeight,
