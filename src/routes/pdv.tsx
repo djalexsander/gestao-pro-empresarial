@@ -393,7 +393,7 @@ function PDVPage() {
     opts?: { quantidade?: number; precoUnitario?: number; mergeable?: boolean },
   ) {
     const qty = opts?.quantidade ?? 1;
-    const preco = opts?.precoUnitario ?? Number(p.preco_venda) || 0;
+    const preco = opts?.precoUnitario ?? (Number(p.preco_venda) || 0);
     const mergeable = opts?.mergeable ?? true;
     setItems((prev) => {
       if (mergeable) {
