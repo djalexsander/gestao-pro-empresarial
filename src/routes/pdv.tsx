@@ -1412,6 +1412,14 @@ function PDVPage() {
           preco_unitario: it.preco_unitario,
           desconto: it.desconto,
           descricao: it.nome,
+          // Auditoria de balança (apenas quando aplicável)
+          vendido_por_peso: it.vendido_por_peso,
+          preco_por_kg: it.preco_por_kg ?? null,
+          codigo_lido: it.codigo_lido ?? null,
+          plu_extraido: it.plu_extraido ?? null,
+          peso_extraido: it.peso_extraido ?? null,
+          valor_extraido: it.valor_extraido ?? null,
+          tipo_interpretacao: it.tipo_interpretacao ?? null,
         }))}
         subtotal={totals.subtotal}
         desconto={totals.descontoTotal}
