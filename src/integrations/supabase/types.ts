@@ -2065,49 +2065,70 @@ export type Database = {
       }
       venda_itens: {
         Row: {
+          codigo_lido: string | null
           created_at: string
           desconto: number
           descricao: string | null
           id: string
           lote_id: string | null
           owner_id: string
+          peso_extraido: number | null
+          plu_extraido: string | null
+          preco_por_kg: number | null
           preco_unitario: number
           produto_id: string
           quantidade: number
+          tipo_interpretacao: string | null
           total: number
           updated_at: string
+          valor_extraido: number | null
           variacao_id: string | null
           venda_id: string
+          vendido_por_peso: boolean
         }
         Insert: {
+          codigo_lido?: string | null
           created_at?: string
           desconto?: number
           descricao?: string | null
           id?: string
           lote_id?: string | null
           owner_id: string
+          peso_extraido?: number | null
+          plu_extraido?: string | null
+          preco_por_kg?: number | null
           preco_unitario?: number
           produto_id: string
           quantidade: number
+          tipo_interpretacao?: string | null
           total?: number
           updated_at?: string
+          valor_extraido?: number | null
           variacao_id?: string | null
           venda_id: string
+          vendido_por_peso?: boolean
         }
         Update: {
+          codigo_lido?: string | null
           created_at?: string
           desconto?: number
           descricao?: string | null
           id?: string
           lote_id?: string | null
           owner_id?: string
+          peso_extraido?: number | null
+          plu_extraido?: string | null
+          preco_por_kg?: number | null
           preco_unitario?: number
           produto_id?: string
           quantidade?: number
+          tipo_interpretacao?: string | null
           total?: number
           updated_at?: string
+          valor_extraido?: number | null
           variacao_id?: string | null
           venda_id?: string
+          vendido_por_peso?: boolean
         }
         Relationships: [
           {
