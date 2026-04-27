@@ -58,7 +58,12 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDashboard } from "@/hooks/useDashboard";
-import { csvFilename, downloadCSV } from "@/lib/export-csv";
+import { ExportFormatDialog } from "@/components/shared/ExportFormatDialog";
+import {
+  exportarRelatorioCard,
+  type ExportFormato,
+} from "@/lib/export-relatorio-card";
+import type { CsvColumn } from "@/lib/export-csv";
 
 export const Route = createFileRoute("/")({
   head: () => ({
