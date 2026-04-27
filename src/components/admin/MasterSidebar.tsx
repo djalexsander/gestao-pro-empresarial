@@ -1,4 +1,4 @@
-import { Link, useLocation } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
   LayoutDashboard,
   Building2,
@@ -19,6 +19,7 @@ import {
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { useMasterContext } from "./MasterContextProvider";
 
 interface NavItem { to: string; label: string; icon: typeof LayoutDashboard; }
 interface NavGroup { label: string; items: NavItem[]; }
@@ -62,6 +63,8 @@ interface Props {
 
 export function MasterSidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: Props) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { exitMasterMode } = useMasterContext();
   const currentPath = location.pathname;
 
   return (
@@ -156,17 +159,22 @@ export function MasterSidebar({ collapsed, onToggle, mobileOpen, onMobileClose }
 
         {/* Voltar ao app */}
         <div className="border-t border-white/10 p-3">
-          <Link
-            to="/"
+          <button
+            type="button"
+            onClick={() => {
+              exitMasterMode();
+              navigate({ to: "/hub", replace: true });
+              onMobileClose();
+            }}
             className={cn(
-              "flex items-center gap-3 rounded-md px-2.5 py-2 text-sm font-medium text-white/70 transition-colors hover:bg-white/10 hover:text-white",
+              "flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-sm font-medium text-white/70 transition-colors hover:bg-white/10 hover:text-white",
               collapsed && "justify-center"
             )}
             title={collapsed ? "Sair do modo master" : undefined}
           >
             <ArrowLeftRight className="h-[18px] w-[18px] shrink-0" />
             {!collapsed && <span>Sair do modo master</span>}
-          </Link>
+          </button>
         </div>
       </aside>
     </>
