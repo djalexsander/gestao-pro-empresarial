@@ -699,12 +699,15 @@ function PDVPage() {
       },
       {
         key: "Escape",
-        allowInInputs: false,
+        allowInInputs: true,
         handler: () => {
-          // ESC fora de input: 1º cancela multiplicador ativo, depois cancela venda.
+          // ESC: 1º cancela multiplicador ativo (mesmo com foco no input
+          // principal), depois cancela venda em andamento.
           if (multiplicador > 1) {
             setMultiplicador(1);
             toast.info("Multiplicador cancelado.");
+            // Devolve o foco ao campo principal do produto.
+            setTimeout(() => scanInputRef.current?.focus(), 0);
             return;
           }
           if (
