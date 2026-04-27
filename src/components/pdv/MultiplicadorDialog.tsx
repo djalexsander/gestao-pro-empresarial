@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -24,6 +24,10 @@ interface MultiplicadorDialogProps {
  *
  * Aceita formatos: "6", "6x", "x6". Ignora espaços. Apenas inteiros >= 1.
  * Confirma com Enter; Esc fecha.
+ *
+ * Foco: ao abrir, garantimos que o input recebe foco imediatamente
+ * (mesmo após reabertura), via onOpenAutoFocus + ref + microtask, para
+ * que o operador possa começar a digitar sem usar o mouse.
  */
 export function MultiplicadorDialog({
   open,
@@ -32,7 +36,9 @@ export function MultiplicadorDialog({
 }: MultiplicadorDialogProps) {
   const [valor, setValor] = useState("");
   const [erro, setErro] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
+  // Sempre que o modal abrir, limpa o campo e prepara para nova digitação.
   useEffect(() => {
     if (open) {
       setValor("");
@@ -40,10 +46,20 @@ export function MultiplicadorDialog({
     }
   }, [open]);
 
+  // Reforço de foco: alguns navegadores/Radix podem perder o autoFocus em
+  // reaberturas rápidas. Garantimos via rAF logo que o open vira true.
+  useEffect(() => {
+    if (!open) return;
+    const id = requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [open]);
+
   function parseQuantidade(raw: string): number | null {
     const limpo = raw.trim().toLowerCase().replace(/\s+/g, "");
     if (!limpo) return null;
-    // Aceita "6", "6x", "x6"
     const m = limpo.match(/^x?(\d+)x?$/);
     if (!m) return null;
     const n = Number(m[1]);
@@ -55,6 +71,8 @@ export function MultiplicadorDialog({
     const q = parseQuantidade(valor);
     if (q === null) {
       setErro("Quantidade inválida. Use um inteiro >= 1, ex.: 6, 6x ou x6.");
+      inputRef.current?.focus();
+      inputRef.current?.select();
       return;
     }
     onConfirm(q);
@@ -63,14 +81,24 @@ export function MultiplicadorDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
+      <DialogContent
+        className="max-w-sm"
+        onOpenAutoFocus={(e) => {
+          // Bloqueia o foco padrão do Radix (que vai para o primeiro
+          // botão/foco) e move explicitamente para o input de quantidade.
+          e.preventDefault();
+          inputRef.current?.focus();
+          inputRef.current?.select();
+        }}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <XIcon className="h-5 w-5" />
             Multiplicador de quantidade
           </DialogTitle>
           <DialogDescription>
-            Defina a quantidade que será aplicada ao próximo produto bipado.
+            Digite a quantidade e pressione Enter — será aplicada ao próximo
+            produto bipado.
           </DialogDescription>
         </DialogHeader>
 
@@ -79,6 +107,7 @@ export function MultiplicadorDialog({
             <Label htmlFor="mult-qtd">Quantidade</Label>
             <Input
               id="mult-qtd"
+              ref={inputRef}
               autoFocus
               inputMode="numeric"
               value={valor}
@@ -93,7 +122,7 @@ export function MultiplicadorDialog({
                 }
               }}
               placeholder="Ex.: 6, 6x ou x6"
-              className="text-2xl font-mono"
+              className="text-2xl font-mono ring-2 ring-primary/40 focus-visible:ring-primary"
             />
             {erro && <p className="text-xs text-destructive">{erro}</p>}
             <p className="text-xs text-muted-foreground">
