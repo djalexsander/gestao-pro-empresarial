@@ -727,7 +727,8 @@ function PDVPage() {
         !sucessoOpen &&
         !scannerOpen &&
         !quickView &&
-        !consultaPrecoOpen,
+        !consultaPrecoOpen &&
+        !multDialogOpen,
       scope: "page",
     },
   );
