@@ -93,8 +93,8 @@ function formatDateTime(value: string | null) {
 const MOVIMENTO_LABEL = {
   abertura: "Abertura",
   venda: "Venda",
-  sangria: "Sangria",
-  suprimento: "Suprimento",
+  sangria: "Sangria de caixa",
+  suprimento: "Suprimento de caixa",
   fechamento: "Fechamento",
 } as const;
 
