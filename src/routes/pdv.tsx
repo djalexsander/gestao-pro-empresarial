@@ -4,8 +4,6 @@ import {
   ScanLine,
   Search,
   Trash2,
-  Plus,
-  Minus,
   X,
   ShoppingBag,
   User,
