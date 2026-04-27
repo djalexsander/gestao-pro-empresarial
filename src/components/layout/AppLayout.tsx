@@ -49,9 +49,14 @@ export function AppLayout() {
     return <Outlet />;
   }
 
-  // /hub, /pos e /pdv usam layout próprio (sem sidebar/menubar do ERP).
+  // /hub, /pos e /pdv usam layout próprio (sem sidebar/menubar do ERP),
+  // mas continuam sendo rotas de empresa — bloqueadas se modo master ativo.
   if (pathname === "/hub" || pathname === "/pos" || pathname === "/pdv") {
-    return <Outlet />;
+    return (
+      <RequireNotMaster>
+        <Outlet />
+      </RequireNotMaster>
+    );
   }
 
   // /admin também exige unlock prévio (acesso administrativo).
@@ -71,17 +76,19 @@ export function AppLayout() {
 
   return (
     <RequireAuth>
-      <RequireErpUnlock>
-        <RequireAdminLike>
-          {area ? (
-            <RequireTerminalPermissao area={area}>
+      <RequireNotMaster>
+        <RequireErpUnlock>
+          <RequireAdminLike>
+            {area ? (
+              <RequireTerminalPermissao area={area}>
+                <AppShell />
+              </RequireTerminalPermissao>
+            ) : (
               <AppShell />
-            </RequireTerminalPermissao>
-          ) : (
-            <AppShell />
-          )}
-        </RequireAdminLike>
-      </RequireErpUnlock>
+            )}
+          </RequireAdminLike>
+        </RequireErpUnlock>
+      </RequireNotMaster>
     </RequireAuth>
   );
 }
