@@ -83,21 +83,61 @@ export function exportarBlocoPDF<T>(opts: ExportPdfOptions<T>) {
 export async function exportarBlocoPNG(element: HTMLElement, prefix: string) {
   // html-to-image suporta cores modernas (oklch, color-mix etc.) que o html2canvas v1 não renderiza.
   const bg = getComputedStyle(document.body).backgroundColor || "#ffffff";
-  const dataUrl = await toPng(element, {
-    pixelRatio: 2,
-    backgroundColor: bg,
-    cacheBust: true,
-    style: {
-      // Garante que transformações/zoom do dialog não distorçam o PNG.
-      transform: "none",
-    },
+
+  // Clona o elemento para fora do dialog, expandindo qualquer área com scroll
+  // (ScrollArea/overflow) para que a captura inclua todas as colunas e linhas.
+  const clone = element.cloneNode(true) as HTMLElement;
+
+  // Expande Radix ScrollArea: viewport tem overflow oculto e o conteúdo é limitado.
+  clone.querySelectorAll<HTMLElement>("[data-radix-scroll-area-viewport]").forEach((el) => {
+    el.style.overflow = "visible";
+    el.style.maxHeight = "none";
+    el.style.height = "auto";
   });
-  const link = document.createElement("a");
-  link.href = dataUrl;
-  link.download = tsFilename(slug(prefix), "png");
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+  // Remove qualquer max-height/overflow restante em filhos
+  clone.querySelectorAll<HTMLElement>("*").forEach((el) => {
+    const cs = getComputedStyle(el);
+    if (cs.overflow === "auto" || cs.overflow === "scroll" || cs.overflowX === "auto" || cs.overflowY === "auto") {
+      el.style.overflow = "visible";
+    }
+    if (el.style.maxHeight) el.style.maxHeight = "none";
+  });
+  // Esconde as scrollbars decorativas do Radix
+  clone.querySelectorAll<HTMLElement>("[data-radix-scroll-area-scrollbar]").forEach((el) => {
+    el.style.display = "none";
+  });
+
+  // Garante largura suficiente para todas as colunas (usa scrollWidth do original).
+  const fullWidth = Math.max(element.scrollWidth, element.offsetWidth);
+  const wrapper = document.createElement("div");
+  wrapper.style.position = "fixed";
+  wrapper.style.top = "0";
+  wrapper.style.left = "-99999px";
+  wrapper.style.width = `${fullWidth}px`;
+  wrapper.style.background = bg;
+  wrapper.style.padding = "16px";
+  clone.style.width = "100%";
+  wrapper.appendChild(clone);
+  document.body.appendChild(wrapper);
+
+  try {
+    const dataUrl = await toPng(wrapper, {
+      pixelRatio: 2,
+      backgroundColor: bg,
+      cacheBust: true,
+      width: wrapper.scrollWidth,
+      height: wrapper.scrollHeight,
+      style: { transform: "none" },
+    });
+    const link = document.createElement("a");
+    link.href = dataUrl;
+    link.download = tsFilename(slug(prefix), "png");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } finally {
+    document.body.removeChild(wrapper);
+  }
 }
 
 export function exportarBlocoCSV<T>(prefix: string, rows: T[], cols: CsvColumn<T>[]) {
