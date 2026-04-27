@@ -942,8 +942,8 @@ function formatDateTime(iso: string): string {
 const TIPO_LABEL: Record<FluxoTipo, string> = {
   abertura: "Abertura de caixa",
   venda: "Venda",
-  sangria: "Sangria",
-  suprimento: "Suprimento",
+  sangria: "Sangria de caixa",
+  suprimento: "Suprimento de caixa",
   fechamento: "Fechamento de caixa",
   receita: "Receita",
   despesa: "Despesa",
