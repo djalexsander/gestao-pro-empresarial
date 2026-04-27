@@ -393,6 +393,56 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
                 </div>
               )}
             </div>
+
+            <div className="rounded-lg border border-border p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Vendido por peso (balança)</p>
+                  <p className="text-xs text-muted-foreground">
+                    Permite quantidade fracionada e leitura de etiqueta da balança.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={form.vendido_por_peso}
+                  onChange={(e) => setForm({ ...form, vendido_por_peso: e.target.checked })}
+                />
+              </div>
+              {form.vendido_por_peso && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="plu">PLU / Código base</Label>
+                    <Input id="plu" className="font-mono" value={form.plu}
+                      onChange={(e) => setForm({ ...form, plu: e.target.value.replace(/\D/g, "") })}
+                      placeholder="Ex.: 12345" />
+                    <p className="text-xs text-muted-foreground">
+                      Código numérico cadastrado na balança que identifica este produto.
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="cdq">Casas decimais da quantidade</Label>
+                    <Input id="cdq" type="number" min={0} max={4}
+                      value={form.casas_decimais_quantidade}
+                      onChange={(e) => setForm({ ...form, casas_decimais_quantidade: Number(e.target.value) })} />
+                  </div>
+                  <div className="col-span-2 flex items-center justify-between rounded-md border border-border p-3">
+                    <div>
+                      <p className="text-sm font-medium">Aceita etiqueta da balança</p>
+                      <p className="text-xs text-muted-foreground">
+                        Quando ativo, o PDV interpreta etiquetas com este PLU.
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={form.aceita_etiqueta_balanca}
+                      onChange={(e) => setForm({ ...form, aceita_etiqueta_balanca: e.target.checked })}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
           </TabsContent>
 
           {isEdit && produtoId && (
