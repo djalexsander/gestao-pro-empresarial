@@ -188,6 +188,10 @@ export interface VendaDetalhe {
   total: number;
   valor_recebido: number | null;
   troco: number | null;
+  /** Soma dos pagamentos efetivos (lançamentos financeiros) */
+  valor_pago_total: number;
+  /** Saldo restante = total - valor_pago_total */
+  valor_restante: number;
   status: VendaStatus;
   status_pagamento: string;
   forma_pagamento: FormaPagamento | null;
