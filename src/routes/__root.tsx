@@ -4,6 +4,7 @@ import { AuthProvider } from "@/components/auth/AuthProvider";
 import { OperadorProvider } from "@/components/auth/OperadorProvider";
 import { TerminalProvider } from "@/components/auth/TerminalProvider";
 import { ModeProvider } from "@/components/modes/ModeProvider";
+import { MasterContextProvider } from "@/components/admin/MasterContextProvider";
 import { QueryProvider } from "@/components/providers/QueryProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -89,15 +90,17 @@ function RootComponent() {
     <ThemeProvider>
       <QueryProvider>
         <AuthProvider>
-          <ModeProvider>
-            <OperadorProvider>
-              <TerminalProvider>
-                <AppLayout />
-                <UpdateBanner />
-                <Toaster richColors position="top-right" />
-              </TerminalProvider>
-            </OperadorProvider>
-          </ModeProvider>
+          <MasterContextProvider>
+            <ModeProvider>
+              <OperadorProvider>
+                <TerminalProvider>
+                  <AppLayout />
+                  <UpdateBanner />
+                  <Toaster richColors position="top-right" />
+                </TerminalProvider>
+              </OperadorProvider>
+            </ModeProvider>
+          </MasterContextProvider>
         </AuthProvider>
       </QueryProvider>
     </ThemeProvider>
