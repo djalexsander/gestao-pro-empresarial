@@ -141,8 +141,6 @@ export function exportarRelatorioQaPDF(opts: {
 }
 
 export async function exportarRelatorioQaPNG(element: HTMLElement, prefixo: string) {
-  const bg = getComputedStyle(document.body).backgroundColor || "#ffffff";
-
   const clone = element.cloneNode(true) as HTMLElement;
   clone.querySelectorAll<HTMLElement>("[data-radix-scroll-area-viewport]").forEach((el) => {
     el.style.overflow = "visible";
@@ -162,16 +160,20 @@ export async function exportarRelatorioQaPNG(element: HTMLElement, prefixo: stri
   wrapper.style.top = "0";
   wrapper.style.left = "-99999px";
   wrapper.style.width = `${fullWidth}px`;
-  wrapper.style.background = bg;
-  wrapper.style.padding = "16px";
+  wrapper.style.background = PRINT_THEME.bg;
+  wrapper.style.padding = "24px";
+  wrapper.style.fontFamily = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
   clone.style.width = "100%";
   wrapper.appendChild(clone);
   document.body.appendChild(wrapper);
 
+  applyPrintTheme(wrapper);
+  await waitForRenderReady();
+
   try {
     const dataUrl = await toPng(wrapper, {
       pixelRatio: 2,
-      backgroundColor: bg,
+      backgroundColor: PRINT_THEME.bg,
       cacheBust: true,
       width: wrapper.scrollWidth,
       height: wrapper.scrollHeight,
