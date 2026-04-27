@@ -48,6 +48,8 @@ export interface BlocoDetalheProps {
   titulo: string;
   subtitulo?: string;
   origem: string; // ex: "Vendas finalizadas no mês"
+  /** Período legível para constar no cabeçalho de exportação (ex.: "01/04/2026 a 27/04/2026"). */
+  periodo?: string | null;
   resumo: { label: string; valor: string; tone?: "success" | "danger" | "info" | "muted" }[];
   colunas: DetalheColumn[];
   rows: DetalheRow[];
