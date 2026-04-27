@@ -862,7 +862,7 @@ function DetalheCaixaDialog({
             </div>
           ) : movs.length === 0 ? (
             <p className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">
-              Nenhuma sangria ou suprimento registrado.
+              Nenhuma sangria ou suprimento de caixa registrado.
             </p>
           ) : (
             <div className="overflow-hidden rounded-lg border">
