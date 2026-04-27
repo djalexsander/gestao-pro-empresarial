@@ -271,19 +271,26 @@ function FinanceContent() {
     [totalRec, totalPay, saldo, receber, pagar, ind],
   );
 
+  const periodoTexto = ind
+    ? `${formatDate(ind.periodo.inicio)} a ${formatDate(ind.periodo.fim)}`
+    : null;
+
   const handleExportConsolidadoCSV = () =>
-    exportarBlocoCSV("financeiro_consolidado", consolidado, [
-      { header: "Indicador", accessor: (r: ConsolidadoRow) => r.indicador, type: "text" },
-      { header: "Quantidade", accessor: (r: ConsolidadoRow) => r.quantidade, type: "integer" },
-      { header: "Valor (R$)", accessor: (r: ConsolidadoRow) => r.valor, type: "currency" },
-    ]);
+    exportarBlocoCSV(
+      "financeiro_consolidado",
+      consolidado,
+      [
+        { header: "Indicador", accessor: (r: ConsolidadoRow) => r.indicador, type: "text" },
+        { header: "Quantidade", accessor: (r: ConsolidadoRow) => r.quantidade, type: "integer" },
+        { header: "Valor (R$)", accessor: (r: ConsolidadoRow) => r.valor, type: "currency" },
+      ],
+      { relatorio: "Financeiro — Resumo consolidado", periodo: periodoTexto },
+    );
 
   const handleExportConsolidadoPDF = () =>
     exportarBlocoPDF({
       titulo: "Financeiro — Resumo consolidado",
-      subtitulo: ind
-        ? `Período: ${formatDate(ind.periodo.inicio)} a ${formatDate(ind.periodo.fim)}`
-        : "Mês atual",
+      periodo: periodoTexto,
       tabela: {
         header: ["Indicador", "Quantidade", "Valor"],
         rows: consolidado,
