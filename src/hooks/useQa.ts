@@ -192,7 +192,7 @@ export function useFinalizarValidacao() {
           status: "finalizada",
           finalizada_em: new Date().toISOString(),
           observacao_final: input.observacao ?? null,
-          resumo: input.resumo ?? null,
+          resumo: (input.resumo as never) ?? null,
         })
         .eq("id", input.id);
       if (error) throw error;
