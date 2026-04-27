@@ -135,6 +135,10 @@ export type ProdutoInput = {
   estoque_inicial?: number;
   status: "ativo" | "inativo" | "descontinuado";
   ncm?: string | null;
+  vendido_por_peso?: boolean;
+  plu?: string | null;
+  aceita_etiqueta_balanca?: boolean;
+  casas_decimais_quantidade?: number;
 };
 
 function prettifyProdutoError(msg: string): string {

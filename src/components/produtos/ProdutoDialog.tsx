@@ -58,6 +58,10 @@ const produtoSchema = z.object({
   estoque_inicial: z.number().min(0),
   status: z.enum(["ativo", "inativo", "descontinuado"]),
   ncm: z.string().trim().max(10).optional().or(z.literal("")),
+  vendido_por_peso: z.boolean(),
+  plu: z.string().trim().max(20).optional().or(z.literal("")),
+  aceita_etiqueta_balanca: z.boolean(),
+  casas_decimais_quantidade: z.number().int().min(0).max(4),
 });
 
 interface ProdutoDialogProps {
@@ -78,6 +82,10 @@ const EMPTY = {
   estoque_minimo: 0, estoque_inicial: 0,
   status: "ativo" as "ativo" | "inativo" | "descontinuado",
   ncm: "",
+  vendido_por_peso: false,
+  plu: "",
+  aceita_etiqueta_balanca: false,
+  casas_decimais_quantidade: 3,
 };
 
 export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }: ProdutoDialogProps) {
@@ -90,6 +98,8 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
 
   useEffect(() => {
     if (open && produto) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const p = produto as any;
       setForm({
         sku: produto.sku,
         codigo_barras: produto.codigo_barras ?? "",
@@ -108,6 +118,10 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
         estoque_inicial: 0,
         status: produto.status,
         ncm: produto.ncm ?? "",
+        vendido_por_peso: Boolean(p.vendido_por_peso),
+        plu: p.plu ?? "",
+        aceita_etiqueta_balanca: Boolean(p.aceita_etiqueta_balanca),
+        casas_decimais_quantidade: Number(p.casas_decimais_quantidade ?? 3),
       });
     }
     if (open && !produtoId) {
@@ -159,6 +173,10 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
       estoque_inicial: isEdit ? 0 : parsed.data.estoque_inicial,
       status: parsed.data.status,
       ncm: parsed.data.ncm || null,
+      vendido_por_peso: parsed.data.vendido_por_peso,
+      plu: parsed.data.plu || null,
+      aceita_etiqueta_balanca: parsed.data.aceita_etiqueta_balanca,
+      casas_decimais_quantidade: parsed.data.casas_decimais_quantidade,
     };
     try {
       if (isEdit && produtoId) {
@@ -372,6 +390,56 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
                   <p className="text-xs text-muted-foreground">
                     Cria movimentação de entrada automaticamente.
                   </p>
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-border p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Vendido por peso (balança)</p>
+                  <p className="text-xs text-muted-foreground">
+                    Permite quantidade fracionada e leitura de etiqueta da balança.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={form.vendido_por_peso}
+                  onChange={(e) => setForm({ ...form, vendido_por_peso: e.target.checked })}
+                />
+              </div>
+              {form.vendido_por_peso && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="plu">PLU / Código base</Label>
+                    <Input id="plu" className="font-mono" value={form.plu}
+                      onChange={(e) => setForm({ ...form, plu: e.target.value.replace(/\D/g, "") })}
+                      placeholder="Ex.: 12345" />
+                    <p className="text-xs text-muted-foreground">
+                      Código numérico cadastrado na balança que identifica este produto.
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="cdq">Casas decimais da quantidade</Label>
+                    <Input id="cdq" type="number" min={0} max={4}
+                      value={form.casas_decimais_quantidade}
+                      onChange={(e) => setForm({ ...form, casas_decimais_quantidade: Number(e.target.value) })} />
+                  </div>
+                  <div className="col-span-2 flex items-center justify-between rounded-md border border-border p-3">
+                    <div>
+                      <p className="text-sm font-medium">Aceita etiqueta da balança</p>
+                      <p className="text-xs text-muted-foreground">
+                        Quando ativo, o PDV interpreta etiquetas com este PLU.
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={form.aceita_etiqueta_balanca}
+                      onChange={(e) => setForm({ ...form, aceita_etiqueta_balanca: e.target.checked })}
+                    />
+                  </div>
                 </div>
               )}
             </div>
