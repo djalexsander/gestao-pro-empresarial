@@ -4,8 +4,6 @@ import {
   ScanLine,
   Search,
   Trash2,
-  Plus,
-  Minus,
   X,
   ShoppingBag,
   User,
@@ -60,6 +58,7 @@ import { useBalancaConfig } from "@/hooks/useBalancaConfig";
 import { parseEtiquetaBalanca, calcularPesoEValor } from "@/lib/balanca";
 import { PesoDialog } from "@/components/pdv/PesoDialog";
 import { ConsultarPrecoDialog } from "@/components/pdv/ConsultarPrecoDialog";
+import { MultiplicadorDialog } from "@/components/pdv/MultiplicadorDialog";
 import { useScanner } from "@/hooks/useScanner";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { useProdutos } from "@/hooks/useProdutos";
@@ -196,6 +195,9 @@ function PDVPage() {
   const [items, setItems] = useState<VendaItem[]>([]);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [consultaPrecoOpen, setConsultaPrecoOpen] = useState(false);
+  const [multDialogOpen, setMultDialogOpen] = useState(false);
+  /** Multiplicador ativo aplicado à PRÓXIMA bipagem de produto não-pesado. */
+  const [multiplicador, setMultiplicador] = useState<number>(1);
   const [confirmClear, setConfirmClear] = useState<null | "clear" | "cancel">(
     null,
   );
@@ -376,12 +378,13 @@ function PDVPage() {
       !searchPopoverOpen &&
       !confirmClear &&
       !finalizarOpen &&
-      !sucessoOpen
+      !sucessoOpen &&
+      !multDialogOpen
     ) {
       const t = setTimeout(() => scanInputRef.current?.focus(), DEFAULT_FOCUS_DELAY);
       return () => clearTimeout(t);
     }
-  }, [scannerOpen, clientePopoverOpen, searchPopoverOpen, confirmClear, finalizarOpen, sucessoOpen]);
+  }, [scannerOpen, clientePopoverOpen, searchPopoverOpen, confirmClear, finalizarOpen, sucessoOpen, multDialogOpen]);
 
   // ============ Totais ============
   const totals = useMemo(() => {
@@ -421,7 +424,9 @@ function PDVPage() {
   ) {
     const qty = opts?.quantidade ?? 1;
     const preco = opts?.precoUnitario ?? (Number(p.preco_venda) || 0);
-    const mergeable = opts?.mergeable ?? true;
+    // ⚠️ Política do PDV: cada bipagem cria uma linha nova.
+    // Mergeable é opt-in apenas em fluxos específicos (não usado atualmente).
+    const mergeable = opts?.mergeable ?? false;
     setItems((prev) => {
       if (mergeable) {
         const idx = prev.findIndex((it) => it.produto_id === p.produto_id);
@@ -495,14 +500,26 @@ function PDVPage() {
           });
           return;
         }
-        addItemFromProduto({
-          produto_id: found.produto_id,
-          sku: found.sku,
-          nome: found.nome,
-          unidade: found.unidade,
-          preco_venda: found.preco_venda,
-        });
-        toast.success(`+ ${found.nome}`, { duration: 1200 });
+        const qtdAplicada = multiplicador > 1 ? multiplicador : 1;
+        addItemFromProduto(
+          {
+            produto_id: found.produto_id,
+            sku: found.sku,
+            nome: found.nome,
+            unidade: found.unidade,
+            preco_venda: found.preco_venda,
+          },
+          { quantidade: qtdAplicada },
+        );
+        if (qtdAplicada > 1) {
+          toast.success(
+            `+ ${found.nome} × ${qtdAplicada}`,
+            { duration: 1400 },
+          );
+          setMultiplicador(1); // reset após aplicar
+        } else {
+          toast.success(`+ ${found.nome}`, { duration: 1200 });
+        }
         return;
       }
 
@@ -649,6 +666,14 @@ function PDVPage() {
         },
       },
       {
+        key: "F5",
+        allowInInputs: true,
+        handler: () => {
+          flashHotkey("F5");
+          setMultDialogOpen(true);
+        },
+      },
+      {
         key: "F6",
         allowInInputs: true,
         handler: () => {
@@ -676,7 +701,12 @@ function PDVPage() {
         key: "Escape",
         allowInInputs: false,
         handler: () => {
-          // ESC fora de input: cancela venda (com confirmação) se houver itens
+          // ESC fora de input: 1º cancela multiplicador ativo, depois cancela venda.
+          if (multiplicador > 1) {
+            setMultiplicador(1);
+            toast.info("Multiplicador cancelado.");
+            return;
+          }
           if (
             items.length > 0 &&
             !finalizarOpen &&
@@ -698,7 +728,8 @@ function PDVPage() {
         !sucessoOpen &&
         !scannerOpen &&
         !quickView &&
-        !consultaPrecoOpen,
+        !consultaPrecoOpen &&
+        !multDialogOpen,
       scope: "page",
     },
   );
@@ -708,28 +739,8 @@ function PDVPage() {
     handleScanCode(code);
   }
 
-  // ============ Quantidade / desconto / remover ============
-  function updateQty(key: string, qty: number) {
-    setItems((prev) =>
-      prev.map((it) => (it.key === key ? { ...it, quantidade: Math.max(0.001, qty) } : it)),
-    );
-  }
-  function incQty(key: string, delta: number) {
-    setItems((prev) =>
-      prev.map((it) =>
-        it.key === key
-          ? { ...it, quantidade: Math.max(0.001, it.quantidade + delta) }
-          : it,
-      ),
-    );
-  }
-  function updateDesconto(key: string, desc: number) {
-    setItems((prev) =>
-      prev.map((it) =>
-        it.key === key ? { ...it, desconto: Math.max(0, desc) } : it,
-      ),
-    );
-  }
+  // ============ Remover linha ============
+  // Cada bipagem cria uma nova linha; a única ação por linha é excluir.
   function removeItem(key: string) {
     setItems((prev) => prev.filter((it) => it.key !== key));
   }
@@ -870,6 +881,8 @@ function PDVPage() {
                 )}
                 <PdvKbd flash={hotkeyFlash === "F4"}>F4</PdvKbd>
                 <span>cliente</span>
+                <PdvKbd flash={hotkeyFlash === "F5"}>F5</PdvKbd>
+                <span>multiplicador</span>
                 <PdvKbd flash={hotkeyFlash === "F6"}>F6</PdvKbd>
                 <span>preço</span>
                 <PdvKbd flash={hotkeyFlash === "F7"}>F7</PdvKbd>
@@ -1108,6 +1121,30 @@ function PDVPage() {
         <div className="flex min-h-0 flex-col gap-3">
           {/* Campo de leitura grande */}
           <Card className="border-primary/30 bg-gradient-to-br from-primary/10 via-card to-card p-4 shadow-lg">
+            {multiplicador > 1 && (
+              <div className="mb-3 flex items-center justify-between gap-3 rounded-md border border-warning/40 bg-warning/15 px-3 py-2 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-7 min-w-[2.5rem] items-center justify-center rounded bg-warning/30 px-2 font-mono text-base font-bold text-warning-foreground">
+                    {multiplicador}×
+                  </span>
+                  <span className="font-medium">
+                    Multiplicador ativo — bique o produto
+                  </span>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 gap-1 text-xs"
+                  onClick={() => {
+                    setMultiplicador(1);
+                    toast.info("Multiplicador cancelado.");
+                  }}
+                >
+                  <X className="h-3.5 w-3.5" /> Cancelar (Esc)
+                </Button>
+              </div>
+            )}
             <form onSubmit={handleSubmitCode} className="flex items-center gap-2">
               <div className="relative flex-1">
                 <ScanLine
@@ -1252,31 +1289,10 @@ function PDVPage() {
                             </p>
                           )}
                         </div>
-                        <div className="flex items-center justify-center gap-1">
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => incQty(it.key, -1)}
-                          >
-                            <Minus className="h-3 w-3" />
-                          </Button>
-                          <Input
-                            type="number"
-                            value={it.quantidade}
-                            onChange={(e) => updateQty(it.key, Number(e.target.value))}
-                            className="h-7 w-14 px-1 text-center font-mono"
-                            min="0.001"
-                            step="any"
-                          />
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => incQty(it.key, 1)}
-                          >
-                            <Plus className="h-3 w-3" />
-                          </Button>
+                        <div className="text-center font-mono text-sm tabular-nums">
+                          {it.vendido_por_peso
+                            ? `${it.quantidade.toFixed(it.casas_decimais ?? 3)} ${it.unidade || "KG"}`
+                            : `${it.quantidade} ${it.unidade || "un."}`}
                         </div>
                         <div className="text-right tabular-nums">
                           {formatBRL(it.preco_unitario)}
@@ -1312,9 +1328,14 @@ function PDVPage() {
             </div>
             <div className="space-y-4 p-4">
               <div className="space-y-2 text-sm">
-                <Row label="Itens">
-                  <span className="tabular-nums">
-                    {items.length} <span className="text-muted-foreground">({totals.totalItens.toFixed(0)} un.)</span>
+                <Row label="Linhas">
+                  <span className="tabular-nums">{items.length}</span>
+                </Row>
+                <Row label="Unidades">
+                  <span className="tabular-nums text-muted-foreground">
+                    {totals.totalItens.toFixed(
+                      items.some((it) => it.vendido_por_peso) ? 3 : 0,
+                    )}
                   </span>
                 </Row>
                 <Row label="Subtotal">
@@ -1513,6 +1534,19 @@ function PDVPage() {
         onOpenChange={setConsultaPrecoOpen}
         balancaConfig={balancaCfg ?? null}
         onClosed={() => {
+          setTimeout(() => scanInputRef.current?.focus(), DEFAULT_FOCUS_DELAY);
+        }}
+      />
+
+      {/* Multiplicador (F5) — quantidade aplicada na próxima bipagem */}
+      <MultiplicadorDialog
+        open={multDialogOpen}
+        onOpenChange={setMultDialogOpen}
+        onConfirm={(q) => {
+          setMultiplicador(q);
+          toast.success(`Multiplicador ativo: ${q}× — bique o produto.`, {
+            duration: 2000,
+          });
           setTimeout(() => scanInputRef.current?.focus(), DEFAULT_FOCUS_DELAY);
         }}
       />
