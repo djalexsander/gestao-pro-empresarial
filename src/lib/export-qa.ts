@@ -144,54 +144,72 @@ export function exportarRelatorioQaPDF(opts: {
   doc.save(tsFilename(slug(validacao.titulo), "pdf"));
 }
 
-export async function exportarRelatorioQaPNG(element: HTMLElement, prefixo: string) {
-  const clone = element.cloneNode(true) as HTMLElement;
-  clone.querySelectorAll<HTMLElement>("[data-radix-scroll-area-viewport]").forEach((el) => {
-    el.style.overflow = "visible";
-    el.style.maxHeight = "none";
-    el.style.height = "auto";
-  });
-  clone.querySelectorAll<HTMLElement>("*").forEach((el) => {
-    if (el.style.maxHeight) el.style.maxHeight = "none";
-  });
-  clone.querySelectorAll<HTMLElement>("[data-radix-scroll-area-scrollbar]").forEach((el) => {
-    el.style.display = "none";
-  });
+export async function exportarRelatorioQaPNG(opts: {
+  validacao: QaValidacao;
+  modulos: QaModulo[];
+  itens: QaItem[];
+  avaliacoes: QaAvaliacao[];
+  resumo: QaResumoStatus;
+}) {
+  const { validacao, modulos, itens, avaliacoes, resumo } = opts;
+  const empresa = await fetchEmpresaHeader();
+  const exportadoEm = new Date();
+  const mapAv = new Map(avaliacoes.map((a) => [a.item_id, a]));
 
-  const fullWidth = Math.max(element.scrollWidth, element.offsetWidth, 1024);
-  const wrapper = document.createElement("div");
-  wrapper.style.position = "fixed";
-  wrapper.style.top = "0";
-  wrapper.style.left = "-99999px";
-  wrapper.style.width = `${fullWidth}px`;
-  wrapper.style.background = PRINT_THEME.bg;
-  wrapper.style.padding = "24px";
-  wrapper.style.fontFamily = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
-  clone.style.width = "100%";
-  wrapper.appendChild(clone);
-  document.body.appendChild(wrapper);
+  // Cards de resumo
+  const cards: CanvasResumoCard[] = [
+    { label: "Status final", valor: statusLabel(resumo.statusLancamento), tone:
+        resumo.statusLancamento === "pronto" ? "success"
+        : resumo.statusLancamento === "ressalvas" ? "warning"
+        : resumo.statusLancamento === "nao_recomendado" ? "danger" : "muted" },
+    { label: "Conclusão", valor: `${resumo.pctConcluido}%`, tone: "info" },
+    { label: "Total", valor: String(resumo.total) },
+    { label: "OK", valor: String(resumo.ok), tone: "success" },
+    { label: "Críticos", valor: String(resumo.critico), tone: "danger" },
+    { label: "Não testados", valor: String(resumo.naoTestado), tone: "muted" },
+  ];
 
-  applyPrintTheme(wrapper);
-  await waitForRenderReady();
-
-  try {
-    const dataUrl = await toPng(wrapper, {
-      pixelRatio: 2,
-      backgroundColor: PRINT_THEME.bg,
-      cacheBust: true,
-      width: wrapper.scrollWidth,
-      height: wrapper.scrollHeight,
-      style: { transform: "none" },
-    });
-    const a = document.createElement("a");
-    a.href = dataUrl;
-    a.download = tsFilename(slug(prefixo), "png");
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  } finally {
-    document.body.removeChild(wrapper);
+  // Tabela única com todos os itens, agrupados por módulo (prefixo na coluna)
+  const rows: string[][] = [];
+  for (const mod of modulos) {
+    const itensMod = itens.filter((i) => i.modulo_id === mod.id);
+    if (itensMod.length === 0) continue;
+    for (const it of itensMod) {
+      const av = mapAv.get(it.id);
+      rows.push([
+        mod.nome,
+        it.titulo,
+        it.critico ? "Sim" : "—",
+        STATUS_PT[av?.status ?? "nao_testado"] ?? "—",
+        av?.observacao ?? "",
+      ]);
+    }
   }
+
+  const canvas = await renderReportCanvas({
+    empresa,
+    titulo: "Relatório de QA — Validação de Lançamento",
+    subtitulo: validacao.titulo,
+    origem: validacao.responsavel_nome
+      ? `Responsável: ${validacao.responsavel_nome}`
+      : null,
+    periodo: `Iniciada em ${new Date(validacao.iniciada_em).toLocaleString("pt-BR")}`,
+    exportadoEm,
+    resumo: cards,
+    tabela: {
+      columns: [
+        { header: "Módulo", weight: 1.2 },
+        { header: "Item", weight: 2.4 },
+        { header: "Crítico", align: "center", weight: 0.5 },
+        { header: "Status", weight: 1 },
+        { header: "Observação", weight: 2 },
+      ],
+      rows,
+      emptyMessage: "Nenhum item avaliado.",
+    },
+  });
+
+  downloadCanvasAsPng(canvas, tsFilename(slug(validacao.titulo), "png"));
 }
 
 function slug(s: string): string {
