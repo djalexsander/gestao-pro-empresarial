@@ -3,6 +3,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { toPng } from "html-to-image";
 import { exportRowsToCSV, type CsvColumn } from "@/lib/export-csv";
+import { applyPrintTheme, PRINT_THEME, waitForRenderReady } from "@/lib/export-png-theme";
 
 function tsFilename(prefix: string, ext: string): string {
   const d = new Date();
