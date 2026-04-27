@@ -16,6 +16,7 @@ import { Link } from "@tanstack/react-router";
 import { ShieldCheck } from "lucide-react";
 import { AssinaturaBanner } from "./AssinaturaBanner";
 import { useMode } from "@/components/modes/ModeProvider";
+import { useMasterContext } from "@/components/admin/MasterContextProvider";
 import { useAuth } from "@/components/auth/AuthProvider";
 
 // Rotas que usam layout próprio (sem o shell do ERP)
