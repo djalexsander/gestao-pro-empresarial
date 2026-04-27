@@ -1314,13 +1314,21 @@ function PDVPage() {
                             key={p.id}
                             value={p.id}
                             onSelect={() => {
-                              addItemFromProduto({
-                                produto_id: p.id,
-                                sku: p.sku,
-                                nome: p.nome,
-                                unidade: p.unidade,
-                                preco_venda: Number(p.preco_venda) || 0,
-                              });
+                              const qtdAplicada = multiplicador > 1 ? multiplicador : 1;
+                              addItemFromProduto(
+                                {
+                                  produto_id: p.id,
+                                  sku: p.sku,
+                                  nome: p.nome,
+                                  unidade: p.unidade,
+                                  preco_venda: Number(p.preco_venda) || 0,
+                                },
+                                { quantidade: qtdAplicada },
+                              );
+                              if (qtdAplicada > 1) {
+                                toast.success(`+ ${p.nome} × ${qtdAplicada}`, { duration: 1400 });
+                                setMultiplicador(1);
+                              }
                               setSearchPopoverOpen(false);
                               setManualQuery("");
                             }}
