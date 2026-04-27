@@ -103,87 +103,47 @@ export async function exportarBlocoPDF<T>(opts: ExportPdfOptions<T>) {
   return doc.internal.pageSize.getWidth();
 }
 
+export interface ExportPngColumn extends CanvasColumn {}
+
 export interface ExportPngOptions {
-  titulo?: string;
+  titulo: string;
+  subtitulo?: string | null;
+  origem?: string | null;
   periodo?: string | null;
+  resumo?: CanvasResumoCard[];
+  alerta?: { titulo: string; descricao?: string } | null;
+  tabela?: {
+    columns: ExportPngColumn[];
+    rows: string[][];
+    emptyMessage?: string;
+  } | null;
+  rodape?: string[];
 }
 
 /**
- * Exporta o conteúdo do elemento como PNG, com cabeçalho da empresa no topo
- * (logo, nome, CNPJ, período, data/hora). Usa tema claro forçado no clone
- * para garantir legibilidade independente do tema do sistema.
+ * Exporta o bloco como PNG desenhando diretamente em Canvas 2D nativo.
+ *
+ * NÃO captura o DOM (sem html2canvas / html-to-image): tema dark com gradient,
+ * cabeçalho institucional (logo + nome + CNPJ + período + data), cards de
+ * resumo e tabela com zebra são desenhados manualmente. Layout consistente
+ * independente do tema do sistema, blur, oklch ou backdrop-filter.
  */
-export async function exportarBlocoPNG(
-  element: HTMLElement,
-  prefix: string,
-  opts: ExportPngOptions = {},
-) {
+export async function exportarBlocoPNG(prefix: string, opts: ExportPngOptions) {
   const empresa = await fetchEmpresaHeader();
   const exportadoEm = new Date();
-
-  // Clone do conteúdo (mantém o DOM visível intacto)
-  const clone = element.cloneNode(true) as HTMLElement;
-
-  clone.querySelectorAll<HTMLElement>("[data-radix-scroll-area-viewport]").forEach((el) => {
-    el.style.overflow = "visible";
-    el.style.maxHeight = "none";
-    el.style.height = "auto";
-  });
-  clone.querySelectorAll<HTMLElement>("*").forEach((el) => {
-    const cs = getComputedStyle(el);
-    if (cs.overflow === "auto" || cs.overflow === "scroll" || cs.overflowX === "auto" || cs.overflowY === "auto") {
-      el.style.overflow = "visible";
-    }
-    if (el.style.maxHeight) el.style.maxHeight = "none";
-  });
-  clone.querySelectorAll<HTMLElement>("[data-radix-scroll-area-scrollbar]").forEach((el) => {
-    el.style.display = "none";
-  });
-
-  const fullWidth = Math.max(element.scrollWidth, element.offsetWidth, 1024);
-  const wrapper = document.createElement("div");
-  wrapper.style.position = "fixed";
-  wrapper.style.top = "0";
-  wrapper.style.left = "-99999px";
-  wrapper.style.width = `${fullWidth}px`;
-  wrapper.style.background = PRINT_THEME.bg;
-  wrapper.style.padding = "24px";
-  wrapper.style.fontFamily = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
-
-  // Cabeçalho institucional ANTES do conteúdo
-  const header = criarCabecalhoPNGElement({
+  const canvas = await renderReportCanvas({
     empresa,
-    titulo: opts.titulo ?? prefix,
+    titulo: opts.titulo,
+    subtitulo: opts.subtitulo ?? null,
+    origem: opts.origem ?? null,
     periodo: opts.periodo ?? null,
     exportadoEm,
+    resumo: opts.resumo,
+    alerta: opts.alerta ?? null,
+    tabela: opts.tabela ?? null,
+    rodape: opts.rodape,
   });
-  wrapper.appendChild(header);
-
-  clone.style.width = "100%";
-  wrapper.appendChild(clone);
-  document.body.appendChild(wrapper);
-
-  applyPrintTheme(wrapper);
-  await waitForRenderReady();
-
-  try {
-    const dataUrl = await toPng(wrapper, {
-      pixelRatio: 2,
-      backgroundColor: PRINT_THEME.bg,
-      cacheBust: true,
-      width: wrapper.scrollWidth,
-      height: wrapper.scrollHeight,
-      style: { transform: "none" },
-    });
-    const link = document.createElement("a");
-    link.href = dataUrl;
-    link.download = tsFilename(slug(prefix), "png");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  } finally {
-    document.body.removeChild(wrapper);
-  }
+  downloadCanvasAsPng(canvas, tsFilename(slug(prefix), "png"));
 }
 
 export interface ExportCsvOptions {
