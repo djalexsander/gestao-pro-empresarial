@@ -669,7 +669,7 @@ function PDVPage() {
     } finally {
       setBusy(false);
       setCode("");
-      setTimeout(() => scanInputRef.current?.focus(), DEFAULT_FOCUS_DELAY);
+      focusScanInput(DEFAULT_FOCUS_DELAY);
     }
   }
 
@@ -751,9 +751,7 @@ function PDVPage() {
           // Tira o foco do input principal AGORA — antes do modal montar —
           // para evitar que o operador continue digitando no código de
           // barras enquanto o multiplicador abre.
-          if (document.activeElement instanceof HTMLElement) {
-            document.activeElement.blur();
-          }
+          blockScanFocus();
           setMultDialogOpen(true);
         },
       },
@@ -772,10 +770,9 @@ function PDVPage() {
           flashHotkey("F9");
           // Mesma lógica do F5: blur imediato para liberar o teclado
           // antes que o Popover de busca manual termine de montar.
-          if (document.activeElement instanceof HTMLElement) {
-            document.activeElement.blur();
-          }
+          blockScanFocus();
           setSearchPopoverOpen(true);
+          requestAnimationFrame(focusManualSearchInput);
         },
       },
       {
@@ -796,7 +793,8 @@ function PDVPage() {
             setMultiplicador(1);
             toast.info("Multiplicador cancelado.");
             // Devolve o foco ao campo principal do produto.
-            setTimeout(() => scanInputRef.current?.focus(), 0);
+            scanFocusBlockedRef.current = false;
+            focusScanInput(0);
             return;
           }
           if (
