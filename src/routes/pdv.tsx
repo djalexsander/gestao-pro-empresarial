@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ScanLine,
   Search,
@@ -364,6 +364,8 @@ function PDVPage() {
 
   const scanInputRef = useRef<HTMLInputElement>(null);
   const manualSearchInputRef = useRef<HTMLInputElement>(null);
+  const scanFocusBlockedRef = useRef(false);
+  const hasPriorityOverlayRef = useRef(false);
 
   // Hierarquia de foco no PDV:
   //   modal aberto > busca manual > popovers > input de código de barras.
@@ -380,6 +382,42 @@ function PDVPage() {
     consultaPrecoOpen ||
     quickView !== null;
 
+  hasPriorityOverlayRef.current = hasPriorityOverlay;
+  if (!hasPriorityOverlay) {
+    scanFocusBlockedRef.current = false;
+  }
+
+  const focusScanInput = useCallback((delay = DEFAULT_FOCUS_DELAY) => {
+    const run = () => {
+      if (scanFocusBlockedRef.current || hasPriorityOverlayRef.current) return;
+      scanInputRef.current?.focus();
+    };
+
+    if (delay <= 0) {
+      queueMicrotask(run);
+      return undefined;
+    }
+
+    return window.setTimeout(run, delay);
+  }, []);
+
+  const blockScanFocus = useCallback(() => {
+    scanFocusBlockedRef.current = true;
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  }, []);
+
+  const focusManualSearchInput = useCallback(() => {
+    const input =
+      manualSearchInputRef.current ??
+      document.querySelector<HTMLInputElement>("[data-pdv-manual-search-input='true']");
+
+    if (!input) return;
+    input.focus({ preventScroll: true });
+    input.select?.();
+  }, []);
+
   // Quando a busca manual abrir (clique ou F9), garante foco no campo de
   // pesquisa imediatamente, sem precisar do mouse. Usa retries (rAF + 2
   // setTimeouts) porque o Popover do Radix monta o conteúdo de forma
@@ -389,17 +427,11 @@ function PDVPage() {
     let cancelled = false;
     const tryFocus = () => {
       if (cancelled) return;
-      const el = manualSearchInputRef.current;
-      if (el && document.activeElement !== el) {
-        el.focus();
-        el.select?.();
-      }
+      focusManualSearchInput();
     };
     // Tira o foco do input principal imediatamente para evitar que ele
     // continue capturando teclas enquanto o popover monta.
-    if (document.activeElement === scanInputRef.current) {
-      scanInputRef.current?.blur();
-    }
+    blockScanFocus();
     const raf = requestAnimationFrame(tryFocus);
     const t1 = setTimeout(tryFocus, 30);
     const t2 = setTimeout(tryFocus, 120);
@@ -409,30 +441,28 @@ function PDVPage() {
       clearTimeout(t1);
       clearTimeout(t2);
     };
-  }, [searchPopoverOpen]);
+  }, [blockScanFocus, focusManualSearchInput, searchPopoverOpen]);
 
   // Quando o multiplicador abrir (F5), também tira o foco do input principal
   // de imediato — o Dialog tem onOpenAutoFocus, mas blur-amos para garantir
   // que o teclado não continue digitando no código de barras.
   useEffect(() => {
     if (!multDialogOpen) return;
-    if (document.activeElement === scanInputRef.current) {
-      scanInputRef.current?.blur();
-    }
-  }, [multDialogOpen]);
-
-  // Foco automático no campo de leitura
-  useEffect(() => {
-    const t = setTimeout(() => scanInputRef.current?.focus(), DEFAULT_FOCUS_DELAY);
-    return () => clearTimeout(t);
-  }, []);
+    blockScanFocus();
+  }, [blockScanFocus, multDialogOpen]);
 
   // Restaura foco somente quando NENHUM fluxo prioritário está ativo.
   useEffect(() => {
-    if (hasPriorityOverlay) return;
-    const t = setTimeout(() => scanInputRef.current?.focus(), DEFAULT_FOCUS_DELAY);
-    return () => clearTimeout(t);
-  }, [hasPriorityOverlay]);
+    if (hasPriorityOverlay) {
+      scanFocusBlockedRef.current = true;
+      return;
+    }
+    scanFocusBlockedRef.current = false;
+    const t = focusScanInput(DEFAULT_FOCUS_DELAY);
+    return () => {
+      if (t) clearTimeout(t);
+    };
+  }, [focusScanInput, hasPriorityOverlay]);
 
   // ============ Totais ============
   const totals = useMemo(() => {
@@ -639,7 +669,7 @@ function PDVPage() {
     } finally {
       setBusy(false);
       setCode("");
-      setTimeout(() => scanInputRef.current?.focus(), DEFAULT_FOCUS_DELAY);
+      focusScanInput(DEFAULT_FOCUS_DELAY);
     }
   }
 
@@ -721,9 +751,7 @@ function PDVPage() {
           // Tira o foco do input principal AGORA — antes do modal montar —
           // para evitar que o operador continue digitando no código de
           // barras enquanto o multiplicador abre.
-          if (document.activeElement instanceof HTMLElement) {
-            document.activeElement.blur();
-          }
+          blockScanFocus();
           setMultDialogOpen(true);
         },
       },
@@ -742,10 +770,9 @@ function PDVPage() {
           flashHotkey("F9");
           // Mesma lógica do F5: blur imediato para liberar o teclado
           // antes que o Popover de busca manual termine de montar.
-          if (document.activeElement instanceof HTMLElement) {
-            document.activeElement.blur();
-          }
+          blockScanFocus();
           setSearchPopoverOpen(true);
+          requestAnimationFrame(focusManualSearchInput);
         },
       },
       {
@@ -766,7 +793,8 @@ function PDVPage() {
             setMultiplicador(1);
             toast.info("Multiplicador cancelado.");
             // Devolve o foco ao campo principal do produto.
-            setTimeout(() => scanInputRef.current?.focus(), 0);
+            scanFocusBlockedRef.current = false;
+            focusScanInput(0);
             return;
           }
           if (
@@ -811,7 +839,7 @@ function PDVPage() {
     setItems([]);
     setObservacao("");
     setLastAddedKey(null);
-    setTimeout(() => scanInputRef.current?.focus(), DEFAULT_FOCUS_DELAY);
+    focusScanInput(DEFAULT_FOCUS_DELAY);
   }
 
   function cancelVenda() {
@@ -1245,7 +1273,13 @@ function PDVPage() {
 
             {/* Busca manual inline */}
             <div className="mt-3 flex items-center gap-2">
-              <Popover open={searchPopoverOpen} onOpenChange={setSearchPopoverOpen}>
+              <Popover
+                open={searchPopoverOpen}
+                onOpenChange={(open) => {
+                  if (open) blockScanFocus();
+                  setSearchPopoverOpen(open);
+                }}
+              >
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
@@ -1264,6 +1298,7 @@ function PDVPage() {
                   <Command shouldFilter={false}>
                     <CommandInput
                       ref={manualSearchInputRef}
+                      data-pdv-manual-search-input="true"
                       value={manualQuery}
                       onValueChange={setManualQuery}
                       placeholder="Nome, SKU, código de barras…"
@@ -1607,7 +1642,7 @@ function PDVPage() {
         onOpenChange={setConsultaPrecoOpen}
         balancaConfig={balancaCfg ?? null}
         onClosed={() => {
-          setTimeout(() => scanInputRef.current?.focus(), DEFAULT_FOCUS_DELAY);
+          focusScanInput(DEFAULT_FOCUS_DELAY);
         }}
       />
 
@@ -1620,7 +1655,8 @@ function PDVPage() {
           toast.success(`Multiplicador ativo: ${q}× — bique o produto.`, {
             duration: 2000,
           });
-          setTimeout(() => scanInputRef.current?.focus(), DEFAULT_FOCUS_DELAY);
+          scanFocusBlockedRef.current = false;
+          focusScanInput(DEFAULT_FOCUS_DELAY);
         }}
       />
 
