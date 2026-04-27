@@ -502,6 +502,14 @@ function FinanceContent() {
         saldo={saldo}
         ind={ind}
       />
+
+      <ExportFormatDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        titulo="Financeiro — Resumo consolidado"
+        loading={exporting}
+        onChoose={(f) => handleExportConsolidado(f)}
+      />
     </div>
   );
 }
