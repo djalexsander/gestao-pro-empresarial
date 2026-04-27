@@ -17,6 +17,8 @@ import {
   ArrowLeft,
   Boxes,
   ShoppingCart,
+  ArrowDownToLine,
+  ArrowUpFromLine,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -91,6 +93,7 @@ import {
 import { useUserRole } from "@/hooks/useUserRole";
 import { useCaixaAberto, useCaixaResumo } from "@/hooks/useCaixa";
 import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
+import { MovimentoCaixaDialog } from "@/components/caixa/MovimentoCaixaDialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatBRL } from "@/lib/mock-data";
@@ -153,6 +156,7 @@ function PDVPage() {
   // exitAfterClose = quando o caixa for fechado com sucesso, encerra a sessão
   // do operador e volta para /pos. Usado nos botões Voltar e Encerrar.
   const [fecharCaixaOpen, setFecharCaixaOpen] = useState(false);
+  const [movCaixaDialog, setMovCaixaDialog] = useState<null | "sangria" | "suprimento">(null);
   const exitAfterCloseRef = useRef(false);
 
   // Quando o caixa some (foi fechado), saímos do PDV de volta para /pos
@@ -1026,6 +1030,30 @@ function PDVPage() {
               </Button>
             </div>
           )}
+          <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/30 px-1.5 py-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 gap-1.5 px-2.5 text-success hover:text-success"
+              onClick={() => setMovCaixaDialog("suprimento")}
+              disabled={!caixaAberto}
+              title="Suprimento — adicionar dinheiro físico ao caixa (não é venda)"
+            >
+              <ArrowDownToLine className="h-4 w-4" />
+              Suprimento
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 gap-1.5 px-2.5 text-destructive hover:text-destructive"
+              onClick={() => setMovCaixaDialog("sangria")}
+              disabled={!caixaAberto}
+              title="Sangria — retirar dinheiro físico do caixa (não é despesa)"
+            >
+              <ArrowUpFromLine className="h-4 w-4" />
+              Sangria
+            </Button>
+          </div>
           <Popover open={clientePopoverOpen} onOpenChange={setClientePopoverOpen}>
             <PopoverTrigger asChild>
               <Button variant="outline" size="sm" className="gap-1.5" title="Buscar/selecionar cliente (F4)">
@@ -1718,6 +1746,18 @@ function PDVPage() {
           }}
           caixaId={caixaAberto.id}
           resumo={resumoCaixa ?? null}
+        />
+      )}
+
+      {/* Suprimento / Sangria — operações de dinheiro físico do caixa */}
+      {caixaAberto && movCaixaDialog && (
+        <MovimentoCaixaDialog
+          open={movCaixaDialog !== null}
+          onOpenChange={(open) => {
+            if (!open) setMovCaixaDialog(null);
+          }}
+          caixaId={caixaAberto.id}
+          tipo={movCaixaDialog}
         />
       )}
 
