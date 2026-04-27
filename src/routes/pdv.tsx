@@ -404,7 +404,20 @@ function PDVPage() {
       unidade: string;
       preco_venda: number;
     },
-    opts?: { quantidade?: number; precoUnitario?: number; mergeable?: boolean },
+    opts?: {
+      quantidade?: number;
+      precoUnitario?: number;
+      mergeable?: boolean;
+      // Metadados de peso/auditoria de balança (opcionais).
+      vendido_por_peso?: boolean;
+      preco_por_kg?: number;
+      casas_decimais?: number;
+      codigo_lido?: string;
+      plu_extraido?: string;
+      peso_extraido?: number;
+      valor_extraido?: number;
+      tipo_interpretacao?: "peso" | "valor" | "manual";
+    },
   ) {
     const qty = opts?.quantidade ?? 1;
     const preco = opts?.precoUnitario ?? (Number(p.preco_venda) || 0);
@@ -428,6 +441,14 @@ function PDVPage() {
         preco_unitario: preco,
         quantidade: qty,
         desconto: 0,
+        vendido_por_peso: opts?.vendido_por_peso,
+        preco_por_kg: opts?.preco_por_kg,
+        casas_decimais: opts?.casas_decimais,
+        codigo_lido: opts?.codigo_lido,
+        plu_extraido: opts?.plu_extraido,
+        peso_extraido: opts?.peso_extraido,
+        valor_extraido: opts?.valor_extraido,
+        tipo_interpretacao: opts?.tipo_interpretacao,
       };
       setLastAddedKey(novo.key);
       return [novo, ...prev];
@@ -526,6 +547,15 @@ function PDVPage() {
               quantidade: calc.quantidade,
               precoUnitario: prod.preco_venda,
               mergeable: false,
+              vendido_por_peso: true,
+              preco_por_kg: prod.preco_venda,
+              casas_decimais: 3,
+              codigo_lido: v,
+              plu_extraido: parsed.plu,
+              peso_extraido: calc.quantidade,
+              valor_extraido:
+                parsed.tipo === "valor" ? calc.valor_total : undefined,
+              tipo_interpretacao: parsed.tipo === "valor" ? "valor" : "peso",
             },
           );
           toast.success(
@@ -1486,7 +1516,16 @@ function PDVPage() {
               unidade: "KG",
               preco_venda: pesoDialog.preco_venda,
             },
-            { quantidade: pesoKg, precoUnitario: pesoDialog.preco_venda, mergeable: false },
+            {
+              quantidade: pesoKg,
+              precoUnitario: pesoDialog.preco_venda,
+              mergeable: false,
+              vendido_por_peso: true,
+              preco_por_kg: pesoDialog.preco_venda,
+              casas_decimais: pesoDialog.casas_decimais,
+              peso_extraido: pesoKg,
+              tipo_interpretacao: "manual",
+            },
           );
           toast.success(
             `+ ${pesoDialog.nome} • ${pesoKg.toFixed(3)} KG = R$ ${(pesoKg * pesoDialog.preco_venda).toFixed(2)}`,
