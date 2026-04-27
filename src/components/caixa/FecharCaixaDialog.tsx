@@ -108,8 +108,8 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
             <div className="space-y-1.5">
               <Row label="Valor inicial (fundo de troco)" value={formatBRL(resumo?.valor_inicial ?? 0)} tone="muted" />
               <Row label={`Vendas (${resumo?.qtd_vendas ?? 0})`} value={formatBRL(resumo?.total_vendas ?? 0)} />
-              <Row label="Suprimentos (dinheiro adicionado)" value={`+ ${formatBRL(resumo?.total_suprimentos ?? 0)}`} tone="success" />
-              <Row label="Sangrias (dinheiro retirado)" value={`- ${formatBRL(resumo?.total_sangrias ?? 0)}`} tone="danger" />
+              <Row label="Suprimento de caixa (entrou)" value={`+ ${formatBRL(resumo?.total_suprimentos ?? 0)}`} tone="success" />
+              <Row label="Sangria de caixa (saiu)" value={`- ${formatBRL(resumo?.total_sangrias ?? 0)}`} tone="danger" />
             </div>
 
             <div className="my-3 h-px bg-border" />
