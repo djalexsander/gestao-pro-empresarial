@@ -363,6 +363,18 @@ function PDVPage() {
   const som = useSomPDV();
 
   const scanInputRef = useRef<HTMLInputElement>(null);
+  const manualSearchInputRef = useRef<HTMLInputElement>(null);
+
+  // Quando a busca manual abrir (clique ou F9), garante foco no campo de
+  // pesquisa imediatamente, sem precisar do mouse.
+  useEffect(() => {
+    if (!searchPopoverOpen) return;
+    const id = requestAnimationFrame(() => {
+      manualSearchInputRef.current?.focus();
+      manualSearchInputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [searchPopoverOpen]);
 
   // Foco automático no campo de leitura
   useEffect(() => {
