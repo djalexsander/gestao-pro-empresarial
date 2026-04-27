@@ -64,6 +64,7 @@ import {
   type ExportFormato,
 } from "@/lib/export-relatorio-card";
 import type { CsvColumn } from "@/lib/export-csv";
+import { KpiDetailDialog, type KpiTipo } from "@/components/dashboard/KpiDetailDialog";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -154,6 +155,13 @@ function DashboardPage() {
   const defaultRange = useMemo(() => getRangeFromPeriodo("mes"), []);
   const [inicio, setInicio] = useState(formatDateInput(defaultRange.inicio));
   const [fim, setFim] = useState(formatDateInput(defaultRange.fim));
+  const [kpiTipo, setKpiTipo] = useState<KpiTipo | null>(null);
+  const [kpiOpen, setKpiOpen] = useState(false);
+
+  function abrirKpi(tipo: KpiTipo) {
+    setKpiTipo(tipo);
+    setKpiOpen(true);
+  }
 
   function aplicarPeriodo(value: DashboardPeriodo) {
     const range = getRangeFromPeriodo(value);
@@ -346,6 +354,7 @@ function DashboardPage() {
           hint="vs. mês anterior"
           icon={TrendingUp}
           iconTone="primary"
+          onClick={() => abrirKpi("vendas")}
         />
         <StatCard
           label="Compras do mês"
@@ -355,6 +364,7 @@ function DashboardPage() {
           hint="vs. mês anterior"
           icon={ShoppingCart}
           iconTone="info"
+          onClick={() => abrirKpi("compras")}
         />
         <StatCard
           label="Lucro do mês"
@@ -362,6 +372,7 @@ function DashboardPage() {
           hint={`margem ${data.margem.toFixed(1)}%`}
           icon={Wallet}
           iconTone={data.lucroMes >= 0 ? "success" : "danger"}
+          onClick={() => abrirKpi("lucro")}
         />
         <StatCard
           label="Contas a pagar"
@@ -369,6 +380,7 @@ function DashboardPage() {
           hint={`${data.qtdContasPagar} ${data.qtdContasPagar === 1 ? "título aberto" : "títulos abertos"}`}
           icon={ArrowUpFromLine}
           iconTone="warning"
+          onClick={() => abrirKpi("contas-pagar")}
         />
         <StatCard
           label="Contas a receber"
@@ -376,6 +388,7 @@ function DashboardPage() {
           hint={`${data.qtdContasReceber} ${data.qtdContasReceber === 1 ? "título aberto" : "títulos abertos"}`}
           icon={ArrowDownToLine}
           iconTone="success"
+          onClick={() => abrirKpi("contas-receber")}
         />
         <StatCard
           label="Estoque baixo"
@@ -383,6 +396,7 @@ function DashboardPage() {
           hint={data.estoqueBaixo === 1 ? "produto crítico" : "produtos críticos"}
           icon={AlertTriangle}
           iconTone="danger"
+          onClick={() => abrirKpi("estoque-baixo")}
         />
       </div>
 
@@ -648,6 +662,17 @@ function DashboardPage() {
         titulo="Dashboard — Resumo geral"
         loading={exporting}
         onChoose={(f) => exportarDashboard(f)}
+      />
+
+      <KpiDetailDialog
+        open={kpiOpen}
+        onOpenChange={setKpiOpen}
+        tipo={kpiTipo}
+        periodo={{
+          inicio,
+          fim,
+          label: `${formatPeriodoBR(inicio)} a ${formatPeriodoBR(fim)}`,
+        }}
       />
     </div>
   );
