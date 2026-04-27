@@ -1037,10 +1037,10 @@ function PDVPage() {
               className="h-8 gap-1.5 px-2.5 text-success hover:text-success"
               onClick={() => setMovCaixaDialog("suprimento")}
               disabled={!caixaAberto}
-              title="Suprimento — adicionar dinheiro físico ao caixa (não é venda)"
+              title="Suprimento de caixa — entrada de dinheiro físico na gaveta (não é venda nem receita)"
             >
               <ArrowDownToLine className="h-4 w-4" />
-              Suprimento
+              Suprimento de caixa
             </Button>
             <Button
               size="sm"
@@ -1048,10 +1048,10 @@ function PDVPage() {
               className="h-8 gap-1.5 px-2.5 text-destructive hover:text-destructive"
               onClick={() => setMovCaixaDialog("sangria")}
               disabled={!caixaAberto}
-              title="Sangria — retirar dinheiro físico do caixa (não é despesa)"
+              title="Sangria de caixa — retirada de dinheiro físico da gaveta (não é despesa nem prejuízo)"
             >
               <ArrowUpFromLine className="h-4 w-4" />
-              Sangria
+              Sangria de caixa
             </Button>
           </div>
           <Popover open={clientePopoverOpen} onOpenChange={setClientePopoverOpen}>

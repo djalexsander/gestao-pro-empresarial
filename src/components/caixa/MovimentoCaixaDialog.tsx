@@ -24,24 +24,24 @@ interface Props {
 
 const META = {
   sangria: {
-    title: "Sangria — retirar dinheiro do caixa",
+    title: "Sangria de caixa",
     description:
-      "Retirada física de dinheiro da gaveta (ex.: envio ao cofre, troca de notas). Movimento operacional — não é despesa nem prejuízo.",
+      "Retirada de dinheiro físico da gaveta (ex.: envio ao cofre, troca de notas). Não é despesa nem prejuízo.",
     icon: ArrowUpFromLine,
     tone: "text-destructive bg-destructive/10",
     button: "Confirmar sangria",
     placeholder: "Ex.: envio ao cofre, troca de notas grandes",
-    hint: "A sangria reduz o dinheiro físico esperado na gaveta no fechamento.",
+    hint: "Reduz o dinheiro físico esperado na gaveta no fechamento.",
   },
   suprimento: {
-    title: "Suprimento — adicionar dinheiro ao caixa",
+    title: "Suprimento de caixa",
     description:
-      "Entrada física de dinheiro na gaveta (ex.: reforço de troco). Movimento operacional — não é venda nem receita.",
+      "Entrada de dinheiro físico na gaveta (ex.: reforço de troco). Não é venda nem receita.",
     icon: ArrowDownToLine,
     tone: "text-success bg-success/15",
     button: "Confirmar suprimento",
     placeholder: "Ex.: reforço de troco em notas pequenas",
-    hint: "O suprimento aumenta o dinheiro físico esperado na gaveta no fechamento.",
+    hint: "Aumenta o dinheiro físico esperado na gaveta no fechamento.",
   },
 } as const;
 

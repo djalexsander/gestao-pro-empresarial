@@ -355,8 +355,8 @@ function Conteudo() {
         { header: "Fechamento", accessor: (r) => r.data_fechamento ?? "", type: "datetime" },
         { header: "Valor inicial", accessor: (r) => r.valor_inicial, type: "currency" },
         { header: "Total vendas", accessor: (r) => r.total_vendas, type: "currency" },
-        { header: "Sangrias", accessor: (r) => r.total_sangrias, type: "currency" },
-        { header: "Suprimentos", accessor: (r) => r.total_suprimentos, type: "currency" },
+        { header: "Sangria de caixa", accessor: (r) => r.total_sangrias, type: "currency" },
+        { header: "Suprimento de caixa", accessor: (r) => r.total_suprimentos, type: "currency" },
         { header: "Dinheiro", accessor: (r) => r.total_dinheiro, type: "currency" },
         { header: "PIX", accessor: (r) => r.total_pix, type: "currency" },
         { header: "Debito", accessor: (r) => r.total_debito, type: "currency" },
@@ -519,14 +519,14 @@ function Conteudo() {
         <StatCard
           label="Entradas"
           value={formatBRL(metricas.entradas)}
-          hint="Valor inicial + vendas + suprimentos"
+          hint="Valor inicial + vendas + suprimento de caixa"
           icon={ArrowUpRight}
           iconTone="success"
         />
         <StatCard
           label="Saídas"
           value={formatBRL(metricas.saidas)}
-          hint="Sangrias e retiradas"
+          hint="Sangria de caixa"
           icon={ArrowDownRight}
           iconTone="warning"
         />
@@ -805,8 +805,8 @@ function DetalheCaixaDialog({
         <div className="grid gap-2 sm:grid-cols-2">
           <ResumoLinha label="Valor inicial (fundo de troco)" value={caixa.valor_inicial} />
           <ResumoLinha label="Total de vendas" value={caixa.total_vendas} positivo />
-          <ResumoLinha label="Suprimentos (entradas manuais)" value={caixa.total_suprimentos} positivo />
-          <ResumoLinha label="Sangrias (retiradas)" value={-caixa.total_sangrias} negativo />
+          <ResumoLinha label="Suprimento de caixa (entrou)" value={caixa.total_suprimentos} positivo />
+          <ResumoLinha label="Sangria de caixa (saiu)" value={-caixa.total_sangrias} negativo />
           <ResumoLinha
             label="Total esperado"
             value={esperadoCalc}
@@ -862,7 +862,7 @@ function DetalheCaixaDialog({
             </div>
           ) : movs.length === 0 ? (
             <p className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">
-              Nenhuma sangria ou suprimento registrado.
+              Nenhuma sangria ou suprimento de caixa registrado.
             </p>
           ) : (
             <div className="overflow-hidden rounded-lg border">

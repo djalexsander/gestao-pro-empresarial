@@ -942,8 +942,8 @@ function formatDateTime(iso: string): string {
 const TIPO_LABEL: Record<FluxoTipo, string> = {
   abertura: "Abertura de caixa",
   venda: "Venda",
-  sangria: "Sangria",
-  suprimento: "Suprimento",
+  sangria: "Sangria de caixa",
+  suprimento: "Suprimento de caixa",
   fechamento: "Fechamento de caixa",
   receita: "Receita",
   despesa: "Despesa",
@@ -1231,14 +1231,14 @@ function FluxoCaixaPanel() {
           value={formatBRL(totais.entradas)}
           icon={ArrowDownToLine}
           iconTone="success"
-          hint="Vendas, suprimentos e recebimentos"
+          hint="Vendas, suprimento de caixa e recebimentos"
         />
         <StatCard
           label="Saídas reais"
           value={formatBRL(totais.saidas)}
           icon={ArrowUpFromLine}
           iconTone="warning"
-          hint="Sangrias e despesas pagas"
+          hint="Sangria de caixa e despesas pagas"
         />
         <StatCard
           label="Resultado do período"

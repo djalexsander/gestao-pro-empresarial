@@ -93,8 +93,8 @@ function formatDateTime(value: string | null) {
 const MOVIMENTO_LABEL = {
   abertura: "Abertura",
   venda: "Venda",
-  sangria: "Sangria",
-  suprimento: "Suprimento",
+  sangria: "Sangria de caixa",
+  suprimento: "Suprimento de caixa",
   fechamento: "Fechamento",
 } as const;
 
@@ -267,17 +267,17 @@ function CaixaPage() {
               value={formatBRL(resumo?.valor_esperado ?? 0)}
               icon={Calculator}
               iconTone="success"
-              hint="inicial + dinheiro + suprim. − sangrias"
+              hint="inicial + dinheiro + suprimento − sangria"
             />
             <StatCard
-              label="Suprimentos (entrou na gaveta)"
+              label="Suprimento de caixa"
               value={formatBRL(resumo?.total_suprimentos ?? 0)}
               icon={ArrowDownToLine}
               iconTone="info"
-              hint="Reforço de dinheiro físico — não é venda"
+              hint="Entrada de dinheiro físico — não é venda"
             />
             <StatCard
-              label="Sangrias (saiu da gaveta)"
+              label="Sangria de caixa"
               value={formatBRL(resumo?.total_sangrias ?? 0)}
               icon={ArrowUpFromLine}
               iconTone="danger"
@@ -314,30 +314,30 @@ function CaixaPage() {
               <CardContent className="space-y-3 p-5">
                 <h3 className="text-sm font-semibold text-foreground">Operações de caixa</h3>
                 <p className="text-xs text-muted-foreground">
-                  Movimentos físicos de dinheiro na gaveta. Não são vendas, despesas, lucro nem investimento.
+                  Movimentos de dinheiro físico na gaveta. Não são vendas, despesas, lucro nem investimento.
                 </p>
                 <Button
                   variant="outline"
                   className="w-full justify-start"
                   onClick={() => setMovDialog("suprimento")}
-                  title="Adicionar dinheiro físico ao caixa (reforço de troco)"
+                  title="Suprimento de caixa — entrada de dinheiro físico na gaveta (não é venda nem receita)"
                 >
                   <ArrowDownToLine className="h-4 w-4 text-success" />
-                  Suprimento — adicionar dinheiro
+                  Suprimento de caixa
                 </Button>
                 <Button
                   variant="outline"
                   className="w-full justify-start"
                   onClick={() => setMovDialog("sangria")}
-                  title="Retirar dinheiro físico do caixa (envio ao cofre, troca de notas)"
+                  title="Sangria de caixa — retirada de dinheiro físico da gaveta (não é despesa nem prejuízo)"
                 >
                   <ArrowUpFromLine className="h-4 w-4 text-destructive" />
-                  Sangria — retirar dinheiro
+                  Sangria de caixa
                 </Button>
                 <div className="rounded-md border border-info/30 bg-info/5 p-3 text-xs text-muted-foreground">
                   <p className="flex items-start gap-1.5">
                     <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-info" />
-                    Suprimento e sangria afetam apenas o dinheiro esperado na gaveta — não distorcem faturamento, lucro ou contas a pagar/receber.
+                    Suprimento e sangria de caixa afetam apenas o dinheiro esperado na gaveta — não distorcem faturamento, lucro ou contas a pagar/receber.
                   </p>
                 </div>
               </CardContent>
