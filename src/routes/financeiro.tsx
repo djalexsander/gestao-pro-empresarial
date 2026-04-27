@@ -167,6 +167,8 @@ function FinanceContent() {
   const activeTab: FinTab = tab ?? "receber";
   const [selected, setSelected] = useState<Lancamento | null>(null);
   const [blocoAberto, setBlocoAberto] = useState<BlocoChave | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const indicadores = useFinanceiroIndicadores();
   const ind = indicadores.data;
