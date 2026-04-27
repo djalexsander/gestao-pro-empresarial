@@ -423,7 +423,9 @@ function PDVPage() {
   ) {
     const qty = opts?.quantidade ?? 1;
     const preco = opts?.precoUnitario ?? (Number(p.preco_venda) || 0);
-    const mergeable = opts?.mergeable ?? true;
+    // ⚠️ Política do PDV: cada bipagem cria uma linha nova.
+    // Mergeable é opt-in apenas em fluxos específicos (não usado atualmente).
+    const mergeable = opts?.mergeable ?? false;
     setItems((prev) => {
       if (mergeable) {
         const idx = prev.findIndex((it) => it.produto_id === p.produto_id);
