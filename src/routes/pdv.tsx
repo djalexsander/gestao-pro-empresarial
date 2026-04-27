@@ -739,28 +739,8 @@ function PDVPage() {
     handleScanCode(code);
   }
 
-  // ============ Quantidade / desconto / remover ============
-  function updateQty(key: string, qty: number) {
-    setItems((prev) =>
-      prev.map((it) => (it.key === key ? { ...it, quantidade: Math.max(0.001, qty) } : it)),
-    );
-  }
-  function incQty(key: string, delta: number) {
-    setItems((prev) =>
-      prev.map((it) =>
-        it.key === key
-          ? { ...it, quantidade: Math.max(0.001, it.quantidade + delta) }
-          : it,
-      ),
-    );
-  }
-  function updateDesconto(key: string, desc: number) {
-    setItems((prev) =>
-      prev.map((it) =>
-        it.key === key ? { ...it, desconto: Math.max(0, desc) } : it,
-      ),
-    );
-  }
+  // ============ Remover linha ============
+  // Cada bipagem cria uma nova linha; a única ação por linha é excluir.
   function removeItem(key: string) {
     setItems((prev) => prev.filter((it) => it.key !== key));
   }
