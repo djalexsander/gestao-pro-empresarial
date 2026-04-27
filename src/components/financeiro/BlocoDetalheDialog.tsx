@@ -107,6 +107,7 @@ export function BlocoDetalheDialog({
   titulo,
   subtitulo,
   origem,
+  periodo,
   resumo,
   colunas,
   rows,
@@ -130,12 +131,14 @@ export function BlocoDetalheDialog({
               : "text",
   }));
 
-  const handleCSV = () => exportarBlocoCSV(titulo, rows, csvCols);
+  const handleCSV = () =>
+    exportarBlocoCSV(titulo, rows, csvCols, { relatorio: titulo, periodo });
 
   const handlePDF = () =>
     exportarBlocoPDF({
       titulo,
       subtitulo: subtitulo ?? origem,
+      periodo,
       resumo: resumo.map((r) => ({ label: r.label, valor: r.valor })),
       tabela:
         rows.length > 0
@@ -149,7 +152,7 @@ export function BlocoDetalheDialog({
 
   const handlePNG = async () => {
     if (conteudoRef.current) {
-      await exportarBlocoPNG(conteudoRef.current, titulo);
+      await exportarBlocoPNG(conteudoRef.current, titulo, { titulo, periodo });
     }
   };
 
