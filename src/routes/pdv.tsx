@@ -1185,8 +1185,17 @@ function PDVPage() {
             <div className="mt-3 flex items-center gap-2">
               <Popover open={searchPopoverOpen} onOpenChange={setSearchPopoverOpen}>
                 <PopoverTrigger asChild>
-                  <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground">
-                    <Search className="h-4 w-4" /> Buscar produto manualmente
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 border-primary/40 text-primary hover:bg-primary/10 hover:text-primary"
+                    title="Buscar produto manualmente (F9)"
+                  >
+                    <Search className="h-4 w-4" />
+                    Buscar produto manualmente
+                    <kbd className="ml-1 rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                      F9
+                    </kbd>
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent align="start" className="w-[420px] p-0">
