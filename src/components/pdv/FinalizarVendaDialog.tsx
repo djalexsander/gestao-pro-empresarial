@@ -798,10 +798,12 @@ export function FinalizarVendaDialog({
                   </p>
                 )}
                 {!cliente && <p>Cliente: Consumidor</p>}
-                {operadorEmail && (
+                {(operador?.nome || operadorEmail) && (
                   <p>
                     Operador:{" "}
-                    <span className="text-foreground">{operadorEmail}</span>
+                    <span className="text-foreground">
+                      {operador?.nome ?? operadorEmail}
+                    </span>
                   </p>
                 )}
                 <p>
