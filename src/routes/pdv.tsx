@@ -901,6 +901,8 @@ function PDVPage() {
                 )}
                 <PdvKbd flash={hotkeyFlash === "F4"}>F4</PdvKbd>
                 <span>cliente</span>
+                <PdvKbd flash={hotkeyFlash === "F5"}>F5</PdvKbd>
+                <span>multiplicador</span>
                 <PdvKbd flash={hotkeyFlash === "F6"}>F6</PdvKbd>
                 <span>preço</span>
                 <PdvKbd flash={hotkeyFlash === "F7"}>F7</PdvKbd>
