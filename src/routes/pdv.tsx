@@ -1538,6 +1538,19 @@ function PDVPage() {
         }}
       />
 
+      {/* Multiplicador (F5) — quantidade aplicada na próxima bipagem */}
+      <MultiplicadorDialog
+        open={multDialogOpen}
+        onOpenChange={setMultDialogOpen}
+        onConfirm={(q) => {
+          setMultiplicador(q);
+          toast.success(`Multiplicador ativo: ${q}× — bique o produto.`, {
+            duration: 2000,
+          });
+          setTimeout(() => scanInputRef.current?.focus(), DEFAULT_FOCUS_DELAY);
+        }}
+      />
+
       {/* Diálogo de peso para produtos vendidos por KG sem etiqueta da balança */}
       <PesoDialog
         open={!!pesoDialog}
