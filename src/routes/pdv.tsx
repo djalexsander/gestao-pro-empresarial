@@ -1121,6 +1121,30 @@ function PDVPage() {
         <div className="flex min-h-0 flex-col gap-3">
           {/* Campo de leitura grande */}
           <Card className="border-primary/30 bg-gradient-to-br from-primary/10 via-card to-card p-4 shadow-lg">
+            {multiplicador > 1 && (
+              <div className="mb-3 flex items-center justify-between gap-3 rounded-md border border-warning/40 bg-warning/15 px-3 py-2 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-7 min-w-[2.5rem] items-center justify-center rounded bg-warning/30 px-2 font-mono text-base font-bold text-warning-foreground">
+                    {multiplicador}×
+                  </span>
+                  <span className="font-medium">
+                    Multiplicador ativo — bique o produto
+                  </span>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 gap-1 text-xs"
+                  onClick={() => {
+                    setMultiplicador(1);
+                    toast.info("Multiplicador cancelado.");
+                  }}
+                >
+                  <X className="h-3.5 w-3.5" /> Cancelar (Esc)
+                </Button>
+              </div>
+            )}
             <form onSubmit={handleSubmitCode} className="flex items-center gap-2">
               <div className="relative flex-1">
                 <ScanLine
