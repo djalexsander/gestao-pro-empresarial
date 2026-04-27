@@ -64,6 +64,7 @@ import {
   type ExportFormato,
 } from "@/lib/export-relatorio-card";
 import type { CsvColumn } from "@/lib/export-csv";
+import { KpiDetailDialog, type KpiTipo } from "@/components/dashboard/KpiDetailDialog";
 
 export const Route = createFileRoute("/")({
   head: () => ({
