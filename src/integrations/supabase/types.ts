@@ -2335,6 +2335,50 @@ export type Database = {
           },
         ]
       }
+      vendas_status_historico: {
+        Row: {
+          alterado_por: string | null
+          created_at: string
+          id: string
+          motivo: string | null
+          origem: string
+          owner_id: string
+          status_anterior: string | null
+          status_novo: string
+          venda_id: string
+        }
+        Insert: {
+          alterado_por?: string | null
+          created_at?: string
+          id?: string
+          motivo?: string | null
+          origem: string
+          owner_id: string
+          status_anterior?: string | null
+          status_novo: string
+          venda_id: string
+        }
+        Update: {
+          alterado_por?: string | null
+          created_at?: string
+          id?: string
+          motivo?: string | null
+          origem?: string
+          owner_id?: string
+          status_anterior?: string | null
+          status_novo?: string
+          venda_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendas_status_historico_venda_id_fkey"
+            columns: ["venda_id"]
+            isOneToOne: false
+            referencedRelation: "vendas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -2708,6 +2752,10 @@ export type Database = {
         }
         Returns: string
       }
+      alterar_status_venda: {
+        Args: { _motivo?: string; _novo_status: string; _venda_id: string }
+        Returns: Json
+      }
       assinatura_status_efetivo: {
         Args: { _empresa_id: string }
         Returns: Json
@@ -2786,6 +2834,10 @@ export type Database = {
         Returns: string
       }
       current_empresa_id: { Args: never; Returns: string }
+      derivar_status_pagamento_venda: {
+        Args: { _venda_id: string }
+        Returns: string
+      }
       excluir_caixa: { Args: { _caixa_id: string }; Returns: Json }
       excluir_venda_cancelada: { Args: { _venda_id: string }; Returns: Json }
       fechar_caixa: {
