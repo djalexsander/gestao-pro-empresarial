@@ -123,7 +123,6 @@ function QaPage() {
   const [finalizarOpen, setFinalizarOpen] = useState(false);
   const [obsFinal, setObsFinal] = useState("");
 
-  const reportRef = useRef<HTMLDivElement>(null);
 
   const resumo = useMemo(() => calcularResumoQa(itens, avaliacoes), [itens, avaliacoes]);
 
