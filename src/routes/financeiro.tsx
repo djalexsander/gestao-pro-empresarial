@@ -63,6 +63,12 @@ import {
 } from "@/components/financeiro/BlocoDetalheDialog";
 import { useFinanceiroIndicadores } from "@/hooks/useFinanceiroIndicadores";
 import { exportarBlocoCSV, exportarBlocoPDF } from "@/lib/export-bloco";
+import { ExportFormatDialog } from "@/components/shared/ExportFormatDialog";
+import {
+  exportarRelatorioCard,
+  type ExportFormato,
+} from "@/lib/export-relatorio-card";
+import { toast } from "sonner";
 
 type FinTab = "receber" | "pagar" | "fluxo";
 
