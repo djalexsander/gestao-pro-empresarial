@@ -641,6 +641,14 @@ function DashboardPage() {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      <ExportFormatDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        titulo="Dashboard — Resumo geral"
+        loading={exporting}
+        onChoose={(f) => exportarDashboard(f)}
+      />
     </div>
   );
 }
