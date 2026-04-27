@@ -28,6 +28,21 @@ export interface FinalizarVendaItem {
   preco_unitario: number;
   desconto: number;
   descricao?: string | null;
+  // ===== Snapshot / auditoria de balança (opcionais) =====
+  /** Snapshot: produto era vendido por peso no momento da venda. */
+  vendido_por_peso?: boolean;
+  /** Snapshot: preço por KG aplicado (apenas para vendido_por_peso). */
+  preco_por_kg?: number | null;
+  /** Auditoria: código completo lido (etiqueta da balança ou código original). */
+  codigo_lido?: string | null;
+  /** Auditoria: PLU/código base extraído da etiqueta. */
+  plu_extraido?: string | null;
+  /** Auditoria: peso (KG) extraído da etiqueta ou informado manualmente. */
+  peso_extraido?: number | null;
+  /** Auditoria: valor total (R$) extraído da etiqueta, quando aplicável. */
+  valor_extraido?: number | null;
+  /** Auditoria: 'peso' | 'valor' | 'manual' (origem do peso/valor). */
+  tipo_interpretacao?: "peso" | "valor" | "manual" | null;
 }
 
 export interface FinalizarVendaPagamento {

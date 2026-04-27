@@ -124,6 +124,18 @@ interface VendaItem {
   preco_unitario: number;
   quantidade: number;
   desconto: number; // valor absoluto por linha
+  // ===== Vendido por peso / auditoria de balança =====
+  vendido_por_peso?: boolean;
+  /** Preço por KG (snapshot) — só para vendido_por_peso. */
+  preco_por_kg?: number;
+  /** Casas decimais para exibir a quantidade. */
+  casas_decimais?: number;
+  /** Auditoria — preenchido quando o item entra via etiqueta da balança ou peso manual. */
+  codigo_lido?: string;
+  plu_extraido?: string;
+  peso_extraido?: number;
+  valor_extraido?: number;
+  tipo_interpretacao?: "peso" | "valor" | "manual";
 }
 
 const DEFAULT_FOCUS_DELAY = 30;
