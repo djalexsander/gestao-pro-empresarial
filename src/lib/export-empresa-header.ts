@@ -284,17 +284,18 @@ export function criarCabecalhoPNGElement(opts: PngHeaderOptions): HTMLElement {
     "gap:16px",
     "padding:0 0 16px 0",
     "margin:0 0 16px 0",
-    "border-bottom:1px solid #d4d4d8",
+    "border-bottom:1px solid #334155",
     "font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif",
-    "color:#0a0a0a",
-    "background:#ffffff",
+    "color:#ffffff",
+    "background:#0f172a",
   ].join(";");
 
   if (empresa?.logoDataUrl) {
     const img = document.createElement("img");
     img.src = empresa.logoDataUrl;
     img.alt = "Logo";
-    img.style.cssText = "height:56px;width:auto;object-fit:contain;flex:0 0 auto";
+    img.style.cssText =
+      "height:56px;width:auto;object-fit:contain;flex:0 0 auto;background:#ffffff;border-radius:6px;padding:4px";
     wrap.appendChild(img);
   }
 
@@ -303,23 +304,23 @@ export function criarCabecalhoPNGElement(opts: PngHeaderOptions): HTMLElement {
 
   const linhas: string[] = [];
   linhas.push(
-    `<div style="font-size:18px;font-weight:700;color:#0a0a0a">${escapeHtml(empresa?.nome ?? "Minha empresa")}</div>`,
+    `<div style="font-size:18px;font-weight:700;color:#ffffff">${escapeHtml(empresa?.nome ?? "Minha empresa")}</div>`,
   );
   if (empresa?.cnpj) {
     linhas.push(
-      `<div style="font-size:12px;color:#52525b">CNPJ: ${escapeHtml(empresa.cnpj)}</div>`,
+      `<div style="font-size:12px;color:#cbd5e1">CNPJ: ${escapeHtml(empresa.cnpj)}</div>`,
     );
   }
   linhas.push(
-    `<div style="font-size:14px;font-weight:600;color:#0a0a0a;margin-top:4px">${escapeHtml(titulo)}</div>`,
+    `<div style="font-size:14px;font-weight:600;color:#ffffff;margin-top:4px">${escapeHtml(titulo)}</div>`,
   );
   if (periodo) {
     linhas.push(
-      `<div style="font-size:11px;color:#52525b">Período: ${escapeHtml(periodo)}</div>`,
+      `<div style="font-size:11px;color:#cbd5e1">Período: ${escapeHtml(periodo)}</div>`,
     );
   }
   linhas.push(
-    `<div style="font-size:11px;color:#52525b">Exportado em: ${escapeHtml(exportadoEm.toLocaleString("pt-BR"))}</div>`,
+    `<div style="font-size:11px;color:#cbd5e1">Exportado em: ${escapeHtml(exportadoEm.toLocaleString("pt-BR"))}</div>`,
   );
 
   meta.innerHTML = linhas.join("");
