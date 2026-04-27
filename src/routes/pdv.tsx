@@ -1749,6 +1749,18 @@ function PDVPage() {
         />
       )}
 
+      {/* Suprimento / Sangria — operações de dinheiro físico do caixa */}
+      {caixaAberto && movCaixaDialog && (
+        <MovimentoCaixaDialog
+          open={movCaixaDialog !== null}
+          onOpenChange={(open) => {
+            if (!open) setMovCaixaDialog(null);
+          }}
+          caixaId={caixaAberto.id}
+          tipo={movCaixaDialog}
+        />
+      )}
+
       {/* Confirmações */}
       <AlertDialog
         open={confirmClear !== null}
