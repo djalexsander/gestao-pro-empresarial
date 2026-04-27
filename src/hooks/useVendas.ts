@@ -188,6 +188,10 @@ export interface VendaDetalhe {
   total: number;
   valor_recebido: number | null;
   troco: number | null;
+  /** Soma dos pagamentos efetivos (lançamentos financeiros) */
+  valor_pago_total: number;
+  /** Saldo restante = total - valor_pago_total */
+  valor_restante: number;
   status: VendaStatus;
   status_pagamento: string;
   forma_pagamento: FormaPagamento | null;
@@ -246,8 +250,20 @@ export function useVendaDetalhe(vendaId: string | null) {
         .order("created_at", { ascending: true });
       if (e3) throw e3;
 
+      // Soma de pagamentos efetivos via lançamentos financeiros vinculados
+      const { data: lancs } = await supabase
+        .from("financeiro_lancamentos")
+        .select("valor_pago, status")
+        .eq("venda_id", vendaId);
+      const valor_pago_total = (lancs ?? [])
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .filter((l: any) => l.status !== "cancelado")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .reduce((s: number, l: any) => s + (Number(l.valor_pago) || 0), 0);
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const vAny = v as any;
+      const total = Number(vAny.total) || 0;
       return {
         id: vAny.id,
         numero: vAny.numero,
@@ -256,9 +272,11 @@ export function useVendaDetalhe(vendaId: string | null) {
         data_finalizacao: vAny.data_finalizacao,
         subtotal: Number(vAny.subtotal) || 0,
         desconto: Number(vAny.desconto) || 0,
-        total: Number(vAny.total) || 0,
+        total,
         valor_recebido: vAny.valor_recebido,
         troco: vAny.troco,
+        valor_pago_total,
+        valor_restante: Math.max(0, total - valor_pago_total),
         status: vAny.status,
         status_pagamento: vAny.status_pagamento,
         forma_pagamento: vAny.forma_pagamento,
@@ -287,6 +305,72 @@ export function useVendaDetalhe(vendaId: string | null) {
         })),
       };
     },
+  });
+}
+
+// =============== Histórico de status da venda ===============
+export interface VendaStatusHistoricoItem {
+  id: string;
+  status_anterior: string | null;
+  status_novo: string;
+  origem: "financeiro" | "vendas" | "sistema";
+  alterado_por: string | null;
+  motivo: string | null;
+  created_at: string;
+}
+
+export function useVendaStatusHistorico(vendaId: string | null) {
+  return useQuery({
+    queryKey: ["vendas", "historico", vendaId],
+    enabled: !!vendaId,
+    queryFn: async (): Promise<VendaStatusHistoricoItem[]> => {
+      if (!vendaId) return [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any)
+        .from("vendas_status_historico")
+        .select("id, status_anterior, status_novo, origem, alterado_por, motivo, created_at")
+        .eq("venda_id", vendaId)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (data ?? []) as VendaStatusHistoricoItem[];
+    },
+  });
+}
+
+// =============== Alterar status da venda ===============
+export type StatusVendaEditavel =
+  | "pago"
+  | "pendente"
+  | "parcial"
+  | "cancelado"
+  | "vencido";
+
+export function useAlterarStatusVenda() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      venda_id: string;
+      novo_status: StatusVendaEditavel;
+      motivo?: string | null;
+    }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc("alterar_status_venda", {
+        _venda_id: input.venda_id,
+        _novo_status: input.novo_status,
+        _motivo: input.motivo ?? null,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vendas"] });
+      qc.invalidateQueries({ queryKey: ["financeiro"] });
+      qc.invalidateQueries({ queryKey: ["financeiro-indicadores"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      toast.success("Status da venda atualizado");
+    },
+    onError: (e: Error) => toast.error(e.message),
   });
 }
 

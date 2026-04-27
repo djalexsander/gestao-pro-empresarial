@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -6,8 +7,29 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Receipt, User, Calendar, Wallet } from "lucide-react";
-import { useVendaDetalhe } from "@/hooks/useVendas";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Loader2,
+  Receipt,
+  User,
+  Calendar,
+  Wallet,
+  Pencil,
+  History,
+} from "lucide-react";
+import {
+  useVendaDetalhe,
+  useAlterarStatusVenda,
+  useVendaStatusHistorico,
+  type StatusVendaEditavel,
+} from "@/hooks/useVendas";
 import { formatBRL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
@@ -15,7 +37,14 @@ const STATUS_BADGE: Record<string, string> = {
   pago: "bg-success/15 text-success border-success/30",
   pendente: "bg-warning/15 text-warning border-warning/30",
   parcial: "bg-primary/15 text-primary border-primary/30",
+  vencido: "bg-destructive/15 text-destructive border-destructive/30",
   cancelado: "bg-destructive/15 text-destructive border-destructive/30",
+};
+
+const ORIGEM_LABEL: Record<string, string> = {
+  financeiro: "Financeiro",
+  vendas: "Vendas",
+  sistema: "Sistema",
 };
 
 interface DetalheVendaDialogProps {
@@ -30,10 +59,31 @@ export function DetalheVendaDialog({
   vendaId,
 }: DetalheVendaDialogProps) {
   const { data, isLoading } = useVendaDetalhe(open ? vendaId : null);
+  const { data: historico = [] } = useVendaStatusHistorico(open ? vendaId : null);
+  const alterar = useAlterarStatusVenda();
+
+  const [editando, setEditando] = useState(false);
+  const [novoStatus, setNovoStatus] = useState<StatusVendaEditavel>("pago");
+  const [motivo, setMotivo] = useState("");
+
+  const handleSalvar = async () => {
+    if (!vendaId) return;
+    try {
+      await alterar.mutateAsync({
+        venda_id: vendaId,
+        novo_status: novoStatus,
+        motivo: motivo || null,
+      });
+      setEditando(false);
+      setMotivo("");
+    } catch {
+      /* toast já tratado */
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Receipt className="h-5 w-5 text-primary" />
@@ -73,6 +123,82 @@ export function DetalheVendaDialog({
                 </Badge>
               </Info>
             </div>
+
+            {/* Editar status */}
+            {data.status !== "cancelada" && (
+              <div className="rounded-md border border-border bg-muted/10 p-3">
+                {!editando ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-sm text-muted-foreground">
+                      Status atual: <strong className="capitalize text-foreground">{data.status_pagamento}</strong>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5"
+                      onClick={() => {
+                        setNovoStatus(
+                          (data.status_pagamento as StatusVendaEditavel) ?? "pendente",
+                        );
+                        setEditando(true);
+                      }}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      Editar status
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                      <Select
+                        value={novoStatus}
+                        onValueChange={(v) => setNovoStatus(v as StatusVendaEditavel)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="pago">Pago</SelectItem>
+                          <SelectItem value="parcial">Parcial</SelectItem>
+                          <SelectItem value="pendente">Pendente</SelectItem>
+                          <SelectItem value="vencido">Vencido</SelectItem>
+                          <SelectItem value="cancelado">Cancelado</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setEditando(false)}
+                          disabled={alterar.isPending}
+                        >
+                          Cancelar
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={handleSalvar}
+                          disabled={alterar.isPending}
+                        >
+                          {alterar.isPending && (
+                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                          )}
+                          Salvar
+                        </Button>
+                      </div>
+                    </div>
+                    <input
+                      placeholder="Motivo (opcional)"
+                      value={motivo}
+                      onChange={(e) => setMotivo(e.target.value)}
+                      className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      O lançamento financeiro vinculado será atualizado automaticamente.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Itens */}
             <div className="overflow-hidden rounded-md border border-border">
@@ -128,9 +254,14 @@ export function DetalheVendaDialog({
                     {formatBRL(data.total)}
                   </span>
                 </div>
-                {data.valor_recebido != null && data.valor_recebido > 0 && (
-                  <SummaryRow label="Valor recebido">
-                    {formatBRL(data.valor_recebido)}
+                {data.valor_pago_total > 0 && (
+                  <SummaryRow label="Valor pago">
+                    <span className="text-success">{formatBRL(data.valor_pago_total)}</span>
+                  </SummaryRow>
+                )}
+                {data.valor_restante > 0.005 && (
+                  <SummaryRow label="Restante">
+                    <span className="text-warning">{formatBRL(data.valor_restante)}</span>
                   </SummaryRow>
                 )}
                 {data.troco != null && data.troco > 0 && (
@@ -153,8 +284,6 @@ export function DetalheVendaDialog({
                       <tr>
                         <th className="px-3 py-2 text-left">Forma</th>
                         <th className="px-3 py-2 text-right">Valor</th>
-                        <th className="px-3 py-2 text-right">Recebido</th>
-                        <th className="px-3 py-2 text-right">Troco</th>
                         <th className="px-3 py-2 text-center">Parcelas</th>
                       </tr>
                     </thead>
@@ -167,16 +296,6 @@ export function DetalheVendaDialog({
                           <td className="px-3 py-2 text-right font-medium tabular-nums">
                             {formatBRL(p.valor)}
                           </td>
-                          <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
-                            {p.valor_recebido != null ? formatBRL(p.valor_recebido) : "—"}
-                          </td>
-                          <td className="px-3 py-2 text-right tabular-nums">
-                            {p.troco && p.troco > 0 ? (
-                              <span className="text-success">{formatBRL(p.troco)}</span>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </td>
                           <td className="px-3 py-2 text-center tabular-nums text-muted-foreground">
                             {p.parcelas && p.parcelas > 1 ? `${p.parcelas}x` : "—"}
                           </td>
@@ -184,6 +303,49 @@ export function DetalheVendaDialog({
                       ))}
                     </tbody>
                   </table>
+                </div>
+              </div>
+            )}
+
+            {/* Histórico */}
+            {historico.length > 0 && (
+              <div>
+                <p className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <History className="h-3 w-3" /> Histórico de status ({historico.length})
+                </p>
+                <div className="space-y-1.5">
+                  {historico.slice(0, 8).map((h) => (
+                    <div
+                      key={h.id}
+                      className="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/10 px-3 py-1.5 text-xs"
+                    >
+                      <div className="flex items-center gap-2">
+                        {h.status_anterior && (
+                          <>
+                            <Badge
+                              variant="outline"
+                              className={cn("capitalize text-[10px]", STATUS_BADGE[h.status_anterior] ?? "")}
+                            >
+                              {h.status_anterior}
+                            </Badge>
+                            <span className="text-muted-foreground">→</span>
+                          </>
+                        )}
+                        <Badge
+                          variant="outline"
+                          className={cn("capitalize text-[10px]", STATUS_BADGE[h.status_novo] ?? "")}
+                        >
+                          {h.status_novo}
+                        </Badge>
+                        <span className="text-muted-foreground">
+                          via {ORIGEM_LABEL[h.origem]}
+                        </span>
+                      </div>
+                      <span className="text-muted-foreground tabular-nums">
+                        {new Date(h.created_at).toLocaleString("pt-BR")}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
