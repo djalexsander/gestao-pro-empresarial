@@ -1240,6 +1240,17 @@ function PDVPage() {
                               </span>
                             )}
                           </p>
+                          {it.vendido_por_peso && (
+                            <p className="mt-0.5 font-mono text-xs text-primary">
+                              {it.quantidade.toFixed(it.casas_decimais ?? 3)} {it.unidade || "KG"}
+                              {" × "}
+                              {formatBRL(it.preco_por_kg ?? it.preco_unitario)}/{it.unidade || "KG"}
+                              {" = "}
+                              {formatBRL(
+                                Math.max(0, it.preco_unitario * it.quantidade - it.desconto),
+                              )}
+                            </p>
+                          )}
                         </div>
                         <div className="flex items-center justify-center gap-1">
                           <Button
