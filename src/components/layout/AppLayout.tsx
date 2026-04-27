@@ -13,7 +13,6 @@ import { MobileNavSheet } from "./MobileNavSheet";
 import { findModuleByPath, type ModuleKey } from "./navigation";
 import { useIsSuperAdmin } from "@/hooks/useAdmin";
 import { ShieldCheck } from "lucide-react";
-import { ShieldCheck } from "lucide-react";
 import { AssinaturaBanner } from "./AssinaturaBanner";
 import { useMode } from "@/components/modes/ModeProvider";
 import { useMasterContext } from "@/components/admin/MasterContextProvider";
