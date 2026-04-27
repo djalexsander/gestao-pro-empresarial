@@ -700,7 +700,12 @@ function PDVPage() {
         key: "Escape",
         allowInInputs: false,
         handler: () => {
-          // ESC fora de input: cancela venda (com confirmação) se houver itens
+          // ESC fora de input: 1º cancela multiplicador ativo, depois cancela venda.
+          if (multiplicador > 1) {
+            setMultiplicador(1);
+            toast.info("Multiplicador cancelado.");
+            return;
+          }
           if (
             items.length > 0 &&
             !finalizarOpen &&
