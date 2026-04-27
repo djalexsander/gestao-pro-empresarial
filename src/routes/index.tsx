@@ -58,7 +58,12 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDashboard } from "@/hooks/useDashboard";
-import { csvFilename, downloadCSV } from "@/lib/export-csv";
+import { ExportFormatDialog } from "@/components/shared/ExportFormatDialog";
+import {
+  exportarRelatorioCard,
+  type ExportFormato,
+} from "@/lib/export-relatorio-card";
+import type { CsvColumn } from "@/lib/export-csv";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -143,6 +148,8 @@ function DashboardPage() {
   const navigate = useNavigate();
   const { data, isLoading } = useDashboard();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [periodo, setPeriodo] = useState<DashboardPeriodo>("mes");
   const defaultRange = useMemo(() => getRangeFromPeriodo("mes"), []);
   const [inicio, setInicio] = useState(formatDateInput(defaultRange.inicio));
@@ -159,45 +166,93 @@ function DashboardPage() {
     aplicarPeriodo("mes");
   }
 
-  function exportarDashboard() {
+  function formatPeriodoBR(d: string) {
+    if (!d) return d;
+    const [y, m, day] = d.split("-");
+    return `${day}/${m}/${y}`;
+  }
+
+  async function exportarDashboard(formato: ExportFormato) {
     if (!data) return;
+    setExporting(true);
+    toast.loading("Gerando exportação...", { id: "export-dashboard" });
+    try {
+      const vendasRows = (data.ultimasVendas ?? []).filter((item) =>
+        inRange(item.data, inicio, fim),
+      );
+      const comprasRows = (data.ultimasCompras ?? []).filter((item) =>
+        inRange(item.data, inicio, fim),
+      );
 
-    const resumoRows = [
-      { indicador: "Vendas do período", valor: data.vendasMes },
-      { indicador: "Compras do período", valor: data.comprasMes },
-      { indicador: "Lucro do período", valor: data.lucroMes },
-      { indicador: "Contas a pagar", valor: data.contasPagar },
-      { indicador: "Contas a receber", valor: data.contasReceber },
-      { indicador: "Estoque baixo", valor: data.estoqueBaixo },
-    ];
+      type LinhaMov = {
+        tipo: "Venda" | "Compra";
+        numero: string;
+        data: string;
+        contraparte: string;
+        valor: number;
+        status: string;
+      };
 
-    const vendasRows = (data.ultimasVendas ?? []).filter((item) => inRange(item.data, inicio, fim));
-    const comprasRows = (data.ultimasCompras ?? []).filter((item) => inRange(item.data, inicio, fim));
+      const rows: LinhaMov[] = [
+        ...vendasRows.map<LinhaMov>((v) => ({
+          tipo: "Venda",
+          numero: v.numero,
+          data: v.data,
+          contraparte: v.cliente,
+          valor: Number(v.valor) || 0,
+          status: v.status,
+        })),
+        ...comprasRows.map<LinhaMov>((c) => ({
+          tipo: "Compra",
+          numero: c.numero,
+          data: c.data,
+          contraparte: c.fornecedor,
+          valor: Number(c.valor) || 0,
+          status: c.status,
+        })),
+      ].sort((a, b) => (a.data < b.data ? 1 : -1));
 
-    const csvPartes = [
-      "Resumo do dashboard",
-      "Período;Data inicial;Data final",
-      `${periodo};${inicio};${fim}`,
-      "",
-      "Indicador;Valor",
-      ...resumoRows.map((row) => `${row.indicador};${Number(row.valor).toFixed(2).replace(".", ",")}`),
-      "",
-      "Últimas vendas",
-      "Numero;Data;Cliente;Total;Status",
-      ...vendasRows.map(
-        (row) => `${row.numero};${row.data};${row.cliente};${Number(row.valor).toFixed(2).replace(".", ",")};${row.status}`,
-      ),
-      "",
-      "Últimas compras",
-      "Numero;Data;Fornecedor;Total;Status",
-      ...comprasRows.map(
-        (row) => `${row.numero};${row.data};${row.fornecedor};${Number(row.valor).toFixed(2).replace(".", ",")};${row.status}`,
-      ),
-    ].join("\r\n");
+      const columns: CsvColumn<LinhaMov>[] = [
+        { header: "Tipo", accessor: (r) => r.tipo, type: "text" },
+        { header: "Número", accessor: (r) => r.numero, type: "text" },
+        { header: "Data", accessor: (r) => r.data, type: "datetime" },
+        { header: "Cliente / Fornecedor", accessor: (r) => r.contraparte, type: "text" },
+        { header: "Valor", accessor: (r) => r.valor, type: "currency" },
+        { header: "Status", accessor: (r) => r.status, type: "text" },
+      ];
 
-    const nome = `dashboard_${inicio}_${fim}`.replace(/[^a-zA-Z0-9_-]/g, "_");
-    downloadCSV(csvFilename(nome), csvPartes);
-    toast.success("Exportação iniciada.");
+      await exportarRelatorioCard(formato, {
+        prefix: "dashboard",
+        titulo: "Dashboard — Resumo geral",
+        periodo: `${formatPeriodoBR(inicio)} a ${formatPeriodoBR(fim)}`,
+        resumo: [
+          { label: "Vendas do período", valor: formatBRL(data.vendasMes), tone: "success" },
+          { label: "Compras do período", valor: formatBRL(data.comprasMes), tone: "info" },
+          {
+            label: "Lucro do período",
+            valor: formatBRL(data.lucroMes),
+            tone: data.lucroMes >= 0 ? "success" : "danger",
+          },
+          { label: "Contas a pagar", valor: formatBRL(data.contasPagar), tone: "warning" },
+          { label: "Contas a receber", valor: formatBRL(data.contasReceber), tone: "success" },
+          {
+            label: "Estoque baixo",
+            valor: String(data.estoqueBaixo),
+            tone: data.estoqueBaixo > 0 ? "danger" : "muted",
+          },
+        ],
+        rows,
+        columns,
+      });
+      toast.success("Exportação concluída.", { id: "export-dashboard" });
+      setExportOpen(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao exportar.", {
+        id: "export-dashboard",
+      });
+    } finally {
+      setExporting(false);
+    }
   }
 
   if (isLoading || !data) {
@@ -250,7 +305,8 @@ function DashboardPage() {
             <Button
               size="sm"
               className="gap-1.5"
-              onClick={exportarDashboard}
+              onClick={() => setExportOpen(true)}
+              disabled={exporting}
             >
               <Download className="h-4 w-4" />
               Exportar
@@ -585,6 +641,14 @@ function DashboardPage() {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      <ExportFormatDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        titulo="Dashboard — Resumo geral"
+        loading={exporting}
+        onChoose={(f) => exportarDashboard(f)}
+      />
     </div>
   );
 }

@@ -63,6 +63,12 @@ import {
 } from "@/components/financeiro/BlocoDetalheDialog";
 import { useFinanceiroIndicadores } from "@/hooks/useFinanceiroIndicadores";
 import { exportarBlocoCSV, exportarBlocoPDF } from "@/lib/export-bloco";
+import { ExportFormatDialog } from "@/components/shared/ExportFormatDialog";
+import {
+  exportarRelatorioCard,
+  type ExportFormato,
+} from "@/lib/export-relatorio-card";
+import { toast } from "sonner";
 
 type FinTab = "receber" | "pagar" | "fluxo";
 
@@ -161,6 +167,8 @@ function FinanceContent() {
   const activeTab: FinTab = tab ?? "receber";
   const [selected, setSelected] = useState<Lancamento | null>(null);
   const [blocoAberto, setBlocoAberto] = useState<BlocoChave | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const indicadores = useFinanceiroIndicadores();
   const ind = indicadores.data;
@@ -275,28 +283,31 @@ function FinanceContent() {
     ? `${formatDate(ind.periodo.inicio)} a ${formatDate(ind.periodo.fim)}`
     : null;
 
-  const handleExportConsolidadoCSV = () =>
-    exportarBlocoCSV(
-      "financeiro_consolidado",
-      consolidado,
-      [
-        { header: "Indicador", accessor: (r: ConsolidadoRow) => r.indicador, type: "text" },
-        { header: "Quantidade", accessor: (r: ConsolidadoRow) => r.quantidade, type: "integer" },
-        { header: "Valor (R$)", accessor: (r: ConsolidadoRow) => r.valor, type: "currency" },
-      ],
-      { relatorio: "Financeiro — Resumo consolidado", periodo: periodoTexto },
-    );
-
-  const handleExportConsolidadoPDF = () =>
-    exportarBlocoPDF({
-      titulo: "Financeiro — Resumo consolidado",
-      periodo: periodoTexto,
-      tabela: {
-        header: ["Indicador", "Quantidade", "Valor"],
+  async function handleExportConsolidado(formato: ExportFormato) {
+    setExporting(true);
+    toast.loading("Gerando exportação...", { id: "export-fin" });
+    try {
+      await exportarRelatorioCard(formato, {
+        prefix: "financeiro_consolidado",
+        titulo: "Financeiro — Resumo consolidado",
+        periodo: periodoTexto,
         rows: consolidado,
-        formatRow: (r) => [r.indicador, String(r.quantidade), formatBRL(r.valor)],
-      },
-    });
+        columns: [
+          { header: "Indicador", accessor: (r: ConsolidadoRow) => r.indicador, type: "text" },
+          { header: "Quantidade", accessor: (r: ConsolidadoRow) => r.quantidade, type: "integer" },
+          { header: "Valor (R$)", accessor: (r: ConsolidadoRow) => r.valor, type: "currency" },
+        ],
+      });
+      toast.success("Exportação concluída.", { id: "export-fin" });
+      setExportOpen(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao exportar.", {
+        id: "export-fin",
+      });
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -305,22 +316,16 @@ function FinanceContent() {
         description="Acompanhe entradas, saídas, lucro e fluxo de caixa."
         actions={
           <div className="flex flex-wrap gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="outline" className="gap-1.5">
-                  <Download className="h-4 w-4" />
-                  Exportar resumo
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleExportConsolidadoCSV} className="gap-2">
-                  <SheetIcon className="h-4 w-4" /> CSV (Excel)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleExportConsolidadoPDF} className="gap-2">
-                  <FileText className="h-4 w-4" /> PDF
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => setExportOpen(true)}
+              disabled={exporting}
+            >
+              <Download className="h-4 w-4" />
+              Exportar resumo
+            </Button>
             <Button size="sm" className="gap-1.5">
               <Plus className="h-4 w-4" />
               Novo lançamento
@@ -496,6 +501,14 @@ function FinanceContent() {
         totalPay={totalPay}
         saldo={saldo}
         ind={ind}
+      />
+
+      <ExportFormatDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        titulo="Financeiro — Resumo consolidado"
+        loading={exporting}
+        onChoose={(f) => handleExportConsolidado(f)}
       />
     </div>
   );
