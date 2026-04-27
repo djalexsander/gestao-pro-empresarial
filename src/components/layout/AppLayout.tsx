@@ -4,6 +4,7 @@ import { RequireAuth } from "@/components/auth/RequireAuth";
 import { RequireAdminLike } from "@/components/auth/RequireRole";
 import { RequireErpUnlock } from "@/components/auth/RequireErpUnlock";
 import { RequireTerminalPermissao } from "@/components/auth/RequireTerminalPermissao";
+import { RequireNotMaster } from "@/components/admin/RequireNotMaster";
 import { areaTerminalDoPath } from "@/components/auth/areaTerminalDoPath";
 import { AppMenubar } from "./AppMenubar";
 import { AppToolbar } from "./AppToolbar";
@@ -11,10 +12,10 @@ import { ContextSidebar } from "./ContextSidebar";
 import { MobileNavSheet } from "./MobileNavSheet";
 import { findModuleByPath, type ModuleKey } from "./navigation";
 import { useIsSuperAdmin } from "@/hooks/useAdmin";
-import { Link } from "@tanstack/react-router";
 import { ShieldCheck } from "lucide-react";
 import { AssinaturaBanner } from "./AssinaturaBanner";
 import { useMode } from "@/components/modes/ModeProvider";
+import { useMasterContext } from "@/components/admin/MasterContextProvider";
 import { useAuth } from "@/components/auth/AuthProvider";
 
 // Rotas que usam layout próprio (sem o shell do ERP)
@@ -48,9 +49,14 @@ export function AppLayout() {
     return <Outlet />;
   }
 
-  // /hub, /pos e /pdv usam layout próprio (sem sidebar/menubar do ERP).
+  // /hub, /pos e /pdv usam layout próprio (sem sidebar/menubar do ERP),
+  // mas continuam sendo rotas de empresa — bloqueadas se modo master ativo.
   if (pathname === "/hub" || pathname === "/pos" || pathname === "/pdv") {
-    return <Outlet />;
+    return (
+      <RequireNotMaster>
+        <Outlet />
+      </RequireNotMaster>
+    );
   }
 
   // /admin também exige unlock prévio (acesso administrativo).
@@ -70,17 +76,19 @@ export function AppLayout() {
 
   return (
     <RequireAuth>
-      <RequireErpUnlock>
-        <RequireAdminLike>
-          {area ? (
-            <RequireTerminalPermissao area={area}>
+      <RequireNotMaster>
+        <RequireErpUnlock>
+          <RequireAdminLike>
+            {area ? (
+              <RequireTerminalPermissao area={area}>
+                <AppShell />
+              </RequireTerminalPermissao>
+            ) : (
               <AppShell />
-            </RequireTerminalPermissao>
-          ) : (
-            <AppShell />
-          )}
-        </RequireAdminLike>
-      </RequireErpUnlock>
+            )}
+          </RequireAdminLike>
+        </RequireErpUnlock>
+      </RequireNotMaster>
     </RequireAuth>
   );
 }
@@ -89,6 +97,7 @@ function AppShell() {
   const location = useLocation();
   const { data: isSuperAdmin } = useIsSuperAdmin();
   const { modoAtual, clearModo } = useMode();
+  const { enterMasterMode } = useMasterContext();
   const navigate = useNavigate();
 
   // Módulo derivado do pathname (sem useEffect — evita render duplo).
@@ -140,13 +149,17 @@ function AppShell() {
             </button>
           )}
           {isSuperAdmin && (
-            <Link
-              to="/admin"
+            <button
+              type="button"
+              onClick={() => {
+                enterMasterMode();
+                navigate({ to: "/admin", replace: true });
+              }}
               className="hidden h-11 items-center gap-1.5 border-b border-l border-sidebar-border bg-sidebar px-3 text-[13px] font-medium text-sidebar-foreground/85 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground lg:flex"
-              title="Painel Master"
+              title="Entrar no painel Master"
             >
               <ShieldCheck className="h-4 w-4" /> Master
-            </Link>
+            </button>
           )}
         </div>
         <AppToolbar

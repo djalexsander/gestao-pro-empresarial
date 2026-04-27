@@ -7,7 +7,8 @@ import {
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useAdminStats } from "@/hooks/useAdmin";
-import { Link } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
+import { useMasterContext } from "./MasterContextProvider";
 
 interface Props { onMobileMenuClick: () => void; }
 
@@ -60,6 +61,8 @@ function KpiPill({
 
 function UserMenu() {
   const { user, signOut } = useAuth();
+  const { exitMasterMode } = useMasterContext();
+  const navigate = useNavigate();
   const initials = (user?.email ?? "?")
     .split("@")[0].split(/[._-]/).map((s) => s[0]).join("").slice(0, 2).toUpperCase();
   return (
@@ -75,11 +78,14 @@ function UserMenu() {
           <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
-          <Link to="/" className="flex items-center gap-2">
-            <Globe className="h-4 w-4" />
-            Ir para o app principal
-          </Link>
+        <DropdownMenuItem
+          onSelect={() => {
+            exitMasterMode();
+            navigate({ to: "/hub", replace: true });
+          }}
+        >
+          <Globe className="mr-2 h-4 w-4" />
+          Ir para o app principal
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => signOut()} className="text-destructive">

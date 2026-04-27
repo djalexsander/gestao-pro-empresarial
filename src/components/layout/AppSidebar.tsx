@@ -1,4 +1,4 @@
-import { Link, useLocation } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
   LayoutDashboard,
   Package,
@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useIsSuperAdmin } from "@/hooks/useAdmin";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { useMasterContext } from "@/components/admin/MasterContextProvider";
 
 interface NavItem {
   to: string;
@@ -75,9 +76,11 @@ interface AppSidebarProps {
 
 export function AppSidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: AppSidebarProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const currentPath = location.pathname;
   const { data: isSuperAdmin } = useIsSuperAdmin();
   const { user } = useAuth();
+  const { enterMasterMode } = useMasterContext();
 
   const displayName =
     (user?.user_metadata?.nome as string | undefined) ||
@@ -154,11 +157,19 @@ export function AppSidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: A
               <ul className="space-y-0.5">
                 {group.items.map((item) => {
                   const active = currentPath === item.to;
+                  const isMasterEntry = item.to === "/admin";
                   return (
                     <li key={item.to}>
                       <Link
                         to={item.to}
-                        onClick={onMobileClose}
+                        onClick={(e) => {
+                          if (isMasterEntry) {
+                            e.preventDefault();
+                            enterMasterMode();
+                            navigate({ to: "/admin", replace: true });
+                          }
+                          onMobileClose();
+                        }}
                         title={collapsed ? item.label : undefined}
                         className={cn(
                           "group flex items-center gap-3 rounded-md px-2.5 py-2 text-sm font-medium transition-colors",
