@@ -98,6 +98,7 @@ function AppShell() {
   const location = useLocation();
   const { data: isSuperAdmin } = useIsSuperAdmin();
   const { modoAtual, clearModo } = useMode();
+  const { enterMasterMode } = useMasterContext();
   const navigate = useNavigate();
 
   // Módulo derivado do pathname (sem useEffect — evita render duplo).
@@ -149,13 +150,17 @@ function AppShell() {
             </button>
           )}
           {isSuperAdmin && (
-            <Link
-              to="/admin"
+            <button
+              type="button"
+              onClick={() => {
+                enterMasterMode();
+                navigate({ to: "/admin", replace: true });
+              }}
               className="hidden h-11 items-center gap-1.5 border-b border-l border-sidebar-border bg-sidebar px-3 text-[13px] font-medium text-sidebar-foreground/85 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground lg:flex"
-              title="Painel Master"
+              title="Entrar no painel Master"
             >
               <ShieldCheck className="h-4 w-4" /> Master
-            </Link>
+            </button>
           )}
         </div>
         <AppToolbar
