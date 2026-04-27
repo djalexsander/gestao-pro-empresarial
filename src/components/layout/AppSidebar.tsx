@@ -1,4 +1,4 @@
-import { Link, useLocation } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
   LayoutDashboard,
   Package,
@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useIsSuperAdmin } from "@/hooks/useAdmin";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { useMasterContext } from "@/components/admin/MasterContextProvider";
 
 interface NavItem {
   to: string;
