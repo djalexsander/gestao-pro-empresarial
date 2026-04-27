@@ -58,6 +58,7 @@ import { useBalancaConfig } from "@/hooks/useBalancaConfig";
 import { parseEtiquetaBalanca, calcularPesoEValor } from "@/lib/balanca";
 import { PesoDialog } from "@/components/pdv/PesoDialog";
 import { ConsultarPrecoDialog } from "@/components/pdv/ConsultarPrecoDialog";
+import { MultiplicadorDialog } from "@/components/pdv/MultiplicadorDialog";
 import { useScanner } from "@/hooks/useScanner";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { useProdutos } from "@/hooks/useProdutos";
