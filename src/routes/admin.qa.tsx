@@ -72,11 +72,7 @@ export const Route = createFileRoute("/admin/qa")({
       { name: "robots", content: "noindex" },
     ],
   }),
-  component: () => (
-    <MasterLayout>
-      <QaPage />
-    </MasterLayout>
-  ),
+  component: QaPage,
 });
 
 const STATUS_OPTIONS: { value: QaStatusAvaliacao; label: string; tone: string }[] = [
