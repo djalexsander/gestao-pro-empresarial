@@ -305,7 +305,8 @@ function DashboardPage() {
             <Button
               size="sm"
               className="gap-1.5"
-              onClick={exportarDashboard}
+              onClick={() => setExportOpen(true)}
+              disabled={exporting}
             >
               <Download className="h-4 w-4" />
               Exportar
