@@ -365,16 +365,61 @@ function PDVPage() {
   const scanInputRef = useRef<HTMLInputElement>(null);
   const manualSearchInputRef = useRef<HTMLInputElement>(null);
 
+  // Hierarquia de foco no PDV:
+  //   modal aberto > busca manual > popovers > input de código de barras.
+  // Esse helper consolida a verificação para que o input principal só
+  // recupere foco quando NENHUM fluxo prioritário estiver ativo.
+  const hasPriorityOverlay =
+    scannerOpen ||
+    clientePopoverOpen ||
+    searchPopoverOpen ||
+    confirmClear !== null ||
+    finalizarOpen ||
+    sucessoOpen ||
+    multDialogOpen ||
+    consultaPrecoOpen ||
+    quickView !== null;
+
   // Quando a busca manual abrir (clique ou F9), garante foco no campo de
-  // pesquisa imediatamente, sem precisar do mouse.
+  // pesquisa imediatamente, sem precisar do mouse. Usa retries (rAF + 2
+  // setTimeouts) porque o Popover do Radix monta o conteúdo de forma
+  // assíncrona e o autoFocus pode não pegar na primeira tentativa.
   useEffect(() => {
     if (!searchPopoverOpen) return;
-    const id = requestAnimationFrame(() => {
-      manualSearchInputRef.current?.focus();
-      manualSearchInputRef.current?.select();
-    });
-    return () => cancelAnimationFrame(id);
+    let cancelled = false;
+    const tryFocus = () => {
+      if (cancelled) return;
+      const el = manualSearchInputRef.current;
+      if (el && document.activeElement !== el) {
+        el.focus();
+        el.select?.();
+      }
+    };
+    // Tira o foco do input principal imediatamente para evitar que ele
+    // continue capturando teclas enquanto o popover monta.
+    if (document.activeElement === scanInputRef.current) {
+      scanInputRef.current?.blur();
+    }
+    const raf = requestAnimationFrame(tryFocus);
+    const t1 = setTimeout(tryFocus, 30);
+    const t2 = setTimeout(tryFocus, 120);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
   }, [searchPopoverOpen]);
+
+  // Quando o multiplicador abrir (F5), também tira o foco do input principal
+  // de imediato — o Dialog tem onOpenAutoFocus, mas blur-amos para garantir
+  // que o teclado não continue digitando no código de barras.
+  useEffect(() => {
+    if (!multDialogOpen) return;
+    if (document.activeElement === scanInputRef.current) {
+      scanInputRef.current?.blur();
+    }
+  }, [multDialogOpen]);
 
   // Foco automático no campo de leitura
   useEffect(() => {
@@ -382,21 +427,12 @@ function PDVPage() {
     return () => clearTimeout(t);
   }, []);
 
-  // Restaura foco quando abre/fecha popovers/dialogs
+  // Restaura foco somente quando NENHUM fluxo prioritário está ativo.
   useEffect(() => {
-    if (
-      !scannerOpen &&
-      !clientePopoverOpen &&
-      !searchPopoverOpen &&
-      !confirmClear &&
-      !finalizarOpen &&
-      !sucessoOpen &&
-      !multDialogOpen
-    ) {
-      const t = setTimeout(() => scanInputRef.current?.focus(), DEFAULT_FOCUS_DELAY);
-      return () => clearTimeout(t);
-    }
-  }, [scannerOpen, clientePopoverOpen, searchPopoverOpen, confirmClear, finalizarOpen, sucessoOpen, multDialogOpen]);
+    if (hasPriorityOverlay) return;
+    const t = setTimeout(() => scanInputRef.current?.focus(), DEFAULT_FOCUS_DELAY);
+    return () => clearTimeout(t);
+  }, [hasPriorityOverlay]);
 
   // ============ Totais ============
   const totals = useMemo(() => {
@@ -682,6 +718,12 @@ function PDVPage() {
         allowInInputs: true,
         handler: () => {
           flashHotkey("F5");
+          // Tira o foco do input principal AGORA — antes do modal montar —
+          // para evitar que o operador continue digitando no código de
+          // barras enquanto o multiplicador abre.
+          if (document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
+          }
           setMultDialogOpen(true);
         },
       },
@@ -698,6 +740,11 @@ function PDVPage() {
         allowInInputs: true,
         handler: () => {
           flashHotkey("F9");
+          // Mesma lógica do F5: blur imediato para liberar o teclado
+          // antes que o Popover de busca manual termine de montar.
+          if (document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
+          }
           setSearchPopoverOpen(true);
         },
       },
