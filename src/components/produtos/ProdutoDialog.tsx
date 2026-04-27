@@ -58,6 +58,10 @@ const produtoSchema = z.object({
   estoque_inicial: z.number().min(0),
   status: z.enum(["ativo", "inativo", "descontinuado"]),
   ncm: z.string().trim().max(10).optional().or(z.literal("")),
+  vendido_por_peso: z.boolean(),
+  plu: z.string().trim().max(20).optional().or(z.literal("")),
+  aceita_etiqueta_balanca: z.boolean(),
+  casas_decimais_quantidade: z.number().int().min(0).max(4),
 });
 
 interface ProdutoDialogProps {
@@ -78,6 +82,10 @@ const EMPTY = {
   estoque_minimo: 0, estoque_inicial: 0,
   status: "ativo" as "ativo" | "inativo" | "descontinuado",
   ncm: "",
+  vendido_por_peso: false,
+  plu: "",
+  aceita_etiqueta_balanca: false,
+  casas_decimais_quantidade: 3,
 };
 
 export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }: ProdutoDialogProps) {
@@ -90,6 +98,8 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
 
   useEffect(() => {
     if (open && produto) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const p = produto as any;
       setForm({
         sku: produto.sku,
         codigo_barras: produto.codigo_barras ?? "",
@@ -108,6 +118,10 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
         estoque_inicial: 0,
         status: produto.status,
         ncm: produto.ncm ?? "",
+        vendido_por_peso: Boolean(p.vendido_por_peso),
+        plu: p.plu ?? "",
+        aceita_etiqueta_balanca: Boolean(p.aceita_etiqueta_balanca),
+        casas_decimais_quantidade: Number(p.casas_decimais_quantidade ?? 3),
       });
     }
     if (open && !produtoId) {
@@ -159,6 +173,10 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
       estoque_inicial: isEdit ? 0 : parsed.data.estoque_inicial,
       status: parsed.data.status,
       ncm: parsed.data.ncm || null,
+      vendido_por_peso: parsed.data.vendido_por_peso,
+      plu: parsed.data.plu || null,
+      aceita_etiqueta_balanca: parsed.data.aceita_etiqueta_balanca,
+      casas_decimais_quantidade: parsed.data.casas_decimais_quantidade,
     };
     try {
       if (isEdit && produtoId) {
