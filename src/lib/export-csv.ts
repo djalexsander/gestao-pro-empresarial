@@ -183,11 +183,29 @@ export function csvFilename(prefix: string, ext: "csv" = "csv"): string {
   return `${prefix}_${y}-${m}-${day}.${ext}`;
 }
 
-export function exportRowsToCSV<T>(
+/**
+ * Exporta `rows` em CSV pt-BR já com cabeçalho institucional da empresa
+ * (nome, CNPJ, nome do relatório, período, data/hora) seguido de uma linha
+ * em branco antes dos cabeçalhos da tabela. É async, mas pode ser chamado
+ * sem `await` — os callers existentes continuam funcionando.
+ */
+export async function exportRowsToCSV<T>(
   prefix: string,
   rows: T[],
   columns: CsvColumn<T>[],
+  opts: { relatorio?: string; periodo?: string | null } = {},
 ) {
+  // Import dinâmico para evitar dependência circular (export-csv ↔ export-empresa-header).
+  const { fetchEmpresaHeader, montarCabecalhoCSV } = await import(
+    "@/lib/export-empresa-header"
+  );
+  const empresa = await fetchEmpresaHeader();
+  const cabecalho = montarCabecalhoCSV({
+    empresa,
+    relatorio: opts.relatorio ?? prefix,
+    periodo: opts.periodo ?? null,
+    exportadoEm: new Date(),
+  });
   const csv = toCSV(rows, columns);
-  downloadCSV(csvFilename(prefix), csv);
+  downloadCSV(csvFilename(prefix), cabecalho + csv);
 }

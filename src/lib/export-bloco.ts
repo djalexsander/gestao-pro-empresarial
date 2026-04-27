@@ -2,8 +2,15 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { toPng } from "html-to-image";
-import { exportRowsToCSV, type CsvColumn } from "@/lib/export-csv";
+import { toCSV, downloadCSV, csvFilename, type CsvColumn } from "@/lib/export-csv";
 import { applyPrintTheme, PRINT_THEME, waitForRenderReady } from "@/lib/export-png-theme";
+import {
+  fetchEmpresaHeader,
+  desenharCabecalhoPDF,
+  adicionarRodapePaginacao,
+  montarCabecalhoCSV,
+  criarCabecalhoPNGElement,
+} from "@/lib/export-empresa-header";
 
 function tsFilename(prefix: string, ext: string): string {
   const d = new Date();
@@ -21,29 +28,37 @@ export interface PdfTableSpec<T> {
 
 export interface ExportPdfOptions<T> {
   titulo: string;
+  /** Subtítulo opcional (ex.: "Origem: vendas finalizadas"). Renderizado abaixo do título. */
   subtitulo?: string;
+  /** Período legível (ex.: "01/04/2026 a 27/04/2026") — vai no cabeçalho da empresa. */
+  periodo?: string | null;
   resumo?: { label: string; valor: string }[];
   tabela?: PdfTableSpec<T>;
   rodape?: string;
 }
 
-export function exportarBlocoPDF<T>(opts: ExportPdfOptions<T>) {
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  const pageW = doc.internal.pageSize.getWidth();
+export async function exportarBlocoPDF<T>(opts: ExportPdfOptions<T>) {
+  const empresa = await fetchEmpresaHeader();
+  const exportadoEm = new Date();
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
-  doc.text(opts.titulo, 14, 18);
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+
+  // Cabeçalho institucional + título do relatório
+  let cursorY = desenharCabecalhoPDF(doc, {
+    empresa,
+    titulo: opts.titulo,
+    periodo: opts.periodo ?? null,
+    exportadoEm,
+  });
 
   if (opts.subtitulo) {
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.setTextColor(100);
-    doc.text(opts.subtitulo, 14, 24);
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(9);
+    doc.setTextColor(110);
+    doc.text(opts.subtitulo, 14, cursorY);
     doc.setTextColor(0);
+    cursorY += 5;
   }
-
-  let cursorY = 32;
 
   if (opts.resumo && opts.resumo.length) {
     autoTable(doc, {
@@ -71,29 +86,46 @@ export function exportarBlocoPDF<T>(opts: ExportPdfOptions<T>) {
     });
   }
 
-  const finalText = opts.rodape ?? `Gerado em ${new Date().toLocaleString("pt-BR")}`;
+  // Rodapé de geração + paginação (se mais de 1 página)
+  const finalText = opts.rodape ?? `Gerado em ${exportadoEm.toLocaleString("pt-BR")}`;
   doc.setFont("helvetica", "italic");
   doc.setFontSize(8);
   doc.setTextColor(120);
   doc.text(finalText, 14, doc.internal.pageSize.getHeight() - 8);
+  doc.setTextColor(0);
+
+  adicionarRodapePaginacao(doc);
 
   doc.save(tsFilename(slug(opts.titulo), "pdf"));
-  return pageW;
+  return doc.internal.pageSize.getWidth();
 }
 
-export async function exportarBlocoPNG(element: HTMLElement, prefix: string) {
-  // Clonamos o nó e aplicamos um tema "claro forçado" só na cópia, para que
-  // html-to-image gere um PNG legível (fundo branco, texto preto). O DOM
-  // visível ao usuário continua intocado.
+export interface ExportPngOptions {
+  titulo?: string;
+  periodo?: string | null;
+}
+
+/**
+ * Exporta o conteúdo do elemento como PNG, com cabeçalho da empresa no topo
+ * (logo, nome, CNPJ, período, data/hora). Usa tema claro forçado no clone
+ * para garantir legibilidade independente do tema do sistema.
+ */
+export async function exportarBlocoPNG(
+  element: HTMLElement,
+  prefix: string,
+  opts: ExportPngOptions = {},
+) {
+  const empresa = await fetchEmpresaHeader();
+  const exportadoEm = new Date();
+
+  // Clone do conteúdo (mantém o DOM visível intacto)
   const clone = element.cloneNode(true) as HTMLElement;
 
-  // Expande Radix ScrollArea: viewport tem overflow oculto e o conteúdo é limitado.
   clone.querySelectorAll<HTMLElement>("[data-radix-scroll-area-viewport]").forEach((el) => {
     el.style.overflow = "visible";
     el.style.maxHeight = "none";
     el.style.height = "auto";
   });
-  // Remove qualquer max-height/overflow restante em filhos
   clone.querySelectorAll<HTMLElement>("*").forEach((el) => {
     const cs = getComputedStyle(el);
     if (cs.overflow === "auto" || cs.overflow === "scroll" || cs.overflowX === "auto" || cs.overflowY === "auto") {
@@ -101,7 +133,6 @@ export async function exportarBlocoPNG(element: HTMLElement, prefix: string) {
     }
     if (el.style.maxHeight) el.style.maxHeight = "none";
   });
-  // Esconde as scrollbars decorativas do Radix
   clone.querySelectorAll<HTMLElement>("[data-radix-scroll-area-scrollbar]").forEach((el) => {
     el.style.display = "none";
   });
@@ -115,11 +146,20 @@ export async function exportarBlocoPNG(element: HTMLElement, prefix: string) {
   wrapper.style.background = PRINT_THEME.bg;
   wrapper.style.padding = "24px";
   wrapper.style.fontFamily = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+
+  // Cabeçalho institucional ANTES do conteúdo
+  const header = criarCabecalhoPNGElement({
+    empresa,
+    titulo: opts.titulo ?? prefix,
+    periodo: opts.periodo ?? null,
+    exportadoEm,
+  });
+  wrapper.appendChild(header);
+
   clone.style.width = "100%";
   wrapper.appendChild(clone);
   document.body.appendChild(wrapper);
 
-  // Aplica tema claro DEPOIS de anexar (precisamos de getComputedStyle).
   applyPrintTheme(wrapper);
   await waitForRenderReady();
 
@@ -143,8 +183,34 @@ export async function exportarBlocoPNG(element: HTMLElement, prefix: string) {
   }
 }
 
-export function exportarBlocoCSV<T>(prefix: string, rows: T[], cols: CsvColumn<T>[]) {
-  exportRowsToCSV(slug(prefix), rows, cols);
+export interface ExportCsvOptions {
+  /** Nome do relatório para constar no cabeçalho (ex.: "Custo dos produtos vendidos"). */
+  relatorio?: string;
+  periodo?: string | null;
+}
+
+/**
+ * Exporta as linhas como CSV pt-BR (BOM UTF-8, separador ";"), com cabeçalho
+ * institucional nas primeiras linhas (Empresa, CNPJ, Relatório, Período,
+ * Exportado em + linha em branco) antes do cabeçalho da tabela.
+ */
+export async function exportarBlocoCSV<T>(
+  prefix: string,
+  rows: T[],
+  cols: CsvColumn<T>[],
+  opts: ExportCsvOptions = {},
+) {
+  const empresa = await fetchEmpresaHeader();
+  const exportadoEm = new Date();
+
+  const cabecalho = montarCabecalhoCSV({
+    empresa,
+    relatorio: opts.relatorio ?? prefix,
+    periodo: opts.periodo ?? null,
+    exportadoEm,
+  });
+  const tabela = toCSV(rows, cols);
+  downloadCSV(csvFilename(slug(prefix)), cabecalho + tabela);
 }
 
 function slug(s: string): string {

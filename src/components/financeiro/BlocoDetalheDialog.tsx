@@ -48,6 +48,8 @@ export interface BlocoDetalheProps {
   titulo: string;
   subtitulo?: string;
   origem: string; // ex: "Vendas finalizadas no mês"
+  /** Período legível para constar no cabeçalho de exportação (ex.: "01/04/2026 a 27/04/2026"). */
+  periodo?: string | null;
   resumo: { label: string; valor: string; tone?: "success" | "danger" | "info" | "muted" }[];
   colunas: DetalheColumn[];
   rows: DetalheRow[];
@@ -105,6 +107,7 @@ export function BlocoDetalheDialog({
   titulo,
   subtitulo,
   origem,
+  periodo,
   resumo,
   colunas,
   rows,
@@ -128,12 +131,14 @@ export function BlocoDetalheDialog({
               : "text",
   }));
 
-  const handleCSV = () => exportarBlocoCSV(titulo, rows, csvCols);
+  const handleCSV = () =>
+    exportarBlocoCSV(titulo, rows, csvCols, { relatorio: titulo, periodo });
 
   const handlePDF = () =>
     exportarBlocoPDF({
       titulo,
       subtitulo: subtitulo ?? origem,
+      periodo,
       resumo: resumo.map((r) => ({ label: r.label, valor: r.valor })),
       tabela:
         rows.length > 0
@@ -147,7 +152,7 @@ export function BlocoDetalheDialog({
 
   const handlePNG = async () => {
     if (conteudoRef.current) {
-      await exportarBlocoPNG(conteudoRef.current, titulo);
+      await exportarBlocoPNG(conteudoRef.current, titulo, { titulo, periodo });
     }
   };
 
