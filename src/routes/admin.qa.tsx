@@ -14,7 +14,6 @@ import {
   ExternalLink,
   Upload,
 } from "lucide-react";
-import { MasterLayout } from "@/components/admin/MasterLayout";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";

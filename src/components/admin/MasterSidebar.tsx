@@ -14,6 +14,7 @@ import {
   Wallet,
   Settings2,
   Layers,
+  ClipboardCheck,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -47,6 +48,7 @@ const groups: NavGroup[] = [
     items: [
       { to: "/admin/estatisticas", label: "Estatísticas de uso", icon: BarChart3 },
       { to: "/admin/auditoria", label: "Auditoria", icon: ScrollText },
+      { to: "/admin/qa", label: "QA do Sistema", icon: ClipboardCheck },
     ],
   },
 ];
