@@ -283,28 +283,31 @@ function FinanceContent() {
     ? `${formatDate(ind.periodo.inicio)} a ${formatDate(ind.periodo.fim)}`
     : null;
 
-  const handleExportConsolidadoCSV = () =>
-    exportarBlocoCSV(
-      "financeiro_consolidado",
-      consolidado,
-      [
-        { header: "Indicador", accessor: (r: ConsolidadoRow) => r.indicador, type: "text" },
-        { header: "Quantidade", accessor: (r: ConsolidadoRow) => r.quantidade, type: "integer" },
-        { header: "Valor (R$)", accessor: (r: ConsolidadoRow) => r.valor, type: "currency" },
-      ],
-      { relatorio: "Financeiro — Resumo consolidado", periodo: periodoTexto },
-    );
-
-  const handleExportConsolidadoPDF = () =>
-    exportarBlocoPDF({
-      titulo: "Financeiro — Resumo consolidado",
-      periodo: periodoTexto,
-      tabela: {
-        header: ["Indicador", "Quantidade", "Valor"],
+  async function handleExportConsolidado(formato: ExportFormato) {
+    setExporting(true);
+    toast.loading("Gerando exportação...", { id: "export-fin" });
+    try {
+      await exportarRelatorioCard(formato, {
+        prefix: "financeiro_consolidado",
+        titulo: "Financeiro — Resumo consolidado",
+        periodo: periodoTexto,
         rows: consolidado,
-        formatRow: (r) => [r.indicador, String(r.quantidade), formatBRL(r.valor)],
-      },
-    });
+        columns: [
+          { header: "Indicador", accessor: (r: ConsolidadoRow) => r.indicador, type: "text" },
+          { header: "Quantidade", accessor: (r: ConsolidadoRow) => r.quantidade, type: "integer" },
+          { header: "Valor (R$)", accessor: (r: ConsolidadoRow) => r.valor, type: "currency" },
+        ],
+      });
+      toast.success("Exportação concluída.", { id: "export-fin" });
+      setExportOpen(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao exportar.", {
+        id: "export-fin",
+      });
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
