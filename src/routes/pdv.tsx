@@ -1216,9 +1216,11 @@ function PDVPage() {
                 <PopoverContent align="start" className="w-[420px] p-0">
                   <Command shouldFilter={false}>
                     <CommandInput
+                      ref={manualSearchInputRef}
                       value={manualQuery}
                       onValueChange={setManualQuery}
                       placeholder="Nome, SKU, código de barras…"
+                      autoFocus
                     />
                     <CommandList>
                       <CommandEmpty>
