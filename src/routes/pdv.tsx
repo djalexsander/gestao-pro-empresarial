@@ -1304,9 +1304,14 @@ function PDVPage() {
             </div>
             <div className="space-y-4 p-4">
               <div className="space-y-2 text-sm">
-                <Row label="Itens">
-                  <span className="tabular-nums">
-                    {items.length} <span className="text-muted-foreground">({totals.totalItens.toFixed(0)} un.)</span>
+                <Row label="Linhas">
+                  <span className="tabular-nums">{items.length}</span>
+                </Row>
+                <Row label="Unidades">
+                  <span className="tabular-nums text-muted-foreground">
+                    {totals.totalItens.toFixed(
+                      items.some((it) => it.vendido_por_peso) ? 3 : 0,
+                    )}
                   </span>
                 </Row>
                 <Row label="Subtotal">
