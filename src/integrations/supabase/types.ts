@@ -1677,6 +1677,188 @@ export type Database = {
           },
         ]
       }
+      qa_avaliacoes: {
+        Row: {
+          created_at: string
+          evidencia_url: string | null
+          id: string
+          item_id: string
+          observacao: string | null
+          status: Database["public"]["Enums"]["qa_status_avaliacao"]
+          testado_em: string | null
+          testado_por: string | null
+          testado_por_nome: string | null
+          updated_at: string
+          validacao_id: string
+        }
+        Insert: {
+          created_at?: string
+          evidencia_url?: string | null
+          id?: string
+          item_id: string
+          observacao?: string | null
+          status?: Database["public"]["Enums"]["qa_status_avaliacao"]
+          testado_em?: string | null
+          testado_por?: string | null
+          testado_por_nome?: string | null
+          updated_at?: string
+          validacao_id: string
+        }
+        Update: {
+          created_at?: string
+          evidencia_url?: string | null
+          id?: string
+          item_id?: string
+          observacao?: string | null
+          status?: Database["public"]["Enums"]["qa_status_avaliacao"]
+          testado_em?: string | null
+          testado_por?: string | null
+          testado_por_nome?: string | null
+          updated_at?: string
+          validacao_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "qa_avaliacoes_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "qa_itens"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "qa_avaliacoes_validacao_id_fkey"
+            columns: ["validacao_id"]
+            isOneToOne: false
+            referencedRelation: "qa_validacoes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      qa_itens: {
+        Row: {
+          ativo: boolean
+          created_at: string
+          critico: boolean
+          descricao: string | null
+          id: string
+          modulo_id: string
+          ordem: number
+          rota_link: string | null
+          severidade: Database["public"]["Enums"]["qa_severidade"]
+          titulo: string
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string
+          critico?: boolean
+          descricao?: string | null
+          id?: string
+          modulo_id: string
+          ordem?: number
+          rota_link?: string | null
+          severidade?: Database["public"]["Enums"]["qa_severidade"]
+          titulo: string
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string
+          critico?: boolean
+          descricao?: string | null
+          id?: string
+          modulo_id?: string
+          ordem?: number
+          rota_link?: string | null
+          severidade?: Database["public"]["Enums"]["qa_severidade"]
+          titulo?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "qa_itens_modulo_id_fkey"
+            columns: ["modulo_id"]
+            isOneToOne: false
+            referencedRelation: "qa_modulos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      qa_modulos: {
+        Row: {
+          ativo: boolean
+          chave: string
+          created_at: string
+          descricao: string | null
+          id: string
+          nome: string
+          ordem: number
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          chave: string
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          nome: string
+          ordem?: number
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          chave?: string
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          nome?: string
+          ordem?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      qa_validacoes: {
+        Row: {
+          created_at: string
+          finalizada_em: string | null
+          id: string
+          iniciada_em: string
+          observacao_final: string | null
+          responsavel_id: string | null
+          responsavel_nome: string | null
+          resumo: Json | null
+          status: Database["public"]["Enums"]["qa_validacao_status"]
+          titulo: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          finalizada_em?: string | null
+          id?: string
+          iniciada_em?: string
+          observacao_final?: string | null
+          responsavel_id?: string | null
+          responsavel_nome?: string | null
+          resumo?: Json | null
+          status?: Database["public"]["Enums"]["qa_validacao_status"]
+          titulo: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          finalizada_em?: string | null
+          id?: string
+          iniciada_em?: string
+          observacao_final?: string | null
+          responsavel_id?: string | null
+          responsavel_nome?: string | null
+          resumo?: Json | null
+          status?: Database["public"]["Enums"]["qa_validacao_status"]
+          titulo?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       system_modes: {
         Row: {
           ativo: boolean
@@ -2862,6 +3044,9 @@ export type Database = {
       pessoa_tipo: "PF" | "PJ"
       plano_tipo_cobranca: "mensal" | "anual" | "vitalicio"
       produto_status: "ativo" | "inativo" | "descontinuado"
+      qa_severidade: "critico" | "medio" | "leve"
+      qa_status_avaliacao: "nao_testado" | "ok" | "leve" | "medio" | "critico"
+      qa_validacao_status: "em_andamento" | "finalizada"
       system_mode_tipo: "admin" | "operador"
       venda_status:
         | "rascunho"
@@ -3067,6 +3252,9 @@ export const Constants = {
       pessoa_tipo: ["PF", "PJ"],
       plano_tipo_cobranca: ["mensal", "anual", "vitalicio"],
       produto_status: ["ativo", "inativo", "descontinuado"],
+      qa_severidade: ["critico", "medio", "leve"],
+      qa_status_avaliacao: ["nao_testado", "ok", "leve", "medio", "critico"],
+      qa_validacao_status: ["em_andamento", "finalizada"],
       system_mode_tipo: ["admin", "operador"],
       venda_status: [
         "rascunho",
