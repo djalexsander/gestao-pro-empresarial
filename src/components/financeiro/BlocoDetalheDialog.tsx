@@ -1,4 +1,3 @@
-import { useRef } from "react";
 import { Download, FileImage, FileText, Sheet } from "lucide-react";
 import {
   Dialog,
