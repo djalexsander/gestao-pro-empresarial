@@ -21,7 +21,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ModuloGate } from "@/components/saas/ModuloGate";
 import { supabase } from "@/integrations/supabase/client";
-import { exportRowsToCSV, type CsvColumn } from "@/lib/export-csv";
+import { type CsvColumn } from "@/lib/export-csv";
+import { ExportFormatDialog } from "@/components/shared/ExportFormatDialog";
+import {
+  exportarRelatorioCard,
+  type ExportFormato,
+} from "@/lib/export-relatorio-card";
 
 export const Route = createFileRoute("/relatorios")({
   head: () => ({
@@ -450,8 +455,10 @@ function ReportsPage() {
 function ReportsContent() {
   const navigate = useNavigate();
   const [exportingKey, setExportingKey] = useState<string | null>(null);
+  const [dialogReport, setDialogReport] = useState<Report | null>(null);
 
-  async function handleExport(r: Report) {
+  async function handleExport(r: Report, formato: ExportFormato) {
+    setDialogReport(null);
     setExportingKey(r.key);
     toast.loading("Gerando relatório...", { id: `export-${r.key}` });
     try {
@@ -460,7 +467,12 @@ function ReportsContent() {
         toast.warning("Sem dados para exportar.", { id: `export-${r.key}` });
         return;
       }
-      exportRowsToCSV(r.filenamePrefix, rows, columns);
+      await exportarRelatorioCard(formato, {
+        prefix: r.filenamePrefix,
+        titulo: r.title,
+        rows,
+        columns,
+      });
       toast.success("Download iniciado", { id: `export-${r.key}` });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Falha ao gerar relatório";
@@ -508,7 +520,7 @@ function ReportsContent() {
                     size="sm"
                     className="gap-1.5"
                     disabled={exporting}
-                    onClick={() => handleExport(r)}
+                    onClick={() => setDialogReport(r)}
                   >
                     {exporting ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -523,6 +535,14 @@ function ReportsContent() {
           );
         })}
       </div>
+
+      <ExportFormatDialog
+        open={dialogReport !== null}
+        onOpenChange={(o) => !o && setDialogReport(null)}
+        titulo={dialogReport?.title ?? ""}
+        loading={exportingKey !== null}
+        onChoose={(f) => dialogReport && handleExport(dialogReport, f)}
+      />
     </div>
   );
 }
