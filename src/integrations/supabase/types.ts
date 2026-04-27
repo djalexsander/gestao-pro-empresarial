@@ -1435,6 +1435,42 @@ export type Database = {
         }
         Relationships: []
       }
+      notificacao_estados: {
+        Row: {
+          created_at: string
+          deleted: boolean
+          deleted_at: string | null
+          id: string
+          notificacao_key: string
+          read: boolean
+          read_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          deleted?: boolean
+          deleted_at?: string | null
+          id?: string
+          notificacao_key: string
+          read?: boolean
+          read_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          deleted?: boolean
+          deleted_at?: string | null
+          id?: string
+          notificacao_key?: string
+          read?: boolean
+          read_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       pagamentos: {
         Row: {
           created_at: string
