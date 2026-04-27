@@ -1429,6 +1429,34 @@ function PDVPage() {
       {/* Acesso rápido (modal) — Produtos / Estoque / Compras sem sair do PDV */}
       <PdvQuickViewDialog view={quickView} onClose={() => setQuickView(null)} />
 
+      {/* Diálogo de peso para produtos vendidos por KG sem etiqueta da balança */}
+      <PesoDialog
+        open={!!pesoDialog}
+        onOpenChange={(o) => !o && setPesoDialog(null)}
+        produtoNome={pesoDialog?.nome ?? ""}
+        precoPorKg={pesoDialog?.preco_venda ?? 0}
+        casasDecimais={pesoDialog?.casas_decimais ?? 3}
+        onConfirm={(pesoKg) => {
+          if (!pesoDialog) return;
+          som.beep("ok");
+          addItemFromProduto(
+            {
+              produto_id: pesoDialog.produto_id,
+              sku: pesoDialog.sku,
+              nome: pesoDialog.nome,
+              unidade: "KG",
+              preco_venda: pesoDialog.preco_venda,
+            },
+            { quantidade: pesoKg, precoUnitario: pesoDialog.preco_venda, mergeable: false },
+          );
+          toast.success(
+            `+ ${pesoDialog.nome} • ${pesoKg.toFixed(3)} KG = R$ ${(pesoKg * pesoDialog.preco_venda).toFixed(2)}`,
+            { duration: 1800 },
+          );
+          setPesoDialog(null);
+        }}
+      />
+
       {/* Fechamento de caixa (acionado por Voltar/Encerrar) */}
       {caixaAberto && (
         <FecharCaixaDialog
