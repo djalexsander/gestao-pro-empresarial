@@ -270,14 +270,14 @@ function CaixaPage() {
               hint="inicial + dinheiro + suprim. − sangrias"
             />
             <StatCard
-              label="Suprimentos (entrou na gaveta)"
+              label="Suprimento de caixa"
               value={formatBRL(resumo?.total_suprimentos ?? 0)}
               icon={ArrowDownToLine}
               iconTone="info"
-              hint="Reforço de dinheiro físico — não é venda"
+              hint="Entrada de dinheiro físico — não é venda"
             />
             <StatCard
-              label="Sangrias (saiu da gaveta)"
+              label="Sangria de caixa"
               value={formatBRL(resumo?.total_sangrias ?? 0)}
               icon={ArrowUpFromLine}
               iconTone="danger"
