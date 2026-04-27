@@ -24,20 +24,24 @@ interface Props {
 
 const META = {
   sangria: {
-    title: "Sangria de caixa",
-    description: "Retirar dinheiro do caixa (ex.: enviar ao cofre, pagamento avulso).",
+    title: "Sangria — retirar dinheiro do caixa",
+    description:
+      "Retirada física de dinheiro da gaveta (ex.: envio ao cofre, troca de notas). Movimento operacional — não é despesa nem prejuízo.",
     icon: ArrowUpFromLine,
     tone: "text-destructive bg-destructive/10",
     button: "Confirmar sangria",
-    placeholder: "Ex.: envio ao cofre, pagamento de despesa",
+    placeholder: "Ex.: envio ao cofre, troca de notas grandes",
+    hint: "A sangria reduz o dinheiro físico esperado na gaveta no fechamento.",
   },
   suprimento: {
-    title: "Suprimento de caixa",
-    description: "Adicionar dinheiro ao caixa (reforço de troco).",
+    title: "Suprimento — adicionar dinheiro ao caixa",
+    description:
+      "Entrada física de dinheiro na gaveta (ex.: reforço de troco). Movimento operacional — não é venda nem receita.",
     icon: ArrowDownToLine,
     tone: "text-success bg-success/15",
     button: "Confirmar suprimento",
     placeholder: "Ex.: reforço de troco em notas pequenas",
+    hint: "O suprimento aumenta o dinheiro físico esperado na gaveta no fechamento.",
   },
 } as const;
 
@@ -110,6 +114,17 @@ export function MovimentoCaixaDialog({ open, onOpenChange, caixaId, tipo }: Prop
               placeholder={meta.placeholder}
               rows={2}
             />
+          </div>
+
+          <div
+            className={cn(
+              "rounded-md border p-3 text-xs",
+              tipo === "suprimento"
+                ? "border-success/30 bg-success/10 text-success"
+                : "border-destructive/30 bg-destructive/10 text-destructive",
+            )}
+          >
+            {meta.hint}
           </div>
 
           <DialogFooter>
