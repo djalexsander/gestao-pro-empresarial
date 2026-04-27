@@ -59,6 +59,7 @@ import { buscarProdutoPorPlu } from "@/hooks/useProdutoPorPlu";
 import { useBalancaConfig } from "@/hooks/useBalancaConfig";
 import { parseEtiquetaBalanca, calcularPesoEValor } from "@/lib/balanca";
 import { PesoDialog } from "@/components/pdv/PesoDialog";
+import { ConsultarPrecoDialog } from "@/components/pdv/ConsultarPrecoDialog";
 import { useScanner } from "@/hooks/useScanner";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { useProdutos } from "@/hooks/useProdutos";
@@ -182,6 +183,7 @@ function PDVPage() {
   const [busy, setBusy] = useState(false);
   const [items, setItems] = useState<VendaItem[]>([]);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [consultaPrecoOpen, setConsultaPrecoOpen] = useState(false);
   const [confirmClear, setConfirmClear] = useState<null | "clear" | "cancel">(
     null,
   );
@@ -605,6 +607,14 @@ function PDVPage() {
         },
       },
       {
+        key: "F6",
+        allowInInputs: true,
+        handler: () => {
+          flashHotkey("F6");
+          setConsultaPrecoOpen(true);
+        },
+      },
+      {
         key: "F9",
         allowInInputs: true,
         handler: () => {
@@ -641,7 +651,12 @@ function PDVPage() {
       // Escopo "page": atalhos do PDV ficam suspensos automaticamente
       // enquanto qualquer modal (Finalizar, Sucesso, Scanner) estiver no
       // topo do stack. Os guards abaixo são redundância defensiva.
-      enabled: !finalizarOpen && !sucessoOpen && !scannerOpen && !quickView,
+      enabled:
+        !finalizarOpen &&
+        !sucessoOpen &&
+        !scannerOpen &&
+        !quickView &&
+        !consultaPrecoOpen,
       scope: "page",
     },
   );
@@ -813,6 +828,8 @@ function PDVPage() {
                 )}
                 <PdvKbd flash={hotkeyFlash === "F4"}>F4</PdvKbd>
                 <span>cliente</span>
+                <PdvKbd flash={hotkeyFlash === "F6"}>F6</PdvKbd>
+                <span>preço</span>
                 <PdvKbd flash={hotkeyFlash === "F7"}>F7</PdvKbd>
                 <span>nova</span>
                 <PdvKbd flash={hotkeyFlash === "F8"}>F8</PdvKbd>
