@@ -267,7 +267,7 @@ function CaixaPage() {
               value={formatBRL(resumo?.valor_esperado ?? 0)}
               icon={Calculator}
               iconTone="success"
-              hint="inicial + dinheiro + suprim. − sangrias"
+              hint="inicial + dinheiro + suprimento − sangria"
             />
             <StatCard
               label="Suprimento de caixa"
