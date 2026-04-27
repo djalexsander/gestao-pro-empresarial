@@ -1446,6 +1446,16 @@ function PDVPage() {
       {/* Acesso rápido (modal) — Produtos / Estoque / Compras sem sair do PDV */}
       <PdvQuickViewDialog view={quickView} onClose={() => setQuickView(null)} />
 
+      {/* Consulta de preço (F6) — somente leitura, não altera venda/estoque */}
+      <ConsultarPrecoDialog
+        open={consultaPrecoOpen}
+        onOpenChange={setConsultaPrecoOpen}
+        balancaConfig={balancaCfg ?? null}
+        onClosed={() => {
+          setTimeout(() => scanInputRef.current?.focus(), DEFAULT_FOCUS_DELAY);
+        }}
+      />
+
       {/* Diálogo de peso para produtos vendidos por KG sem etiqueta da balança */}
       <PesoDialog
         open={!!pesoDialog}
