@@ -586,7 +586,21 @@ function ResumoAcessoCard({
 /* =========================================================
  * Card de módulo (reutilizado nas duas seções)
  * =======================================================*/
-function StatusBadgeMod({ status }: { status: string }) {
+function StatusBadgeMod({
+  status,
+  isTrial,
+}: {
+  status: string;
+  isTrial: boolean;
+}) {
+  // Durante o trial, todos os módulos são liberados temporariamente.
+  if (isTrial && status !== "cancelado") {
+    return (
+      <Badge className="gap-1 bg-blue-500 hover:bg-blue-600">
+        <Sparkles className="h-3 w-3" /> Ativo (temporário)
+      </Badge>
+    );
+  }
   if (status === "ativo")
     return (
       <Badge className="gap-1 bg-emerald-500 hover:bg-emerald-600">
@@ -608,20 +622,34 @@ function StatusBadgeMod({ status }: { status: string }) {
   );
 }
 
-function ModuloCard({ modulo }: { modulo: ModuloDisponivelCliente }) {
+function ModuloCard({
+  modulo,
+  isTrial,
+}: {
+  modulo: ModuloDisponivelCliente;
+  isTrial: boolean;
+}) {
   const solicitar = useSolicitarModulo();
   const isContratado =
     modulo.status === "ativo" || modulo.status === "pendente";
 
   return (
-    <Card className={modulo.status === "ativo" ? "border-emerald-500/30" : ""}>
+    <Card
+      className={
+        isTrial
+          ? "border-blue-500/30"
+          : modulo.status === "ativo"
+            ? "border-emerald-500/30"
+            : ""
+      }
+    >
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <CardTitle className="flex items-center gap-2 text-lg">
             <Puzzle className="h-4 w-4 text-primary" />
             {modulo.nome}
           </CardTitle>
-          <StatusBadgeMod status={modulo.status} />
+          <StatusBadgeMod status={modulo.status} isTrial={isTrial} />
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -636,7 +664,14 @@ function ModuloCard({ modulo }: { modulo: ModuloDisponivelCliente }) {
           <span className="text-xs text-muted-foreground">/mês</span>
         </div>
 
-        {modulo.data_expiracao && modulo.status === "ativo" && (
+        {isTrial && !isContratado && (
+          <p className="text-xs text-blue-600 dark:text-blue-400">
+            Liberado durante o teste gratuito. Contrate para manter o acesso ao
+            final do trial.
+          </p>
+        )}
+
+        {modulo.data_expiracao && modulo.status === "ativo" && !isTrial && (
           <p className="text-xs text-muted-foreground">
             Válido até{" "}
             {new Date(modulo.data_expiracao).toLocaleDateString("pt-BR")}
@@ -658,7 +693,9 @@ function ModuloCard({ modulo }: { modulo: ModuloDisponivelCliente }) {
         {!isContratado && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button className="w-full">Contratar módulo</Button>
+              <Button className="w-full">
+                {isTrial ? "Selecionar para contratar" : "Contratar módulo"}
+              </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
@@ -666,7 +703,10 @@ function ModuloCard({ modulo }: { modulo: ModuloDisponivelCliente }) {
                   Solicitar contratação: {modulo.nome}
                 </AlertDialogTitle>
                 <AlertDialogDescription>
-                  Será criada uma solicitação de pagamento no valor de{" "}
+                  {isTrial
+                    ? "Você está em período de teste — nenhuma cobrança é gerada agora. A solicitação ficará registrada e o módulo continuará ativo após a contratação do Plano Base."
+                    : null}
+                  {" "}Será criada uma solicitação de pagamento no valor de{" "}
                   <strong>{fmtBRL(modulo.valor)}</strong>. Nossa equipe entrará
                   em contato para confirmar o pagamento e ativar o módulo.
                 </AlertDialogDescription>
