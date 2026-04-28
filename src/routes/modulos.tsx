@@ -753,6 +753,7 @@ function PlanoCard({
   destaque: boolean;
 }) {
   const solicitar = useSolicitarPlano();
+  const [cobranca, setCobranca] = useState<CobrancaResult | null>(null);
 
   return (
     <Card
@@ -826,7 +827,10 @@ function PlanoCard({
             <AlertDialogFooter>
               <AlertDialogCancel>Cancelar</AlertDialogCancel>
               <AlertDialogAction
-                onClick={() => solicitar.mutate(plano.id)}
+                onClick={async () => {
+                  const r = await solicitar.mutateAsync(plano.id);
+                  if (r.cobranca) setCobranca(r.cobranca);
+                }}
                 disabled={solicitar.isPending}
               >
                 {solicitar.isPending && (
@@ -838,6 +842,11 @@ function PlanoCard({
           </AlertDialogContent>
         </AlertDialog>
       </CardContent>
+      <CobrancaPixDialog
+        open={!!cobranca}
+        onOpenChange={(v) => !v && setCobranca(null)}
+        cobranca={cobranca}
+      />
     </Card>
   );
 }
