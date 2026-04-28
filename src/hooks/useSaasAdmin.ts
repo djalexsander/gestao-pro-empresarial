@@ -96,6 +96,8 @@ export type ConfigComercial = {
   permitir_modulos_no_trial: boolean;
   plano_padrao_id: string | null;
   valor_padrao_sistema: number;
+  asaas_enabled: boolean;
+  asaas_ambiente: "sandbox" | "producao";
   updated_at: string;
 };
 
@@ -425,12 +427,16 @@ export function useSetConfigComercial() {
       permitir_modulos_no_trial: boolean;
       plano_padrao_id: string | null;
       valor_padrao_sistema: number;
+      asaas_enabled?: boolean;
+      asaas_ambiente?: "sandbox" | "producao";
     }) => {
       const { error } = await (supabase.rpc as any)("admin_set_config_comercial", {
         _dias_trial: input.dias_trial,
         _permitir_modulos_no_trial: input.permitir_modulos_no_trial,
         _plano_padrao_id: input.plano_padrao_id,
         _valor_padrao_sistema: input.valor_padrao_sistema,
+        _asaas_enabled: input.asaas_enabled ?? null,
+        _asaas_ambiente: input.asaas_ambiente ?? null,
       });
       if (error) throw error;
     },

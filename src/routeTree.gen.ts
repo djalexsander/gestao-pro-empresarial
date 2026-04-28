@@ -48,6 +48,7 @@ import { Route as AdminEmpresasRouteImport } from './routes/admin.empresas'
 import { Route as AdminConfigComercialRouteImport } from './routes/admin.config-comercial'
 import { Route as AdminAuditoriaRouteImport } from './routes/admin.auditoria'
 import { Route as AdminAssinaturasRouteImport } from './routes/admin.assinaturas'
+import { Route as ApiPublicWebhooksAsaasRouteImport } from './routes/api/public/webhooks/asaas'
 
 const VendasRoute = VendasRouteImport.update({
   id: '/vendas',
@@ -244,6 +245,11 @@ const AdminAssinaturasRoute = AdminAssinaturasRouteImport.update({
   path: '/assinaturas',
   getParentRoute: () => AdminRoute,
 } as any)
+const ApiPublicWebhooksAsaasRoute = ApiPublicWebhooksAsaasRouteImport.update({
+  id: '/api/public/webhooks/asaas',
+  path: '/api/public/webhooks/asaas',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -285,6 +291,7 @@ export interface FileRoutesByFullPath {
   '/relatorios/fluxo-caixa': typeof RelatoriosFluxoCaixaRoute
   '/relatorios/vendas': typeof RelatoriosVendasRoute
   '/admin/': typeof AdminIndexRoute
+  '/api/public/webhooks/asaas': typeof ApiPublicWebhooksAsaasRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -325,6 +332,7 @@ export interface FileRoutesByTo {
   '/relatorios/fluxo-caixa': typeof RelatoriosFluxoCaixaRoute
   '/relatorios/vendas': typeof RelatoriosVendasRoute
   '/admin': typeof AdminIndexRoute
+  '/api/public/webhooks/asaas': typeof ApiPublicWebhooksAsaasRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -367,6 +375,7 @@ export interface FileRoutesById {
   '/relatorios/fluxo-caixa': typeof RelatoriosFluxoCaixaRoute
   '/relatorios/vendas': typeof RelatoriosVendasRoute
   '/admin/': typeof AdminIndexRoute
+  '/api/public/webhooks/asaas': typeof ApiPublicWebhooksAsaasRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -410,6 +419,7 @@ export interface FileRouteTypes {
     | '/relatorios/fluxo-caixa'
     | '/relatorios/vendas'
     | '/admin/'
+    | '/api/public/webhooks/asaas'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -450,6 +460,7 @@ export interface FileRouteTypes {
     | '/relatorios/fluxo-caixa'
     | '/relatorios/vendas'
     | '/admin'
+    | '/api/public/webhooks/asaas'
   id:
     | '__root__'
     | '/'
@@ -491,6 +502,7 @@ export interface FileRouteTypes {
     | '/relatorios/fluxo-caixa'
     | '/relatorios/vendas'
     | '/admin/'
+    | '/api/public/webhooks/asaas'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -512,6 +524,7 @@ export interface RootRouteChildren {
   ProdutosRoute: typeof ProdutosRoute
   RelatoriosRoute: typeof RelatoriosRouteWithChildren
   VendasRoute: typeof VendasRoute
+  ApiPublicWebhooksAsaasRoute: typeof ApiPublicWebhooksAsaasRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -789,6 +802,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminAssinaturasRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/api/public/webhooks/asaas': {
+      id: '/api/public/webhooks/asaas'
+      path: '/api/public/webhooks/asaas'
+      fullPath: '/api/public/webhooks/asaas'
+      preLoaderRoute: typeof ApiPublicWebhooksAsaasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -871,6 +891,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProdutosRoute: ProdutosRoute,
   RelatoriosRoute: RelatoriosRouteWithChildren,
   VendasRoute: VendasRoute,
+  ApiPublicWebhooksAsaasRoute: ApiPublicWebhooksAsaasRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
