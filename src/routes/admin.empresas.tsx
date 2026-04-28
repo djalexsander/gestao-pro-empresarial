@@ -34,9 +34,6 @@ export const Route = createFileRoute("/admin/empresas")({
   component: AdminEmpresasPage,
 });
 
-const fmtBRL = (n: number) =>
-  Number(n ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-
 function AdminEmpresasPage() {
   const { data: empresas = [], isLoading } = useAdminEmpresas();
   const setStatus = useSetEmpresaStatus();
@@ -101,20 +98,17 @@ function AdminEmpresasPage() {
                 <TableHead>Status</TableHead>
                 <TableHead>Plano</TableHead>
                 <TableHead className="text-right">Usuários</TableHead>
-                <TableHead className="text-right">Produtos</TableHead>
-                <TableHead className="text-right">Vendas</TableHead>
-                <TableHead className="text-right">Volume vendas</TableHead>
                 <TableHead>Cadastro</TableHead>
                 <TableHead className="w-12" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading && (
-                <TableRow><TableCell colSpan={9} className="py-10 text-center text-muted-foreground">Carregando...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="py-10 text-center text-muted-foreground">Carregando...</TableCell></TableRow>
               )}
               {!isLoading && filtradas.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="py-12 text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
                     <Building2 className="mx-auto mb-2 h-8 w-8 opacity-50" />
                     Nenhuma empresa encontrada.
                   </TableCell>
@@ -132,11 +126,6 @@ function AdminEmpresasPage() {
                   <TableCell><EmpresaStatusBadge status={e.status} /></TableCell>
                   <TableCell><PlanoBadge plano={e.plano} /></TableCell>
                   <TableCell className="text-right tabular-nums">{e.total_usuarios}</TableCell>
-                  <TableCell className="text-right tabular-nums">{e.total_produtos}</TableCell>
-                  <TableCell className="text-right tabular-nums">{e.total_vendas}</TableCell>
-                  <TableCell className="text-right tabular-nums text-success">
-                    {fmtBRL(Number(e.volume_vendas))}
-                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {new Date(e.created_at).toLocaleDateString("pt-BR")}
                   </TableCell>

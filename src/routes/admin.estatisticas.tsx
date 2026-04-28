@@ -16,21 +16,18 @@ export const Route = createFileRoute("/admin/estatisticas")({
   component: AdminEstatisticasPage,
 });
 
-const fmtBRL = (n: number) =>
-  Number(n ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-
 function AdminEstatisticasPage() {
   const { data: empresas = [], isLoading } = useAdminEmpresas();
 
-  const rankingVendas = useMemo(
+  const rankingUsuarios = useMemo(
     () => [...empresas]
-      .sort((a, b) => Number(b.volume_vendas) - Number(a.volume_vendas))
+      .sort((a, b) => Number(b.total_usuarios) - Number(a.total_usuarios))
       .slice(0, 10)
-      .map((e) => ({ nome: e.nome.slice(0, 20), valor: Number(e.volume_vendas) })),
+      .map((e) => ({ nome: e.nome.slice(0, 20), valor: Number(e.total_usuarios) })),
     [empresas]
   );
 
-  const rankingMov = useMemo(
+  const rankingAtividade = useMemo(
     () => [...empresas]
       .sort((a, b) => Number(b.total_movimentacoes) - Number(a.total_movimentacoes))
       .slice(0, 10)
@@ -42,20 +39,20 @@ function AdminEstatisticasPage() {
     <div className="space-y-6">
       <PageHeader
         title="Estatísticas de uso"
-        description="Métricas agregadas por empresa. Não exibimos conteúdo interno (produtos, vendas, clientes específicos)."
+        description="Métricas operacionais agregadas. Não exibimos conteúdo interno (vendas, valores, clientes, produtos)."
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Top 10 — Volume de vendas</CardTitle>
+            <CardTitle className="text-base">Top 10 — Usuários por empresa</CardTitle>
           </CardHeader>
           <CardContent className="h-[320px]">
-            {rankingVendas.length === 0 ? (
+            {rankingUsuarios.length === 0 ? (
               <Empty />
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={rankingVendas} layout="vertical" margin={{ left: 8, right: 16 }}>
+                <BarChart data={rankingUsuarios} layout="vertical" margin={{ left: 8, right: 16 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.92 0.012 255)" horizontal={false} />
                   <XAxis type="number" fontSize={11} tickLine={false} axisLine={false} />
                   <YAxis type="category" dataKey="nome" fontSize={11} tickLine={false} axisLine={false} width={130} />
@@ -69,14 +66,14 @@ function AdminEstatisticasPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Top 10 — Movimentações de estoque</CardTitle>
+            <CardTitle className="text-base">Top 10 — Atividade no sistema</CardTitle>
           </CardHeader>
           <CardContent className="h-[320px]">
-            {rankingMov.length === 0 ? (
+            {rankingAtividade.length === 0 ? (
               <Empty />
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={rankingMov} layout="vertical" margin={{ left: 8, right: 16 }}>
+                <BarChart data={rankingAtividade} layout="vertical" margin={{ left: 8, right: 16 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.92 0.012 255)" horizontal={false} />
                   <XAxis type="number" fontSize={11} tickLine={false} axisLine={false} />
                   <YAxis type="category" dataKey="nome" fontSize={11} tickLine={false} axisLine={false} width={130} />
@@ -91,7 +88,7 @@ function AdminEstatisticasPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Ranking completo por uso</CardTitle>
+          <CardTitle className="text-base">Ranking por uso da plataforma</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <Table>
@@ -101,25 +98,21 @@ function AdminEstatisticasPage() {
                 <TableHead>Empresa</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Plano</TableHead>
-                <TableHead className="text-right">Produtos</TableHead>
-                <TableHead className="text-right">Compras</TableHead>
-                <TableHead className="text-right">Vendas</TableHead>
-                <TableHead className="text-right">Movimentações</TableHead>
-                <TableHead className="text-right">Volume vendas</TableHead>
-                <TableHead className="text-right">Volume compras</TableHead>
+                <TableHead className="text-right">Usuários</TableHead>
+                <TableHead className="text-right">Atividade</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading && (
-                <TableRow><TableCell colSpan={10} className="py-10 text-center text-muted-foreground">Carregando...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="py-10 text-center text-muted-foreground">Carregando...</TableCell></TableRow>
               )}
               {!isLoading && empresas.length === 0 && (
-                <TableRow><TableCell colSpan={10} className="py-10 text-center text-muted-foreground">Sem empresas cadastradas.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="py-10 text-center text-muted-foreground">Sem empresas cadastradas.</TableCell></TableRow>
               )}
               {[...empresas]
                 .sort((a, b) =>
-                  (Number(b.volume_vendas) + Number(b.total_movimentacoes)) -
-                  (Number(a.volume_vendas) + Number(a.total_movimentacoes))
+                  (Number(b.total_usuarios) + Number(b.total_movimentacoes)) -
+                  (Number(a.total_usuarios) + Number(a.total_movimentacoes))
                 )
                 .map((e, i) => (
                   <TableRow key={e.id}>
@@ -127,12 +120,8 @@ function AdminEstatisticasPage() {
                     <TableCell className="font-medium">{e.nome}</TableCell>
                     <TableCell><EmpresaStatusBadge status={e.status} /></TableCell>
                     <TableCell><PlanoBadge plano={e.plano} /></TableCell>
-                    <TableCell className="text-right tabular-nums">{e.total_produtos}</TableCell>
-                    <TableCell className="text-right tabular-nums">{e.total_compras}</TableCell>
-                    <TableCell className="text-right tabular-nums">{e.total_vendas}</TableCell>
+                    <TableCell className="text-right tabular-nums">{e.total_usuarios}</TableCell>
                     <TableCell className="text-right tabular-nums">{e.total_movimentacoes}</TableCell>
-                    <TableCell className="text-right tabular-nums text-success">{fmtBRL(Number(e.volume_vendas))}</TableCell>
-                    <TableCell className="text-right tabular-nums text-info">{fmtBRL(Number(e.volume_compras))}</TableCell>
                   </TableRow>
                 ))}
             </TableBody>
