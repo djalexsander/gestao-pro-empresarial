@@ -51,6 +51,7 @@ const tipoLabel: Record<string, string> = {
 function PlanosClientePage() {
   const { data: assinatura } = useMinhaAssinatura();
   const { data: planos = [], isLoading } = usePlanosDisponiveis();
+  const isTrial = assinatura?.status === "trial" && !assinatura?.readonly;
 
   return (
     <div className="space-y-6">
