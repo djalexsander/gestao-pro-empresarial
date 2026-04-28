@@ -452,9 +452,12 @@ export function useSetConfigComercial() {
  * MINHA ASSINATURA (usado pelo ERP)
  * =======================================================*/
 export type MinhaAssinatura = {
-  status: AssinaturaStatus;
+  status: AssinaturaStatus | "active" | "pending_payment" | "overdue" | "expired" | "canceled";
   readonly: boolean;
+  limited?: boolean;
   dias_restantes: number;
+  dias_atraso?: number;
+  tem_pendente?: boolean;
   data_inicio?: string | null;
   data_expiracao?: string | null;
   plano_id?: string | null;
