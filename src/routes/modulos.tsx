@@ -84,8 +84,16 @@ function MeuPlanoPage() {
   const { data: modulos = [], isLoading: loadingMods } =
     useModulosDisponiveisCliente();
 
-  const planoAtual = planos.find((p) => p.atual) ?? null;
-  const planosOutros = planos.filter((p) => !p.atual);
+  const effectiveStatus = getEffectivePlanStatus(assinatura);
+  const isTrial = effectiveStatus === "trial";
+  const isActive = effectiveStatus === "active";
+
+  // Durante o trial, NUNCA tratamos o plano padrão como "plano atual contratado".
+  // Só consideramos plano atual quando a assinatura está realmente ativa.
+  const planoAtual = isActive ? (planos.find((p) => p.atual) ?? null) : null;
+  const planosOutros = isActive
+    ? planos.filter((p) => !p.atual)
+    : planos;
 
   const modulosAtivos = modulos.filter(
     (m) => m.status === "ativo" || m.status === "pendente",
@@ -98,19 +106,28 @@ function MeuPlanoPage() {
     <div className="space-y-8">
       <PageHeader
         title="Meu Plano"
-        description="Plano Base e módulos adicionais contratados pela sua empresa."
+        description={
+          isTrial
+            ? "Você está no período de teste gratuito. Nenhuma cobrança é gerada durante o trial."
+            : "Plano Base e módulos adicionais contratados pela sua empresa."
+        }
       />
 
-      {/* === Card do plano atual === */}
+      {/* === Card do plano atual / trial / bloqueado === */}
       {loadingAssin || loadingPlanos ? (
         <Skeleton className="h-[260px] rounded-xl" />
       ) : (
-        <PlanoAtualCard plano={planoAtual} assinatura={assinatura} />
+        <PlanoAtualCard
+          plano={planoAtual}
+          assinatura={assinatura}
+          effectiveStatus={effectiveStatus}
+        />
       )}
 
       {/* === Resumo visual do acesso === */}
-      {!loadingAssin && !loadingMods && (
+      {!loadingAssin && !loadingMods && effectiveStatus !== "expired" && effectiveStatus !== "canceled" && (
         <ResumoAcessoCard
+          isTrial={isTrial}
           temPlano={!!planoAtual}
           qtdModulos={modulosAtivos.filter((m) => m.status === "ativo").length}
         />
