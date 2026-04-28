@@ -101,20 +101,17 @@ function AdminEmpresasPage() {
                 <TableHead>Status</TableHead>
                 <TableHead>Plano</TableHead>
                 <TableHead className="text-right">Usuários</TableHead>
-                <TableHead className="text-right">Produtos</TableHead>
-                <TableHead className="text-right">Vendas</TableHead>
-                <TableHead className="text-right">Volume vendas</TableHead>
                 <TableHead>Cadastro</TableHead>
                 <TableHead className="w-12" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading && (
-                <TableRow><TableCell colSpan={9} className="py-10 text-center text-muted-foreground">Carregando...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="py-10 text-center text-muted-foreground">Carregando...</TableCell></TableRow>
               )}
               {!isLoading && filtradas.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="py-12 text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
                     <Building2 className="mx-auto mb-2 h-8 w-8 opacity-50" />
                     Nenhuma empresa encontrada.
                   </TableCell>
