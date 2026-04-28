@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, AlertTriangle, QrCode } from "lucide-react";
+import { Plus, Trash2, AlertTriangle, QrCode, Sparkles, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,9 @@ import {
   type ProdutoInput,
   type TipoIdentificacao,
 } from "@/hooks/useProdutos";
-import { CodeInput, QrPreview } from "@/components/scanner";
+import { CodeInput, QrPreview, BarcodePreview } from "@/components/scanner";
+import { gerarEan13, validarEan13 } from "@/lib/barcode";
+import { EtiquetaImpressaoDialog } from "@/components/produtos/EtiquetaImpressaoDialog";
 import { CategoriaCombobox } from "@/components/produtos/CategoriaCombobox";
 import {
   useAddProdutoCodigo,
@@ -95,6 +97,7 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
   const updateMut = useUpdateProduto();
 
   const [form, setForm] = useState(EMPTY);
+  const [etiquetaOpen, setEtiquetaOpen] = useState(false);
 
   useEffect(() => {
     if (open && produto) {
@@ -286,8 +289,38 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="ean">Código de barras</Label>
+            <div className="space-y-2 rounded-lg border border-border p-4">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="ean">Código de barras</Label>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5"
+                    onClick={() => {
+                      let novo = gerarEan13("200");
+                      // tentativa simples de evitar repetir o já existente
+                      if (form.codigo_barras.trim() === novo) novo = gerarEan13("200");
+                      setForm({ ...form, codigo_barras: novo });
+                      toast.success("Código EAN-13 gerado.");
+                    }}
+                  >
+                    <Sparkles className="h-3.5 w-3.5" /> Gerar EAN-13
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5"
+                    disabled={!form.codigo_barras.trim()}
+                    onClick={() => setEtiquetaOpen(true)}
+                  >
+                    <Printer className="h-3.5 w-3.5" /> Imprimir etiqueta
+                  </Button>
+                </div>
+              </div>
+
               <CodeInput
                 id="ean"
                 value={form.codigo_barras}
@@ -296,6 +329,23 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
                 buttonIcon="barcode"
                 placeholder="EAN-13, Code-128, etc."
               />
+
+              {form.codigo_barras.trim() ? (
+                <div className="flex flex-col items-center gap-1 pt-1">
+                  <BarcodePreview
+                    value={form.codigo_barras.trim()}
+                    filename={`barcode-${form.sku || "produto"}.png`}
+                  />
+                  {validarEan13(form.codigo_barras.trim()) && (
+                    <p className="text-xs text-success">EAN-13 válido ✓</p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Digite um código manual, escaneie com a câmera ou clique em
+                  <span className="font-medium"> Gerar EAN-13</span> para criar um código interno.
+                </p>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -458,6 +508,17 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
             {busy ? "Salvando..." : isEdit ? "Salvar alterações" : "Cadastrar produto"}
           </Button>
         </DialogFooter>
+
+        <EtiquetaImpressaoDialog
+          open={etiquetaOpen}
+          onOpenChange={setEtiquetaOpen}
+          produto={{
+            nome: form.nome || "Produto",
+            codigo: form.codigo_barras.trim(),
+            preco: form.preco_venda || null,
+            sku: form.sku || null,
+          }}
+        />
       </DialogContent>
     </Dialog>
   );
