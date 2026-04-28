@@ -844,6 +844,7 @@ export type Database = {
       }
       empresas: {
         Row: {
+          asaas_customer_id: string | null
           bloqueada_em: string | null
           bloqueada_motivo: string | null
           created_at: string
@@ -859,6 +860,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          asaas_customer_id?: string | null
           bloqueada_em?: string | null
           bloqueada_motivo?: string | null
           created_at?: string
@@ -874,6 +876,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          asaas_customer_id?: string | null
           bloqueada_em?: string | null
           bloqueada_motivo?: string | null
           created_at?: string
@@ -1512,8 +1515,12 @@ export type Database = {
       }
       pagamentos: {
         Row: {
+          asaas_billing_type: string | null
           asaas_customer_id: string | null
+          asaas_invoice_url: string | null
           asaas_payment_id: string | null
+          asaas_pix_copia_cola: string | null
+          asaas_pix_qrcode: string | null
           created_at: string
           data_pagamento: string | null
           data_vencimento: string | null
@@ -1532,8 +1539,12 @@ export type Database = {
           valor: number
         }
         Insert: {
+          asaas_billing_type?: string | null
           asaas_customer_id?: string | null
+          asaas_invoice_url?: string | null
           asaas_payment_id?: string | null
+          asaas_pix_copia_cola?: string | null
+          asaas_pix_qrcode?: string | null
           created_at?: string
           data_pagamento?: string | null
           data_vencimento?: string | null
@@ -1552,8 +1563,12 @@ export type Database = {
           valor?: number
         }
         Update: {
+          asaas_billing_type?: string | null
           asaas_customer_id?: string | null
+          asaas_invoice_url?: string | null
           asaas_payment_id?: string | null
+          asaas_pix_copia_cola?: string | null
+          asaas_pix_qrcode?: string | null
           created_at?: string
           data_pagamento?: string | null
           data_vencimento?: string | null
