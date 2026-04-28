@@ -133,6 +133,9 @@ function PlanosClientePage() {
           </Button>
         </CardContent>
       </Card>
+
+      <CartFloatingButton />
+      <CartDrawer />
     </div>
   );
 }
