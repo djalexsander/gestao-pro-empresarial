@@ -253,6 +253,23 @@ export function ProductsPage() {
                                         variant="ghost"
                                         size="icon"
                                         className="h-8 w-8"
+                                        title={p.codigo_barras ? "Imprimir etiqueta" : "Cadastre/gere um código de barras primeiro"}
+                                        disabled={!p.codigo_barras}
+                                        onClick={() =>
+                                          setEtiquetaProduto({
+                                            nome: p.nome,
+                                            codigo: p.codigo_barras ?? "",
+                                            preco: Number(p.preco_venda) || null,
+                                            sku: p.sku,
+                                          })
+                                        }
+                                      >
+                                        <Printer className="h-3.5 w-3.5" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8"
                                         onClick={() => openEdit(p.id)}
                                       >
                                         <Pencil className="h-3.5 w-3.5" />
@@ -284,7 +301,11 @@ export function ProductsPage() {
 
       <ProdutoDialog open={open} onOpenChange={setOpen} produtoId={editingId} />
       <EntradaPorCodigoDialog open={scanOpen} onOpenChange={setScanOpen} />
-
+      <EtiquetaImpressaoDialog
+        open={!!etiquetaProduto}
+        onOpenChange={(o) => !o && setEtiquetaProduto(null)}
+        produto={etiquetaProduto}
+      />
       <AlertDialog open={!!confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
