@@ -2945,6 +2945,7 @@ export type Database = {
           valor_total: number
         }[]
       }
+      cobranca_pendente_atual: { Args: never; Returns: Json }
       conciliar_ifood_lancamento: {
         Args: {
           _data_repasse: string
@@ -3121,6 +3122,7 @@ export type Database = {
           user_id: string
         }[]
       }
+      marcar_assinaturas_overdue_expired: { Args: never; Returns: Json }
       meus_modulos: {
         Args: never
         Returns: {
@@ -3307,7 +3309,16 @@ export type Database = {
         | "financeiro"
         | "super_admin"
         | "caixa"
-      assinatura_status: "trial" | "ativo" | "vencido" | "cancelado"
+      assinatura_status:
+        | "trial"
+        | "ativo"
+        | "vencido"
+        | "cancelado"
+        | "active"
+        | "pending_payment"
+        | "overdue"
+        | "expired"
+        | "canceled"
       cadastro_status: "ativo" | "inativo"
       caixa_movimento_tipo:
         | "abertura"
@@ -3509,7 +3520,17 @@ export const Constants = {
         "super_admin",
         "caixa",
       ],
-      assinatura_status: ["trial", "ativo", "vencido", "cancelado"],
+      assinatura_status: [
+        "trial",
+        "ativo",
+        "vencido",
+        "cancelado",
+        "active",
+        "pending_payment",
+        "overdue",
+        "expired",
+        "canceled",
+      ],
       cadastro_status: ["ativo", "inativo"],
       caixa_movimento_tipo: [
         "abertura",

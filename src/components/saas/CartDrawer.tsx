@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Loader2, ShoppingCart, Trash2, Crown, Puzzle } from "lucide-react";
+import { Loader2, ShoppingCart, Trash2, Crown, Puzzle, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Sheet,
@@ -15,6 +16,7 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { useCart } from "./CartContext";
 import { CobrancaPixDialog, type CobrancaResult } from "./CobrancaPixDialog";
+import { useCobrancaPendente } from "@/hooks/useCobrancaPendente";
 
 const fmtBRL = (n: number) =>
   Number(n ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });

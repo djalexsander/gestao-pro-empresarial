@@ -116,16 +116,35 @@ Deno.serve(async (req) => {
     return json(500, { error: "Falha ao registrar" });
   }
 
-  // 4) Processa apenas eventos de pagamento confirmado
-  const eventosProcessar = new Set(["PAYMENT_RECEIVED", "PAYMENT_CONFIRMED"]);
-  if (!eventosProcessar.has(eventType) || !paymentId) {
+  // 4) Eventos suportados
+  const EVT_PAGO = new Set(["PAYMENT_RECEIVED", "PAYMENT_CONFIRMED"]);
+  const EVT_OVERDUE = new Set(["PAYMENT_OVERDUE"]);
+  const EVT_CANCELADO = new Set([
+    "PAYMENT_DELETED",
+    "PAYMENT_REFUNDED",
+    "PAYMENT_REFUND_DENIED",
+    "PAYMENT_CHARGEBACK_REQUESTED",
+  ]);
+
+  const tratado =
+    EVT_PAGO.has(eventType) ||
+    EVT_OVERDUE.has(eventType) ||
+    EVT_CANCELADO.has(eventType);
+
+  if (!tratado || !paymentId) {
+    if (eventId) {
+      await supabase
+        .from("asaas_webhook_eventos")
+        .update({ processado_em: new Date().toISOString() })
+        .eq("event_id", eventId);
+    }
     return json(200, { received: true, processado: false });
   }
 
   // 5) Localiza pagamento interno por asaas_payment_id
   const { data: pagamento, error: pagErr } = await supabase
     .from("pagamentos")
-    .select("id, status, referencia_tipo, plano_id, modulo_id, empresa_id")
+    .select("id, status, empresa_id")
     .eq("asaas_payment_id", paymentId)
     .maybeSingle();
 
@@ -135,11 +154,7 @@ Deno.serve(async (req) => {
   }
 
   if (!pagamento) {
-    console.log(
-      "[asaas-webhook] pagamento não encontrado p/ asaas_payment_id:",
-      paymentId,
-    );
-    // Marca evento processado mesmo sem ação para não reprocessar
+    console.log("[asaas-webhook] pagamento não encontrado:", paymentId);
     if (eventId) {
       await supabase
         .from("asaas_webhook_eventos")
@@ -149,25 +164,52 @@ Deno.serve(async (req) => {
     return json(200, { received: true, processado: false, motivo: "pagamento_nao_encontrado" });
   }
 
-  // 6) Confirma pagamento e ativa plano/módulo (idempotente na função SQL)
-  const dataPg: string | null = payment?.paymentDate ?? payment?.confirmedDate ?? null;
-  const formaPg: string | null = payment?.billingType ?? null;
+  let resultado: unknown = null;
 
-  const { data: confirmRes, error: confirmErr } = await supabase.rpc(
-    "confirmar_pagamento_asaas",
-    {
-      _pagamento_id: pagamento.id,
-      _data_pagamento: dataPg,
-      _forma_pagamento: formaPg,
-    },
-  );
-
-  if (confirmErr) {
-    console.error("[asaas-webhook] erro ao confirmar pagamento:", confirmErr);
-    return json(200, { received: true, erro: "confirmacao_falhou" });
+  try {
+    if (EVT_PAGO.has(eventType)) {
+      // Confirma pagamento + ativa plano/módulos (idempotente)
+      const dataPg: string | null = payment?.paymentDate ?? payment?.confirmedDate ?? null;
+      const formaPg: string | null = payment?.billingType ?? null;
+      const { data, error } = await supabase.rpc("confirmar_pagamento_asaas", {
+        _pagamento_id: pagamento.id,
+        _data_pagamento: dataPg,
+        _forma_pagamento: formaPg,
+      });
+      if (error) throw error;
+      resultado = data;
+    } else if (EVT_OVERDUE.has(eventType)) {
+      // Marca pagamento como atrasado e assinatura como overdue
+      await supabase
+        .from("pagamentos")
+        .update({ status: "atrasado" })
+        .eq("id", pagamento.id);
+      await supabase
+        .from("empresa_assinaturas")
+        .update({ status: "overdue", updated_at: new Date().toISOString() })
+        .eq("empresa_id", pagamento.empresa_id);
+      resultado = { tipo: "overdue" };
+    } else if (EVT_CANCELADO.has(eventType)) {
+      // Cancela pagamento (não cancela a assinatura — Asaas pode estornar parcial)
+      await supabase
+        .from("pagamentos")
+        .update({ status: "cancelado" })
+        .eq("id", pagamento.id);
+      // Se o evento for refund/chargeback de cobrança já paga, marca canceled
+      if (eventType !== "PAYMENT_DELETED") {
+        await supabase
+          .from("empresa_assinaturas")
+          .update({ status: "canceled", updated_at: new Date().toISOString() })
+          .eq("empresa_id", pagamento.empresa_id);
+      }
+      resultado = { tipo: "cancelado", evento: eventType };
+    }
+  } catch (e) {
+    console.error("[asaas-webhook] erro ao processar:", e);
+    return json(200, { received: true, erro: String(e) });
   }
 
-  console.log("[asaas-webhook] ativação:", confirmRes);
+  console.log("[asaas-webhook] processado:", { eventType, resultado });
 
   if (eventId) {
     await supabase
@@ -176,5 +218,5 @@ Deno.serve(async (req) => {
       .eq("event_id", eventId);
   }
 
-  return json(200, { received: true, processado: true, resultado: confirmRes });
+  return json(200, { received: true, processado: true, resultado });
 });
