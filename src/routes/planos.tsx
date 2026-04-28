@@ -262,6 +262,11 @@ function PlanoCard({
           </AlertDialog>
         )}
       </CardContent>
+      <CobrancaPixDialog
+        open={!!cobranca}
+        onOpenChange={(v) => !v && setCobranca(null)}
+        cobranca={cobranca}
+      />
     </Card>
   );
 }
