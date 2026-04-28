@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Clock, AlertTriangle, XCircle, QrCode, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +9,7 @@ import { useMinhaAssinatura, useMeusModulos } from "@/hooks/useSaasAdmin";
 import { useCobrancaPendente } from "@/hooks/useCobrancaPendente";
 import { getEffectivePlanStatus } from "@/lib/planStatus";
 import { CobrancaPixDialog, type CobrancaResult } from "@/components/saas/CobrancaPixDialog";
+import { supabase } from "@/integrations/supabase/client";
 
 const fmtBRL = (n: number) =>
   Number(n ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
