@@ -121,13 +121,13 @@ export function CobrancaPixDialog({
             />
             <Badge variant="secondary">Aponte a câmera do banco</Badge>
           </div>
-        ) : (
+        ) : !pago ? (
           <p className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
             QR Code indisponível no momento. Use o link da fatura abaixo.
           </p>
-        )}
+        ) : null}
 
-        {cobranca?.pix_copia_cola && (
+        {!pago && cobranca?.pix_copia_cola && (
           <div className="space-y-1.5">
             <label className="text-xs font-medium">Pix copia e cola</label>
             <div className="flex items-center gap-2">
