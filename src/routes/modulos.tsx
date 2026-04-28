@@ -1,4 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
+import { CobrancaPixDialog, type CobrancaResult } from "@/components/saas/CobrancaPixDialog";
 import {
   ArrowDown,
   Check,
@@ -630,6 +632,7 @@ function ModuloCard({
   isTrial: boolean;
 }) {
   const solicitar = useSolicitarModulo();
+  const [cobranca, setCobranca] = useState<CobrancaResult | null>(null);
   const isContratado =
     modulo.status === "ativo" || modulo.status === "pendente";
 
@@ -714,7 +717,10 @@ function ModuloCard({
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancelar</AlertDialogCancel>
                 <AlertDialogAction
-                  onClick={() => solicitar.mutate(modulo.id)}
+                  onClick={async () => {
+                    const r = await solicitar.mutateAsync(modulo.id);
+                    if (r.cobranca) setCobranca(r.cobranca);
+                  }}
                   disabled={solicitar.isPending}
                 >
                   {solicitar.isPending && (
@@ -727,6 +733,11 @@ function ModuloCard({
           </AlertDialog>
         )}
       </CardContent>
+      <CobrancaPixDialog
+        open={!!cobranca}
+        onOpenChange={(v) => !v && setCobranca(null)}
+        cobranca={cobranca}
+      />
     </Card>
   );
 }
