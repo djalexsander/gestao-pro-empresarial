@@ -508,6 +508,17 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
             {busy ? "Salvando..." : isEdit ? "Salvar alterações" : "Cadastrar produto"}
           </Button>
         </DialogFooter>
+
+        <EtiquetaImpressaoDialog
+          open={etiquetaOpen}
+          onOpenChange={setEtiquetaOpen}
+          produto={{
+            nome: form.nome || "Produto",
+            codigo: form.codigo_barras.trim(),
+            preco: form.preco_venda || null,
+            sku: form.sku || null,
+          }}
+        />
       </DialogContent>
     </Dialog>
   );
