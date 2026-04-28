@@ -154,6 +154,8 @@ function PlanoCard({
   const isPlanoAtual = !isTrial && plano.atual;
   const [cobranca, setCobranca] = useState<CobrancaResult | null>(null);
   const solicitar = useSolicitarPlano();
+  const cart = useCart();
+  const noCarrinho = cart.has("plano", plano.id);
 
   return (
     <Card
