@@ -1,5 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
 import { Check, Sparkles, Crown, Loader2 } from "lucide-react";
+import { CobrancaPixDialog, type CobrancaResult } from "@/components/saas/CobrancaPixDialog";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -145,6 +147,7 @@ function PlanoCard({
   // Durante o trial, ignoramos o flag `atual` (ele aponta para o plano padrão
   // atribuído na criação da empresa, não para um plano efetivamente contratado).
   const isPlanoAtual = !isTrial && plano.atual;
+  const [cobranca, setCobranca] = useState<CobrancaResult | null>(null);
   const solicitar = useSolicitarPlano();
 
   return (
@@ -243,7 +246,10 @@ function PlanoCard({
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancelar</AlertDialogCancel>
                 <AlertDialogAction
-                  onClick={() => solicitar.mutate(plano.id)}
+                  onClick={async () => {
+                    const r = await solicitar.mutateAsync(plano.id);
+                    if (r.cobranca) setCobranca(r.cobranca);
+                  }}
                   disabled={solicitar.isPending}
                 >
                   {solicitar.isPending && (
