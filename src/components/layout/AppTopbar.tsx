@@ -164,6 +164,9 @@ function UserMenu() {
         <DropdownMenuItem asChild>
           <Link to="/modulos">Módulos</Link>
         </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link to="/cobrancas">Cobranças e faturas</Link>
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => signOut()} className="text-destructive">Sair</DropdownMenuItem>
       </DropdownMenuContent>
