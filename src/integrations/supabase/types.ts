@@ -1513,6 +1513,61 @@ export type Database = {
         }
         Relationships: []
       }
+      pagamento_itens: {
+        Row: {
+          created_at: string
+          descricao: string | null
+          id: string
+          modulo_id: string | null
+          pagamento_id: string
+          plano_id: string | null
+          tipo: Database["public"]["Enums"]["pagamento_referencia"]
+          valor: number
+        }
+        Insert: {
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          modulo_id?: string | null
+          pagamento_id: string
+          plano_id?: string | null
+          tipo: Database["public"]["Enums"]["pagamento_referencia"]
+          valor?: number
+        }
+        Update: {
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          modulo_id?: string | null
+          pagamento_id?: string
+          plano_id?: string | null
+          tipo?: Database["public"]["Enums"]["pagamento_referencia"]
+          valor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pagamento_itens_modulo_id_fkey"
+            columns: ["modulo_id"]
+            isOneToOne: false
+            referencedRelation: "modulos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pagamento_itens_pagamento_id_fkey"
+            columns: ["pagamento_id"]
+            isOneToOne: false
+            referencedRelation: "pagamentos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pagamento_itens_plano_id_fkey"
+            columns: ["plano_id"]
+            isOneToOne: false
+            referencedRelation: "planos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pagamentos: {
         Row: {
           asaas_billing_type: string | null
@@ -3166,6 +3221,10 @@ export type Database = {
           produto_id: string
           saldo: number
         }[]
+      }
+      solicitar_carrinho: {
+        Args: { _modulos?: string[]; _planos?: string[] }
+        Returns: string
       }
       solicitar_contratacao_modulo: {
         Args: { _modulo_id: string }
