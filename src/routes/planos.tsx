@@ -65,11 +65,19 @@ function PlanosClientePage() {
           <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
             <div>
               <p className="text-sm text-muted-foreground">
-                Status atual da sua assinatura
+                {isTrial ? "Seu período de teste" : "Status atual da sua assinatura"}
               </p>
-              <p className="text-lg font-semibold capitalize">
-                {assinatura.status}
-                {assinatura.status === "trial" && (
+              <p className="text-lg font-semibold">
+                {isTrial
+                  ? "Teste gratuito ativo"
+                  : assinatura.status === "ativo"
+                    ? "Plano contratado"
+                    : assinatura.status === "vencido"
+                      ? "Assinatura vencida"
+                      : assinatura.status === "cancelado"
+                        ? "Assinatura cancelada"
+                        : assinatura.status}
+                {isTrial && (
                   <span className="ml-2 text-sm font-normal text-muted-foreground">
                     ({assinatura.dias_restantes} dia(s) restante(s))
                   </span>
