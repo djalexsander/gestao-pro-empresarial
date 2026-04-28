@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Clock, AlertTriangle, XCircle, QrCode, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +9,7 @@ import { useMinhaAssinatura, useMeusModulos } from "@/hooks/useSaasAdmin";
 import { useCobrancaPendente } from "@/hooks/useCobrancaPendente";
 import { getEffectivePlanStatus } from "@/lib/planStatus";
 import { CobrancaPixDialog, type CobrancaResult } from "@/components/saas/CobrancaPixDialog";
+import { supabase } from "@/integrations/supabase/client";
 
 const fmtBRL = (n: number) =>
   Number(n ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -49,6 +51,35 @@ export function ResumoAssinatura({
 
   const [pixOpen, setPixOpen] = useState(false);
   const [pixCobranca, setPixCobranca] = useState<CobrancaResult | null>(null);
+  const qc = useQueryClient();
+
+  // Realtime: quando a assinatura/módulos da empresa mudam (ativação via webhook),
+  // recarregamos o status para refletir "Ativa" sem precisar de refresh manual.
+  useEffect(() => {
+    const ch = supabase
+      .channel("resumo-assinatura-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "empresa_assinaturas" },
+        () => {
+          qc.invalidateQueries({ queryKey: ["minha-assinatura"] });
+          qc.invalidateQueries({ queryKey: ["cobranca-pendente"] });
+          qc.invalidateQueries({ queryKey: ["meus-pagamentos"] });
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "empresa_modulos" },
+        () => {
+          qc.invalidateQueries({ queryKey: ["meus-modulos"] });
+          qc.invalidateQueries({ queryKey: ["modulos-disponiveis-cliente"] });
+        },
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [qc]);
 
   const handlePagarAgora = () => {
     if (!pendente) return;
