@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, AlertTriangle, QrCode } from "lucide-react";
+import { Plus, Trash2, AlertTriangle, QrCode, Sparkles, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,9 @@ import {
   type ProdutoInput,
   type TipoIdentificacao,
 } from "@/hooks/useProdutos";
-import { CodeInput, QrPreview } from "@/components/scanner";
+import { CodeInput, QrPreview, BarcodePreview } from "@/components/scanner";
+import { gerarEan13, validarEan13 } from "@/lib/barcode";
+import { EtiquetaImpressaoDialog } from "@/components/produtos/EtiquetaImpressaoDialog";
 import { CategoriaCombobox } from "@/components/produtos/CategoriaCombobox";
 import {
   useAddProdutoCodigo,
