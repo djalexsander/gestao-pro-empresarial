@@ -1,0 +1,2 @@
+REVOKE ALL ON FUNCTION public.confirmar_pagamento_asaas(uuid, date, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.confirmar_pagamento_asaas(uuid, date, text) TO service_role;

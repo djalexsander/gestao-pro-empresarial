@@ -16,26 +16,32 @@ export type Database = {
     Tables: {
       asaas_webhook_eventos: {
         Row: {
+          event_id: string | null
           evento: string
           id: string
           payload: Json
           payment_id: string | null
+          processado_em: string | null
           recebido_em: string
           status: string | null
         }
         Insert: {
+          event_id?: string | null
           evento: string
           id?: string
           payload: Json
           payment_id?: string | null
+          processado_em?: string | null
           recebido_em?: string
           status?: string | null
         }
         Update: {
+          event_id?: string | null
           evento?: string
           id?: string
           payload?: Json
           payment_id?: string | null
+          processado_em?: string | null
           recebido_em?: string
           status?: string | null
         }
@@ -1506,11 +1512,14 @@ export type Database = {
       }
       pagamentos: {
         Row: {
+          asaas_customer_id: string | null
+          asaas_payment_id: string | null
           created_at: string
           data_pagamento: string | null
           data_vencimento: string | null
           descricao: string | null
           empresa_id: string
+          external_reference: string | null
           forma_pagamento: string | null
           id: string
           modulo_id: string | null
@@ -1523,11 +1532,14 @@ export type Database = {
           valor: number
         }
         Insert: {
+          asaas_customer_id?: string | null
+          asaas_payment_id?: string | null
           created_at?: string
           data_pagamento?: string | null
           data_vencimento?: string | null
           descricao?: string | null
           empresa_id: string
+          external_reference?: string | null
           forma_pagamento?: string | null
           id?: string
           modulo_id?: string | null
@@ -1540,11 +1552,14 @@ export type Database = {
           valor?: number
         }
         Update: {
+          asaas_customer_id?: string | null
+          asaas_payment_id?: string | null
           created_at?: string
           data_pagamento?: string | null
           data_vencimento?: string | null
           descricao?: string | null
           empresa_id?: string
+          external_reference?: string | null
           forma_pagamento?: string | null
           id?: string
           modulo_id?: string | null
@@ -2879,6 +2894,14 @@ export type Database = {
           _valor_repasse_total: number
         }
         Returns: string
+      }
+      confirmar_pagamento_asaas: {
+        Args: {
+          _data_pagamento?: string
+          _forma_pagamento?: string
+          _pagamento_id: string
+        }
+        Returns: Json
       }
       current_empresa_id: { Args: never; Returns: string }
       derivar_status_pagamento_venda: {
