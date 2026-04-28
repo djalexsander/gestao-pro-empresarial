@@ -102,6 +102,7 @@ function PlanosClientePage() {
               key={p.id}
               plano={p}
               destaque={idx === 1 && planos.length >= 3}
+              isTrial={isTrial}
             />
           ))}
         </div>
