@@ -34,9 +34,6 @@ export const Route = createFileRoute("/admin/empresas")({
   component: AdminEmpresasPage,
 });
 
-const fmtBRL = (n: number) =>
-  Number(n ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-
 function AdminEmpresasPage() {
   const { data: empresas = [], isLoading } = useAdminEmpresas();
   const setStatus = useSetEmpresaStatus();
