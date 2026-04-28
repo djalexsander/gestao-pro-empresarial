@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { CobrancaPixDialog, type CobrancaResult } from "@/components/saas/CobrancaPixDialog";
+import { CartDrawer, CartFloatingButton } from "@/components/saas/CartDrawer";
+import { useCart } from "@/components/saas/CartContext";
 import {
   ArrowDown,
   Check,
@@ -10,7 +12,9 @@ import {
   Loader2,
   Lock,
   Package,
+  Plus,
   Puzzle,
+  ShoppingCart,
   Sparkles,
 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
