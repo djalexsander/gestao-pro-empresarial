@@ -64,6 +64,9 @@ export const Route = createFileRoute("/api/public/webhooks/asaas")({
         const evento: string = payload?.event ?? "UNKNOWN";
         const paymentId: string | null = payload?.payment?.id ?? null;
         const status: string | null = payload?.payment?.status ?? null;
+        // event_id do Asaas (quando presente) — usado para idempotência
+        const eventId: string | null =
+          payload?.id ?? payload?.event_id ?? null;
 
         const { error } = await supabaseAdmin
           .from("asaas_webhook_eventos")
@@ -72,9 +75,17 @@ export const Route = createFileRoute("/api/public/webhooks/asaas")({
             payment_id: paymentId,
             status,
             payload,
+            event_id: eventId,
           });
 
         if (error) {
+          // 23505 = unique_violation → evento duplicado, responder 200 (idempotente)
+          if ((error as any).code === "23505") {
+            return new Response(
+              JSON.stringify({ received: true, duplicate: true, evento }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            );
+          }
           console.error("[asaas-webhook] erro ao persistir:", error);
           return new Response(JSON.stringify({ error: "Falha ao registrar" }), {
             status: 500,
