@@ -9,6 +9,7 @@ import { QueryProvider } from "@/components/providers/QueryProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { UpdateBanner } from "@/components/shared/UpdateBanner";
+import { CartProvider } from "@/components/saas/CartContext";
 
 import appCss from "../styles.css?url";
 
@@ -94,9 +95,11 @@ function RootComponent() {
             <ModeProvider>
               <OperadorProvider>
                 <TerminalProvider>
-                  <AppLayout />
-                  <UpdateBanner />
-                  <Toaster richColors position="top-right" />
+                  <CartProvider>
+                    <AppLayout />
+                    <UpdateBanner />
+                    <Toaster richColors position="top-right" />
+                  </CartProvider>
                 </TerminalProvider>
               </OperadorProvider>
             </ModeProvider>

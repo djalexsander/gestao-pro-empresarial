@@ -1,7 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { Check, Sparkles, Crown, Loader2 } from "lucide-react";
+import { Check, Sparkles, Crown, Loader2, ShoppingCart, Plus } from "lucide-react";
 import { CobrancaPixDialog, type CobrancaResult } from "@/components/saas/CobrancaPixDialog";
+import { CartDrawer, CartFloatingButton } from "@/components/saas/CartDrawer";
+import { useCart } from "@/components/saas/CartContext";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -131,6 +133,9 @@ function PlanosClientePage() {
           </Button>
         </CardContent>
       </Card>
+
+      <CartFloatingButton />
+      <CartDrawer />
     </div>
   );
 }
@@ -149,6 +154,8 @@ function PlanoCard({
   const isPlanoAtual = !isTrial && plano.atual;
   const [cobranca, setCobranca] = useState<CobrancaResult | null>(null);
   const solicitar = useSolicitarPlano();
+  const cart = useCart();
+  const noCarrinho = cart.has("plano", plano.id);
 
   return (
     <Card
@@ -223,43 +230,64 @@ function PlanoCard({
             Plano atual
           </Button>
         ) : (
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button
-                className="w-full"
-                variant={destaque ? "default" : "outline"}
-              >
-                Contratar plano
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>
-                  Solicitar contratação: {plano.nome}
-                </AlertDialogTitle>
-                <AlertDialogDescription>
-                  Será criada uma solicitação de pagamento no valor de{" "}
-                  <strong>{fmtBRL(plano.valor)}</strong>. Nossa equipe entrará
-                  em contato para confirmar o pagamento e ativar o plano.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={async () => {
-                    const r = await solicitar.mutateAsync(plano.id);
-                    if (r.cobranca) setCobranca(r.cobranca);
-                  }}
-                  disabled={solicitar.isPending}
-                >
-                  {solicitar.isPending && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
-                  Confirmar solicitação
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          <div className="flex flex-col gap-2">
+            <Button
+              variant={noCarrinho ? "secondary" : destaque ? "default" : "outline"}
+              className="w-full"
+              onClick={() =>
+                cart.toggle({
+                  kind: "plano",
+                  id: plano.id,
+                  nome: plano.nome,
+                  valor: Number(plano.valor),
+                })
+              }
+            >
+              {noCarrinho ? (
+                <>
+                  <ShoppingCart className="mr-2 h-4 w-4" /> No carrinho — remover
+                </>
+              ) : (
+                <>
+                  <Plus className="mr-2 h-4 w-4" /> Adicionar ao carrinho
+                </>
+              )}
+            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="ghost" size="sm" className="w-full">
+                  Contratar só este plano
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    Solicitar contratação: {plano.nome}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Será criada uma cobrança Pix de{" "}
+                    <strong>{fmtBRL(plano.valor)}</strong>. Após o pagamento, o
+                    plano é ativado automaticamente.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={async () => {
+                      const r = await solicitar.mutateAsync(plano.id);
+                      if (r.cobranca) setCobranca(r.cobranca);
+                    }}
+                    disabled={solicitar.isPending}
+                  >
+                    {solicitar.isPending && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
+                    Confirmar
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
         )}
       </CardContent>
       <CobrancaPixDialog

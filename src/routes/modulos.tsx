@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { CobrancaPixDialog, type CobrancaResult } from "@/components/saas/CobrancaPixDialog";
+import { CartDrawer, CartFloatingButton } from "@/components/saas/CartDrawer";
+import { useCart } from "@/components/saas/CartContext";
 import {
   ArrowDown,
   Check,
@@ -10,7 +12,9 @@ import {
   Loader2,
   Lock,
   Package,
+  Plus,
   Puzzle,
+  ShoppingCart,
   Sparkles,
 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -273,6 +277,9 @@ function MeuPlanoPage() {
           </section>
         </>
       )}
+
+      <CartFloatingButton />
+      <CartDrawer />
     </div>
   );
 }
@@ -633,6 +640,8 @@ function ModuloCard({
 }) {
   const solicitar = useSolicitarModulo();
   const [cobranca, setCobranca] = useState<CobrancaResult | null>(null);
+  const cart = useCart();
+  const noCarrinho = cart.has("modulo", modulo.id);
   const isContratado =
     modulo.status === "ativo" || modulo.status === "pendente";
 
@@ -694,43 +703,67 @@ function ModuloCard({
         )}
 
         {!isContratado && (
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button className="w-full">
-                {isTrial ? "Selecionar para contratar" : "Contratar módulo"}
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>
-                  Solicitar contratação: {modulo.nome}
-                </AlertDialogTitle>
-                <AlertDialogDescription>
-                  {isTrial
-                    ? "Você está em período de teste — nenhuma cobrança é gerada agora. A solicitação ficará registrada e o módulo continuará ativo após a contratação do Plano Base."
-                    : null}
-                  {" "}Será criada uma solicitação de pagamento no valor de{" "}
-                  <strong>{fmtBRL(modulo.valor)}</strong>. Nossa equipe entrará
-                  em contato para confirmar o pagamento e ativar o módulo.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={async () => {
-                    const r = await solicitar.mutateAsync(modulo.id);
-                    if (r.cobranca) setCobranca(r.cobranca);
-                  }}
-                  disabled={solicitar.isPending}
-                >
-                  {solicitar.isPending && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
-                  Confirmar solicitação
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          <div className="flex flex-col gap-2">
+            <Button
+              variant={noCarrinho ? "secondary" : "default"}
+              className="w-full"
+              onClick={() =>
+                cart.toggle({
+                  kind: "modulo",
+                  id: modulo.id,
+                  nome: modulo.nome,
+                  valor: Number(modulo.valor),
+                })
+              }
+            >
+              {noCarrinho ? (
+                <>
+                  <ShoppingCart className="mr-2 h-4 w-4" /> No carrinho — remover
+                </>
+              ) : (
+                <>
+                  <Plus className="mr-2 h-4 w-4" /> Adicionar ao carrinho
+                </>
+              )}
+            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="ghost" size="sm" className="w-full">
+                  Contratar só este módulo
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    Solicitar contratação: {modulo.nome}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {isTrial
+                      ? "Você está em período de teste — nenhuma cobrança é gerada agora. A solicitação ficará registrada e o módulo continuará ativo após a contratação do Plano Base."
+                      : null}
+                    {" "}Será criada uma cobrança Pix de{" "}
+                    <strong>{fmtBRL(modulo.valor)}</strong>. Após o pagamento o
+                    módulo é ativado automaticamente.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={async () => {
+                      const r = await solicitar.mutateAsync(modulo.id);
+                      if (r.cobranca) setCobranca(r.cobranca);
+                    }}
+                    disabled={solicitar.isPending}
+                  >
+                    {solicitar.isPending && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
+                    Confirmar
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
         )}
       </CardContent>
       <CobrancaPixDialog
