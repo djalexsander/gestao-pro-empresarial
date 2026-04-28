@@ -14,6 +14,33 @@ export type Database = {
   }
   public: {
     Tables: {
+      asaas_webhook_eventos: {
+        Row: {
+          evento: string
+          id: string
+          payload: Json
+          payment_id: string | null
+          recebido_em: string
+          status: string | null
+        }
+        Insert: {
+          evento: string
+          id?: string
+          payload: Json
+          payment_id?: string | null
+          recebido_em?: string
+          status?: string | null
+        }
+        Update: {
+          evento?: string
+          id?: string
+          payload?: Json
+          payment_id?: string | null
+          recebido_em?: string
+          status?: string | null
+        }
+        Relationships: []
+      }
       audit_logs: {
         Row: {
           action: string
@@ -555,6 +582,8 @@ export type Database = {
       }
       config_comercial: {
         Row: {
+          asaas_ambiente: string
+          asaas_enabled: boolean
           dias_trial: number
           id: boolean
           permitir_modulos_no_trial: boolean
@@ -563,6 +592,8 @@ export type Database = {
           valor_padrao_sistema: number
         }
         Insert: {
+          asaas_ambiente?: string
+          asaas_enabled?: boolean
           dias_trial?: number
           id?: boolean
           permitir_modulos_no_trial?: boolean
@@ -571,6 +602,8 @@ export type Database = {
           valor_padrao_sistema?: number
         }
         Update: {
+          asaas_ambiente?: string
+          asaas_enabled?: boolean
           dias_trial?: number
           id?: boolean
           permitir_modulos_no_trial?: boolean
@@ -2427,6 +2460,8 @@ export type Database = {
       admin_get_config_comercial: {
         Args: never
         Returns: {
+          asaas_ambiente: string
+          asaas_enabled: boolean
           dias_trial: number
           id: boolean
           permitir_modulos_no_trial: boolean
@@ -2681,15 +2716,27 @@ export type Database = {
         }
         Returns: string
       }
-      admin_set_config_comercial: {
-        Args: {
-          _dias_trial: number
-          _permitir_modulos_no_trial: boolean
-          _plano_padrao_id: string
-          _valor_padrao_sistema: number
-        }
-        Returns: undefined
-      }
+      admin_set_config_comercial:
+        | {
+            Args: {
+              _dias_trial: number
+              _permitir_modulos_no_trial: boolean
+              _plano_padrao_id: string
+              _valor_padrao_sistema: number
+            }
+            Returns: undefined
+          }
+        | {
+            Args: {
+              _asaas_ambiente?: string
+              _asaas_enabled?: boolean
+              _dias_trial: number
+              _permitir_modulos_no_trial: boolean
+              _plano_padrao_id: string
+              _valor_padrao_sistema: number
+            }
+            Returns: undefined
+          }
       admin_set_empresa_modulo: {
         Args: {
           _data_expiracao: string
