@@ -51,6 +51,7 @@ const tipoLabel: Record<string, string> = {
 function PlanosClientePage() {
   const { data: assinatura } = useMinhaAssinatura();
   const { data: planos = [], isLoading } = usePlanosDisponiveis();
+  const isTrial = assinatura?.status === "trial" && !assinatura?.readonly;
 
   return (
     <div className="space-y-6">
@@ -64,11 +65,19 @@ function PlanosClientePage() {
           <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
             <div>
               <p className="text-sm text-muted-foreground">
-                Status atual da sua assinatura
+                {isTrial ? "Seu período de teste" : "Status atual da sua assinatura"}
               </p>
-              <p className="text-lg font-semibold capitalize">
-                {assinatura.status}
-                {assinatura.status === "trial" && (
+              <p className="text-lg font-semibold">
+                {isTrial
+                  ? "Teste gratuito ativo"
+                  : assinatura.status === "ativo"
+                    ? "Plano contratado"
+                    : assinatura.status === "vencido"
+                      ? "Assinatura vencida"
+                      : assinatura.status === "cancelado"
+                        ? "Assinatura cancelada"
+                        : assinatura.status}
+                {isTrial && (
                   <span className="ml-2 text-sm font-normal text-muted-foreground">
                     ({assinatura.dias_restantes} dia(s) restante(s))
                   </span>
@@ -101,6 +110,7 @@ function PlanosClientePage() {
               key={p.id}
               plano={p}
               destaque={idx === 1 && planos.length >= 3}
+              isTrial={isTrial}
             />
           ))}
         </div>
@@ -126,10 +136,15 @@ function PlanosClientePage() {
 function PlanoCard({
   plano,
   destaque,
+  isTrial,
 }: {
   plano: PlanoDisponivel;
   destaque: boolean;
+  isTrial: boolean;
 }) {
+  // Durante o trial, ignoramos o flag `atual` (ele aponta para o plano padrão
+  // atribuído na criação da empresa, não para um plano efetivamente contratado).
+  const isPlanoAtual = !isTrial && plano.atual;
   const solicitar = useSolicitarPlano();
 
   return (
@@ -137,7 +152,7 @@ function PlanoCard({
       className={
         destaque
           ? "relative border-primary shadow-lg shadow-primary/10"
-          : plano.atual
+          : isPlanoAtual
             ? "border-emerald-500/40"
             : ""
       }
@@ -154,7 +169,7 @@ function PlanoCard({
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2 text-xl">
             {plano.nome}
-            {plano.atual && (
+            {isPlanoAtual && (
               <Crown className="h-4 w-4 text-emerald-500" />
             )}
           </CardTitle>
@@ -200,7 +215,7 @@ function PlanoCard({
           </li>
         </ul>
 
-        {plano.atual ? (
+        {isPlanoAtual ? (
           <Button disabled className="w-full" variant="outline">
             Plano atual
           </Button>

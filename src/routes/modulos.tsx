@@ -37,6 +37,7 @@ import {
   type PlanoDisponivel,
 } from "@/hooks/useSaasCliente";
 import { useMinhaAssinatura } from "@/hooks/useSaasAdmin";
+import { getEffectivePlanStatus, type EffectivePlanStatus } from "@/lib/planStatus";
 
 export const Route = createFileRoute("/modulos")({
   head: () => ({
@@ -83,8 +84,16 @@ function MeuPlanoPage() {
   const { data: modulos = [], isLoading: loadingMods } =
     useModulosDisponiveisCliente();
 
-  const planoAtual = planos.find((p) => p.atual) ?? null;
-  const planosOutros = planos.filter((p) => !p.atual);
+  const effectiveStatus = getEffectivePlanStatus(assinatura);
+  const isTrial = effectiveStatus === "trial";
+  const isActive = effectiveStatus === "active";
+
+  // Durante o trial, NUNCA tratamos o plano padrão como "plano atual contratado".
+  // Só consideramos plano atual quando a assinatura está realmente ativa.
+  const planoAtual = isActive ? (planos.find((p) => p.atual) ?? null) : null;
+  const planosOutros = isActive
+    ? planos.filter((p) => !p.atual)
+    : planos;
 
   const modulosAtivos = modulos.filter(
     (m) => m.status === "ativo" || m.status === "pendente",
@@ -97,19 +106,28 @@ function MeuPlanoPage() {
     <div className="space-y-8">
       <PageHeader
         title="Meu Plano"
-        description="Plano Base e módulos adicionais contratados pela sua empresa."
+        description={
+          isTrial
+            ? "Você está no período de teste gratuito. Nenhuma cobrança é gerada durante o trial."
+            : "Plano Base e módulos adicionais contratados pela sua empresa."
+        }
       />
 
-      {/* === Card do plano atual === */}
+      {/* === Card do plano atual / trial / bloqueado === */}
       {loadingAssin || loadingPlanos ? (
         <Skeleton className="h-[260px] rounded-xl" />
       ) : (
-        <PlanoAtualCard plano={planoAtual} assinatura={assinatura} />
+        <PlanoAtualCard
+          plano={planoAtual}
+          assinatura={assinatura}
+          effectiveStatus={effectiveStatus}
+        />
       )}
 
       {/* === Resumo visual do acesso === */}
-      {!loadingAssin && !loadingMods && (
+      {!loadingAssin && !loadingMods && effectiveStatus !== "expired" && effectiveStatus !== "canceled" && (
         <ResumoAcessoCard
+          isTrial={isTrial}
           temPlano={!!planoAtual}
           qtdModulos={modulosAtivos.filter((m) => m.status === "ativo").length}
         />
@@ -171,7 +189,7 @@ function MeuPlanoPage() {
           <>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {modulosAtivos.map((m) => (
-                <ModuloCard key={m.id} modulo={m} />
+                <ModuloCard key={m.id} modulo={m} isTrial={isTrial} />
               ))}
             </div>
             <div className="flex justify-end pt-1">
@@ -222,7 +240,7 @@ function MeuPlanoPage() {
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {modulosDisponiveis.map((m) => (
-              <ModuloCard key={m.id} modulo={m} />
+              <ModuloCard key={m.id} modulo={m} isTrial={isTrial} />
             ))}
           </div>
         )}
@@ -263,19 +281,122 @@ function MeuPlanoPage() {
 function PlanoAtualCard({
   plano,
   assinatura,
+  effectiveStatus,
 }: {
   plano: PlanoDisponivel | null;
   assinatura: ReturnType<typeof useMinhaAssinatura>["data"];
+  effectiveStatus: EffectivePlanStatus;
 }) {
+  // ===== TRIAL =====
+  if (effectiveStatus === "trial") {
+    const dias = assinatura?.dias_restantes ?? 0;
+    const expira = assinatura?.data_expiracao
+      ? new Date(assinatura.data_expiracao).toLocaleDateString("pt-BR")
+      : null;
+    return (
+      <Card className="overflow-hidden border-blue-500/30 bg-gradient-to-br from-blue-500/10 via-background to-background">
+        <CardHeader className="pb-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                Status atual
+              </p>
+              <CardTitle className="flex items-center gap-2 text-2xl">
+                <Sparkles className="h-5 w-5 text-blue-500" />
+                Teste gratuito ativo
+              </CardTitle>
+              <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+                Você está experimentando todos os módulos por <strong>7 dias</strong>,
+                sem custo. Nenhuma cobrança é gerada durante o trial.
+              </p>
+            </div>
+            <Badge className="gap-1 bg-blue-500 hover:bg-blue-600">
+              <Clock className="h-3 w-3" />
+              {dias > 0 ? `${dias} dia(s) restante(s)` : "Último dia"}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <p className="text-xs text-muted-foreground">Início do teste</p>
+              <p className="text-sm font-medium">
+                {assinatura?.data_inicio
+                  ? new Date(assinatura.data_inicio).toLocaleDateString("pt-BR")
+                  : "—"}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Expira em</p>
+              <p className="text-sm font-medium">{expira ?? "—"}</p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-2 rounded-md border border-blue-500/20 bg-blue-500/5 p-3 text-xs text-muted-foreground">
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+            <span>
+              Durante o trial, todos os módulos aparecem como{" "}
+              <strong className="text-foreground">Ativo (temporário)</strong>.
+              Ao final do período, contrate um Plano Base e selecione os módulos
+              desejados para manter o acesso.
+            </span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // ===== EXPIRED / CANCELED =====
+  if (effectiveStatus === "expired" || effectiveStatus === "canceled") {
+    return (
+      <Card className="overflow-hidden border-destructive/40 bg-destructive/5">
+        <CardHeader className="pb-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                Acesso bloqueado
+              </p>
+              <CardTitle className="flex items-center gap-2 text-2xl text-destructive">
+                <Lock className="h-5 w-5" />
+                {effectiveStatus === "expired"
+                  ? "Período de teste encerrado"
+                  : "Assinatura cancelada"}
+              </CardTitle>
+              <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+                Para voltar a usar o sistema, contrate um Plano Base abaixo.
+                Seus dados estão preservados e serão liberados imediatamente
+                após a confirmação do pagamento.
+              </p>
+            </div>
+            <Badge variant="destructive" className="gap-1">
+              <Lock className="h-3 w-3" />
+              {effectiveStatus === "expired" ? "Expirado" : "Cancelado"}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Button
+            className="w-full sm:w-auto"
+            onClick={() => {
+              document
+                .getElementById("modulos-disponiveis")
+                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
+          >
+            <Crown className="mr-2 h-4 w-4" />
+            Ver planos disponíveis
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // ===== ACTIVE / PENDING / NONE =====
   const status = assinatura?.status ?? "indefinido";
   const statusVariant =
     status === "ativo"
       ? "bg-emerald-500 hover:bg-emerald-600"
-      : status === "trial"
-        ? "bg-blue-500 hover:bg-blue-600"
-        : status === "vencido" || status === "cancelado"
-          ? "bg-destructive hover:bg-destructive/90"
-          : "bg-amber-500 hover:bg-amber-600";
+      : "bg-amber-500 hover:bg-amber-600";
 
   return (
     <Card className="overflow-hidden border-primary/30 bg-gradient-to-br from-primary/5 via-background to-background">
@@ -297,12 +418,6 @@ function PlanoAtualCard({
           </div>
           <Badge className={`gap-1 capitalize ${statusVariant}`}>
             {statusLabel[status] ?? status}
-            {status === "trial" &&
-              typeof assinatura?.dias_restantes === "number" && (
-                <span className="ml-1 text-xs opacity-90">
-                  · {assinatura.dias_restantes} dia(s)
-                </span>
-              )}
           </Badge>
         </div>
       </CardHeader>
@@ -329,12 +444,10 @@ function PlanoAtualCard({
             </p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Vencimento</p>
+            <p className="text-xs text-muted-foreground">Próximo vencimento</p>
             <p className="text-sm font-medium">
               {assinatura?.data_expiracao
-                ? new Date(assinatura.data_expiracao).toLocaleDateString(
-                    "pt-BR",
-                  )
+                ? new Date(assinatura.data_expiracao).toLocaleDateString("pt-BR")
                 : "Sem vencimento"}
             </p>
           </div>
@@ -376,9 +489,7 @@ function PlanoAtualCard({
               <div className="mt-3 flex items-start gap-2 rounded-md border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
                 <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                 <span>
-                  <strong className="text-foreground">
-                    Módulos adicionais
-                  </strong>{" "}
+                  <strong className="text-foreground">Módulos adicionais</strong>{" "}
                   (como Financeiro, Relatórios avançados e outros) são
                   contratados separadamente do Plano Base.
                 </span>
@@ -402,9 +513,11 @@ function PlanoAtualCard({
  * Resumo visual do acesso (Plano Base + módulos)
  * =======================================================*/
 function ResumoAcessoCard({
+  isTrial,
   temPlano,
   qtdModulos,
 }: {
+  isTrial: boolean;
   temPlano: boolean;
   qtdModulos: number;
 }) {
@@ -420,27 +533,36 @@ function ResumoAcessoCard({
               Seu acesso atual inclui
             </p>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
-              <Badge
-                variant={temPlano ? "default" : "outline"}
-                className="gap-1"
-              >
-                {temPlano ? (
-                  <Check className="h-3 w-3" />
-                ) : (
-                  <Lock className="h-3 w-3" />
-                )}
-                Plano Base
-              </Badge>
-              <span className="text-muted-foreground">+</span>
-              <Badge
-                variant={qtdModulos > 0 ? "default" : "secondary"}
-                className="gap-1"
-              >
-                <Puzzle className="h-3 w-3" />
-                {qtdModulos === 0
-                  ? "Nenhum módulo adicional"
-                  : `${qtdModulos} módulo(s) ativo(s)`}
-              </Badge>
+              {isTrial ? (
+                <Badge className="gap-1 bg-blue-500 hover:bg-blue-600">
+                  <Sparkles className="h-3 w-3" />
+                  Trial — todos os módulos liberados temporariamente
+                </Badge>
+              ) : (
+                <>
+                  <Badge
+                    variant={temPlano ? "default" : "outline"}
+                    className="gap-1"
+                  >
+                    {temPlano ? (
+                      <Check className="h-3 w-3" />
+                    ) : (
+                      <Lock className="h-3 w-3" />
+                    )}
+                    Plano Base
+                  </Badge>
+                  <span className="text-muted-foreground">+</span>
+                  <Badge
+                    variant={qtdModulos > 0 ? "default" : "secondary"}
+                    className="gap-1"
+                  >
+                    <Puzzle className="h-3 w-3" />
+                    {qtdModulos === 0
+                      ? "Nenhum módulo adicional"
+                      : `${qtdModulos} módulo(s) ativo(s)`}
+                  </Badge>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -464,7 +586,21 @@ function ResumoAcessoCard({
 /* =========================================================
  * Card de módulo (reutilizado nas duas seções)
  * =======================================================*/
-function StatusBadgeMod({ status }: { status: string }) {
+function StatusBadgeMod({
+  status,
+  isTrial,
+}: {
+  status: string;
+  isTrial: boolean;
+}) {
+  // Durante o trial, todos os módulos são liberados temporariamente.
+  if (isTrial && status !== "cancelado") {
+    return (
+      <Badge className="gap-1 bg-blue-500 hover:bg-blue-600">
+        <Sparkles className="h-3 w-3" /> Ativo (temporário)
+      </Badge>
+    );
+  }
   if (status === "ativo")
     return (
       <Badge className="gap-1 bg-emerald-500 hover:bg-emerald-600">
@@ -486,20 +622,34 @@ function StatusBadgeMod({ status }: { status: string }) {
   );
 }
 
-function ModuloCard({ modulo }: { modulo: ModuloDisponivelCliente }) {
+function ModuloCard({
+  modulo,
+  isTrial,
+}: {
+  modulo: ModuloDisponivelCliente;
+  isTrial: boolean;
+}) {
   const solicitar = useSolicitarModulo();
   const isContratado =
     modulo.status === "ativo" || modulo.status === "pendente";
 
   return (
-    <Card className={modulo.status === "ativo" ? "border-emerald-500/30" : ""}>
+    <Card
+      className={
+        isTrial
+          ? "border-blue-500/30"
+          : modulo.status === "ativo"
+            ? "border-emerald-500/30"
+            : ""
+      }
+    >
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <CardTitle className="flex items-center gap-2 text-lg">
             <Puzzle className="h-4 w-4 text-primary" />
             {modulo.nome}
           </CardTitle>
-          <StatusBadgeMod status={modulo.status} />
+          <StatusBadgeMod status={modulo.status} isTrial={isTrial} />
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -514,7 +664,14 @@ function ModuloCard({ modulo }: { modulo: ModuloDisponivelCliente }) {
           <span className="text-xs text-muted-foreground">/mês</span>
         </div>
 
-        {modulo.data_expiracao && modulo.status === "ativo" && (
+        {isTrial && !isContratado && (
+          <p className="text-xs text-blue-600 dark:text-blue-400">
+            Liberado durante o teste gratuito. Contrate para manter o acesso ao
+            final do trial.
+          </p>
+        )}
+
+        {modulo.data_expiracao && modulo.status === "ativo" && !isTrial && (
           <p className="text-xs text-muted-foreground">
             Válido até{" "}
             {new Date(modulo.data_expiracao).toLocaleDateString("pt-BR")}
@@ -536,7 +693,9 @@ function ModuloCard({ modulo }: { modulo: ModuloDisponivelCliente }) {
         {!isContratado && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button className="w-full">Contratar módulo</Button>
+              <Button className="w-full">
+                {isTrial ? "Selecionar para contratar" : "Contratar módulo"}
+              </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
@@ -544,7 +703,10 @@ function ModuloCard({ modulo }: { modulo: ModuloDisponivelCliente }) {
                   Solicitar contratação: {modulo.nome}
                 </AlertDialogTitle>
                 <AlertDialogDescription>
-                  Será criada uma solicitação de pagamento no valor de{" "}
+                  {isTrial
+                    ? "Você está em período de teste — nenhuma cobrança é gerada agora. A solicitação ficará registrada e o módulo continuará ativo após a contratação do Plano Base."
+                    : null}
+                  {" "}Será criada uma solicitação de pagamento no valor de{" "}
                   <strong>{fmtBRL(modulo.valor)}</strong>. Nossa equipe entrará
                   em contato para confirmar o pagamento e ativar o módulo.
                 </AlertDialogDescription>
