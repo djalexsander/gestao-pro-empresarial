@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { CheckCircle2, Clock, AlertTriangle, XCircle, QrCode, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -6,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useMinhaAssinatura, useMeusModulos } from "@/hooks/useSaasAdmin";
 import { useCobrancaPendente } from "@/hooks/useCobrancaPendente";
 import { getEffectivePlanStatus } from "@/lib/planStatus";
+import { CobrancaPixDialog, type CobrancaResult } from "@/components/saas/CobrancaPixDialog";
 
 const fmtBRL = (n: number) =>
   Number(n ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -33,7 +35,7 @@ const STATUS_META: Record<
 export function ResumoAssinatura({
   onAbrirCobranca,
 }: {
-  /** Callback chamado quando o usuário clica em "Pagar agora" sobre cobrança pendente. */
+  /** Callback opcional. Se omitido, o componente abre o CobrancaPixDialog internamente. */
   onAbrirCobranca?: (pagamentoId: string) => void;
 }) {
   const { data: assinatura, isLoading: loadingAss } = useMinhaAssinatura();
@@ -44,6 +46,26 @@ export function ResumoAssinatura({
 
   const showPendente = status === "pending_payment" || status === "overdue" || status === "expired";
   const { data: pendente } = useCobrancaPendente(showPendente);
+
+  const [pixOpen, setPixOpen] = useState(false);
+  const [pixCobranca, setPixCobranca] = useState<CobrancaResult | null>(null);
+
+  const handlePagarAgora = () => {
+    if (!pendente) return;
+    if (onAbrirCobranca) {
+      onAbrirCobranca(pendente.pagamento_id);
+      return;
+    }
+    setPixCobranca({
+      pagamento_id: pendente.pagamento_id,
+      asaas_payment_id: pendente.asaas_payment_id ?? "",
+      invoice_url: pendente.invoice_url,
+      pix_qrcode: pendente.pix_qrcode,
+      pix_copia_cola: pendente.pix_copia_cola,
+      due_date: pendente.data_vencimento,
+    });
+    setPixOpen(true);
+  };
 
   const modulosAtivos = modulos.filter((m) => m.liberado && m.origem !== "trial");
   const totalRecorrente =
@@ -115,10 +137,7 @@ export function ResumoAssinatura({
                 Vencimento {fmtDate(pendente.data_vencimento)} · {pendente.itens.length} item(ns)
               </p>
             </div>
-            <Button
-              size="sm"
-              onClick={() => onAbrirCobranca?.(pendente.pagamento_id)}
-            >
+            <Button size="sm" onClick={handlePagarAgora}>
               <QrCode className="mr-2 h-4 w-4" /> Pagar agora
             </Button>
           </div>
@@ -139,6 +158,12 @@ export function ResumoAssinatura({
           </div>
         )}
       </CardContent>
+
+      <CobrancaPixDialog
+        open={pixOpen}
+        onOpenChange={setPixOpen}
+        cobranca={pixCobranca}
+      />
     </Card>
   );
 }
