@@ -1610,7 +1610,7 @@ function PDVPage() {
             cliente: cliente
               ? { nome: cliente.nome, documento: cliente.documento ?? null }
               : null,
-            operador: user?.email ?? null,
+            operador: operador?.nome ?? user?.email ?? null,
             observacao: observacao || null,
             itens: items.map((it) => ({
               descricao: it.nome,
