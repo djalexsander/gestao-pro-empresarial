@@ -277,6 +277,9 @@ function MeuPlanoPage() {
           </section>
         </>
       )}
+
+      <CartFloatingButton />
+      <CartDrawer />
     </div>
   );
 }
