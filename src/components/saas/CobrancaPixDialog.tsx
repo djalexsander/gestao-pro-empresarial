@@ -30,6 +30,43 @@ export function CobrancaPixDialog({
   cobranca: CobrancaResult | null;
 }) {
   const [copied, setCopied] = useState(false);
+  const [pago, setPago] = useState(false);
+  const qc = useQueryClient();
+
+  // Realtime: escuta mudança do pagamento → quando virar `pago`, atualiza UI
+  // e invalida queries para refletir plano/módulo ativo automaticamente.
+  useEffect(() => {
+    if (!open || !cobranca?.pagamento_id) return;
+    setPago(false);
+
+    const ch = supabase
+      .channel(`pagamento-${cobranca.pagamento_id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "pagamentos",
+          filter: `id=eq.${cobranca.pagamento_id}`,
+        },
+        (payload) => {
+          const novo = payload.new as { status?: string };
+          if (novo?.status === "pago") {
+            setPago(true);
+            toast.success("Pagamento confirmado! Plano/módulo ativado.");
+            qc.invalidateQueries({ queryKey: ["minha-assinatura"] });
+            qc.invalidateQueries({ queryKey: ["planos-disponiveis"] });
+            qc.invalidateQueries({ queryKey: ["modulos-disponiveis-cliente"] });
+            qc.invalidateQueries({ queryKey: ["meus-modulos"] });
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [open, cobranca?.pagamento_id, qc]);
 
   const copy = async (val: string) => {
     try {
