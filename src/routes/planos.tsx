@@ -144,7 +144,7 @@ function PlanoCard({
       className={
         destaque
           ? "relative border-primary shadow-lg shadow-primary/10"
-          : plano.atual
+          : isPlanoAtual
             ? "border-emerald-500/40"
             : ""
       }
