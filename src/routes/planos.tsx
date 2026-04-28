@@ -128,10 +128,15 @@ function PlanosClientePage() {
 function PlanoCard({
   plano,
   destaque,
+  isTrial,
 }: {
   plano: PlanoDisponivel;
   destaque: boolean;
+  isTrial: boolean;
 }) {
+  // Durante o trial, ignoramos o flag `atual` (ele aponta para o plano padrão
+  // atribuído na criação da empresa, não para um plano efetivamente contratado).
+  const isPlanoAtual = !isTrial && plano.atual;
   const solicitar = useSolicitarPlano();
 
   return (
