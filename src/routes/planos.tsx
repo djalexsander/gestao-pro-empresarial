@@ -161,7 +161,7 @@ function PlanoCard({
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2 text-xl">
             {plano.nome}
-            {plano.atual && (
+            {isPlanoAtual && (
               <Crown className="h-4 w-4 text-emerald-500" />
             )}
           </CardTitle>
