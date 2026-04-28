@@ -61,21 +61,48 @@ export function useModulosDisponiveisCliente() {
 /* =========================================================
  * MUTATIONS
  * =======================================================*/
+export type CobrancaCriada = {
+  asaas_payment_id: string;
+  invoice_url?: string | null;
+  pix_qrcode?: string | null;
+  pix_copia_cola?: string | null;
+  due_date?: string | null;
+};
+
+async function criarCobrancaAsaas(pagamento_id: string): Promise<CobrancaCriada | null> {
+  // Verifica se a cobrança automática está habilitada antes de chamar a função.
+  const { data: cfg } = await supabase
+    .from("config_comercial")
+    .select("asaas_enabled")
+    .maybeSingle();
+  if (!cfg?.asaas_enabled) return null;
+
+  const { data, error } = await supabase.functions.invoke("asaas-criar-cobranca", {
+    body: { pagamento_id, billing_type: "PIX" },
+  });
+  if (error) throw new Error(error.message ?? "Falha ao criar cobrança");
+  return data as CobrancaCriada;
+}
+
 export function useSolicitarPlano() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (plano_id: string) => {
-      const { error } = await (supabase.rpc as any)(
+      const { data: pagamentoId, error } = await (supabase.rpc as any)(
         "solicitar_contratacao_plano",
         { _plano_id: plano_id },
       );
       if (error) throw error;
+      const cobranca = await criarCobrancaAsaas(pagamentoId as string);
+      return { pagamentoId: pagamentoId as string, cobranca };
     },
-    onSuccess: () => {
+    onSuccess: ({ cobranca }) => {
       qc.invalidateQueries({ queryKey: ["planos-disponiveis"] });
-      toast.success(
-        "Solicitação enviada! Aguarde a confirmação do pagamento pelo suporte.",
-      );
+      if (!cobranca) {
+        toast.success(
+          "Solicitação enviada! Aguarde a confirmação do pagamento pelo suporte.",
+        );
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -85,18 +112,22 @@ export function useSolicitarModulo() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (modulo_id: string) => {
-      const { error } = await (supabase.rpc as any)(
+      const { data: pagamentoId, error } = await (supabase.rpc as any)(
         "solicitar_contratacao_modulo",
         { _modulo_id: modulo_id },
       );
       if (error) throw error;
+      const cobranca = await criarCobrancaAsaas(pagamentoId as string);
+      return { pagamentoId: pagamentoId as string, cobranca };
     },
-    onSuccess: () => {
+    onSuccess: ({ cobranca }) => {
       qc.invalidateQueries({ queryKey: ["modulos-disponiveis-cliente"] });
       qc.invalidateQueries({ queryKey: ["meus-modulos"] });
-      toast.success(
-        "Solicitação enviada! Aguarde a liberação após confirmação do pagamento.",
-      );
+      if (!cobranca) {
+        toast.success(
+          "Solicitação enviada! Aguarde a liberação após confirmação do pagamento.",
+        );
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   });
