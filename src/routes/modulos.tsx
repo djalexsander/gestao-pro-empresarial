@@ -37,6 +37,7 @@ import {
   type PlanoDisponivel,
 } from "@/hooks/useSaasCliente";
 import { useMinhaAssinatura } from "@/hooks/useSaasAdmin";
+import { getEffectivePlanStatus, type EffectivePlanStatus } from "@/lib/planStatus";
 
 export const Route = createFileRoute("/modulos")({
   head: () => ({
