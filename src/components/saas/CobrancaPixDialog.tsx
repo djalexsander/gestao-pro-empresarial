@@ -87,8 +87,10 @@ export function CobrancaPixDialog({
             <QrCode className="h-5 w-5" /> Pague com Pix
           </DialogTitle>
           <DialogDescription>
-            Após a confirmação do pagamento, o plano/módulo é ativado automaticamente.
-            {cobranca?.due_date && (
+            {pago
+              ? "Pagamento confirmado. O plano/módulo já está ativo."
+              : "Após a confirmação do pagamento, o plano/módulo é ativado automaticamente."}
+            {cobranca?.due_date && !pago && (
               <span className="ml-1">
                 Vencimento: <strong>{cobranca.due_date}</strong>.
               </span>
@@ -96,7 +98,21 @@ export function CobrancaPixDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {cobranca?.pix_qrcode ? (
+        <div className="flex justify-center">
+          {pago ? (
+            <Badge className="gap-1 bg-emerald-500 text-white hover:bg-emerald-600">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Pagamento confirmado
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="gap-1">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Aguardando pagamento
+            </Badge>
+          )}
+        </div>
+
+        {!pago && cobranca?.pix_qrcode ? (
           <div className="flex flex-col items-center gap-3">
             <img
               src={`data:image/png;base64,${cobranca.pix_qrcode}`}
