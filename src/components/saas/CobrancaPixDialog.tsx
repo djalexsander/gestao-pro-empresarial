@@ -24,10 +24,16 @@ export function CobrancaPixDialog({
   open,
   onOpenChange,
   cobranca,
+  autoCloseOnPaid = true,
+  autoCloseDelayMs = 2500,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   cobranca: CobrancaResult | null;
+  /** Fecha o diálogo automaticamente após confirmar pagamento. */
+  autoCloseOnPaid?: boolean;
+  /** Tempo (ms) que a confirmação fica visível antes do fechamento automático. */
+  autoCloseDelayMs?: number;
 }) {
   const [copied, setCopied] = useState(false);
   const [pago, setPago] = useState(false);
@@ -58,6 +64,8 @@ export function CobrancaPixDialog({
             qc.invalidateQueries({ queryKey: ["planos-disponiveis"] });
             qc.invalidateQueries({ queryKey: ["modulos-disponiveis-cliente"] });
             qc.invalidateQueries({ queryKey: ["meus-modulos"] });
+            qc.invalidateQueries({ queryKey: ["cobranca-pendente"] });
+            qc.invalidateQueries({ queryKey: ["meus-pagamentos"] });
           }
         },
       )
@@ -67,6 +75,13 @@ export function CobrancaPixDialog({
       supabase.removeChannel(ch);
     };
   }, [open, cobranca?.pagamento_id, qc]);
+
+  // Fechamento automático após confirmação
+  useEffect(() => {
+    if (!pago || !autoCloseOnPaid || !open) return;
+    const t = setTimeout(() => onOpenChange(false), autoCloseDelayMs);
+    return () => clearTimeout(t);
+  }, [pago, autoCloseOnPaid, autoCloseDelayMs, open, onOpenChange]);
 
   const copy = async (val: string) => {
     try {
