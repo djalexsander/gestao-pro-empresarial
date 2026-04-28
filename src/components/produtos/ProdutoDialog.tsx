@@ -97,6 +97,7 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
   const updateMut = useUpdateProduto();
 
   const [form, setForm] = useState(EMPTY);
+  const [etiquetaOpen, setEtiquetaOpen] = useState(false);
 
   useEffect(() => {
     if (open && produto) {
