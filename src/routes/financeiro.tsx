@@ -1016,10 +1016,12 @@ function FluxoCaixaPanel() {
         const valor = Number(l.valor) || 0;
         const pago = Number(l.valor_pago) || 0;
         cur.total += valor;
-        // Considera recebido se status pago/recebido OU iFood conciliado
+        // Considera recebido se status pago/recebido OU iFood conciliado.
+        // Quando efetivado, o valor cheio do lançamento conta como recebido —
+        // a diferença entre valor e valor_pago é taxa (iFood), não pendência.
         const efetivado =
           l.status === "pago" || l.status === "recebido" || !!l.conciliado_em;
-        cur.recebido += efetivado ? (pago > 0 ? pago : valor) : pago;
+        cur.recebido += efetivado ? valor : pago;
         lancMap.set(key, cur);
       }
 
