@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronRight,
   FolderTree,
+  Printer,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -47,6 +48,7 @@ import { useCategorias, useDeleteProduto, useProdutos } from "@/hooks/useProduto
 import { useEstoqueSaldos } from "@/hooks/useEstoque";
 import { ProdutoDialog } from "@/components/produtos/ProdutoDialog";
 import { EntradaPorCodigoDialog } from "@/components/scanner";
+import { EtiquetaImpressaoDialog } from "@/components/produtos/EtiquetaImpressaoDialog";
 
 export const Route = createFileRoute("/produtos")({
   head: () => ({
@@ -71,6 +73,9 @@ export function ProductsPage() {
   const [scanOpen, setScanOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [etiquetaProduto, setEtiquetaProduto] = useState<{
+    nome: string; codigo: string; preco: number | null; sku: string | null;
+  } | null>(null);
   const [search, setSearch] = useState("");
   const [categoriaFilter, setCategoriaFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
