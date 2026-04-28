@@ -62,6 +62,7 @@ export function useModulosDisponiveisCliente() {
  * MUTATIONS
  * =======================================================*/
 export type CobrancaCriada = {
+  pagamento_id: string;
   asaas_payment_id: string;
   invoice_url?: string | null;
   pix_qrcode?: string | null;
@@ -81,7 +82,7 @@ async function criarCobrancaAsaas(pagamento_id: string): Promise<CobrancaCriada 
     body: { pagamento_id, billing_type: "PIX" },
   });
   if (error) throw new Error(error.message ?? "Falha ao criar cobrança");
-  return data as CobrancaCriada;
+  return { ...(data as Omit<CobrancaCriada, "pagamento_id">), pagamento_id };
 }
 
 export function useSolicitarPlano() {
