@@ -129,11 +129,6 @@ function AdminEmpresasPage() {
                   <TableCell><EmpresaStatusBadge status={e.status} /></TableCell>
                   <TableCell><PlanoBadge plano={e.plano} /></TableCell>
                   <TableCell className="text-right tabular-nums">{e.total_usuarios}</TableCell>
-                  <TableCell className="text-right tabular-nums">{e.total_produtos}</TableCell>
-                  <TableCell className="text-right tabular-nums">{e.total_vendas}</TableCell>
-                  <TableCell className="text-right tabular-nums text-success">
-                    {fmtBRL(Number(e.volume_vendas))}
-                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {new Date(e.created_at).toLocaleDateString("pt-BR")}
                   </TableCell>
