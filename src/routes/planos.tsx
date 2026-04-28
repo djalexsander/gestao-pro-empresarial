@@ -207,7 +207,7 @@ function PlanoCard({
           </li>
         </ul>
 
-        {plano.atual ? (
+        {isPlanoAtual ? (
           <Button disabled className="w-full" variant="outline">
             Plano atual
           </Button>
