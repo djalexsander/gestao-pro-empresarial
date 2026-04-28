@@ -189,7 +189,7 @@ function MeuPlanoPage() {
           <>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {modulosAtivos.map((m) => (
-                <ModuloCard key={m.id} modulo={m} />
+                <ModuloCard key={m.id} modulo={m} isTrial={isTrial} />
               ))}
             </div>
             <div className="flex justify-end pt-1">
