@@ -1,6 +1,8 @@
-import { useState } from "react";
-import { Copy, Check, ExternalLink, QrCode } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Copy, Check, ExternalLink, QrCode, CheckCircle2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -9,6 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 
 export type CobrancaResult = {
+  /** ID interno do pagamento (tabela `pagamentos`). Necessário para o realtime. */
+  pagamento_id?: string;
   asaas_payment_id: string;
   invoice_url?: string | null;
   pix_qrcode?: string | null;
