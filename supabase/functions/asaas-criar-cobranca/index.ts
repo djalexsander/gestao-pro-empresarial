@@ -267,6 +267,7 @@ Deno.serve(async (req) => {
       asaas_pix_qrcode: pixQr,
       asaas_pix_copia_cola: pixCopia,
       asaas_billing_type: billingType,
+      external_reference: externalReference,
       data_vencimento: due,
       forma_pagamento: billingType.toLowerCase(),
     })
