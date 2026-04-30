@@ -282,14 +282,66 @@ o trigger ajusta o lançamento; o `alterarStatus` ajusta a venda.
 - **Edição de vencimento** ainda não tem UI — a RPC já existe; basta um
   pequeno modal quando o produto pedir.
 
+## Estoque (ajustes manuais)
+
+Adapter: `dataClient.estoque`. Cobre **somente movimentação manual avulsa**
+(entrada manual, saída manual, ajuste de saldo, devolução avulsa,
+transferência). Movimentações automáticas (venda → baixa, compra → entrada,
+cancelamento → devolução) continuam saindo das RPCs de venda/compra/
+cancelamento — não passam por aqui.
+
+### Métodos
+
+- `registrarMovimento(input)` — RPC `registrar_movimento_estoque`.
+
+### Garantias server-side
+
+- **Lock por produto:** `pg_advisory_xact_lock(produto_id)` serializa
+  movimentações concorrentes do MESMO item entre vários terminais. Cada
+  movimento vê o saldo já atualizado pelo anterior antes de gravar.
+- **Recálculo no servidor:** `saldo_anterior` e `saldo_posterior` são
+  calculados a partir do histórico — o cliente não dita o saldo. Mesmo se
+  dois terminais mandarem `saldo_atual` diferente, o banco grava certo.
+- **Saldo negativo bloqueado:** saída/transferência que deixaria o estoque
+  negativo é rejeitada com `RAISE EXCEPTION`.
+- **Idempotência:** `client_uuid` por modal aberto — duplo clique, Enter
+  repetido e retry de rede retornam o mesmo `movimento_id` sem duplicar
+  baixa/entrada.
+- **Histórico íntegro:** toda chamada gera linha em `estoque_movimentacoes`
+  (mesmo idempotente devolve a linha original). Nada é apagado.
+
+### Pontos de concorrência (multi-terminal)
+
+- **Dois terminais ajustando o mesmo produto:** serializados pelo advisory
+  lock; o segundo espera o primeiro fechar a transação.
+- **Terminal ajustando + venda baixando o mesmo produto:** a RPC de venda
+  também grava em `estoque_movimentacoes`, mas NÃO usa o mesmo lock
+  advisory. Em cenário LAN, vale unificar — ver "Riscos restantes".
+- **Cliente lendo `useEstoqueSaldos` desatualizado:** a UI pode mostrar
+  saldo defasado, mas o servidor recalcula no momento da gravação. Cliente
+  só perde a checagem visual de "saldo previsto", nunca grava errado.
+
+### Riscos restantes (fora desta etapa)
+
+- O lock advisory é por produto e só vale durante a transação atual. Se a
+  RPC `finalizar_venda_pdv` não pegar o mesmo lock, baixas concorrentes
+  entre venda e ajuste manual podem ainda gerar `saldo_anterior` defasado
+  (o saldo final fica certo, mas a coluna histórica do registro do ajuste
+  pode ficar fora de ordem). Endurecimento na Fase 2: estender o lock
+  para todos os caminhos que escrevem em `estoque_movimentacoes`.
+- `useEstoqueSaldos` ainda agrega no cliente. Para volumes maiores ou
+  cenário LAN com muitos terminais, vale promover a uma view materializada
+  ou RPC `get_saldos_estoque` com cache server-side.
+
 ### Próximos recomendados (writes)
 
-1. **`useEstoque` ajustes manuais** — entradas/saídas avulsas com
-   `client_uuid` para idempotência (mesmo padrão de caixa e financeiro).
-2. **CRUD de cliente/fornecedor** — escrita simples, ainda direto no
+1. **CRUD de cliente/fornecedor** — escrita simples, ainda direto no
    `supabase` em diversos diálogos. Bom para zerar o uso direto do client.
-3. **Edição/criação avulsa de lançamento financeiro** (a pagar/receber sem
+2. **Edição/criação avulsa de lançamento financeiro** (a pagar/receber sem
    venda) — fechar o ciclo CRUD financeiro completo.
+3. **CRUD de produto** (criar/editar/inativar) — toca em `produtos`,
+   `produto_codigos`, `produto_variacoes`, `lotes_produto`. Migrar para
+   adapter prepara o cenário multi-terminal de cadastro.
 4. **`useRealtimeSync`** — abstrair a fonte realtime (Supabase Realtime ↔
    WS LAN), já com a base toda preparada.
 
