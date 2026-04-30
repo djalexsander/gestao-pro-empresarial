@@ -1,20 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
+import type {
+  FinalizarVendaInput as DataFinalizarVendaInput,
+  FinalizarVendaItem as DataFinalizarVendaItem,
+  FinalizarVendaPagamento as DataFinalizarVendaPagamento,
+  FormaPagamento as DataFormaPagamento,
+  StatusPagamento as DataStatusPagamento,
+} from "@/integrations/data";
 
-export type FormaPagamento =
-  | "dinheiro"
-  | "pix"
-  | "cartao_debito"
-  | "cartao_credito"
-  | "boleto"
-  | "ifood"
-  | "fiado"
-  | "transferencia"
-  | "cheque"
-  | "outro";
+// Re-exports para compatibilidade total com componentes que importam daqui.
+export type FormaPagamento = DataFormaPagamento;
+export type StatusPagamento = DataStatusPagamento;
+export type FinalizarVendaItem = DataFinalizarVendaItem;
+export type FinalizarVendaPagamento = DataFinalizarVendaPagamento;
+export type FinalizarVendaInput = DataFinalizarVendaInput;
 
-export type StatusPagamento = "pago" | "pendente" | "parcial" | "cancelado";
 export type VendaStatus =
   | "rascunho"
   | "aprovada"
@@ -22,82 +24,20 @@ export type VendaStatus =
   | "cancelada"
   | string;
 
-export interface FinalizarVendaItem {
-  produto_id: string;
-  quantidade: number;
-  preco_unitario: number;
-  desconto: number;
-  descricao?: string | null;
-  // ===== Snapshot / auditoria de balança (opcionais) =====
-  /** Snapshot: produto era vendido por peso no momento da venda. */
-  vendido_por_peso?: boolean;
-  /** Snapshot: preço por KG aplicado (apenas para vendido_por_peso). */
-  preco_por_kg?: number | null;
-  /** Auditoria: código completo lido (etiqueta da balança ou código original). */
-  codigo_lido?: string | null;
-  /** Auditoria: PLU/código base extraído da etiqueta. */
-  plu_extraido?: string | null;
-  /** Auditoria: peso (KG) extraído da etiqueta ou informado manualmente. */
-  peso_extraido?: number | null;
-  /** Auditoria: valor total (R$) extraído da etiqueta, quando aplicável. */
-  valor_extraido?: number | null;
-  /** Auditoria: 'peso' | 'valor' | 'manual' (origem do peso/valor). */
-  tipo_interpretacao?: "peso" | "valor" | "manual" | null;
-}
-
-export interface FinalizarVendaPagamento {
-  forma_pagamento: FormaPagamento;
-  valor: number;
-  valor_recebido?: number | null;
-  troco?: number | null;
-  parcelas?: number | null;
-  observacao?: string | null;
-}
-
-export interface FinalizarVendaInput {
-  cliente_id: string | null;
-  subtotal: number;
-  desconto: number;
-  total: number;
-  forma_pagamento: FormaPagamento;
-  status_pagamento: StatusPagamento;
-  valor_recebido: number | null;
-  troco: number | null;
-  observacao: string | null;
-  itens: FinalizarVendaItem[];
-  /** Múltiplas formas de pagamento. Se vazio, usa forma_pagamento como única. */
-  pagamentos?: FinalizarVendaPagamento[];
-  gerar_financeiro?: boolean;
-  /** ID do funcionário operador que está realizando a venda. */
-  operador_id?: string | null;
-  /** ID do terminal físico (PDV) onde a venda ocorreu. */
-  terminal_id?: string | null;
-}
-
+/**
+ * Finaliza uma venda no PDV via camada `dataClient` (Fase 1 da arquitetura
+ * desacoplada). O backend aplica idempotência baseada em `input.client_uuid`:
+ * reenvio com o mesmo UUID retorna o ID da venda existente sem duplicar
+ * venda, itens, baixa de estoque, pagamentos, lançamento financeiro ou
+ * movimento de caixa.
+ *
+ * Cabe ao chamador (PDV) preencher `client_uuid` e mantê-lo estável durante
+ * toda a vida do carrinho.
+ */
 export function useFinalizarVendaPDV() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: FinalizarVendaInput) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any).rpc("finalizar_venda_pdv", {
-        _cliente_id: input.cliente_id,
-        _subtotal: input.subtotal,
-        _desconto: input.desconto,
-        _total: input.total,
-        _forma: input.forma_pagamento,
-        _status_pagamento: input.status_pagamento,
-        _valor_recebido: input.valor_recebido,
-        _troco: input.troco,
-        _observacao: input.observacao,
-        _itens: input.itens,
-        _pagamentos: input.pagamentos && input.pagamentos.length > 0 ? input.pagamentos : null,
-        _gerar_financeiro: input.gerar_financeiro ?? true,
-        _operador_id: input.operador_id ?? null,
-        _terminal_id: input.terminal_id ?? null,
-      });
-      if (error) throw error;
-      return data as string; // venda_id
-    },
+    mutationFn: (input: FinalizarVendaInput) => dataClient.vendas.finalizar(input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["vendas"] });
       qc.invalidateQueries({ queryKey: ["estoque-saldos"] });
@@ -107,6 +47,7 @@ export function useFinalizarVendaPDV() {
     onError: (e: Error) => toast.error(e.message),
   });
 }
+
 
 // =============== Saldos em lote (para validação no PDV) ===============
 export function useSaldosLote() {

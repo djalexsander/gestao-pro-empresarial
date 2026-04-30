@@ -87,3 +87,75 @@ export type Produto = {
 export type ProdutoComCategoria = Produto & {
   categoria: { id: string; nome: string } | null;
 };
+
+// -------------------- Vendas (PDV) --------------------
+
+export type FormaPagamento =
+  | "dinheiro"
+  | "pix"
+  | "cartao_debito"
+  | "cartao_credito"
+  | "boleto"
+  | "ifood"
+  | "fiado"
+  | "transferencia"
+  | "cheque"
+  | "outro";
+
+export type StatusPagamento = "pago" | "pendente" | "parcial" | "cancelado";
+
+/**
+ * Item de uma venda enviado ao backend. Inclui campos de auditoria de balança
+ * (etiqueta lida, PLU extraído, peso, etc.) — todos opcionais.
+ */
+export interface FinalizarVendaItem {
+  produto_id: string;
+  quantidade: number;
+  preco_unitario: number;
+  desconto: number;
+  descricao?: string | null;
+  vendido_por_peso?: boolean;
+  preco_por_kg?: number | null;
+  codigo_lido?: string | null;
+  plu_extraido?: string | null;
+  peso_extraido?: number | null;
+  valor_extraido?: number | null;
+  tipo_interpretacao?: "peso" | "valor" | "manual" | null;
+}
+
+export interface FinalizarVendaPagamento {
+  forma_pagamento: FormaPagamento;
+  valor: number;
+  valor_recebido?: number | null;
+  troco?: number | null;
+  parcelas?: number | null;
+  observacao?: string | null;
+}
+
+/**
+ * Payload completo para finalizar uma venda no PDV.
+ *
+ * IDEMPOTÊNCIA: o campo `client_uuid` é a chave de idempotência. Deve ser
+ * gerado pelo PDV no início do carrinho e mantido estável até a venda ser
+ * finalizada/cancelada/limpa. Reenviar o mesmo `client_uuid` retorna o ID da
+ * venda já criada, sem duplicar nada (venda, itens, baixa de estoque,
+ * pagamentos, lançamento financeiro ou movimento de caixa).
+ */
+export interface FinalizarVendaInput {
+  cliente_id: string | null;
+  subtotal: number;
+  desconto: number;
+  total: number;
+  forma_pagamento: FormaPagamento;
+  status_pagamento: StatusPagamento;
+  valor_recebido: number | null;
+  troco: number | null;
+  observacao: string | null;
+  itens: FinalizarVendaItem[];
+  pagamentos?: FinalizarVendaPagamento[];
+  gerar_financeiro?: boolean;
+  operador_id?: string | null;
+  terminal_id?: string | null;
+  /** Chave de idempotência. Recomendado preencher SEMPRE no PDV. */
+  client_uuid?: string | null;
+}

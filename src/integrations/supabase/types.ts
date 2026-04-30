@@ -2357,6 +2357,7 @@ export type Database = {
       vendas: {
         Row: {
           caixa_id: string | null
+          client_uuid: string | null
           cliente_id: string | null
           created_at: string
           data_emissao: string
@@ -2366,6 +2367,7 @@ export type Database = {
           forma_pagamento: Database["public"]["Enums"]["forma_pagamento"] | null
           frete: number
           id: string
+          idempotent_replay_count: number
           numero: string
           numero_nf: string | null
           observacoes: string | null
@@ -2385,6 +2387,7 @@ export type Database = {
         }
         Insert: {
           caixa_id?: string | null
+          client_uuid?: string | null
           cliente_id?: string | null
           created_at?: string
           data_emissao?: string
@@ -2396,6 +2399,7 @@ export type Database = {
             | null
           frete?: number
           id?: string
+          idempotent_replay_count?: number
           numero: string
           numero_nf?: string | null
           observacoes?: string | null
@@ -2415,6 +2419,7 @@ export type Database = {
         }
         Update: {
           caixa_id?: string | null
+          client_uuid?: string | null
           cliente_id?: string | null
           created_at?: string
           data_emissao?: string
@@ -2426,6 +2431,7 @@ export type Database = {
             | null
           frete?: number
           id?: string
+          idempotent_replay_count?: number
           numero?: string
           numero_nf?: string | null
           observacoes?: string | null
@@ -3043,6 +3049,26 @@ export type Database = {
           }
         | {
             Args: {
+              _cliente_id: string
+              _desconto: number
+              _forma: Database["public"]["Enums"]["forma_pagamento"]
+              _gerar_financeiro?: boolean
+              _itens: Json
+              _observacao: string
+              _operador_id?: string
+              _pagamentos?: Json
+              _status_pagamento: string
+              _subtotal: number
+              _terminal_id?: string
+              _total: number
+              _troco: number
+              _valor_recebido: number
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              _client_uuid?: string
               _cliente_id: string
               _desconto: number
               _forma: Database["public"]["Enums"]["forma_pagamento"]

@@ -14,6 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { DataAdapter } from "../adapter";
 import type {
   CodigoTipo,
+  FinalizarVendaInput,
   ProdutoBuscaResult,
   ProdutoComCategoria,
   ProdutoPluResult,
@@ -122,6 +123,37 @@ const produtos: DataAdapter["produtos"] = {
   },
 };
 
+// =====================================================================
+// Vendas
+// =====================================================================
+const vendas: DataAdapter["vendas"] = {
+  async finalizar(input: FinalizarVendaInput): Promise<string> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("finalizar_venda_pdv", {
+      _cliente_id: input.cliente_id,
+      _subtotal: input.subtotal,
+      _desconto: input.desconto,
+      _total: input.total,
+      _forma: input.forma_pagamento,
+      _status_pagamento: input.status_pagamento,
+      _valor_recebido: input.valor_recebido,
+      _troco: input.troco,
+      _observacao: input.observacao,
+      _itens: input.itens,
+      _pagamentos:
+        input.pagamentos && input.pagamentos.length > 0 ? input.pagamentos : null,
+      _gerar_financeiro: input.gerar_financeiro ?? true,
+      _operador_id: input.operador_id ?? null,
+      _terminal_id: input.terminal_id ?? null,
+      // Chave de idempotência (nullable: chamadas antigas seguem funcionando)
+      _client_uuid: input.client_uuid ?? null,
+    });
+    if (error) throw error;
+    return data as string;
+  },
+};
+
 export const cloudAdapter: DataAdapter = {
   produtos,
+  vendas,
 };

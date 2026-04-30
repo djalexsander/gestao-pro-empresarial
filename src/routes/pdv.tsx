@@ -197,6 +197,15 @@ function PDVPage() {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [items, setItems] = useState<VendaItem[]>([]);
+  /**
+   * client_uuid da venda em andamento — chave de idempotência ponta-a-ponta.
+   * Gerado quando o carrinho começa e renovado após cada `clearVenda()`
+   * (sucesso, cancelamento ou limpeza manual). Garante que duplo clique,
+   * Enter repetido, retry de rede ou reenvio offline NUNCA gerem venda
+   * duplicada nem dupla baixa de estoque — o backend retorna a venda
+   * existente quando recebe o mesmo UUID.
+   */
+  const [cartUuid, setCartUuid] = useState<string>(() => crypto.randomUUID());
   const [scannerOpen, setScannerOpen] = useState(false);
   const [consultaPrecoOpen, setConsultaPrecoOpen] = useState(false);
   const [multDialogOpen, setMultDialogOpen] = useState(false);
@@ -843,6 +852,8 @@ function PDVPage() {
     setItems([]);
     setObservacao("");
     setLastAddedKey(null);
+    // Renova o client_uuid: a próxima venda terá uma nova chave de idempotência.
+    setCartUuid(crypto.randomUUID());
     focusScanInput(DEFAULT_FOCUS_DELAY);
   }
 
@@ -1593,6 +1604,7 @@ function PDVPage() {
         cliente={cliente ? { id: cliente.id, nome: cliente.nome } : null}
         observacao={observacao}
         operadorEmail={user?.email}
+        clientUuid={cartUuid}
         onConfirmed={({ vendaId, forma, status, troco, valorRecebido }) => {
           setFinalizarOpen(false);
           som.beep("ok");
