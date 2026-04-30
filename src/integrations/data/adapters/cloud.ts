@@ -785,6 +785,27 @@ const estoque: DataAdapter["estoque"] = {
       saldo_posterior: Number(d.saldo_posterior ?? 0) || 0,
     };
   },
+
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  async saldosLinhas() {
+    const { data, error } = await supabase
+      .from("estoque_movimentacoes")
+      .select("produto_id, variacao_id, tipo, quantidade");
+    if (error) throw error;
+    return (data ?? []) as unknown as import("../types").EstoqueSaldoLinha[];
+  },
+
+  async movimentacoes(input) {
+    let q = supabase
+      .from("estoque_movimentacoes")
+      .select("*, produto:produtos(id, sku, nome)")
+      .order("data_movimentacao", { ascending: false })
+      .limit(input?.limit ?? 200);
+    if (input?.produto_id) q = q.eq("produto_id", input.produto_id);
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []) as unknown as import("../types").MovimentacaoEstoqueDomain[];
+  },
 };
 
 // =====================================================================
