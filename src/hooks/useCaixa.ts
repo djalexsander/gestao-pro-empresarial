@@ -221,22 +221,12 @@ export function useCaixaMovimentos(caixaId: string | null | undefined) {
 export function useAbrirCaixa() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: {
+    mutationFn: (input: {
       valor_inicial: number;
       observacao?: string | null;
       operador_id?: string | null;
       terminal_id?: string | null;
-    }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any).rpc("abrir_caixa", {
-        _valor_inicial: input.valor_inicial,
-        _observacao: input.observacao ?? undefined,
-        _operador_id: input.operador_id ?? undefined,
-        _terminal_id: input.terminal_id ?? undefined,
-      });
-      if (error) throw error;
-      return data as string;
-    },
+    }) => dataClient.caixa.abrir(input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["caixa"] });
       qc.invalidateQueries({ queryKey: ["terminais"] });
@@ -249,22 +239,18 @@ export function useAbrirCaixa() {
 export function useRegistrarMovimentoCaixa() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: {
+    mutationFn: (input: {
       caixa_id: string;
       tipo: "sangria" | "suprimento";
       valor: number;
       motivo?: string | null;
-    }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any).rpc("caixa_registrar_movimento", {
-        _caixa_id: input.caixa_id,
-        _tipo: input.tipo,
-        _valor: input.valor,
-        _motivo: input.motivo ?? undefined,
-      });
-      if (error) throw error;
-      return data as string;
-    },
+      /**
+       * Chave de idempotência. Recomenda-se gerar 1 UUID por modal aberto
+       * (sangria/suprimento) e mantê-lo estável até confirmar/cancelar.
+       * Reenvio com mesmo UUID retorna o id existente sem duplicar.
+       */
+      client_uuid?: string | null;
+    }) => dataClient.caixa.registrarMovimento(input),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["caixa"] });
       toast.success(
@@ -280,20 +266,11 @@ export function useRegistrarMovimentoCaixa() {
 export function useFecharCaixa() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: {
+    mutationFn: (input: {
       caixa_id: string;
       valor_informado: number;
       observacao?: string | null;
-    }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any).rpc("fechar_caixa", {
-        _caixa_id: input.caixa_id,
-        _valor_informado: input.valor_informado,
-        _observacao: input.observacao ?? undefined,
-      });
-      if (error) throw error;
-      return data as { diferenca: number; valor_esperado: number };
-    },
+    }) => dataClient.caixa.fechar(input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["caixa"] });
       qc.invalidateQueries({ queryKey: ["vendas"] });
@@ -307,14 +284,7 @@ export function useFecharCaixa() {
 export function useExcluirCaixa() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (caixa_id: string) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any).rpc("excluir_caixa", {
-        _caixa_id: caixa_id,
-      });
-      if (error) throw error;
-      return data;
-    },
+    mutationFn: (caixa_id: string) => dataClient.caixa.excluir(caixa_id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["caixa"] });
       qc.invalidateQueries({ queryKey: ["vendas"] });
