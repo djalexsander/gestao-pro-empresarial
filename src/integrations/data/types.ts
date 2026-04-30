@@ -205,3 +205,73 @@ export interface FinalizarVendaInput {
   /** Chave de idempotência. Recomendado preencher SEMPRE no PDV. */
   client_uuid?: string | null;
 }
+
+// -------------------- Cancelar / Excluir venda --------------------
+
+export interface CancelarVendaInput {
+  venda_id: string;
+  motivo?: string | null;
+}
+
+export interface ItemEstornado {
+  produto_id: string;
+  produto_nome: string;
+  quantidade: number;
+  saldo_anterior: number;
+  saldo_posterior: number;
+  valor_total: number;
+}
+
+export interface LancamentoCancelado {
+  id: string;
+  descricao: string;
+  valor: number;
+  valor_pago: number;
+  tipo: string;
+  status_anterior: string;
+}
+
+/**
+ * Resultado consolidado do cancelamento de venda.
+ *
+ * O cancelamento é uma **operação composta transacional** que afeta:
+ *  - `vendas`           → status = 'cancelada', status_pagamento = 'cancelado'
+ *  - `estoque_movimentacoes` → grava 1 linha 'devolucao' por item (estorno)
+ *  - `financeiro_lancamentos` → marca todos os lançamentos vinculados como
+ *    'cancelado' (mantém histórico, NÃO apaga)
+ *
+ * NÃO toca em `caixa_movimentos` da venda original (o movimento de caixa do
+ * dia continua refletindo o que aconteceu fisicamente — o estorno é tratado
+ * como evento separado pelo fluxo de caixa).
+ */
+export interface CancelarVendaResumo {
+  venda_id: string;
+  numero: string;
+  total: number;
+  motivo: string | null;
+  cancelado_em: string;
+  qtd_itens_estornados: number;
+  qtd_total_estornada: number;
+  itens_estornados: ItemEstornado[];
+  qtd_lancamentos_cancelados: number;
+  total_lancamentos_cancelados: number;
+  lancamentos_cancelados: LancamentoCancelado[];
+}
+
+/**
+ * Resultado da exclusão definitiva de uma venda **já cancelada**.
+ *
+ * Regras (validadas no banco):
+ *  - SOMENTE vendas com status='cancelada' podem ser excluídas.
+ *  - Pagamentos da venda (`venda_pagamentos`) são removidos fisicamente.
+ *  - Lançamentos financeiros têm `venda_id` desvinculado (mantém histórico
+ *    como lançamento avulso cancelado).
+ *  - Movimentos de estoque têm `venda_id` desvinculado (mantém histórico
+ *    do estorno).
+ *  - A linha de `vendas` é deletada (itens caem por cascade).
+ */
+export interface ExcluirVendaCanceladaResult {
+  venda_id: string;
+  numero: string;
+  excluida_em: string;
+}
