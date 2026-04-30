@@ -193,6 +193,23 @@ Deno.serve(async (req) => {
   dueDate.setDate(dueDate.getDate() + 3); // vencimento em 3 dias
   const due = dueDate.toISOString().slice(0, 10);
 
+  // Webhook central diferencia apps pelo prefixo "gestaopro|<empresaId>".
+  // Não remover esse formato sem alinhar com o webhook em asaas-webhook.
+  if (!empresa.id) {
+    return json(400, { error: "empresa_id ausente no pagamento" });
+  }
+  const externalReference = `gestaopro|${empresa.id}`;
+  console.log(
+    "[create-payment][gestaopro] empresaId=",
+    empresa.id,
+    "externalReference=",
+    externalReference,
+    "pagamento_id=",
+    pagamento.id,
+    "referencia_tipo=",
+    pagamento.referencia_tipo,
+  );
+
   let cobranca: any;
   try {
     cobranca = await asaasFetch(baseUrl, "/payments", {
@@ -203,7 +220,7 @@ Deno.serve(async (req) => {
         value: Number(pagamento.valor),
         dueDate: due,
         description: pagamento.descricao ?? "Assinatura Gestão Pro",
-        externalReference: `gestao-pro:${pagamento.referencia_tipo}:${pagamento.id}`,
+        externalReference,
       }),
     });
   } catch (e) {
