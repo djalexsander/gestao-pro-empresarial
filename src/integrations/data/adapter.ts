@@ -20,8 +20,14 @@ import type {
   AbrirCaixaInput,
   AlterarStatusVendaInput,
   AlterarStatusVendaResult,
+  AlterarVencimentoLancamentoInput,
+  AlterarVencimentoLancamentoResult,
+  CancelarLancamentoInput,
+  CancelarLancamentoResult,
   CancelarVendaInput,
   CancelarVendaResumo,
+  ConciliarIfoodIndividualInput,
+  ConciliarIfoodLoteInput,
   ExcluirVendaCanceladaResult,
   FecharCaixaInput,
   FecharCaixaResult,
@@ -29,7 +35,11 @@ import type {
   ProdutoBuscaResult,
   ProdutoComCategoria,
   ProdutoPluResult,
+  ReabrirLancamentoResult,
   RegistrarMovimentoCaixaInput,
+  RegistrarPagamentoLancamentoInput,
+  RegistrarPagamentoLancamentoResult,
+  RemoverPagamentoLancamentoResult,
 } from "./types";
 
 export interface ProdutosAdapter {
@@ -159,10 +169,76 @@ export interface CaixaAdapter {
   excluir(caixaId: string): Promise<unknown>;
 }
 
+/**
+ * Operações de escrita do **Financeiro** (títulos a pagar/receber).
+ *
+ * Toda baixa, cancelamento, reabertura e edição de vencimento passa por
+ * RPCs `SECURITY DEFINER` no banco — nunca por UPDATE/INSERT direto da UI.
+ * Isso garante:
+ *  - validação de tenant centralizada,
+ *  - atomicidade (lock no título antes de mexer em pagamentos),
+ *  - idempotência de baixa via `client_uuid`,
+ *  - convergência automática de `valor_pago`/`status` (triggers do banco).
+ */
+export interface FinanceiroAdapter {
+  /**
+   * Registra um pagamento (parcial ou total) em um título.
+   *
+   * **Idempotência:** se `input.client_uuid` for enviado e já houver pagamento
+   * com esse UUID, o backend retorna o id existente sem duplicar a baixa.
+   * Triggers do banco recalculam `valor_pago`, `status` e `data_pagamento`
+   * automaticamente; o status converge entre `pendente` ↔ `parcial` ↔
+   * `pago`/`recebido` conforme o total acumulado.
+   */
+  registrarPagamento(
+    input: RegistrarPagamentoLancamentoInput,
+  ): Promise<RegistrarPagamentoLancamentoResult>;
+
+  /**
+   * Remove um pagamento existente. O banco segura o título com `FOR UPDATE`
+   * para evitar corrida com outras baixas. Idempotente: se o pagamento já
+   * não existe, retorna sem erro.
+   */
+  removerPagamento(pagamentoId: string): Promise<RemoverPagamentoLancamentoResult>;
+
+  /**
+   * Cancela um título (sem apagar histórico de pagamentos).
+   * Idempotente em título já cancelado.
+   */
+  cancelarLancamento(input: CancelarLancamentoInput): Promise<CancelarLancamentoResult>;
+
+  /**
+   * Reabre um título cancelado, reavaliando o status pelo total já pago
+   * (`pendente` / `parcial` / `pago` / `recebido`).
+   */
+  reabrirLancamento(lancamentoId: string): Promise<ReabrirLancamentoResult>;
+
+  /**
+   * Altera o vencimento de um título **pendente ou parcial**. Bloqueado para
+   * títulos `pago`, `recebido` ou `cancelado` (validado no banco).
+   */
+  alterarVencimento(
+    input: AlterarVencimentoLancamentoInput,
+  ): Promise<AlterarVencimentoLancamentoResult>;
+
+  /**
+   * Concilia 1 lançamento iFood com o repasse efetivo.
+   * RPC: `conciliar_ifood_lancamento` (já existente).
+   */
+  conciliarIfoodIndividual(input: ConciliarIfoodIndividualInput): Promise<unknown>;
+
+  /**
+   * Concilia múltiplos lançamentos iFood em um único repasse rateado.
+   * RPC: `conciliar_ifood_lote` (já existente).
+   */
+  conciliarIfoodLote(input: ConciliarIfoodLoteInput): Promise<unknown>;
+}
+
 export interface DataAdapter {
   produtos: ProdutosAdapter;
   vendas: VendasAdapter;
   caixa: CaixaAdapter;
+  financeiro: FinanceiroAdapter;
   // Próximos a serem adicionados conforme a Fase 1 avança:
   // estoque: EstoqueAdapter;
   // realtime: RealtimeAdapter;

@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 import { formatBRL } from "@/lib/mock-data";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { ConciliarIfoodDialog } from "./ConciliarIfoodDialog";
@@ -179,11 +180,9 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
   const cancelarTitulo = useMutation({
     mutationFn: async () => {
       if (!lancamento) return;
-      const { error } = await supabase
-        .from("financeiro_lancamentos")
-        .update({ status: "cancelado" })
-        .eq("id", lancamento.id);
-      if (error) throw error;
+      await dataClient.financeiro.cancelarLancamento({
+        lancamento_id: lancamento.id,
+      });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["financeiro_lancamentos"] });
@@ -198,20 +197,9 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
   const reabrirTitulo = useMutation({
     mutationFn: async () => {
       if (!lancamento) return;
-      const totalPago = pagamentos.reduce((s, p) => s + Number(p.valor), 0);
-      const novoStatus: "pendente" | "pago" | "recebido" =
-        totalPago <= 0
-          ? "pendente"
-          : totalPago >= Number(lancamento.valor)
-            ? lancamento.tipo === "pagar"
-              ? "pago"
-              : "recebido"
-            : "pendente"; // 'parcial' não está no enum gerado; mantém pendente
-      const { error } = await supabase
-        .from("financeiro_lancamentos")
-        .update({ status: novoStatus })
-        .eq("id", lancamento.id);
-      if (error) throw error;
+      // RPC reabrir_lancamento recalcula o status pelo total já pago
+      // (pendente / parcial / pago / recebido), de forma autoritativa.
+      await dataClient.financeiro.reabrirLancamento(lancamento.id);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["financeiro_lancamentos"] });
@@ -223,14 +211,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
 
   const removerPagamento = useMutation({
     mutationFn: async (pagId: string) => {
-      const { error } = await (supabase.from as unknown as (
-        t: string,
-      ) => {
-        delete: () => {
-          eq: (col: string, val: string) => Promise<{ error: { message: string } | null }>;
-        };
-      })("lancamento_pagamentos").delete().eq("id", pagId);
-      if (error) throw new Error(error.message);
+      await dataClient.financeiro.removerPagamento(pagId);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["lancamento_pagamentos", lancamento?.id] });

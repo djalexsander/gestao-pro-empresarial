@@ -318,3 +318,95 @@ export interface AlterarStatusVendaResult {
   qtd_lancamentos_alterados: number;
   raw: Record<string, unknown>;
 }
+
+// -------------------- Financeiro / Lançamentos --------------------
+
+/**
+ * Forma de pagamento aceita em **lancamento_pagamentos** (baixa de título).
+ *
+ * Refere-se ao enum `forma_pagamento` do banco. Compartilha valores com
+ * `FormaPagamento` da venda, mas é declarada à parte para deixar explícito
+ * que aqui é a forma da BAIXA (recebimento/pagamento), não da venda.
+ */
+export type FormaPagamentoLancamento = FormaPagamento;
+
+/**
+ * Registrar pagamento (parcial ou total) em um título.
+ *
+ * **Idempotência:** envie `client_uuid` estável (1 por modal aberto).
+ * Reenvio com mesmo UUID retorna o pagamento existente sem duplicar.
+ *
+ * O banco garante via triggers:
+ *  - `validar_pagamento_lancamento`: rejeita pagamento que ultrapasse o
+ *    saldo do título e bloqueia pagamento em título `cancelado`.
+ *  - `recalcular_lancamento_apos_pagamento`: recalcula `valor_pago`,
+ *    `data_pagamento` (mais recente) e `status` (pendente/parcial/pago/recebido).
+ */
+export interface RegistrarPagamentoLancamentoInput {
+  lancamento_id: string;
+  valor: number;
+  data_pagamento: string; // YYYY-MM-DD
+  forma_pagamento?: FormaPagamentoLancamento | null;
+  observacao?: string | null;
+  /** Chave de idempotência. Recomendado preencher SEMPRE. */
+  client_uuid?: string | null;
+}
+
+export interface RegistrarPagamentoLancamentoResult {
+  pagamento_id: string;
+  lancamento_id: string;
+  /** `true` se a chamada não criou pagamento novo (mesma chave já existia). */
+  idempotente: boolean;
+}
+
+export interface RemoverPagamentoLancamentoResult {
+  removido: boolean;
+  /** `true` se o pagamento já não existia (chamada idempotente). */
+  idempotente?: boolean;
+  lancamento_id?: string;
+}
+
+export interface CancelarLancamentoInput {
+  lancamento_id: string;
+  motivo?: string | null;
+}
+
+export interface CancelarLancamentoResult {
+  lancamento_id: string;
+  /** `true` se o título já estava cancelado. */
+  idempotente: boolean;
+}
+
+export interface ReabrirLancamentoResult {
+  lancamento_id: string;
+  novo_status: "pendente" | "parcial" | "pago" | "recebido";
+}
+
+export interface AlterarVencimentoLancamentoInput {
+  lancamento_id: string;
+  /** YYYY-MM-DD */
+  nova_data: string;
+}
+
+export interface AlterarVencimentoLancamentoResult {
+  lancamento_id: string;
+  data_vencimento: string;
+}
+
+// -------------------- Conciliação iFood --------------------
+
+export interface ConciliarIfoodIndividualInput {
+  lancamento_id: string;
+  data_repasse: string; // YYYY-MM-DD
+  valor_repasse: number;
+  numero_repasse?: string | null;
+  observacao?: string | null;
+}
+
+export interface ConciliarIfoodLoteInput {
+  lancamento_ids: string[];
+  data_repasse: string;
+  valor_repasse_total: number;
+  numero_repasse?: string | null;
+  observacao?: string | null;
+}
