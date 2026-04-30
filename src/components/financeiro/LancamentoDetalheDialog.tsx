@@ -16,6 +16,7 @@ import {
   History,
   HandCoins,
   Trash2,
+  Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
