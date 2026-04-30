@@ -512,6 +512,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "compra_itens_lote_id_fkey"
+            columns: ["lote_id"]
+            isOneToOne: false
+            referencedRelation: "lotes_produto_com_saldo"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "compra_itens_produto_id_fkey"
             columns: ["produto_id"]
             isOneToOne: false
@@ -969,6 +976,13 @@ export type Database = {
             columns: ["lote_id"]
             isOneToOne: false
             referencedRelation: "lotes_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "estoque_movimentacoes_lote_id_fkey"
+            columns: ["lote_id"]
+            isOneToOne: false
+            referencedRelation: "lotes_produto_com_saldo"
             referencedColumns: ["id"]
           },
           {
@@ -1437,6 +1451,7 @@ export type Database = {
       }
       lotes_produto: {
         Row: {
+          client_uuid: string | null
           created_at: string
           custo_unitario: number | null
           data_fabricacao: string | null
@@ -1452,6 +1467,7 @@ export type Database = {
           variacao_id: string | null
         }
         Insert: {
+          client_uuid?: string | null
           created_at?: string
           custo_unitario?: number | null
           data_fabricacao?: string | null
@@ -1467,6 +1483,7 @@ export type Database = {
           variacao_id?: string | null
         }
         Update: {
+          client_uuid?: string | null
           created_at?: string
           custo_unitario?: number | null
           data_fabricacao?: string | null
@@ -2398,6 +2415,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "venda_itens_lote_id_fkey"
+            columns: ["lote_id"]
+            isOneToOne: false
+            referencedRelation: "lotes_produto_com_saldo"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "venda_itens_produto_id_fkey"
             columns: ["produto_id"]
             isOneToOne: false
@@ -2610,9 +2634,47 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      lotes_produto_com_saldo: {
+        Row: {
+          created_at: string | null
+          custo_unitario: number | null
+          data_fabricacao: string | null
+          data_validade: string | null
+          id: string | null
+          numero_lote: string | null
+          observacoes: string | null
+          owner_id: string | null
+          produto_id: string | null
+          produto_nome: string | null
+          produto_sku: string | null
+          quantidade_atual: number | null
+          quantidade_inicial: number | null
+          saldo_real: number | null
+          status_validade: string | null
+          updated_at: string | null
+          variacao_id: string | null
+          variacao_nome: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lotes_produto_produto_id_fkey"
+            columns: ["produto_id"]
+            isOneToOne: false
+            referencedRelation: "produtos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lotes_produto_variacao_id_fkey"
+            columns: ["variacao_id"]
+            isOneToOne: false
+            referencedRelation: "produto_variacoes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
+      _lote_tem_vinculo: { Args: { _lote_id: string }; Returns: boolean }
       _owner_atual_categorias_financeiras: { Args: never; Returns: string }
       _pode_gerenciar_categorias_financeiras: {
         Args: { _owner: string }
@@ -3011,6 +3073,15 @@ export type Database = {
         }
         Returns: string
       }
+      ajustar_quantidade_lote: {
+        Args: {
+          _client_uuid?: string
+          _lote_id: string
+          _motivo?: string
+          _nova_quantidade: number
+        }
+        Returns: Json
+      }
       alterar_status_categoria_financeira: {
         Args: { _ativo: boolean; _categoria_id: string }
         Returns: Json
@@ -3232,6 +3303,21 @@ export type Database = {
         }
         Returns: Json
       }
+      criar_lote_produto: {
+        Args: {
+          _client_uuid?: string
+          _custo_unitario?: number
+          _data_fabricacao?: string
+          _data_validade?: string
+          _numero_lote: string
+          _observacoes?: string
+          _produto_id: string
+          _quantidade_inicial?: number
+          _registrar_entrada?: boolean
+          _variacao_id?: string
+        }
+        Returns: Json
+      }
       criar_produto: {
         Args: {
           _aceita_etiqueta_balanca?: boolean
@@ -3359,6 +3445,19 @@ export type Database = {
         }
         Returns: Json
       }
+      editar_lote_produto: {
+        Args: {
+          _custo_unitario?: number
+          _data_fabricacao?: string
+          _data_validade?: string
+          _lote_id: string
+          _numero_lote: string
+          _observacoes?: string
+          _quantidade_inicial?: number
+          _variacao_id?: string
+        }
+        Returns: Json
+      }
       editar_produto: {
         Args: {
           _aceita_etiqueta_balanca?: boolean
@@ -3401,6 +3500,7 @@ export type Database = {
         Args: { _lancamento_id: string }
         Returns: Json
       }
+      excluir_lote_produto: { Args: { _lote_id: string }; Returns: Json }
       excluir_produto: { Args: { _produto_id: string }; Returns: Json }
       excluir_produto_codigo: { Args: { _codigo_id: string }; Returns: Json }
       excluir_produto_variacao: {
