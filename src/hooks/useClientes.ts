@@ -210,18 +210,17 @@ function mapError(e: unknown): Error {
 export function useCreateCliente() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: ClienteInput): Promise<Cliente> => {
-      const { data: userData } = await supabase.auth.getUser();
-      const uid = userData.user?.id;
-      if (!uid) throw new Error("Não autenticado");
-      const payload = { ...sanitize(input), owner_id: uid };
-      const { data, error } = await supabase
-        .from("clientes")
-        .insert(payload)
-        .select("*")
-        .single();
-      if (error) throw mapError(error);
-      return data as Cliente;
+    mutationFn: async (input: ClienteInput) => {
+      const payload = sanitize(input);
+      // Idempotência: 1 UUID por chamada de mutation. React Query já garante
+      // que retries usam a mesma mutationFn, então um retry de rede reusa o
+      // mesmo client_uuid e o backend retorna o id existente sem duplicar.
+      const client_uuid = crypto.randomUUID();
+      try {
+        return await dataClient.clientes.criar({ ...payload, client_uuid });
+      } catch (e) {
+        throw mapError(e);
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["clientes-lite"] });
@@ -235,18 +234,15 @@ export function useCreateCliente() {
 export function useUpdateCliente() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({
-      id,
-      ...input
-    }: ClienteInput & { id: string }): Promise<Cliente> => {
-      const { data, error } = await supabase
-        .from("clientes")
-        .update(sanitize(input))
-        .eq("id", id)
-        .select("*")
-        .single();
-      if (error) throw mapError(error);
-      return data as Cliente;
+    mutationFn: async ({ id, ...input }: ClienteInput & { id: string }) => {
+      try {
+        return await dataClient.clientes.editar({
+          cliente_id: id,
+          ...sanitize(input),
+        });
+      } catch (e) {
+        throw mapError(e);
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["clientes-lite"] });
@@ -260,13 +256,8 @@ export function useUpdateCliente() {
 export function useToggleClienteStatus() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: ClienteStatus }) => {
-      const { error } = await supabase
-        .from("clientes")
-        .update({ status })
-        .eq("id", id);
-      if (error) throw error;
-    },
+    mutationFn: async ({ id, status }: { id: string; status: ClienteStatus }) =>
+      dataClient.clientes.alterarStatus({ cliente_id: id, status }),
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["clientes-lite"] });
       qc.invalidateQueries({ queryKey: ["clientes"] });
@@ -277,7 +268,21 @@ export function useToggleClienteStatus() {
 }
 
 /**
- * Verifica se um documento já existe (sem contar o próprio id em edição).
+ * Hard delete. A RPC bloqueia se houver vendas/lançamentos vinculados —
+ * nesse caso, a UI deve oferecer "inativar" via `useToggleClienteStatus`.
+ */
+export function useDeleteCliente() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => dataClient.clientes.excluir(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["clientes-lite"] });
+      qc.invalidateQueries({ queryKey: ["clientes"] });
+      toast.success("Cliente removido");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
  * Retorna o cliente conflitante ou null.
  */
 export async function checkDocumentoDuplicado(
