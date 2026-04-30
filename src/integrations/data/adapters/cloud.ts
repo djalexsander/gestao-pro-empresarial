@@ -897,10 +897,93 @@ const clientes: DataAdapter["clientes"] = {
       excluido: Boolean(d.excluido),
     };
   },
-};
 
-// =====================================================================
-// Fornecedores
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  async list(input) {
+    let q = supabase.from("clientes").select("*").order("nome");
+    if (input?.status) q = q.eq("status", input.status);
+    if (input?.busca) {
+      const b = input.busca.trim();
+      if (b) q = q.or(`nome.ilike.%${b}%,nome_fantasia.ilike.%${b}%,documento.ilike.%${b}%`);
+    }
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []) as unknown as import("../types").ClienteDomain[];
+  },
+
+  async listLite(input) {
+    let q = supabase
+      .from("clientes")
+      .select("id, nome, nome_fantasia, documento")
+      .order("nome");
+    // Default: somente ativos. `null` explícito = todos.
+    const status = input && "status" in input ? input.status : "ativo";
+    if (status) q = q.eq("status", status);
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []) as unknown as import("../types").ClienteLiteDomain[];
+  },
+
+  async get(clienteId) {
+    const { data, error } = await supabase
+      .from("clientes")
+      .select("*")
+      .eq("id", clienteId)
+      .single();
+    if (error) throw error;
+    return data as unknown as import("../types").ClienteDomain;
+  },
+
+  async metricas() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("cliente_metricas", {
+      _cliente_id: null,
+    });
+    if (error) throw error;
+    const map = new Map<string, import("../types").ClienteMetricasDomain>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const row of (data ?? []) as any[]) {
+      map.set(row.cliente_id, {
+        cliente_id: row.cliente_id,
+        total_vendas: Number(row.total_vendas) || 0,
+        valor_total: Number(row.valor_total) || 0,
+        ticket_medio: Number(row.ticket_medio) || 0,
+        ultima_venda: row.ultima_venda ?? null,
+      });
+    }
+    return map;
+  },
+
+  async historico(clienteId) {
+    const { data, error } = await supabase
+      .from("vendas")
+      .select("id, numero, data_emissao, total, status, status_pagamento, forma_pagamento")
+      .eq("cliente_id", clienteId)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    if (error) throw error;
+    return (data ?? []).map((v) => ({
+      id: v.id as string,
+      numero: v.numero as string,
+      data_emissao: v.data_emissao as string,
+      total: Number(v.total) || 0,
+      status: v.status as string,
+      status_pagamento: v.status_pagamento as string,
+      forma_pagamento: v.forma_pagamento as string | null,
+    }));
+  },
+
+  async checkDocumentoDuplicado(documento, ignoreId) {
+    const docDigits = documento.replace(/\D+/g, "");
+    if (!docDigits) return null;
+    let q = supabase.from("clientes").select("*").eq("documento", docDigits).limit(1);
+    if (ignoreId) q = q.neq("id", ignoreId);
+    const { data, error } = await q;
+    if (error) throw error;
+    const row = (data ?? [])[0];
+    return (row ?? null) as unknown as import("../types").ClienteDomain | null;
+  },
+};
 // =====================================================================
 const fornecedores: DataAdapter["fornecedores"] = {
   async criar(input: CriarFornecedorInput): Promise<CriarFornecedorResult> {
@@ -986,10 +1069,33 @@ const fornecedores: DataAdapter["fornecedores"] = {
       excluido: Boolean(d.excluido),
     };
   },
-};
 
-// ============================================================
-// Funcionários (operadores PDV) — Bloco 10
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  async list(input) {
+    let q = supabase.from("fornecedores").select("*").order("razao_social");
+    if (input?.status) q = q.eq("status", input.status);
+    if (input?.busca) {
+      const b = input.busca.trim();
+      if (b)
+        q = q.or(
+          `razao_social.ilike.%${b}%,nome_fantasia.ilike.%${b}%,documento.ilike.%${b}%`,
+        );
+    }
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []) as unknown as import("../types").FornecedorDomain[];
+  },
+
+  async get(fornecedorId) {
+    const { data, error } = await supabase
+      .from("fornecedores")
+      .select("*")
+      .eq("id", fornecedorId)
+      .single();
+    if (error) throw error;
+    return data as unknown as import("../types").FornecedorDomain;
+  },
+};
 // PIN é hasheado SOMENTE no banco (bcrypt). Nunca tocamos no hash aqui.
 // ============================================================
 const funcionarios: DataAdapter["funcionarios"] = {
