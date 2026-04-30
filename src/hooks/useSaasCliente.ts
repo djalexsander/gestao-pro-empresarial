@@ -113,7 +113,10 @@ async function criarCobrancaAsaas(pagamento_id: string): Promise<CobrancaCriada 
     body: { pagamento_id, billing_type: "PIX" },
   });
   if (error) {
-    const detalhe = await extrairErroEdge(error, "Falha ao criar cobrança Pix");
+    const detalhe = await extrairErroEdge(
+      error,
+      "Não foi possível criar a cobrança Pix. Confira o CNPJ/CPF em Configurações → Empresa e tente novamente.",
+    );
     throw new Error(detalhe);
   }
   return { ...(data as Omit<CobrancaCriada, "pagamento_id">), pagamento_id };
