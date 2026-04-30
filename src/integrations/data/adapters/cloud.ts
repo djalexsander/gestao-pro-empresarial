@@ -1096,6 +1096,78 @@ const categoriasFinanceiras: DataAdapter["categoriasFinanceiras"] = {
   },
 };
 
+// ============================================================
+// Lotes de produto — Bloco 14
+// ============================================================
+const lotes: DataAdapter["lotes"] = {
+  async criar(input) {
+    const { data, error } = await supabase.rpc("criar_lote_produto", {
+      _produto_id: input.produto_id,
+      _numero_lote: input.numero_lote,
+      _quantidade_inicial: input.quantidade_inicial ?? 0,
+      _variacao_id: input.variacao_id ?? null,
+      _data_fabricacao: input.data_fabricacao ?? null,
+      _data_validade: input.data_validade ?? null,
+      _custo_unitario: input.custo_unitario ?? null,
+      _observacoes: input.observacoes ?? null,
+      _registrar_entrada: input.registrar_entrada ?? false,
+      _client_uuid: input.client_uuid ?? null,
+    } as never);
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      lote_id: String(d.lote_id ?? ""),
+      idempotente: Boolean(d.idempotente),
+    };
+  },
+
+  async editar(input) {
+    const { data, error } = await supabase.rpc("editar_lote_produto", {
+      _lote_id: input.lote_id,
+      _numero_lote: input.numero_lote,
+      _data_fabricacao: input.data_fabricacao ?? null,
+      _data_validade: input.data_validade ?? null,
+      _custo_unitario: input.custo_unitario ?? null,
+      _observacoes: input.observacoes ?? null,
+      _variacao_id: input.variacao_id ?? null,
+      _quantidade_inicial: input.quantidade_inicial ?? null,
+    } as never);
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return { lote_id: String(d.lote_id ?? input.lote_id) };
+  },
+
+  async ajustarQuantidade(input) {
+    const { data, error } = await supabase.rpc("ajustar_quantidade_lote", {
+      _lote_id: input.lote_id,
+      _nova_quantidade: input.nova_quantidade,
+      _motivo: input.motivo ?? null,
+      _client_uuid: input.client_uuid ?? null,
+    } as never);
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      lote_id: String(d.lote_id ?? input.lote_id),
+      movimentacao_id: (d.movimentacao_id as string | null) ?? null,
+      diferenca: d.diferenca !== undefined ? Number(d.diferenca) : undefined,
+      idempotente: d.idempotente !== undefined ? Boolean(d.idempotente) : undefined,
+      sem_diferenca: d.sem_diferenca !== undefined ? Boolean(d.sem_diferenca) : undefined,
+    };
+  },
+
+  async excluir(loteId) {
+    const { data, error } = await supabase.rpc("excluir_lote_produto", {
+      _lote_id: loteId,
+    } as never);
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      lote_id: String(d.lote_id ?? loteId),
+      excluido: Boolean(d.excluido),
+    };
+  },
+};
+
 export const cloudAdapter: DataAdapter = {
   produtos,
   vendas,
@@ -1107,4 +1179,5 @@ export const cloudAdapter: DataAdapter = {
   funcionarios,
   categoriasProduto,
   categoriasFinanceiras,
+  lotes,
 };

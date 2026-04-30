@@ -15,6 +15,7 @@ export type {
   FinanceiroAdapter,
   FornecedoresAdapter,
   FuncionariosAdapter,
+  LotesAdapter,
   ProdutosAdapter,
   VendasAdapter,
 } from "./adapter";
@@ -122,5 +123,12 @@ export type {
   ValidarPinOperadorInput,
   DesbloquearPinOperadorInput,
   DesbloquearPinOperadorResult,
+  CriarLoteProdutoInput,
+  CriarLoteProdutoResult,
+  EditarLoteProdutoInput,
+  EditarLoteProdutoResult,
+  AjustarQuantidadeLoteInput,
+  AjustarQuantidadeLoteResult,
+  ExcluirLoteProdutoResult,
 } from "./types";
 export { getDataMode, type DataMode } from "./mode";
