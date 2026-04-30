@@ -27,12 +27,7 @@ export type OperadorSessao = OperadorSessaoDomain;
 export function useFuncionarios() {
   return useQuery({
     queryKey: ["funcionarios"],
-    queryFn: async (): Promise<Funcionario[]> => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any).rpc("funcionarios_listar");
-      if (error) throw error;
-      return (data ?? []) as Funcionario[];
-    },
+    queryFn: () => dataClient.funcionarios.list() as Promise<Funcionario[]>,
     staleTime: 30_000,
   });
 }
@@ -41,12 +36,8 @@ export function useFuncionarios() {
 export function useFuncionariosAtivos() {
   return useQuery({
     queryKey: ["funcionarios", "ativos"],
-    queryFn: async (): Promise<Funcionario[]> => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any).rpc("funcionarios_listar");
-      if (error) throw error;
-      return ((data ?? []) as Funcionario[]).filter((f) => f.ativo);
-    },
+    queryFn: () =>
+      dataClient.funcionarios.list({ somente_ativos: true }) as Promise<Funcionario[]>,
     staleTime: 30_000,
   });
 }

@@ -75,15 +75,7 @@ export interface ClienteMetricas {
 export function useClientes() {
   return useQuery({
     queryKey: ["clientes-lite"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("clientes")
-        .select("id, nome, nome_fantasia, documento")
-        .eq("status", "ativo")
-        .order("nome");
-      if (error) throw error;
-      return (data ?? []) as ClienteLite[];
-    },
+    queryFn: () => dataClient.clientes.listLite() as Promise<ClienteLite[]>,
   });
 }
 
@@ -93,14 +85,7 @@ export function useClientes() {
 export function useClientesFull() {
   return useQuery({
     queryKey: ["clientes", "full"],
-    queryFn: async (): Promise<Cliente[]> => {
-      const { data, error } = await supabase
-        .from("clientes")
-        .select("*")
-        .order("nome");
-      if (error) throw error;
-      return (data ?? []) as Cliente[];
-    },
+    queryFn: () => dataClient.clientes.list() as Promise<Cliente[]>,
   });
 }
 
@@ -110,25 +95,8 @@ export function useClientesFull() {
 export function useClienteMetricas() {
   return useQuery({
     queryKey: ["clientes", "metricas"],
-    queryFn: async (): Promise<Map<string, ClienteMetricas>> => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any).rpc("cliente_metricas", {
-        _cliente_id: null,
-      });
-      if (error) throw error;
-      const map = new Map<string, ClienteMetricas>();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      for (const row of (data ?? []) as any[]) {
-        map.set(row.cliente_id, {
-          cliente_id: row.cliente_id,
-          total_vendas: Number(row.total_vendas) || 0,
-          valor_total: Number(row.valor_total) || 0,
-          ticket_medio: Number(row.ticket_medio) || 0,
-          ultima_venda: row.ultima_venda ?? null,
-        });
-      }
-      return map;
-    },
+    queryFn: () =>
+      dataClient.clientes.metricas() as Promise<Map<string, ClienteMetricas>>,
   });
 }
 
@@ -141,22 +109,7 @@ export function useClienteHistorico(clienteId: string | null) {
     enabled: !!clienteId,
     queryFn: async () => {
       if (!clienteId) return [];
-      const { data, error } = await supabase
-        .from("vendas")
-        .select("id, numero, data_emissao, total, status, status_pagamento, forma_pagamento")
-        .eq("cliente_id", clienteId)
-        .order("created_at", { ascending: false })
-        .limit(50);
-      if (error) throw error;
-      return (data ?? []).map((v) => ({
-        id: v.id as string,
-        numero: v.numero as string,
-        data_emissao: v.data_emissao as string,
-        total: Number(v.total) || 0,
-        status: v.status as string,
-        status_pagamento: v.status_pagamento as string,
-        forma_pagamento: v.forma_pagamento as string | null,
-      }));
+      return dataClient.clientes.historico(clienteId);
     },
   });
 }
@@ -304,16 +257,8 @@ export async function checkDocumentoDuplicado(
   documento: string,
   ignoreId?: string,
 ): Promise<Cliente | null> {
-  const docDigits = documento.replace(/\D+/g, "");
-  if (!docDigits) return null;
-  let q = supabase
-    .from("clientes")
-    .select("*")
-    .eq("documento", docDigits)
-    .limit(1);
-  if (ignoreId) q = q.neq("id", ignoreId);
-  const { data, error } = await q;
-  if (error) throw error;
-  const row = (data ?? [])[0];
-  return (row ?? null) as Cliente | null;
+  return dataClient.clientes.checkDocumentoDuplicado(
+    documento,
+    ignoreId ?? null,
+  ) as Promise<Cliente | null>;
 }

@@ -532,6 +532,56 @@ const caixa: DataAdapter["caixa"] = {
     if (error) throw error;
     return data;
   },
+
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  async aberto(filtro) {
+    const { data: uid } = await supabase.auth.getUser();
+    if (!uid.user) return null;
+    let q = supabase
+      .from("caixas")
+      .select("*")
+      .eq("owner_id", uid.user.id)
+      .eq("status", "aberto");
+    if (!filtro?.qualquer) {
+      if (filtro?.operador_id) q = q.eq("operador_id", filtro.operador_id);
+      else q = q.is("operador_id", null);
+    }
+    const { data, error } = await q
+      .order("data_abertura", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return (data as unknown as import("../types").CaixaDomain | null) ?? null;
+  },
+
+  async resumo(caixaId) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("caixa_resumo", {
+      _caixa_id: caixaId,
+    });
+    if (error) throw error;
+    return (data as unknown as import("../types").CaixaResumoDomain | null) ?? null;
+  },
+
+  async historico(input) {
+    const { data, error } = await supabase
+      .from("caixas")
+      .select("*")
+      .order("data_abertura", { ascending: false })
+      .limit(input?.limit ?? 50);
+    if (error) throw error;
+    return (data ?? []) as unknown as import("../types").CaixaDomain[];
+  },
+
+  async movimentos(caixaId) {
+    const { data, error } = await supabase
+      .from("caixa_movimentos")
+      .select("*")
+      .eq("caixa_id", caixaId)
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as unknown as import("../types").CaixaMovimentoDomain[];
+  },
 };
 
 // =====================================================================
@@ -735,6 +785,27 @@ const estoque: DataAdapter["estoque"] = {
       saldo_posterior: Number(d.saldo_posterior ?? 0) || 0,
     };
   },
+
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  async saldosLinhas() {
+    const { data, error } = await supabase
+      .from("estoque_movimentacoes")
+      .select("produto_id, variacao_id, tipo, quantidade");
+    if (error) throw error;
+    return (data ?? []) as unknown as import("../types").EstoqueSaldoLinha[];
+  },
+
+  async movimentacoes(input) {
+    let q = supabase
+      .from("estoque_movimentacoes")
+      .select("*, produto:produtos(id, sku, nome)")
+      .order("data_movimentacao", { ascending: false })
+      .limit(input?.limit ?? 200);
+    if (input?.produto_id) q = q.eq("produto_id", input.produto_id);
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []) as unknown as import("../types").MovimentacaoEstoqueDomain[];
+  },
 };
 
 // =====================================================================
@@ -826,10 +897,93 @@ const clientes: DataAdapter["clientes"] = {
       excluido: Boolean(d.excluido),
     };
   },
-};
 
-// =====================================================================
-// Fornecedores
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  async list(input) {
+    let q = supabase.from("clientes").select("*").order("nome");
+    if (input?.status) q = q.eq("status", input.status);
+    if (input?.busca) {
+      const b = input.busca.trim();
+      if (b) q = q.or(`nome.ilike.%${b}%,nome_fantasia.ilike.%${b}%,documento.ilike.%${b}%`);
+    }
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []) as unknown as import("../types").ClienteDomain[];
+  },
+
+  async listLite(input) {
+    let q = supabase
+      .from("clientes")
+      .select("id, nome, nome_fantasia, documento")
+      .order("nome");
+    // Default: somente ativos. `null` explícito = todos.
+    const status = input && "status" in input ? input.status : "ativo";
+    if (status) q = q.eq("status", status);
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []) as unknown as import("../types").ClienteLiteDomain[];
+  },
+
+  async get(clienteId) {
+    const { data, error } = await supabase
+      .from("clientes")
+      .select("*")
+      .eq("id", clienteId)
+      .single();
+    if (error) throw error;
+    return data as unknown as import("../types").ClienteDomain;
+  },
+
+  async metricas() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("cliente_metricas", {
+      _cliente_id: null,
+    });
+    if (error) throw error;
+    const map = new Map<string, import("../types").ClienteMetricasDomain>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const row of (data ?? []) as any[]) {
+      map.set(row.cliente_id, {
+        cliente_id: row.cliente_id,
+        total_vendas: Number(row.total_vendas) || 0,
+        valor_total: Number(row.valor_total) || 0,
+        ticket_medio: Number(row.ticket_medio) || 0,
+        ultima_venda: row.ultima_venda ?? null,
+      });
+    }
+    return map;
+  },
+
+  async historico(clienteId) {
+    const { data, error } = await supabase
+      .from("vendas")
+      .select("id, numero, data_emissao, total, status, status_pagamento, forma_pagamento")
+      .eq("cliente_id", clienteId)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    if (error) throw error;
+    return (data ?? []).map((v) => ({
+      id: v.id as string,
+      numero: v.numero as string,
+      data_emissao: v.data_emissao as string,
+      total: Number(v.total) || 0,
+      status: v.status as string,
+      status_pagamento: v.status_pagamento as string,
+      forma_pagamento: v.forma_pagamento as string | null,
+    }));
+  },
+
+  async checkDocumentoDuplicado(documento, ignoreId) {
+    const docDigits = documento.replace(/\D+/g, "");
+    if (!docDigits) return null;
+    let q = supabase.from("clientes").select("*").eq("documento", docDigits).limit(1);
+    if (ignoreId) q = q.neq("id", ignoreId);
+    const { data, error } = await q;
+    if (error) throw error;
+    const row = (data ?? [])[0];
+    return (row ?? null) as unknown as import("../types").ClienteDomain | null;
+  },
+};
 // =====================================================================
 const fornecedores: DataAdapter["fornecedores"] = {
   async criar(input: CriarFornecedorInput): Promise<CriarFornecedorResult> {
@@ -914,6 +1068,32 @@ const fornecedores: DataAdapter["fornecedores"] = {
       fornecedor_id: String(d.fornecedor_id ?? fornecedorId),
       excluido: Boolean(d.excluido),
     };
+  },
+
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  async list(input) {
+    let q = supabase.from("fornecedores").select("*").order("razao_social");
+    if (input?.status) q = q.eq("status", input.status);
+    if (input?.busca) {
+      const b = input.busca.trim();
+      if (b)
+        q = q.or(
+          `razao_social.ilike.%${b}%,nome_fantasia.ilike.%${b}%,documento.ilike.%${b}%`,
+        );
+    }
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []) as unknown as import("../types").FornecedorDomain[];
+  },
+
+  async get(fornecedorId) {
+    const { data, error } = await supabase
+      .from("fornecedores")
+      .select("*")
+      .eq("id", fornecedorId)
+      .single();
+    if (error) throw error;
+    return data as unknown as import("../types").FornecedorDomain;
   },
 };
 
@@ -1018,6 +1198,16 @@ const funcionarios: DataAdapter["funcionarios"] = {
       desbloqueado: Boolean(d.desbloqueado),
     };
   },
+
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  async list(input) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("funcionarios_listar");
+    if (error) throw error;
+    let rows = (data ?? []) as import("../types").FuncionarioDomain[];
+    if (input?.somente_ativos) rows = rows.filter((f) => f.ativo);
+    return rows;
+  },
 };
 
 // ============================================================
@@ -1062,10 +1252,19 @@ const categoriasProduto: DataAdapter["categoriasProduto"] = {
       excluido: Boolean(d.excluido),
     };
   },
-};
 
-// ============================================================
-// Categorias financeiras — Bloco 12
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  async list(input) {
+    let q = supabase
+      .from("categorias_produto")
+      .select("id, nome, parent_id, ativo, descricao")
+      .order("nome");
+    if (!input?.incluir_inativas) q = q.eq("ativo", true);
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []) as unknown as import("../types").CategoriaProdutoDomain[];
+  },
+};
 // ============================================================
 const categoriasFinanceiras: DataAdapter["categoriasFinanceiras"] = {
   async criar(input) {
@@ -1121,10 +1320,20 @@ const categoriasFinanceiras: DataAdapter["categoriasFinanceiras"] = {
       excluido: Boolean(d.excluido),
     };
   },
-};
 
-// ============================================================
-// Lotes de produto — Bloco 14
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  async list(input) {
+    let q = supabase
+      .from("categorias_financeiras")
+      .select("id, nome, tipo, parent_id, cor, ativo")
+      .order("nome");
+    if (input?.tipo) q = q.eq("tipo", input.tipo);
+    if (!input?.incluir_inativas) q = q.eq("ativo", true);
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []) as unknown as import("../types").CategoriaFinanceiraDomain[];
+  },
+};
 // ============================================================
 const lotes: DataAdapter["lotes"] = {
   async criar(input) {
@@ -1192,6 +1401,20 @@ const lotes: DataAdapter["lotes"] = {
       lote_id: String(d.lote_id ?? loteId),
       excluido: Boolean(d.excluido),
     };
+  },
+
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  async list(input) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q = (supabase as any)
+      .from("lotes_produto_com_saldo")
+      .select("*")
+      .order("data_validade", { ascending: true, nullsFirst: false });
+    if (input?.produto_id) q = q.eq("produto_id", input.produto_id);
+    if (input?.somente_com_saldo) q = q.gt("saldo_real", 0);
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []) as import("../types").LoteComSaldoDomain[];
   },
 };
 

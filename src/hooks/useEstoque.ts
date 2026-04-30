@@ -38,13 +38,9 @@ export function useEstoqueSaldos() {
   return useQuery({
     queryKey: ["estoque-saldos"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("estoque_movimentacoes")
-        .select("produto_id, variacao_id, tipo, quantidade");
-      if (error) throw error;
-
+      const linhas = await dataClient.estoque.saldosLinhas();
       const map = new Map<string, number>();
-      for (const m of data ?? []) {
+      for (const m of linhas) {
         const key = m.produto_id;
         const sinal =
           m.tipo === "entrada" || m.tipo === "devolucao"
@@ -63,14 +59,9 @@ export function useMovimentacoes(produtoId?: string) {
   return useQuery({
     queryKey: ["movimentacoes", produtoId ?? "all"],
     queryFn: async () => {
-      let q = supabase
-        .from("estoque_movimentacoes")
-        .select("*, produto:produtos(id, sku, nome)")
-        .order("data_movimentacao", { ascending: false })
-        .limit(200);
-      if (produtoId) q = q.eq("produto_id", produtoId);
-      const { data, error } = await q;
-      if (error) throw error;
+      const data = await dataClient.estoque.movimentacoes({
+        produto_id: produtoId ?? null,
+      });
       return data as Array<
         Movimentacao & { produto: { id: string; sku: string; nome: string } | null }
       >;
