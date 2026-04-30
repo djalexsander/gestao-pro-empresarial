@@ -63,7 +63,21 @@ export function CartDrawer() {
         "asaas-criar-cobranca",
         { body: { pagamento_id: pagamentoId, billing_type: "PIX" } },
       );
-      if (cobErr) throw new Error(cobErr.message ?? "Falha ao gerar Pix");
+      if (cobErr) {
+        // A mensagem útil vem no body da resposta, não no error.message.
+        const ctx = (cobErr as { context?: { response?: Response } })?.context;
+        let detalhe = cobErr.message ?? "Falha ao gerar Pix";
+        if (ctx?.response) {
+          try {
+            const body = await ctx.response.clone().json();
+            if (body?.error) detalhe = String(body.error);
+            else if (body?.message) detalhe = String(body.message);
+          } catch {
+            /* ignora parse */
+          }
+        }
+        throw new Error(detalhe);
+      }
 
       setCobranca({
         pagamento_id: pagamentoId as string,
