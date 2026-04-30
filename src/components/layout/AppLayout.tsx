@@ -59,15 +59,14 @@ export function AppLayout() {
     );
   }
 
-  // /admin também exige unlock prévio (acesso administrativo).
+  // /admin é o Painel Master (camada global da plataforma).
+  // Não depende de unlock do ERP nem de permissão de terminal — esses são
+  // conceitos da empresa cliente. O gate de super_admin é aplicado dentro
+  // do próprio MasterLayout (via RequireSuperAdmin).
   if (isAdminRoute) {
     return (
       <RequireAuth>
-        <RequireErpUnlock>
-          <RequireTerminalPermissao area="erp">
-            <Outlet />
-          </RequireTerminalPermissao>
-        </RequireErpUnlock>
+        <Outlet />
       </RequireAuth>
     );
   }
