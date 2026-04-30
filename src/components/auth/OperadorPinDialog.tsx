@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
 import { useFuncionariosAtivos, validarPinOperador, type Funcionario } from "@/hooks/useFuncionarios";
 import { useOperador } from "./OperadorProvider";
+import { useTerminal } from "./TerminalProvider";
 
 interface Props {
   /** Quando informado, ao concluir navega para esta rota. */
@@ -13,6 +14,7 @@ interface Props {
 
 export function OperadorPinSelector({ onSuccess }: Props) {
   const { setOperador } = useOperador();
+  const { terminal } = useTerminal();
   const { data: funcionarios = [], isLoading } = useFuncionariosAtivos();
   const [selecionado, setSelecionado] = useState<Funcionario | null>(null);
   const [pin, setPin] = useState("");
@@ -26,7 +28,7 @@ export function OperadorPinSelector({ onSuccess }: Props) {
     if (!selecionado || pin.length < 4) return;
     setBusy(true);
     try {
-      const op = await validarPinOperador(selecionado.id, pin);
+      const op = await validarPinOperador(selecionado.id, pin, terminal?.id ?? null);
       setOperador(op);
       toast.success(`Bem-vindo, ${op.nome}!`);
       onSuccess?.();
