@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
+import type { FuncionarioRoleDomain, OperadorSessaoDomain } from "@/integrations/data";
 
-export type FuncionarioRole = "gerente" | "caixa";
+export type FuncionarioRole = FuncionarioRoleDomain;
 
 export interface Funcionario {
   id: string;
@@ -14,14 +16,14 @@ export interface Funcionario {
   created_at: string;
 }
 
-export interface OperadorSessao {
-  id: string;
-  nome: string;
-  login: string;
-  role: FuncionarioRole;
-}
+export type OperadorSessao = OperadorSessaoDomain;
 
-/** Lista todos os funcionários do dono atual (para painel admin). */
+/**
+ * Lista todos os funcionários do dono atual (para painel admin).
+ *
+ * Continua via `supabase.rpc` direto: leitura é abstraída em fase posterior
+ * junto com os outros `useQuery` de listagem (Bloco "leitura unificada").
+ */
 export function useFuncionarios() {
   return useQuery({
     queryKey: ["funcionarios"],
@@ -49,6 +51,16 @@ export function useFuncionariosAtivos() {
   });
 }
 
+/**
+ * Cria funcionário com PIN.
+ *
+ * **PIN segue em texto até a RPC**, que aplica bcrypt no banco. O hook NÃO
+ * deriva nem armazena hash em lugar nenhum.
+ *
+ * Idempotência: passe `client_uuid` estável por dialog aberto. Se o
+ * `client_uuid` não for fornecido, a UI ainda fica protegida pelo
+ * `mutation.isPending` do React Query (que bloqueia duplo clique no botão).
+ */
 export function useCriarFuncionario() {
   const qc = useQueryClient();
   return useMutation({
@@ -57,16 +69,9 @@ export function useCriarFuncionario() {
       login: string;
       pin: string;
       role: FuncionarioRole;
+      client_uuid?: string | null;
     }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any).rpc("funcionario_criar", {
-        _nome: input.nome,
-        _login: input.login,
-        _pin: input.pin,
-        _role: input.role,
-      });
-      if (error) throw error;
-      return data as string;
+      return dataClient.funcionarios.criar(input);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["funcionarios"] });
@@ -76,16 +81,41 @@ export function useCriarFuncionario() {
   });
 }
 
+/**
+ * Edita nome / login / role. NÃO altera PIN.
+ */
+export function useEditarFuncionario() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      id: string;
+      nome: string;
+      login: string;
+      role: FuncionarioRole;
+    }) => {
+      return dataClient.funcionarios.editar({
+        funcionario_id: input.id,
+        nome: input.nome,
+        login: input.login,
+        role: input.role,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["funcionarios"] });
+      toast.success("Funcionário atualizado.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
 export function useResetarPinFuncionario() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: { id: string; pin: string }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase as any).rpc("funcionario_resetar_pin", {
-        _funcionario_id: input.id,
-        _novo_pin: input.pin,
+      await dataClient.funcionarios.resetarPin({
+        funcionario_id: input.id,
+        pin: input.pin,
       });
-      if (error) throw error;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["funcionarios"] });
@@ -95,15 +125,17 @@ export function useResetarPinFuncionario() {
   });
 }
 
+/**
+ * Ativa / inativa funcionário. RPC bloqueia inativar o último gerente ativo.
+ */
 export function useToggleFuncionarioAtivo() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: { id: string; ativo: boolean }) => {
-      const { error } = await supabase
-        .from("funcionarios")
-        .update({ ativo: input.ativo })
-        .eq("id", input.id);
-      if (error) throw error;
+      return dataClient.funcionarios.alterarStatus({
+        funcionario_id: input.id,
+        ativo: input.ativo,
+      });
     },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["funcionarios"] });
@@ -113,12 +145,15 @@ export function useToggleFuncionarioAtivo() {
   });
 }
 
+/**
+ * Hard delete. RPC bloqueia se houver caixas/movimentos/vendas — nesses casos
+ * a UI deve oferecer inativação.
+ */
 export function useExcluirFuncionario() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("funcionarios").delete().eq("id", id);
-      if (error) throw error;
+      return dataClient.funcionarios.excluir(id);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["funcionarios"] });
@@ -133,11 +168,8 @@ export async function validarPinOperador(
   funcionarioId: string,
   pin: string,
 ): Promise<OperadorSessao> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any).rpc("funcionario_validar_pin", {
-    _funcionario_id: funcionarioId,
-    _pin: pin,
+  return dataClient.funcionarios.validarPin({
+    funcionario_id: funcionarioId,
+    pin,
   });
-  if (error) throw error;
-  return data as OperadorSessao;
 }

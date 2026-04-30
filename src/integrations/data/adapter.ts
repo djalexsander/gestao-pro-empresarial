@@ -24,6 +24,8 @@ import type {
   AlterarStatusClienteResult,
   AlterarStatusFornecedorInput,
   AlterarStatusFornecedorResult,
+  AlterarStatusFuncionarioInput,
+  AlterarStatusFuncionarioResult,
   AlterarStatusProdutoInput,
   AlterarStatusProdutoResult,
   AlterarStatusVendaInput,
@@ -42,6 +44,8 @@ import type {
   CriarClienteResult,
   CriarFornecedorInput,
   CriarFornecedorResult,
+  CriarFuncionarioInput,
+  CriarFuncionarioResult,
   CriarLancamentoAvulsoInput,
   CriarLancamentoAvulsoResult,
   CriarProdutoInput,
@@ -52,12 +56,15 @@ import type {
   EditarClienteResult,
   EditarFornecedorInput,
   EditarFornecedorResult,
+  EditarFuncionarioInput,
+  EditarFuncionarioResult,
   EditarLancamentoAvulsoInput,
   EditarLancamentoAvulsoResult,
   EditarProdutoInput,
   EditarProdutoResult,
   ExcluirClienteResult,
   ExcluirFornecedorResult,
+  ExcluirFuncionarioResult,
   ExcluirLancamentoAvulsoResult,
   ExcluirProdutoCodigoResult,
   ExcluirProdutoResult,
@@ -66,6 +73,7 @@ import type {
   FecharCaixaInput,
   FecharCaixaResult,
   FinalizarVendaInput,
+  OperadorSessaoDomain,
   ProdutoBuscaResult,
   ProdutoComCategoria,
   ProdutoPluResult,
@@ -76,6 +84,8 @@ import type {
   RegistrarPagamentoLancamentoInput,
   RegistrarPagamentoLancamentoResult,
   RemoverPagamentoLancamentoResult,
+  ResetarPinFuncionarioInput,
+  ValidarPinOperadorInput,
 } from "./types";
 
 export interface ProdutosAdapter {
@@ -115,9 +125,7 @@ export interface ProdutosAdapter {
    * **Recomendado** sempre que houver vínculo histórico (vendas, compras,
    * movimentos de estoque). Preserva histórico.
    */
-  alterarStatus(
-    input: AlterarStatusProdutoInput,
-  ): Promise<AlterarStatusProdutoResult>;
+  alterarStatus(input: AlterarStatusProdutoInput): Promise<AlterarStatusProdutoResult>;
 
   /**
    * Hard delete. Permitido APENAS se o produto não tiver vendas, compras,
@@ -135,9 +143,7 @@ export interface ProdutosAdapter {
    * **Idempotência:** envie `client_uuid` por chamada (1 UUID por click no
    * botão "adicionar código").
    */
-  adicionarCodigo(
-    input: AdicionarProdutoCodigoInput,
-  ): Promise<AdicionarProdutoCodigoResult>;
+  adicionarCodigo(input: AdicionarProdutoCodigoInput): Promise<AdicionarProdutoCodigoResult>;
 
   /** Remove um código auxiliar. Validação de tenant no banco. */
   excluirCodigo(codigoId: string): Promise<ExcluirProdutoCodigoResult>;
@@ -147,9 +153,7 @@ export interface ProdutosAdapter {
   /**
    * Cria uma variação de produto. **Idempotência** via `client_uuid`.
    */
-  criarVariacao(
-    input: CriarProdutoVariacaoInput,
-  ): Promise<CriarProdutoVariacaoResult>;
+  criarVariacao(input: CriarProdutoVariacaoInput): Promise<CriarProdutoVariacaoResult>;
 
   /**
    * Hard delete de variação. Bloqueado se houver venda/compra/movimento
@@ -165,9 +169,7 @@ export interface ProdutosAdapter {
    * Cria uma categoria de produto. **Idempotência** via `client_uuid`.
    * (CRUD completo de categoria virá em bloco próprio.)
    */
-  criarCategoria(
-    input: CriarCategoriaProdutoInput,
-  ): Promise<CriarCategoriaProdutoResult>;
+  criarCategoria(input: CriarCategoriaProdutoInput): Promise<CriarCategoriaProdutoResult>;
 }
 
 export interface VendasAdapter {
@@ -349,9 +351,7 @@ export interface FinanceiroAdapter {
    * Vincular a venda/compra é bloqueado por aqui — esses fluxos têm RPCs
    * próprias.
    */
-  criarLancamentoAvulso(
-    input: CriarLancamentoAvulsoInput,
-  ): Promise<CriarLancamentoAvulsoResult>;
+  criarLancamentoAvulso(input: CriarLancamentoAvulsoInput): Promise<CriarLancamentoAvulsoResult>;
 
   /**
    * Edita campos de um lançamento avulso. Bloqueado pelo banco para títulos
@@ -361,9 +361,7 @@ export interface FinanceiroAdapter {
    * **Idempotência:** mesmo `client_uuid` no MESMO lançamento retorna sem
    * reaplicar; UUID reusado em outro lançamento gera erro.
    */
-  editarLancamentoAvulso(
-    input: EditarLancamentoAvulsoInput,
-  ): Promise<EditarLancamentoAvulsoResult>;
+  editarLancamentoAvulso(input: EditarLancamentoAvulsoInput): Promise<EditarLancamentoAvulsoResult>;
 
   /**
    * Exclui DEFINITIVAMENTE um lançamento avulso. Permitido apenas se não
@@ -371,9 +369,7 @@ export interface FinanceiroAdapter {
    * `pendente` ou `cancelado`. Para qualquer outro caso, use
    * `cancelarLancamento` (preserva histórico).
    */
-  excluirLancamentoAvulso(
-    lancamentoId: string,
-  ): Promise<ExcluirLancamentoAvulsoResult>;
+  excluirLancamentoAvulso(lancamentoId: string): Promise<ExcluirLancamentoAvulsoResult>;
 }
 
 /**
@@ -433,9 +429,7 @@ export interface ClientesAdapter {
    * Soft delete: alterna `ativo` ↔ `inativo`. **Recomendado** sempre que
    * houver vínculo histórico (vendas, lançamentos). Preserva auditoria.
    */
-  alterarStatus(
-    input: AlterarStatusClienteInput,
-  ): Promise<AlterarStatusClienteResult>;
+  alterarStatus(input: AlterarStatusClienteInput): Promise<AlterarStatusClienteResult>;
 
   /**
    * Hard delete. Permitido APENAS se o cliente não tiver vendas nem
@@ -452,14 +446,50 @@ export interface ClientesAdapter {
 export interface FornecedoresAdapter {
   criar(input: CriarFornecedorInput): Promise<CriarFornecedorResult>;
   editar(input: EditarFornecedorInput): Promise<EditarFornecedorResult>;
-  alterarStatus(
-    input: AlterarStatusFornecedorInput,
-  ): Promise<AlterarStatusFornecedorResult>;
+  alterarStatus(input: AlterarStatusFornecedorInput): Promise<AlterarStatusFornecedorResult>;
   /**
    * Hard delete. Bloqueado se houver compras ou lançamentos vinculados.
    * Quando bloqueado, oriente o usuário a inativar via `alterarStatus`.
    */
   excluir(fornecedorId: string): Promise<ExcluirFornecedorResult>;
+}
+
+/**
+ * Operações de escrita de **Funcionários (operadores PDV)**.
+ *
+ * Segurança do PIN:
+ *  - O PIN nunca é hasheado no cliente.
+ *  - O texto puro do PIN trafega via TLS direto para a RPC.
+ *  - O hash bcrypt (`crypt + gen_salt('bf', 8)`) é gerado SOMENTE no banco.
+ *  - O hash nunca volta para o cliente em hipótese alguma.
+ *
+ * Cenário multi-terminal: todas as RPCs usam `SELECT ... FOR UPDATE` em
+ * editar/alterarStatus/excluir, serializando alterações concorrentes do
+ * mesmo funcionário entre terminais diferentes.
+ */
+export interface FuncionariosAdapter {
+  criar(input: CriarFuncionarioInput): Promise<CriarFuncionarioResult>;
+  editar(input: EditarFuncionarioInput): Promise<EditarFuncionarioResult>;
+  alterarStatus(input: AlterarStatusFuncionarioInput): Promise<AlterarStatusFuncionarioResult>;
+  /**
+   * Hard delete. Permitido APENAS sem caixas, movimentos de caixa ou
+   * vendas vinculadas. Quando bloqueado, oriente o usuário a inativar via
+   * `alterarStatus({ ativo: false })`. Bloqueia também excluir o último
+   * gerente ativo.
+   */
+  excluir(funcionarioId: string): Promise<ExcluirFuncionarioResult>;
+  /**
+   * Reset de PIN. Reaproveita a RPC existente; PIN segue sendo hasheado
+   * no banco. Sem `client_uuid` — reset é raramente repetido e o efeito
+   * de "reescrever o mesmo hash" não causa dano.
+   */
+  resetarPin(input: ResetarPinFuncionarioInput): Promise<void>;
+  /**
+   * Validação de PIN para login do operador. Retorna a sessão sem o hash.
+   * Falha de PIN errado é exception (`PIN incorreto`), não retorno vazio —
+   * a UI já trata via toast.
+   */
+  validarPin(input: ValidarPinOperadorInput): Promise<OperadorSessaoDomain>;
 }
 
 export interface DataAdapter {
@@ -470,6 +500,7 @@ export interface DataAdapter {
   estoque: EstoqueAdapter;
   clientes: ClientesAdapter;
   fornecedores: FornecedoresAdapter;
+  funcionarios: FuncionariosAdapter;
   // Próximos a serem adicionados conforme a Fase 1 avança:
   // realtime: RealtimeAdapter;
 }

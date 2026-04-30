@@ -14,12 +14,7 @@
 
 // -------------------- Códigos de produto --------------------
 
-export type CodigoTipo =
-  | "codigo_barras"
-  | "qr_code"
-  | "sku"
-  | "interno"
-  | "alternativo";
+export type CodigoTipo = "codigo_barras" | "qr_code" | "sku" | "interno" | "alternativo";
 
 export interface ProdutoBuscaResult {
   produto_id: string;
@@ -55,11 +50,7 @@ export interface ProdutoPluResult {
 
 // -------------------- Listagem de produtos --------------------
 
-export type TipoIdentificacao =
-  | "sku"
-  | "codigo_barras"
-  | "qr_code"
-  | "codigo_interno";
+export type TipoIdentificacao = "sku" | "codigo_barras" | "qr_code" | "codigo_interno";
 
 export type Produto = {
   id: string;
@@ -293,12 +284,7 @@ export interface ExcluirVendaCanceladaResult {
  *
  * Vendas com `status='cancelada'` NÃO podem ter o status alterado por aqui.
  */
-export type StatusVendaEditavelDomain =
-  | "pago"
-  | "pendente"
-  | "parcial"
-  | "cancelado"
-  | "vencido";
+export type StatusVendaEditavelDomain = "pago" | "pendente" | "parcial" | "cancelado" | "vencido";
 
 export interface AlterarStatusVendaInput {
   venda_id: string;
@@ -790,4 +776,92 @@ export interface CriarProdutoVariacaoResult {
 export interface ExcluirProdutoVariacaoResult {
   variacao_id: string;
   excluido: boolean;
+}
+
+// -------------------- Funcionários (operadores PDV) --------------
+
+export type FuncionarioRoleDomain = "gerente" | "caixa";
+
+/**
+ * Sessão devolvida ao validar PIN do operador. NUNCA contém o hash.
+ */
+export interface OperadorSessaoDomain {
+  id: string;
+  nome: string;
+  login: string;
+  role: FuncionarioRoleDomain;
+}
+
+/**
+ * Criar funcionário com PIN.
+ *
+ * **PIN: nunca é hasheado no cliente.** O texto puro vai pela conexão TLS
+ * direto para a RPC, que aplica `crypt(pin, gen_salt('bf', 8))` no banco.
+ * O cliente nunca vê — nem deve persistir — o hash.
+ *
+ * **Idempotência:** envie `client_uuid` estável (1 por dialog). Reenvio com
+ * mesmo UUID retorna o mesmo `funcionario_id` sem duplicar nem trocar PIN.
+ */
+export interface CriarFuncionarioInput {
+  nome: string;
+  login: string;
+  /** 4 a 8 dígitos numéricos. Validado server-side. */
+  pin: string;
+  role: FuncionarioRoleDomain;
+  client_uuid?: string | null;
+}
+
+export interface CriarFuncionarioResult {
+  funcionario_id: string;
+  idempotente: boolean;
+}
+
+/**
+ * Editar nome / login / role. **NÃO altera PIN** — para isso use
+ * `resetarPin`. Isso evita que uma chamada de "editar dados" reaplique o
+ * mesmo PIN antigo passado por engano.
+ */
+export interface EditarFuncionarioInput {
+  funcionario_id: string;
+  nome: string;
+  login: string;
+  role: FuncionarioRoleDomain;
+}
+
+export interface EditarFuncionarioResult {
+  funcionario_id: string;
+}
+
+export interface AlterarStatusFuncionarioInput {
+  funcionario_id: string;
+  ativo: boolean;
+}
+
+export interface AlterarStatusFuncionarioResult {
+  funcionario_id: string;
+  ativo: boolean;
+  idempotente: boolean;
+}
+
+/**
+ * Hard delete. Permitido APENAS se o funcionário não tem caixa, movimento
+ * de caixa, nem venda como operador. Caso contrário a RPC aborta com
+ * `23503` orientando a inativar.
+ */
+export interface ExcluirFuncionarioResult {
+  funcionario_id: string;
+  excluido: boolean;
+}
+
+/**
+ * Reset de PIN. PIN segue sendo enviado em texto e hasheado no banco.
+ */
+export interface ResetarPinFuncionarioInput {
+  funcionario_id: string;
+  pin: string;
+}
+
+export interface ValidarPinOperadorInput {
+  funcionario_id: string;
+  pin: string;
 }
