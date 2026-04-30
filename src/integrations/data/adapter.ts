@@ -239,6 +239,41 @@ export interface FinanceiroAdapter {
    * RPC: `conciliar_ifood_lote` (já existente).
    */
   conciliarIfoodLote(input: ConciliarIfoodLoteInput): Promise<unknown>;
+
+  /**
+   * Cria um lançamento avulso (a pagar / a receber, sem venda).
+   *
+   * **Idempotência:** envie `client_uuid` estável por dialog aberto. Reenvio
+   * com mesmo UUID retorna o id existente sem duplicar título.
+   *
+   * Vincular a venda/compra é bloqueado por aqui — esses fluxos têm RPCs
+   * próprias.
+   */
+  criarLancamentoAvulso(
+    input: CriarLancamentoAvulsoInput,
+  ): Promise<CriarLancamentoAvulsoResult>;
+
+  /**
+   * Edita campos de um lançamento avulso. Bloqueado pelo banco para títulos
+   * vinculados a venda/compra, cancelados, pagos ou recebidos. Não permite
+   * reduzir valor abaixo do total já pago.
+   *
+   * **Idempotência:** mesmo `client_uuid` no MESMO lançamento retorna sem
+   * reaplicar; UUID reusado em outro lançamento gera erro.
+   */
+  editarLancamentoAvulso(
+    input: EditarLancamentoAvulsoInput,
+  ): Promise<EditarLancamentoAvulsoResult>;
+
+  /**
+   * Exclui DEFINITIVAMENTE um lançamento avulso. Permitido apenas se não
+   * vinculado a venda/compra, sem pagamentos registrados e em status
+   * `pendente` ou `cancelado`. Para qualquer outro caso, use
+   * `cancelarLancamento` (preserva histórico).
+   */
+  excluirLancamentoAvulso(
+    lancamentoId: string,
+  ): Promise<ExcluirLancamentoAvulsoResult>;
 }
 
 /**
