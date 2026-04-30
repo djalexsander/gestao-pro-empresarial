@@ -993,6 +993,109 @@ const funcionarios: DataAdapter["funcionarios"] = {
   },
 };
 
+// ============================================================
+// Categorias de produto — Bloco 12
+// `criar` continua acessível via `produtos.criarCategoria` por compat.
+// ============================================================
+const categoriasProduto: DataAdapter["categoriasProduto"] = {
+  async editar(input) {
+    const { data, error } = await supabase.rpc("editar_categoria_produto", {
+      _categoria_id: input.categoria_id,
+      _nome: input.nome,
+      _parent_id: input.parent_id ?? null,
+      _descricao: input.descricao ?? null,
+    } as never);
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return { categoria_id: String(d.categoria_id ?? input.categoria_id) };
+  },
+
+  async alterarStatus(input) {
+    const { data, error } = await supabase.rpc("alterar_status_categoria_produto", {
+      _categoria_id: input.categoria_id,
+      _ativo: input.ativo,
+    } as never);
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      categoria_id: String(d.categoria_id ?? input.categoria_id),
+      ativo: Boolean(d.ativo ?? input.ativo),
+      idempotente: Boolean(d.idempotente),
+    };
+  },
+
+  async excluir(categoriaId) {
+    const { data, error } = await supabase.rpc("excluir_categoria_produto", {
+      _categoria_id: categoriaId,
+    } as never);
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      categoria_id: String(d.categoria_id ?? categoriaId),
+      excluido: Boolean(d.excluido),
+    };
+  },
+};
+
+// ============================================================
+// Categorias financeiras — Bloco 12
+// ============================================================
+const categoriasFinanceiras: DataAdapter["categoriasFinanceiras"] = {
+  async criar(input) {
+    const { data, error } = await supabase.rpc("criar_categoria_financeira", {
+      _nome: input.nome,
+      _tipo: input.tipo,
+      _parent_id: input.parent_id ?? null,
+      _cor: input.cor ?? null,
+      _client_uuid: input.client_uuid ?? null,
+    } as never);
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      categoria_id: String(d.categoria_id ?? ""),
+      idempotente: Boolean(d.idempotente),
+    };
+  },
+
+  async editar(input) {
+    const { data, error } = await supabase.rpc("editar_categoria_financeira", {
+      _categoria_id: input.categoria_id,
+      _nome: input.nome,
+      _parent_id: input.parent_id ?? null,
+      _cor: input.cor ?? null,
+    } as never);
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return { categoria_id: String(d.categoria_id ?? input.categoria_id) };
+  },
+
+  async alterarStatus(input) {
+    const { data, error } = await supabase.rpc("alterar_status_categoria_financeira", {
+      _categoria_id: input.categoria_id,
+      _ativo: input.ativo,
+    } as never);
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      categoria_id: String(d.categoria_id ?? input.categoria_id),
+      ativo: Boolean(d.ativo ?? input.ativo),
+      idempotente: Boolean(d.idempotente),
+    };
+  },
+
+  async excluir(categoriaId) {
+    const { data, error } = await supabase.rpc("excluir_categoria_financeira", {
+      _categoria_id: categoriaId,
+    } as never);
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      categoria_id: String(d.categoria_id ?? categoriaId),
+      excluido: Boolean(d.excluido),
+    };
+  },
+};
+
 export const cloudAdapter: DataAdapter = {
   produtos,
   vendas,
@@ -1002,4 +1105,6 @@ export const cloudAdapter: DataAdapter = {
   clientes,
   fornecedores,
   funcionarios,
+  categoriasProduto,
+  categoriasFinanceiras,
 };
