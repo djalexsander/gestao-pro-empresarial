@@ -6,5 +6,12 @@
  */
 export { dataClient } from "./client";
 export type { DataAdapter, ProdutosAdapter } from "./adapter";
-export type { CodigoTipo, ProdutoBuscaResult } from "./types";
+export type {
+  CodigoTipo,
+  Produto,
+  ProdutoBuscaResult,
+  ProdutoComCategoria,
+  ProdutoPluResult,
+  TipoIdentificacao,
+} from "./types";
 export { getDataMode, type DataMode } from "./mode";

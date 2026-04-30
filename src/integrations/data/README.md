@@ -24,20 +24,35 @@ src/integrations/data/
 
 | Arquivo | Responsabilidade |
 |---|---|
-| `types.ts` | Tipos de domínio (`ProdutoBuscaResult`, `CodigoTipo`, …). **Nenhum import de Supabase.** |
+| `types.ts` | Tipos de domínio (`ProdutoBuscaResult`, `ProdutoPluResult`, `Produto`, `ProdutoComCategoria`, …). **Nenhum import de Supabase.** |
 | `adapter.ts` | Define a interface `DataAdapter`. Cada hook migrado adiciona seu método aqui. |
 | `mode.ts` | Decide o modo em runtime via `VITE_DATA_MODE` (default `"cloud"`). |
 | `adapters/cloud.ts` | Implementação atual: chama `supabase`. |
 | `client.ts` | Cria a instância `dataClient` correta para o modo ativo. |
 | `index.ts` | Barrel público (única coisa que hooks importam). |
 
+## Contrato atual (`DataAdapter`)
+
+```ts
+interface ProdutosAdapter {
+  buscarPorCodigo(codigo: string): Promise<ProdutoBuscaResult | null>;
+  buscarPorPlu(plu: string):       Promise<ProdutoPluResult | null>;
+  listar():                         Promise<ProdutoComCategoria[]>;
+}
+
+interface DataAdapter {
+  produtos: ProdutosAdapter;
+}
+```
+
 ## Como consumir
 
 ```ts
-import { dataClient, type ProdutoBuscaResult } from "@/integrations/data";
+import { dataClient } from "@/integrations/data";
 
-const produto: ProdutoBuscaResult | null =
-  await dataClient.produtos.buscarPorCodigo("7891234567890");
+const produto = await dataClient.produtos.buscarPorCodigo("7891234567890");
+const balanca = await dataClient.produtos.buscarPorPlu("000123");
+const lista   = await dataClient.produtos.listar();
 ```
 
 ## Migração de hooks (Fase 1)
@@ -50,17 +65,31 @@ Para migrar um hook que hoje fala direto com Supabase:
 4. No hook, trocar a chamada Supabase por `dataClient.<modulo>.<método>(...)`.
 5. Sem mudança de UI, sem mudança no React Query.
 
-### Já migrado
-- `buscarPorCodigo` (PoC) — usado por `useBuscarProdutoPorCodigo` e
-  pelo PDV (scanner / leitura de código de barras).
+### Já migrado (somente leitura — risco zero)
 
-### Próximos recomendados (ordem de prioridade)
-1. `useProdutos` (lista paginada) — leitura quente do ERP/PDV.
-2. `useProdutoPorPlu` — também usado pelo scanner.
-3. `useEstoque` (consulta de saldo) — leitura.
-4. `useVendas.criarVenda` — primeiro write, exige idempotência (`client_uuid`).
-5. `useCaixa` — abertura/fechamento.
-6. `useRealtimeSync` — abstrair fonte (Supabase Realtime ↔ WS LAN).
+| Hook / função                  | Método do adapter                  | Usado em |
+|---|---|---|
+| `buscarProdutoPorCodigo` / `useBuscarProdutoPorCodigo` | `produtos.buscarPorCodigo` | Scanner do PDV, busca rápida |
+| `buscarProdutoPorPlu`          | `produtos.buscarPorPlu`            | Etiqueta de balança no PDV |
+| `useProdutos`                  | `produtos.listar`                  | Cadastro de produtos, grade do PDV |
+
+### Ainda usando Supabase direto neste módulo
+
+`useProduto`, `useCategorias`, `useCreateCategoria`, `useCreateProduto`,
+`useUpdateProduto`, `useDeleteProduto`, `useCreateVariacao`,
+`useDeleteVariacao`, `useProdutoCodigos`, `useAddProdutoCodigo`,
+`useDeleteProdutoCodigo` — migrar em lotes futuros (writes).
+
+### Próximos recomendados
+
+1. **`useVendas.criarVenda`** — primeiro **write** crítico. Vamos aproveitar
+   para introduzir `client_uuid` (idempotência), que já é útil em produção
+   cloud e indispensável quando houver LAN piscando entre terminal e
+   servidor local.
+2. `useEstoque` (consulta de saldo).
+3. `useCaixa` (abrir/fechar/movimentos).
+4. `useRealtimeSync` — abstrair a fonte realtime
+   (Supabase Realtime ↔ WS LAN).
 
 ## Não-objetivos desta fase
 

@@ -12,7 +12,30 @@
 
 import { supabase } from "@/integrations/supabase/client";
 import type { DataAdapter } from "../adapter";
-import type { CodigoTipo, ProdutoBuscaResult } from "../types";
+import type {
+  CodigoTipo,
+  ProdutoBuscaResult,
+  ProdutoComCategoria,
+  ProdutoPluResult,
+} from "../types";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapPluRow(row: any): ProdutoPluResult {
+  return {
+    produto_id: row.id,
+    sku: row.sku,
+    nome: row.nome,
+    unidade: row.unidade,
+    preco_venda: Number(row.preco_venda ?? 0),
+    vendido_por_peso: Boolean(row.vendido_por_peso),
+    aceita_etiqueta_balanca: Boolean(row.aceita_etiqueta_balanca),
+    plu: row.plu ?? row.codigo_interno ?? row.sku ?? null,
+    status: row.status,
+  };
+}
+
+const PLU_COLUMNS =
+  "id, sku, nome, unidade, preco_venda, vendido_por_peso, aceita_etiqueta_balanca, plu, codigo_interno, status";
 
 const produtos: DataAdapter["produtos"] = {
   async buscarPorCodigo(codigo) {
@@ -49,6 +72,53 @@ const produtos: DataAdapter["produtos"] = {
       saldo_estoque: Number(row.saldo_estoque ?? 0),
     };
     return result;
+  },
+
+  async buscarPorPlu(plu) {
+    const valor = plu.trim();
+    if (!valor) return null;
+
+    // RLS já restringe ao owner; basta filtrar por valor.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any)
+      .from("produtos")
+      .select(PLU_COLUMNS)
+      .or(
+        `plu.eq.${valor},sku.eq.${valor},codigo_interno.eq.${valor}`,
+      )
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+
+    if (!data) {
+      // Tenta sem zeros à esquerda (ex.: PLU 00123 cadastrado como 123).
+      const stripped = valor.replace(/^0+/, "");
+      if (stripped && stripped !== valor) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const r2 = await (supabase as any)
+          .from("produtos")
+          .select(PLU_COLUMNS)
+          .or(
+            `plu.eq.${stripped},sku.eq.${stripped},codigo_interno.eq.${stripped}`,
+          )
+          .limit(1)
+          .maybeSingle();
+        if (r2.error) throw r2.error;
+        if (!r2.data) return null;
+        return mapPluRow(r2.data);
+      }
+      return null;
+    }
+    return mapPluRow(data);
+  },
+
+  async listar() {
+    const { data, error } = await supabase
+      .from("produtos")
+      .select("*, categoria:categorias_produto(id, nome)")
+      .order("nome");
+    if (error) throw error;
+    return (data ?? []) as unknown as ProdutoComCategoria[];
   },
 };
 
