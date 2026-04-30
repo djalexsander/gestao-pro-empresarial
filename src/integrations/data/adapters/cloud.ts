@@ -14,6 +14,8 @@ import { supabase } from "@/integrations/supabase/client";
 import type { DataAdapter } from "../adapter";
 import type {
   AbrirCaixaInput,
+  AlterarStatusVendaInput,
+  AlterarStatusVendaResult,
   CancelarVendaInput,
   CancelarVendaResumo,
   CodigoTipo,
@@ -27,6 +29,7 @@ import type {
   ProdutoComCategoria,
   ProdutoPluResult,
   RegistrarMovimentoCaixaInput,
+  StatusVendaEditavelDomain,
 } from "../types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
