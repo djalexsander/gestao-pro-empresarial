@@ -220,15 +220,78 @@ estorno de estoque), use `vendas.cancelar`.
 cancela apenas os LANÇAMENTOS (limpeza administrativa de pendência);
 `cancelar` cancela a VENDA, estorna estoque e marca lançamentos juntos.
 
+## Financeiro (`financeiro.*`)
+
+Migra os 5 writes financeiros principais para o adapter, todos via RPC
+`SECURITY DEFINER` no banco — nada mais de UPDATE/DELETE direto na tabela
+a partir da UI.
+
+| Operação                  | RPC do banco                        | Idempotência                         |
+|---------------------------|-------------------------------------|--------------------------------------|
+| Registrar pagamento       | `registrar_pagamento_lancamento`    | `client_uuid` (1 por modal aberto)   |
+| Remover pagamento         | `remover_pagamento_lancamento`      | retorna `{idempotente:true}` se sumiu|
+| Cancelar título           | `cancelar_lancamento`               | idempotente em título já cancelado   |
+| Reabrir título            | `reabrir_lancamento`                | recalcula status pelo total pago     |
+| Alterar vencimento        | `alterar_vencimento_lancamento`     | bloqueado se pago/recebido/cancelado |
+| Conciliar iFood (1)       | `conciliar_ifood_lancamento`        | gerenciada pela RPC existente        |
+| Conciliar iFood (lote)    | `conciliar_ifood_lote`              | gerenciada pela RPC existente        |
+
+### Convergência automática (triggers do banco)
+
+A consistência entre `financeiro_lancamentos` e `lancamento_pagamentos` é
+mantida por **2 triggers** que continuam ativas:
+
+- **`validar_pagamento_lancamento`** (BEFORE INSERT/UPDATE):
+  - rejeita pagamento que ultrapasse o saldo do título;
+  - bloqueia pagamento em título `cancelado`.
+- **`recalcular_lancamento_apos_pagamento`** (AFTER INSERT/UPDATE/DELETE):
+  - recalcula `valor_pago = SUM(pagamentos.valor)`;
+  - recalcula `data_pagamento` (a mais recente);
+  - recalcula `status` → `pendente` (sem pagamento) / `parcial` (parcial) /
+    `pago`/`recebido` (quitado, conforme `tipo`).
+
+Ou seja: a UI só registra/remove pagamentos. Quem decide o status do título
+é o banco, sempre. Isso elimina divergência entre cliente e servidor e é a
+base para o cenário LAN futuro.
+
+### Reflexo no status_pagamento da venda
+
+Quando o título é `venda_id != null`, o operador pode usar o fluxo
+`vendas.alterarStatus` (já migrado) para sincronizar `vendas.status_pagamento`
+com o estado financeiro. As duas camadas são independentes mas coerentes:
+o trigger ajusta o lançamento; o `alterarStatus` ajusta a venda.
+
+### Pontos de concorrência endurecidos
+
+- **Duplo-clique em "Pagar"** → `client_uuid` impede duplicação. Mesmo se a
+  rede oscilar e a UI reenviar, o backend retorna o pagamento existente.
+- **Remover pagamento concorrente** → RPC faz `SELECT FOR UPDATE` no título
+  pai antes do DELETE. Sem race entre 2 terminais quitando/removendo
+  pagamentos do mesmo título.
+- **Cancelar/reabrir/alterar vencimento** → todas usam `FOR UPDATE` no
+  título; a última operação ganha de forma determinística.
+- **Pagamento que ultrapassa saldo** → trigger rejeita com `RAISE EXCEPTION`,
+  mesmo com 2 caixas batendo no mesmo fiado.
+
+### Riscos restantes (fora desta etapa)
+
+- A RPC de pagamento aceita `forma_pagamento NULL` (compatibilidade com
+  comportamento legado de `alterar_status_venda`). Em painéis de DRE/repasse,
+  pagamentos sem forma somem da quebra por método. Endurecimento opcional na
+  Fase 2 (tornar obrigatório quando vier de UI manual).
+- **Edição de vencimento** ainda não tem UI — a RPC já existe; basta um
+  pequeno modal quando o produto pedir.
+
 ### Próximos recomendados (writes)
 
-1. **`useFinanceiro` / `useLancamentos`** — escrita financeira independente
-   (registrar pagamento de fiado, baixa manual, edição de vencimento).
-2. **`useEstoque` ajustes manuais** — entradas/saídas avulsas com
-   `client_uuid` para idempotência.
-3. **`useIfoodRepasses`** — conciliação de repasses (próximo write
-   transversal financeiro ↔ vendas).
-4. **`useRealtimeSync`** — abstrair a fonte realtime (Supabase Realtime ↔ WS LAN).
+1. **`useEstoque` ajustes manuais** — entradas/saídas avulsas com
+   `client_uuid` para idempotência (mesmo padrão de caixa e financeiro).
+2. **CRUD de cliente/fornecedor** — escrita simples, ainda direto no
+   `supabase` em diversos diálogos. Bom para zerar o uso direto do client.
+3. **Edição/criação avulsa de lançamento financeiro** (a pagar/receber sem
+   venda) — fechar o ciclo CRUD financeiro completo.
+4. **`useRealtimeSync`** — abstrair a fonte realtime (Supabase Realtime ↔
+   WS LAN), já com a base toda preparada.
 
 ## Não-objetivos desta fase
 
