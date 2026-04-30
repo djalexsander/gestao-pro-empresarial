@@ -2,31 +2,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { dataClient } from "@/integrations/data";
+import type {
+  Produto,
+  ProdutoComCategoria,
+  TipoIdentificacao,
+} from "@/integrations/data";
 
-export type TipoIdentificacao = "sku" | "codigo_barras" | "qr_code" | "codigo_interno";
-
-export type Produto = {
-  id: string;
-  sku: string;
-  codigo_barras: string | null;
-  qr_code: string | null;
-  codigo_interno: string | null;
-  tipo_identificacao_principal: TipoIdentificacao;
-  observacao_tecnica: string | null;
-  nome: string;
-  descricao: string | null;
-  marca: string | null;
-  unidade: string;
-  categoria_id: string | null;
-  preco_custo: number;
-  preco_venda: number;
-  estoque_minimo: number;
-  estoque_inicial: number;
-  status: "ativo" | "inativo" | "descontinuado";
-  ncm: string | null;
-  created_at: string;
-  updated_at: string;
-};
+// Re-exports para preservar a API pública anterior deste módulo.
+export type { Produto, TipoIdentificacao };
 
 export type Categoria = {
   id: string;
@@ -87,17 +71,15 @@ export function useCreateCategoria() {
 
 // ================= PRODUTOS =================
 
+/**
+ * Lista todos os produtos do tenant (com a categoria já joinada).
+ * Desde a Fase 1, consome `dataClient` em vez de `supabase` direto —
+ * o React Query e a queryKey continuam exatamente os mesmos.
+ */
 export function useProdutos() {
-  return useQuery({
+  return useQuery<ProdutoComCategoria[]>({
     queryKey: ["produtos"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("produtos")
-        .select("*, categoria:categorias_produto(id, nome)")
-        .order("nome");
-      if (error) throw error;
-      return data as Array<Produto & { categoria: { id: string; nome: string } | null }>;
-    },
+    queryFn: () => dataClient.produtos.listar(),
   });
 }
 
