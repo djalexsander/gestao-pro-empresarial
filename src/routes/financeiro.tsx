@@ -494,6 +494,13 @@ function FinanceContent() {
         lancamento={selected}
       />
 
+      <LancamentoFormDialog
+        mode="create"
+        open={novoOpen}
+        onOpenChange={setNovoOpen}
+        tipoInicial={activeTab === "pagar" ? "pagar" : "receber"}
+      />
+
       <BlocoModais
         bloco={blocoAberto}
         onClose={() => setBlocoAberto(null)}
