@@ -281,6 +281,7 @@ export type Database = {
       categorias_financeiras: {
         Row: {
           ativo: boolean
+          client_uuid: string | null
           cor: string | null
           created_at: string
           id: string
@@ -292,6 +293,7 @@ export type Database = {
         }
         Insert: {
           ativo?: boolean
+          client_uuid?: string | null
           cor?: string | null
           created_at?: string
           id?: string
@@ -303,6 +305,7 @@ export type Database = {
         }
         Update: {
           ativo?: boolean
+          client_uuid?: string | null
           cor?: string | null
           created_at?: string
           id?: string
@@ -2610,6 +2613,11 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      _owner_atual_categorias_financeiras: { Args: never; Returns: string }
+      _pode_gerenciar_categorias_financeiras: {
+        Args: { _owner: string }
+        Returns: boolean
+      }
       abrir_caixa:
         | {
             Args: { _observacao?: string; _valor_inicial: number }
@@ -3003,6 +3011,14 @@ export type Database = {
         }
         Returns: string
       }
+      alterar_status_categoria_financeira: {
+        Args: { _ativo: boolean; _categoria_id: string }
+        Returns: Json
+      }
+      alterar_status_categoria_produto: {
+        Args: { _ativo: boolean; _categoria_id: string }
+        Returns: Json
+      }
       alterar_status_cliente: {
         Args: {
           _cliente_id: string
@@ -3133,6 +3149,16 @@ export type Database = {
         }
         Returns: Json
       }
+      criar_categoria_financeira: {
+        Args: {
+          _client_uuid?: string
+          _cor?: string
+          _nome: string
+          _parent_id?: string
+          _tipo: Database["public"]["Enums"]["categoria_financeira_tipo"]
+        }
+        Returns: Json
+      }
       criar_categoria_produto: {
         Args: {
           _client_uuid?: string
@@ -3251,6 +3277,24 @@ export type Database = {
         Args: { _venda_id: string }
         Returns: string
       }
+      editar_categoria_financeira: {
+        Args: {
+          _categoria_id: string
+          _cor?: string
+          _nome: string
+          _parent_id?: string
+        }
+        Returns: Json
+      }
+      editar_categoria_produto: {
+        Args: {
+          _categoria_id: string
+          _descricao?: string
+          _nome: string
+          _parent_id?: string
+        }
+        Returns: Json
+      }
       editar_cliente: {
         Args: {
           _bairro?: string
@@ -3343,6 +3387,14 @@ export type Database = {
         Returns: Json
       }
       excluir_caixa: { Args: { _caixa_id: string }; Returns: Json }
+      excluir_categoria_financeira: {
+        Args: { _categoria_id: string }
+        Returns: Json
+      }
+      excluir_categoria_produto: {
+        Args: { _categoria_id: string }
+        Returns: Json
+      }
       excluir_cliente: { Args: { _cliente_id: string }; Returns: Json }
       excluir_fornecedor: { Args: { _fornecedor_id: string }; Returns: Json }
       excluir_lancamento_avulso: {

@@ -673,12 +673,88 @@ Fluxo de cada chamada:
 - Reset de PIN durante lockout: o reset não limpa `bloqueado_ate` automaticamente. Decisão de design — admin deve usar `desbloquearPin` se quiser liberar imediato. Documentado.
 - Desbloqueio manual durante uma tentativa em andamento: o `UPDATE` em `funcionario_lockouts` no desbloqueio espera o lock da validação em curso; ordem natural mantém estado coerente.
 
-### Próximos writes recomendados (depois do Bloco 11)
+---
 
-1. **CRUD de categorias financeiras** — espelha `criar_categoria_produto`; fecha o conjunto de cadastros auxiliares.
-2. **CRUD de `lotes_produto`** quando a UI de validade/lote entrar (gap do Bloco 9).
-3. **Plugar UI do "Novo lançamento financeiro"** com a infra do Bloco 7.
-4. **Painel admin de lockouts** — listar `funcionario_lockouts` ativos e expor botão `desbloquearPin` (já pronto no adapter).
-5. **Notificação de lockout** via `notificacao_estados` para o admin reagir a ataques em andamento.
-6. **Auditoria unificada** (`audit_logs` via trigger) cobrindo cliente, fornecedor, produto, funcionário e tentativas de PIN num só passe.
-7. **Abstração de leitura** (`useQuery` → `dataClient.*.list/get`) para destravar a troca de fonte (cloud → servidor local + terminais) sem reescrever hooks.
+## Bloco 12 — CRUD de categorias (produto + financeira)
+
+### Diagnóstico do fluxo atual
+
+| Domínio | Antes do Bloco 12 |
+|---|---|
+| **Categorias de produto** | Só `criar` existia (`dataClient.produtos.criarCategoria`, RPC `criar_categoria_produto`, Bloco 9). Editar / inativar / excluir: **não existiam** — só via Supabase Studio. |
+| **Categorias financeiras** | **Nenhum CRUD**, nem RPC nem hook. A tabela só era lida em joins de `routes/financeiro.tsx` e `routes/relatorios.financeiro.tsx`. |
+
+Conclusão: gap real era completar produto + criar do zero a infra de financeira (mesmo sem UI ainda — Bloco 12 deixa pronto e o write fica plugável).
+
+### Estrutura adicionada
+
+- **Schema**: `categorias_financeiras.client_uuid` + índice único parcial `(owner_id, client_uuid)` — espelha o padrão dos blocos anteriores.
+- **8 RPCs novas** (todas `SECURITY DEFINER`, `REVOKE FROM PUBLIC` + `GRANT TO authenticated`):
+  - `editar_categoria_produto(_id, _nome, _parent_id, _descricao)`
+  - `alterar_status_categoria_produto(_id, _ativo)`
+  - `excluir_categoria_produto(_id)`
+  - `criar_categoria_financeira(_nome, _tipo, _parent_id, _cor, _client_uuid)`
+  - `editar_categoria_financeira(_id, _nome, _parent_id, _cor)` — **não muda `tipo`**
+  - `alterar_status_categoria_financeira(_id, _ativo)`
+  - `excluir_categoria_financeira(_id)`
+- **2 helpers internos**: `_pode_gerenciar_categorias_financeiras(owner)` e `_owner_atual_categorias_financeiras()`.
+
+### Métodos no adapter
+
+```ts
+dataClient.categoriasProduto.editar({ categoria_id, nome, parent_id?, descricao? })
+dataClient.categoriasProduto.alterarStatus({ categoria_id, ativo })
+dataClient.categoriasProduto.excluir(categoriaId)
+
+dataClient.categoriasFinanceiras.criar({ nome, tipo: "receita"|"despesa", parent_id?, cor?, client_uuid? })
+dataClient.categoriasFinanceiras.editar({ categoria_id, nome, parent_id?, cor? })
+dataClient.categoriasFinanceiras.alterarStatus({ categoria_id, ativo })
+dataClient.categoriasFinanceiras.excluir(categoriaId)
+```
+
+`dataClient.produtos.criarCategoria` permanece como **alias** para não quebrar `useCreateCategoria` enquanto a UI não migra.
+
+### Decisão de exclusão (sensível)
+
+Padrão **bloqueio por vínculo**, igual aos blocos anteriores:
+
+| Categoria | Hard delete bloqueia se… |
+|---|---|
+| Produto    | há `produtos.categoria_id` apontando OU subcategorias filhas (`parent_id`) |
+| Financeira | há `financeiro_lancamentos.categoria_id` apontando OU subcategorias filhas |
+
+Quando bloqueado, RPC retorna `23503` com mensagem clara mencionando a contagem de produtos/lançamentos e subcategorias, instruindo `alterarStatus({ ativo: false })` (soft delete). Sem hard delete furtivo.
+
+### Garantias de consistência
+
+- **Tipo da categoria financeira é imutável**: trocar receita ↔ despesa quebraria relatórios históricos (lançamentos antigos passariam a somar no lado errado). A RPC de editar simplesmente não expõe o campo.
+- **Validação de pai**: `parent_id` precisa ter o **mesmo `owner_id`** e (no caso financeiro) o **mesmo `tipo`**. Bloqueia auto-referência (`parent = self`) — não previne ciclos profundos (a → b → a), mas o cliente não consegue criar isso sem editar duas categorias em sequência (e ainda assim a RPC bloqueia se o pai inválido).
+- **Lock pessimista**: `SELECT ... FOR UPDATE` em todas as edições/exclusões serializa concorrência entre terminais.
+- **Idempotência**: `criar_categoria_financeira` retorna `{ idempotente: true }` quando reenviado com mesmo `client_uuid` — cobre duplo clique e retry de rede.
+- **Tenant resolvido server-side**: criação financeira não aceita `owner_id` do cliente. A RPC busca via `auth.uid()` (próprio dono ou admin/membro). Impossível criar em empresa alheia.
+- **Permissão**:
+  - Produto: dono direto (`owner = auth.uid()`).
+  - Financeira: dono OU `papel IN ('owner','admin')` em `empresa_membros` — espelha o padrão de financeiro/funcionários.
+
+### Riscos encontrados
+
+- **`useCategorias()` ainda lê com filtro `eq("ativo", true)`** direto no Supabase. Se a UI futura quiser editar categorias inativas, precisa parametrizar essa query (ou aguardar o bloco "Abstração de leitura"). Documentado como gap.
+- **Sem ciclos profundos**: `a → b → a` exige duas chamadas separadas e o segundo `editar` falha porque o pai escolhido (`a`) já tem `b` como filho? Não — a validação só checa `parent_id != self`. Para um trigger anti-ciclo via WITH RECURSIVE, fica como tarefa do bloco "Hierarquia de categorias" se a UI permitir nesting profundo.
+- **UI ainda não consome** os novos métodos de financeira (não existe tela). Infra está pronta para quando o bloco "UI do financeiro" entrar — esperado.
+- **`tipo` imutável é uma decisão dura**: se um usuário criou no tipo errado, precisa criar a correta + reatribuir lançamentos manualmente. Trade-off aceito (segurança de relatório > flexibilidade de edição).
+- **Soft delete não cascata**: inativar categoria pai não inativa filhas automaticamente. Esperado — categorias filhas devem continuar utilizáveis. Se a UI desejar comportamento de cascata, fazer no cliente.
+
+### Concorrência relevante
+
+- Dois terminais editando a mesma categoria: o segundo espera o `FOR UPDATE`. "Last write wins".
+- Excluir + lançar com a categoria simultaneamente: o `count(*)` em `financeiro_lancamentos` corre dentro da transação da exclusão; se um INSERT de lançamento se commitar antes da exclusão, a contagem pega; se commitar depois, o lançamento fica órfão no `categoria_id` apontando para uma categoria que vai ser deletada — **risco real** mitigado pelo bloqueio de exclusão por vínculo, mas em janela curtíssima entre `count` e `DELETE` ainda é teoricamente possível em READ COMMITTED. Para garantia absoluta usaríamos `SERIALIZABLE` ou um FK. **Mitigação prática suficiente** para o uso atual; documentado.
+- Idempotência por `client_uuid` no financeiro: dois cliques quase simultâneos competem pelo unique index — quem perde recebe `23505` que a função intercepta? **Não intercepta hoje** — vai propagar como erro. Próxima iteração: capturar `unique_violation` e retornar a categoria existente. Funciona bem para o cenário "1 dialog = 1 UUID".
+
+### Próximos writes recomendados (depois do Bloco 12)
+
+1. **CRUD de `lotes_produto`** quando a UI de validade/lote entrar (gap do Bloco 9).
+2. **Plugar UI do "Novo lançamento financeiro"** com a infra do Bloco 7 + dropdown novo de categoria financeira.
+3. **UI de gerenciamento de categorias** (produto e financeira) consumindo os novos métodos — leitura + listagem inativas + ações editar/inativar/excluir com mensagens corretas.
+4. **Painel admin de lockouts** — usar `desbloquearPin` (Bloco 11).
+5. **Auditoria unificada** (`audit_logs` via trigger) cobrindo todos os cadastros já migrados (cliente, fornecedor, produto, funcionário, categorias) num só passe.
+6. **Abstração de leitura** (`useQuery` → `dataClient.*.list/get`) para destravar a troca de fonte (cloud → servidor local + terminais) sem reescrever hooks. Inclui parametrizar o filtro `ativo` em `useCategorias`.

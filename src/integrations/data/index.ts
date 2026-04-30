@@ -7,6 +7,8 @@
 export { dataClient } from "./client";
 export type {
   CaixaAdapter,
+  CategoriasFinanceirasAdapter,
+  CategoriasProdutoAdapter,
   ClientesAdapter,
   DataAdapter,
   EstoqueAdapter,
@@ -39,8 +41,21 @@ export type {
   CodigoTipo,
   ConciliarIfoodIndividualInput,
   ConciliarIfoodLoteInput,
+  AlterarStatusCategoriaFinanceiraInput,
+  AlterarStatusCategoriaFinanceiraResult,
+  AlterarStatusCategoriaProdutoInput,
+  AlterarStatusCategoriaProdutoResult,
+  CategoriaFinanceiraTipoDomain,
+  CriarCategoriaFinanceiraInput,
+  CriarCategoriaFinanceiraResult,
   CriarCategoriaProdutoInput,
   CriarCategoriaProdutoResult,
+  EditarCategoriaFinanceiraInput,
+  EditarCategoriaFinanceiraResult,
+  EditarCategoriaProdutoInput,
+  EditarCategoriaProdutoResult,
+  ExcluirCategoriaFinanceiraResult,
+  ExcluirCategoriaProdutoResult,
   CriarClienteInput,
   CriarClienteResult,
   CriarFornecedorInput,
@@ -105,5 +120,7 @@ export type {
   StatusVendaEditavelDomain,
   TipoIdentificacao,
   ValidarPinOperadorInput,
+  DesbloquearPinOperadorInput,
+  DesbloquearPinOperadorResult,
 } from "./types";
 export { getDataMode, type DataMode } from "./mode";

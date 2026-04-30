@@ -88,6 +88,18 @@ import type {
   ValidarPinOperadorInput,
   DesbloquearPinOperadorInput,
   DesbloquearPinOperadorResult,
+  EditarCategoriaProdutoInput,
+  EditarCategoriaProdutoResult,
+  AlterarStatusCategoriaProdutoInput,
+  AlterarStatusCategoriaProdutoResult,
+  ExcluirCategoriaProdutoResult,
+  CriarCategoriaFinanceiraInput,
+  CriarCategoriaFinanceiraResult,
+  EditarCategoriaFinanceiraInput,
+  EditarCategoriaFinanceiraResult,
+  AlterarStatusCategoriaFinanceiraInput,
+  AlterarStatusCategoriaFinanceiraResult,
+  ExcluirCategoriaFinanceiraResult,
 } from "./types";
 
 export interface ProdutosAdapter {
@@ -501,6 +513,42 @@ export interface FuncionariosAdapter {
   desbloquearPin(input: DesbloquearPinOperadorInput): Promise<DesbloquearPinOperadorResult>;
 }
 
+/**
+ * Operações de escrita de **categorias de produto** (Bloco 12).
+ *
+ * - `criar` continua disponível por `produtos.criarCategoria` (alias) para
+ *   compatibilidade com `useCreateCategoria`. Novas chamadas devem usar
+ *   este namespace.
+ * - Exclusão é **bloqueada** se houver produtos vinculados ou
+ *   subcategorias filhas — orienta a inativar.
+ */
+export interface CategoriasProdutoAdapter {
+  editar(input: EditarCategoriaProdutoInput): Promise<EditarCategoriaProdutoResult>;
+  alterarStatus(
+    input: AlterarStatusCategoriaProdutoInput,
+  ): Promise<AlterarStatusCategoriaProdutoResult>;
+  /** Hard delete bloqueado por vínculos (produtos, subcategorias). */
+  excluir(categoriaId: string): Promise<ExcluirCategoriaProdutoResult>;
+}
+
+/**
+ * Operações de escrita de **categorias financeiras** (Bloco 12).
+ *
+ * - `tipo` (receita/despesa) é imutável após criação para preservar
+ *   relatórios históricos.
+ * - Permissão server-side: owner ou membro `owner`/`admin` da empresa.
+ * - Exclusão bloqueada se houver lançamentos ou subcategorias.
+ * - Idempotência via `client_uuid` em `criar`.
+ */
+export interface CategoriasFinanceirasAdapter {
+  criar(input: CriarCategoriaFinanceiraInput): Promise<CriarCategoriaFinanceiraResult>;
+  editar(input: EditarCategoriaFinanceiraInput): Promise<EditarCategoriaFinanceiraResult>;
+  alterarStatus(
+    input: AlterarStatusCategoriaFinanceiraInput,
+  ): Promise<AlterarStatusCategoriaFinanceiraResult>;
+  excluir(categoriaId: string): Promise<ExcluirCategoriaFinanceiraResult>;
+}
+
 export interface DataAdapter {
   produtos: ProdutosAdapter;
   vendas: VendasAdapter;
@@ -510,6 +558,8 @@ export interface DataAdapter {
   clientes: ClientesAdapter;
   fornecedores: FornecedoresAdapter;
   funcionarios: FuncionariosAdapter;
+  categoriasProduto: CategoriasProdutoAdapter;
+  categoriasFinanceiras: CategoriasFinanceirasAdapter;
   // Próximos a serem adicionados conforme a Fase 1 avança:
   // realtime: RealtimeAdapter;
 }
