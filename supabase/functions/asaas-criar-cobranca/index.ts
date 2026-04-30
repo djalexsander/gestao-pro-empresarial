@@ -161,7 +161,8 @@ Deno.serve(async (req) => {
     const cpfCnpj = (empresa.documento ?? "").replace(/\D/g, "");
     if (!cpfCnpj || (cpfCnpj.length !== 11 && cpfCnpj.length !== 14)) {
       return json(400, {
-        error: "CNPJ/CPF da empresa é obrigatório para criar cobrança no Asaas",
+        error:
+          "Para gerar a cobrança Pix, cadastre o CNPJ ou CPF da empresa em Configurações → Empresa.",
       });
     }
     try {
