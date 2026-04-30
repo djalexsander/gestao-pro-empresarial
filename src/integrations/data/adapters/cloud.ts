@@ -1195,6 +1195,16 @@ const funcionarios: DataAdapter["funcionarios"] = {
       desbloqueado: Boolean(d.desbloqueado),
     };
   },
+
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  async list(input) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("funcionarios_listar");
+    if (error) throw error;
+    let rows = (data ?? []) as import("../types").FuncionarioDomain[];
+    if (input?.somente_ativos) rows = rows.filter((f) => f.ativo);
+    return rows;
+  },
 };
 
 // ============================================================
