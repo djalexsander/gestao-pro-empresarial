@@ -86,6 +86,8 @@ import type {
   RemoverPagamentoLancamentoResult,
   ResetarPinFuncionarioInput,
   ValidarPinOperadorInput,
+  DesbloquearPinOperadorInput,
+  DesbloquearPinOperadorResult,
 } from "./types";
 
 export interface ProdutosAdapter {
