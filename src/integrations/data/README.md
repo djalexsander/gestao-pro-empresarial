@@ -333,15 +333,88 @@ cancelamento — não passam por aqui.
   cenário LAN com muitos terminais, vale promover a uma view materializada
   ou RPC `get_saldos_estoque` com cache server-side.
 
+## Lançamento financeiro avulso (a pagar / a receber sem venda)
+
+Adapter: `dataClient.financeiro` (mesma seção do CRUD de pagamentos). Cobre
+o **CRUD do título avulso**: criar, editar e excluir lançamentos sem venda
+nem compra atrelada. Pagamento, cancelamento, reabertura e alteração de
+vencimento já estavam migrados em bloco anterior — todos juntos fecham o
+ciclo financeiro inteiro na camada `dataClient`.
+
+> Nesta etapa **não há UI nova**. O botão "Novo lançamento" da página
+> Financeiro continua sem `onClick`. A infra fica pronta para um próximo
+> bloco plugar o dialog com segurança.
+
+### Métodos novos
+
+- `criarLancamentoAvulso(input)` — RPC `criar_lancamento_avulso`.
+- `editarLancamentoAvulso(input)` — RPC `editar_lancamento_avulso`.
+- `excluirLancamentoAvulso(id)` — RPC `excluir_lancamento_avulso`.
+
+### Garantias server-side
+
+- **Criar**:
+  - tipo restrito a `receber`/`pagar`,
+  - descrição/valor/vencimento obrigatórios; valor > 0,
+  - status inicial sempre `pendente`,
+  - vincular a venda/compra é **bloqueado** (esses fluxos têm RPCs próprias),
+  - **idempotente** por `(owner_id, client_uuid)` único parcial.
+- **Editar**:
+  - lock do título (`SELECT ... FOR UPDATE`) antes de mexer → não corre com
+    pagamento simultâneo,
+  - **bloqueia** títulos vinculados a venda/compra,
+  - **bloqueia** títulos `cancelado`, `pago` ou `recebido`,
+  - **bloqueia** reduzir `valor` abaixo do `valor_pago`,
+  - `tipo` (receber/pagar) NÃO pode ser alterado por aqui,
+  - **idempotente** no MESMO lançamento; reuso do UUID em outro lançamento
+    é rejeitado (proteção contra erro de programação).
+- **Excluir** (hard delete):
+  - permitido SOMENTE se não vinculado a venda/compra,
+  - permitido SOMENTE sem nenhum pagamento em `lancamento_pagamentos`,
+  - permitido SOMENTE em status `pendente` ou `cancelado`,
+  - para qualquer outro caso → `cancelarLancamento` (preserva histórico).
+
+### Pontos de concorrência (multi-terminal)
+
+- **Dois terminais editando o mesmo título:** `FOR UPDATE` na RPC de
+  edição serializa — o segundo espera o primeiro fechar a transação e
+  recebe o estado já atualizado.
+- **Edição concorrente com pagamento:** o lock segura a edição até o
+  pagamento gravar; a checagem `valor < valor_pago` então enxerga o
+  pagamento novo e barra a redução indevida.
+- **Excluir + pagar simultâneo:** o `FOR UPDATE` em ambos serializa; quem
+  chegar primeiro vence. Se o pagamento ganhou, a exclusão falha pela
+  checagem de "0 pagamentos".
+- **Duplo clique em "Salvar" no dialog (cenário LAN):** `client_uuid`
+  estável por dialog garante que reenvio retorne o mesmo `lancamento_id`
+  sem duplicar título nem reaplicar mudança.
+
+### Riscos restantes (fora desta etapa)
+
+- Categoria/cliente/fornecedor enviados não são validados como pertencentes
+  ao mesmo `owner_id` — o RLS dessas tabelas já filtra leitura, mas a RPC
+  aceita o id "cego". Se o front enviar id de outro tenant, vira FK órfã
+  visível só pela ausência no JOIN. Endurecimento Fase 2: validar tenant
+  desses 3 ids dentro da RPC.
+- Não há histórico de alterações (audit trail) do lançamento. Se o cliente
+  editar valor/vencimento várias vezes, a versão anterior se perde.
+  Endurecimento futuro: trigger `audit_logs` por UPDATE com `OLD/NEW`.
+- O cliente do `client_uuid` na edição é "consumido" depois (vira o UUID
+  daquele lançamento). Reabrir o mesmo dialog e re-editar precisa gerar
+  um novo UUID, ou as próximas edições passam direto pela checagem
+  idempotente. A regra prática: **gerar UUID novo a cada abertura do
+  dialog** — mesmo padrão dos outros blocos.
+
 ### Próximos recomendados (writes)
 
 1. **CRUD de cliente/fornecedor** — escrita simples, ainda direto no
    `supabase` em diversos diálogos. Bom para zerar o uso direto do client.
-2. **Edição/criação avulsa de lançamento financeiro** (a pagar/receber sem
-   venda) — fechar o ciclo CRUD financeiro completo.
+2. **Plugar UI no botão "Novo lançamento"** — agora que a infra está
+   pronta, só montar dialog `LancamentoFormDialog` (criar/editar) e
+   `useCriarLancamento` / `useEditarLancamento` / `useExcluirLancamento`
+   que delegam para o adapter.
 3. **CRUD de produto** (criar/editar/inativar) — toca em `produtos`,
-   `produto_codigos`, `produto_variacoes`, `lotes_produto`. Migrar para
-   adapter prepara o cenário multi-terminal de cadastro.
+   `produto_codigos`, `produto_variacoes`, `lotes_produto`.
 4. **`useRealtimeSync`** — abstrair a fonte realtime (Supabase Realtime ↔
    WS LAN), já com a base toda preparada.
 
