@@ -953,6 +953,92 @@ const fornecedores: DataAdapter["fornecedores"] = {
   },
 };
 
+// ============================================================
+// Funcionários (operadores PDV) — Bloco 10
+// PIN é hasheado SOMENTE no banco (bcrypt). Nunca tocamos no hash aqui.
+// ============================================================
+const funcionarios: DataAdapter["funcionarios"] = {
+  async criar(input) {
+    const { data, error } = await supabase.rpc("funcionario_criar", {
+      _nome: input.nome,
+      _login: input.login,
+      _pin: input.pin,
+      _role: input.role,
+      _client_uuid: input.client_uuid ?? null,
+    } as never);
+    if (error) throw error;
+    // RPC retorna jsonb { funcionario_id, idempotente }.
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      funcionario_id: String(d.funcionario_id ?? ""),
+      idempotente: Boolean(d.idempotente),
+    };
+  },
+
+  async editar(input) {
+    const { data, error } = await supabase.rpc("funcionario_editar", {
+      _funcionario_id: input.funcionario_id,
+      _nome: input.nome,
+      _login: input.login,
+      _role: input.role,
+    } as never);
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      funcionario_id: String(d.funcionario_id ?? input.funcionario_id),
+    };
+  },
+
+  async alterarStatus(input) {
+    const { data, error } = await supabase.rpc("funcionario_alterar_status", {
+      _funcionario_id: input.funcionario_id,
+      _ativo: input.ativo,
+    } as never);
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      funcionario_id: String(d.funcionario_id ?? input.funcionario_id),
+      ativo: Boolean(d.ativo ?? input.ativo),
+      idempotente: Boolean(d.idempotente),
+    };
+  },
+
+  async excluir(funcionarioId) {
+    const { data, error } = await supabase.rpc("funcionario_excluir", {
+      _funcionario_id: funcionarioId,
+    } as never);
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      funcionario_id: String(d.funcionario_id ?? funcionarioId),
+      excluido: Boolean(d.excluido),
+    };
+  },
+
+  async resetarPin(input) {
+    const { error } = await supabase.rpc("funcionario_resetar_pin", {
+      _funcionario_id: input.funcionario_id,
+      _novo_pin: input.pin,
+    });
+    if (error) throw error;
+  },
+
+  async validarPin(input) {
+    const { data, error } = await supabase.rpc("funcionario_validar_pin", {
+      _funcionario_id: input.funcionario_id,
+      _pin: input.pin,
+    });
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      id: String(d.id ?? input.funcionario_id),
+      nome: String(d.nome ?? ""),
+      login: String(d.login ?? ""),
+      role: (d.role as "gerente" | "caixa") ?? "caixa",
+    };
+  },
+};
+
 export const cloudAdapter: DataAdapter = {
   produtos,
   vendas,
@@ -961,4 +1047,5 @@ export const cloudAdapter: DataAdapter = {
   estoque,
   clientes,
   fornecedores,
+  funcionarios,
 };

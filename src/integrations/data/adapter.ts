@@ -56,12 +56,15 @@ import type {
   EditarClienteResult,
   EditarFornecedorInput,
   EditarFornecedorResult,
+  EditarFuncionarioInput,
+  EditarFuncionarioResult,
   EditarLancamentoAvulsoInput,
   EditarLancamentoAvulsoResult,
   EditarProdutoInput,
   EditarProdutoResult,
   ExcluirClienteResult,
   ExcluirFornecedorResult,
+  ExcluirFuncionarioResult,
   ExcluirLancamentoAvulsoResult,
   ExcluirProdutoCodigoResult,
   ExcluirProdutoResult,
@@ -70,6 +73,7 @@ import type {
   FecharCaixaInput,
   FecharCaixaResult,
   FinalizarVendaInput,
+  OperadorSessaoDomain,
   ProdutoBuscaResult,
   ProdutoComCategoria,
   ProdutoPluResult,
@@ -80,6 +84,8 @@ import type {
   RegistrarPagamentoLancamentoInput,
   RegistrarPagamentoLancamentoResult,
   RemoverPagamentoLancamentoResult,
+  ResetarPinFuncionarioInput,
+  ValidarPinOperadorInput,
 } from "./types";
 
 export interface ProdutosAdapter {
