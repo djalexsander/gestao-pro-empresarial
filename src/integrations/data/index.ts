@@ -8,6 +8,7 @@ export { dataClient } from "./client";
 export type {
   CaixaAdapter,
   DataAdapter,
+  FinanceiroAdapter,
   ProdutosAdapter,
   VendasAdapter,
 } from "./adapter";
