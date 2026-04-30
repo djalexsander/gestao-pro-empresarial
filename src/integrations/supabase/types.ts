@@ -898,6 +898,7 @@ export type Database = {
       }
       estoque_movimentacoes: {
         Row: {
+          client_uuid: string | null
           compra_id: string | null
           created_at: string
           custo_unitario: number | null
@@ -916,6 +917,7 @@ export type Database = {
           venda_id: string | null
         }
         Insert: {
+          client_uuid?: string | null
           compra_id?: string | null
           created_at?: string
           custo_unitario?: number | null
@@ -934,6 +936,7 @@ export type Database = {
           venda_id?: string | null
         }
         Update: {
+          client_uuid?: string | null
           compra_id?: string | null
           created_at?: string
           custo_unitario?: number | null
@@ -3266,6 +3269,19 @@ export type Database = {
           _target_type?: string
         }
         Returns: undefined
+      }
+      registrar_movimento_estoque: {
+        Args: {
+          _client_uuid: string
+          _custo_unitario: number
+          _observacoes: string
+          _origem: string
+          _produto_id: string
+          _quantidade: number
+          _tipo: string
+          _variacao_id: string
+        }
+        Returns: Json
       }
       registrar_pagamento_lancamento: {
         Args: {
