@@ -549,6 +549,22 @@ export interface CategoriasFinanceirasAdapter {
   excluir(categoriaId: string): Promise<ExcluirCategoriaFinanceiraResult>;
 }
 
+/**
+ * Lotes de produto — Bloco 14.
+ * - `criar` idempotente via `client_uuid`.
+ * - `editar` bloqueia mudar `produto_id` (sempre) e `variacao_id`/`quantidade_inicial` se houver vínculos.
+ * - `ajustarQuantidade` é a ÚNICA forma segura de mexer em saldo após movimento — gera estoque_movimentacao tipo `ajuste`.
+ * - `excluir` é hard delete; bloqueia se houver qualquer vínculo (movimentação/compra/venda).
+ */
+export interface LotesAdapter {
+  criar(input: import("./types").CriarLoteProdutoInput): Promise<import("./types").CriarLoteProdutoResult>;
+  editar(input: import("./types").EditarLoteProdutoInput): Promise<import("./types").EditarLoteProdutoResult>;
+  ajustarQuantidade(
+    input: import("./types").AjustarQuantidadeLoteInput,
+  ): Promise<import("./types").AjustarQuantidadeLoteResult>;
+  excluir(loteId: string): Promise<import("./types").ExcluirLoteProdutoResult>;
+}
+
 export interface DataAdapter {
   produtos: ProdutosAdapter;
   vendas: VendasAdapter;
@@ -560,6 +576,6 @@ export interface DataAdapter {
   funcionarios: FuncionariosAdapter;
   categoriasProduto: CategoriasProdutoAdapter;
   categoriasFinanceiras: CategoriasFinanceirasAdapter;
-  // Próximos a serem adicionados conforme a Fase 1 avança:
+  lotes: LotesAdapter;
   // realtime: RealtimeAdapter;
 }
