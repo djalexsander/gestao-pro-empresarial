@@ -1038,3 +1038,306 @@ export interface ExcluirLoteProdutoResult {
   lote_id: string;
   excluido: boolean;
 }
+
+// ============================================================================
+// READS — Bloco 15: contratos de leitura por domínio
+// ============================================================================
+// Filosofia: filtros tipados por domínio (não vazar PostgREST). Cada list
+// recebe um objeto opcional. Cada get recebe id. Hoje implementação cloud
+// usa Supabase; amanhã servidor local entrega o mesmo shape.
+
+// ---------- Produtos (read) ----------
+export interface ProdutosListInput {
+  status?: "ativo" | "inativo" | "descontinuado" | null;
+  categoria_id?: string | null;
+  busca?: string | null;
+}
+
+export interface ProdutoVariacaoDomain {
+  id: string;
+  produto_id: string;
+  sku: string;
+  nome: string;
+  atributos: Record<string, string>;
+  preco_custo: number | null;
+  preco_venda: number | null;
+  ativo: boolean;
+}
+
+/** Produto + variações — usado na tela de detalhe / dialog. */
+export type ProdutoComVariacoes = Produto & {
+  variacoes: ProdutoVariacaoDomain[];
+};
+
+// ---------- Estoque (read) ----------
+export interface MovimentacaoEstoqueDomain {
+  id: string;
+  produto_id: string;
+  variacao_id: string | null;
+  tipo: MovimentacaoEstoqueTipo;
+  origem: string;
+  quantidade: number;
+  custo_unitario: number | null;
+  saldo_anterior: number | null;
+  saldo_posterior: number | null;
+  observacoes: string | null;
+  data_movimentacao: string;
+  produto?: { id: string; sku: string; nome: string } | null;
+}
+
+export interface MovimentacoesListInput {
+  produto_id?: string | null;
+  limit?: number;
+}
+
+/** Linha mínima de movimento usada para calcular saldo agregado. */
+export interface EstoqueSaldoLinha {
+  produto_id: string;
+  variacao_id: string | null;
+  tipo: MovimentacaoEstoqueTipo;
+  quantidade: number;
+}
+
+// ---------- Lotes (read) ----------
+export interface LoteComSaldoDomain {
+  id: string;
+  owner_id: string;
+  produto_id: string;
+  variacao_id: string | null;
+  numero_lote: string;
+  data_fabricacao: string | null;
+  data_validade: string | null;
+  quantidade_inicial: number;
+  quantidade_atual: number;
+  custo_unitario: number | null;
+  observacoes: string | null;
+  created_at: string;
+  updated_at: string;
+  produto_nome: string;
+  produto_sku: string;
+  variacao_nome: string | null;
+  saldo_real: number;
+  status_validade: "vencido" | "critico" | "alerta" | "ok" | null;
+}
+
+export interface LotesListInput {
+  produto_id?: string | null;
+  somente_com_saldo?: boolean;
+}
+
+// ---------- Clientes (read) ----------
+export type ClienteStatusDomain = CadastroStatusDomain;
+
+export interface ClienteDomain {
+  id: string;
+  owner_id: string;
+  tipo: PessoaTipoDomain;
+  nome: string;
+  nome_fantasia: string | null;
+  documento: string | null;
+  inscricao_estadual: string | null;
+  email: string | null;
+  telefone: string | null;
+  celular: string | null;
+  data_nascimento: string | null;
+  cep: string | null;
+  logradouro: string | null;
+  numero: string | null;
+  complemento: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  estado: string | null;
+  observacoes: string | null;
+  status: ClienteStatusDomain;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClienteLiteDomain {
+  id: string;
+  nome: string;
+  nome_fantasia: string | null;
+  documento: string | null;
+}
+
+export interface ClienteMetricasDomain {
+  cliente_id: string;
+  total_vendas: number;
+  valor_total: number;
+  ticket_medio: number;
+  ultima_venda: string | null;
+}
+
+export interface ClienteHistoricoVendaDomain {
+  id: string;
+  numero: string;
+  data_emissao: string;
+  total: number;
+  status: string;
+  status_pagamento: string;
+  forma_pagamento: string | null;
+}
+
+export interface ClientesListInput {
+  status?: ClienteStatusDomain | null;
+  busca?: string | null;
+}
+export interface ClientesLiteListInput {
+  /** Default: somente ativos. Passe `null` para listar todos. */
+  status?: ClienteStatusDomain | null;
+}
+
+// ---------- Fornecedores (read) ----------
+export interface FornecedorDomain {
+  id: string;
+  owner_id: string;
+  tipo: PessoaTipoDomain;
+  razao_social: string;
+  nome_fantasia: string | null;
+  documento: string | null;
+  inscricao_estadual: string | null;
+  email: string | null;
+  telefone: string | null;
+  contato_nome: string | null;
+  cep: string | null;
+  logradouro: string | null;
+  numero: string | null;
+  complemento: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  estado: string | null;
+  observacoes: string | null;
+  status: ClienteStatusDomain;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FornecedoresListInput {
+  status?: ClienteStatusDomain | null;
+  busca?: string | null;
+}
+
+// ---------- Categorias de produto (read) ----------
+export interface CategoriaProdutoDomain {
+  id: string;
+  nome: string;
+  parent_id: string | null;
+  ativo: boolean;
+  descricao?: string | null;
+}
+
+export interface CategoriasProdutoListInput {
+  /** Default: somente ativas. Passe `incluir_inativas: true` para tudo. */
+  incluir_inativas?: boolean;
+}
+
+// ---------- Categorias financeiras (read) ----------
+export interface CategoriaFinanceiraDomain {
+  id: string;
+  nome: string;
+  tipo: CategoriaFinanceiraTipoDomain;
+  parent_id: string | null;
+  cor: string | null;
+  ativo: boolean;
+}
+
+export interface CategoriasFinanceirasListInput {
+  tipo?: CategoriaFinanceiraTipoDomain | null;
+  incluir_inativas?: boolean;
+}
+
+// ---------- Funcionários (read) ----------
+export interface FuncionarioDomain {
+  id: string;
+  nome: string;
+  login: string;
+  role: FuncionarioRoleDomain;
+  ativo: boolean;
+  ultimo_acesso: string | null;
+  created_at: string;
+}
+
+export interface FuncionariosListInput {
+  /** Default: lista todos. */
+  somente_ativos?: boolean;
+}
+
+// ---------- Caixa (read) ----------
+export interface CaixaDomain {
+  id: string;
+  owner_id: string;
+  usuario_id: string;
+  operador_id: string | null;
+  data_abertura: string;
+  data_fechamento: string | null;
+  valor_inicial: number;
+  total_vendas: number;
+  qtd_vendas: number;
+  total_dinheiro: number;
+  total_pix: number;
+  total_debito: number;
+  total_credito: number;
+  total_boleto: number;
+  total_ifood: number;
+  total_fiado: number;
+  total_outros: number;
+  total_sangrias: number;
+  total_suprimentos: number;
+  valor_esperado: number | null;
+  valor_informado: number | null;
+  diferenca: number | null;
+  status: CaixaStatusDomain;
+  observacao: string | null;
+  observacao_fechamento: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CaixaResumoDomain {
+  caixa_id: string;
+  status: CaixaStatusDomain;
+  data_abertura: string;
+  data_fechamento: string | null;
+  valor_inicial: number;
+  qtd_vendas: number;
+  total_vendas: number;
+  total_dinheiro: number;
+  total_pix: number;
+  total_debito: number;
+  total_credito: number;
+  total_boleto: number;
+  total_ifood: number;
+  total_fiado: number;
+  total_outros: number;
+  total_sangrias: number;
+  total_suprimentos: number;
+  valor_esperado: number;
+  valor_informado: number | null;
+  diferenca: number | null;
+}
+
+export type CaixaMovimentoTipoDomain =
+  | "abertura"
+  | "venda"
+  | "sangria"
+  | "suprimento"
+  | "fechamento";
+
+export interface CaixaMovimentoDomain {
+  id: string;
+  caixa_id: string;
+  tipo: CaixaMovimentoTipoDomain;
+  valor: number;
+  motivo: string | null;
+  venda_id: string | null;
+  usuario_id: string | null;
+  operador_id: string | null;
+  created_at: string;
+}
+
+export interface CaixaAbertoFiltro {
+  /** `null` = busca caixa aberto sem operador (admin direto). */
+  operador_id?: string | null;
+  /** Se true, ignora `operador_id` e pega qualquer caixa aberto do tenant. */
+  qualquer?: boolean;
+}
