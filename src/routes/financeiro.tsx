@@ -170,6 +170,7 @@ function FinanceContent() {
   const [blocoAberto, setBlocoAberto] = useState<BlocoChave | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [novoOpen, setNovoOpen] = useState(false);
 
   const indicadores = useFinanceiroIndicadores();
   const ind = indicadores.data;
