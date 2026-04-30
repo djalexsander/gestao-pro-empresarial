@@ -2,8 +2,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { dataClient } from "@/integrations/data";
+import type {
+  MovimentacaoEstoqueTipo,
+  RegistrarMovimentoEstoqueInput,
+  RegistrarMovimentoEstoqueResult,
+} from "@/integrations/data";
 
-export type MovimentacaoTipo = "entrada" | "saida" | "ajuste" | "devolucao" | "transferencia";
+/**
+ * Mantido por compatibilidade com componentes que importam daqui.
+ * A fonte da verdade do tipo está em `@/integrations/data`.
+ */
+export type MovimentacaoTipo = MovimentacaoEstoqueTipo;
 
 export type Movimentacao = {
   id: string;
@@ -68,62 +78,53 @@ export function useMovimentacoes(produtoId?: string) {
   });
 }
 
+/**
+ * Registra movimentação manual de estoque via `dataClient.estoque`.
+ *
+ * Toda a regra (cálculo de saldo, lock por produto, validação de saldo
+ * negativo, idempotência) acontece no banco. O hook só repassa o input.
+ *
+ * IMPORTANTE: o componente chamador DEVE gerar e manter um `client_uuid`
+ * estável enquanto o modal estiver aberto, para garantir idempotência
+ * contra duplo clique, Enter repetido e retry de rede.
+ */
 export function useCriarMovimentacao() {
   const qc = useQueryClient();
   const { user } = useAuth();
-  return useMutation({
-    mutationFn: async (input: {
-      produto_id: string;
-      variacao_id?: string | null;
-      tipo: MovimentacaoTipo;
-      quantidade: number; // sempre positivo; sinal vem do tipo
-      custo_unitario?: number | null;
-      observacoes?: string | null;
-      origem?: string;
-      saldo_atual: number; // saldo conhecido para gravar histórico e validar
-    }) => {
+  return useMutation<
+    RegistrarMovimentoEstoqueResult,
+    Error,
+    Omit<RegistrarMovimentoEstoqueInput, "origem"> & {
+      origem?: RegistrarMovimentoEstoqueInput["origem"];
+      /** mantido por compat: o saldo é recalculado server-side e ignorado aqui */
+      saldo_atual?: number;
+    }
+  >({
+    mutationFn: async (input) => {
       if (!user) throw new Error("Não autenticado");
-      if (input.quantidade <= 0) throw new Error("Quantidade deve ser maior que zero.");
-
-      const delta =
-        input.tipo === "entrada" || input.tipo === "devolucao"
-          ? input.quantidade
-          : input.tipo === "saida" || input.tipo === "transferencia"
-            ? -input.quantidade
-            : input.quantidade;
-
-      const novoSaldo = input.saldo_atual + delta;
-      if (novoSaldo < 0) {
-        throw new Error(
-          `Estoque insuficiente. Saldo atual: ${input.saldo_atual}. Saída solicitada: ${input.quantidade}.`
-        );
+      if (!input.quantidade || input.quantidade <= 0) {
+        throw new Error("Quantidade deve ser maior que zero.");
       }
-
-      const { data, error } = await supabase
-        .from("estoque_movimentacoes")
-        .insert({
-          owner_id: user.id,
-          produto_id: input.produto_id,
-          variacao_id: input.variacao_id ?? null,
-          tipo: input.tipo,
-          origem: (input.origem ?? "ajuste_manual") as
-            | "compra" | "venda" | "ajuste_manual" | "devolucao_cliente"
-            | "devolucao_fornecedor" | "inventario" | "outro",
-          quantidade: input.quantidade,
-          custo_unitario: input.custo_unitario ?? null,
-          saldo_anterior: input.saldo_atual,
-          saldo_posterior: novoSaldo,
-          observacoes: input.observacoes ?? null,
-        })
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
+      return dataClient.estoque.registrarMovimento({
+        produto_id: input.produto_id,
+        variacao_id: input.variacao_id ?? null,
+        tipo: input.tipo,
+        quantidade: input.quantidade,
+        custo_unitario: input.custo_unitario ?? null,
+        observacoes: input.observacoes ?? null,
+        origem: input.origem ?? "ajuste_manual",
+        client_uuid: input.client_uuid ?? null,
+      });
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ["estoque-saldos"] });
       qc.invalidateQueries({ queryKey: ["movimentacoes"] });
-      toast.success("Movimentação registrada.");
+      qc.invalidateQueries({ queryKey: ["produtos"] });
+      if (result.idempotente) {
+        toast.success("Movimentação já registrada (reenvio idempotente).");
+      } else {
+        toast.success("Movimentação registrada.");
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   });
