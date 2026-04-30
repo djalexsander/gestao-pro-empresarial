@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 import { formatBRL } from "@/lib/mock-data";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { ConciliarIfoodDialog } from "./ConciliarIfoodDialog";
