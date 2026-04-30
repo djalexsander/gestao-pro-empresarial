@@ -1294,6 +1294,7 @@ export type Database = {
       lancamento_pagamentos: {
         Row: {
           caixa_id: string | null
+          client_uuid: string | null
           created_at: string
           data_pagamento: string
           forma_pagamento: Database["public"]["Enums"]["forma_pagamento"] | null
@@ -1306,6 +1307,7 @@ export type Database = {
         }
         Insert: {
           caixa_id?: string | null
+          client_uuid?: string | null
           created_at?: string
           data_pagamento?: string
           forma_pagamento?:
@@ -1320,6 +1322,7 @@ export type Database = {
         }
         Update: {
           caixa_id?: string | null
+          client_uuid?: string | null
           created_at?: string
           data_pagamento?: string
           forma_pagamento?:
@@ -2897,6 +2900,10 @@ export type Database = {
         Args: { _motivo?: string; _novo_status: string; _venda_id: string }
         Returns: Json
       }
+      alterar_vencimento_lancamento: {
+        Args: { _lancamento_id: string; _nova_data: string }
+        Returns: Json
+      }
       assinatura_status_efetivo: {
         Args: { _empresa_id: string }
         Returns: Json
@@ -2950,6 +2957,10 @@ export type Database = {
       calcular_saldo_estoque: {
         Args: { _produto_id: string; _variacao_id?: string }
         Returns: number
+      }
+      cancelar_lancamento: {
+        Args: { _lancamento_id: string; _motivo?: string }
+        Returns: Json
       }
       cancelar_venda: {
         Args: { _motivo?: string; _venda_id: string }
@@ -3225,6 +3236,7 @@ export type Database = {
         Args: { _empresa_id: string; _user_id: string }
         Returns: boolean
       }
+      reabrir_lancamento: { Args: { _lancamento_id: string }; Returns: Json }
       receber_compra: {
         Args: {
           _categoria_id?: string
@@ -3255,7 +3267,22 @@ export type Database = {
         }
         Returns: undefined
       }
+      registrar_pagamento_lancamento: {
+        Args: {
+          _client_uuid?: string
+          _data_pagamento: string
+          _forma_pagamento?: Database["public"]["Enums"]["forma_pagamento"]
+          _lancamento_id: string
+          _observacao?: string
+          _valor: number
+        }
+        Returns: Json
+      }
       remover_membro: { Args: { _membro_id: string }; Returns: Json }
+      remover_pagamento_lancamento: {
+        Args: { _pagamento_id: string }
+        Returns: Json
+      }
       resetar_dados_empresa: { Args: never; Returns: undefined }
       saldos_estoque_lote: {
         Args: { _produto_ids: string[] }
