@@ -488,3 +488,57 @@ apresentar opção de inativar.
 4. **Plugar UI do "Novo lançamento financeiro"** já com infra pronta.
 5. **Abstração de leitura** (`useQuery` → `dataClient.*.list/get`), que
    destrava a futura troca de fonte sem reescrever hooks.
+
+---
+
+## Bloco 9 — Produto
+
+### Métodos do adapter
+
+`dataClient.produtos`:
+- `criar(input)` — `client_uuid` para idempotência (duplo-clique no Salvar do `ProdutoDialog`).
+- `editar(input)`
+- `alterarStatus({ produto_id, status })` — soft delete (`ativo` / `inativo` / `descontinuado`).
+- `excluir(produtoId)` — hard delete; bloqueado pela RPC se houver vínculos (`venda_itens`, `compra_itens`, `estoque_movimentacoes`, `lotes_produto`).
+- `adicionarCodigo(input)` — registra `codigo_barras` / `qr_code` / `sku` / `interno` / `alternativo` extra; idempotente.
+- `excluirCodigo(codigoId)`.
+- `criarVariacao(input)` — cria SKU filho idempotente.
+- `excluirVariacao(variacaoId)` — bloqueado se a variação já tiver vendas/compras/movimentações.
+- `criarCategoria(input)` — categoria de produto idempotente.
+
+### Diagnóstico do fluxo atual
+
+- `ProdutoDialog` chama `useCreateProduto` / `useUpdateProduto`, agora delegando 100% a `dataClient.produtos.criar` / `editar`.
+- `useProdutoCodigo` (gerenciamento de códigos auxiliares na aba "Códigos" do produto) faz add/remove via `dataClient.produtos.adicionarCodigo` / `excluirCodigo`.
+- `useDeleteProduto` tenta hard delete primeiro; se a RPC retornar `23503`, a UI deve oferecer inativação (mesmo padrão do Bloco 8).
+- Categorias de produto criadas no `CategoriaCombobox` passam pela RPC `criar_categoria_produto`.
+- **Leitura** (`useProdutos`, `useBuscarProduto`, etc.) continua via `supabase` direto — abstração de queries é fase posterior.
+
+### Garantias de consistência
+
+- **Tenant resolvido no banco** (`auth.uid() → owner_id`); o cliente nunca passa `owner_id`.
+- **Idempotência** via `client_uuid` em `produtos`, `produto_codigos`, `produto_variacoes`, `categorias_produto` (índices únicos parciais por `owner_id`).
+- **Locks** (`SELECT ... FOR UPDATE`) em editar/excluir → serializa terminais editando o mesmo produto.
+- **Hard delete só sem vínculos**: contagem em `venda_itens` + `compra_itens` + `estoque_movimentacoes` + `lotes_produto` antes do `DELETE`. Em vínculo → exceção `23503` com a contagem.
+- **Validações server-side**: SKU obrigatório, preço ≥ 0, unicidade de SKU/código de barras por tenant.
+
+### Riscos identificados
+
+- **Sem transação cross-tabela no fluxo "criar produto + códigos + variações iniciais"**: hoje o `ProdutoDialog` cria o produto e, na sequência, abre a aba de códigos/variações para o usuário. Se um terminal cair entre as etapas, o produto fica criado sem códigos auxiliares. Não há corrupção (o produto é válido sozinho), mas é um gap que merece uma RPC composta no futuro.
+- **`lotes_produto` está modelado no banco** (com colunas, FK para `produtos`, e referência por `estoque_movimentacoes.lote_id`), mas **não há CRUD na UI atual** — não existe dialog para criar/editar/excluir lote, e nenhum hook em `src/hooks/` toca essa tabela. Ficou **mapeado como gap para etapa futura** (provavelmente junto com o módulo de validade/perecíveis e a entrada de NF-e que gera lotes automaticamente).
+- Reativar produto `descontinuado` é permitido pela RPC `alterar_status_produto`, mas a UI hoje não expõe esse caminho — apenas alterna `ativo`/`inativo`. Não é bug, é limitação de UI.
+- Leituras ainda batem em `supabase` direto, então uma futura troca de fonte (servidor local) exige migrar `useProdutos.list` antes do read.
+
+### Pontos de concorrência relevantes (multi-terminal)
+
+- Dois terminais editando o mesmo produto simultaneamente: o segundo `editar` espera o lock do primeiro, e a versão final é a do segundo (sem merge — comportamento esperado de "last write wins" com lock).
+- Dois terminais cadastrando o mesmo SKU ao mesmo tempo: o índice único por `owner_id + sku` rejeita o segundo com erro claro.
+- Duplo-clique em "Salvar" no `ProdutoDialog`: protegido por `client_uuid` → segundo clique retorna o mesmo `produto_id` sem duplicar.
+
+### Próximos writes recomendados (depois do Bloco 9)
+
+1. **CRUD de categorias financeiras** — espelha `criar_categoria_produto`, fecha o conjunto de cadastros auxiliares.
+2. **CRUD de funcionários (operadores PDV)** — sensível: `pin_hash` deve ser gerado **no banco** via `crypt()` + `gen_salt('bf')`, nunca no cliente.
+3. **CRUD de `lotes_produto`** quando a UI de validade/lote entrar no roadmap (gap acima).
+4. **Plugar UI do "Novo lançamento financeiro"** com a infra do Bloco 7 já pronta.
+5. **Abstração de leitura** (`useQuery` → `dataClient.*.list/get`) para destravar a troca de fonte (cloud → servidor local + terminais) sem reescrever hooks.

@@ -1,12 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/components/auth/AuthProvider";
 import { dataClient } from "@/integrations/data";
-import type {
-  CodigoTipo,
-  ProdutoBuscaResult,
-} from "@/integrations/data";
+import type { CodigoTipo, ProdutoBuscaResult } from "@/integrations/data";
 
 // Re-exports para preservar a API pública anterior do módulo.
 // Outros arquivos importam estes tipos daqui — manter compatível.
@@ -21,9 +17,7 @@ export type { CodigoTipo, ProdutoBuscaResult };
  * que decide em runtime se a leitura vai para o Supabase cloud (atual)
  * ou para o servidor local da loja (futuro).
  */
-export async function buscarProdutoPorCodigo(
-  codigo: string,
-): Promise<ProdutoBuscaResult | null> {
+export async function buscarProdutoPorCodigo(codigo: string): Promise<ProdutoBuscaResult | null> {
   return dataClient.produtos.buscarPorCodigo(codigo);
 }
 
