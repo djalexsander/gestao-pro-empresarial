@@ -678,3 +678,116 @@ export interface ExcluirFornecedorResult {
   fornecedor_id: string;
   excluido: boolean;
 }
+
+// -------------------- Produto / Códigos / Variações / Categoria --------------
+
+export type ProdutoStatusDomain = "ativo" | "inativo" | "descontinuado";
+
+export interface CriarCategoriaProdutoInput {
+  nome: string;
+  parent_id?: string | null;
+  descricao?: string | null;
+  client_uuid?: string | null;
+}
+
+export interface CriarCategoriaProdutoResult {
+  categoria_id: string;
+  idempotente: boolean;
+}
+
+export interface CriarProdutoInput {
+  sku: string;
+  nome: string;
+  unidade: string;
+  preco_custo: number;
+  preco_venda: number;
+  estoque_minimo: number;
+  status: ProdutoStatusDomain;
+  tipo_identificacao_principal?: TipoIdentificacao;
+  codigo_barras?: string | null;
+  qr_code?: string | null;
+  codigo_interno?: string | null;
+  observacao_tecnica?: string | null;
+  descricao?: string | null;
+  marca?: string | null;
+  categoria_id?: string | null;
+  estoque_inicial?: number;
+  ncm?: string | null;
+  vendido_por_peso?: boolean;
+  plu?: string | null;
+  aceita_etiqueta_balanca?: boolean;
+  casas_decimais_quantidade?: number;
+  client_uuid?: string | null;
+}
+
+export interface CriarProdutoResult {
+  produto_id: string;
+  idempotente: boolean;
+}
+
+export interface EditarProdutoInput extends CriarProdutoInput {
+  produto_id: string;
+}
+
+export interface EditarProdutoResult {
+  produto_id: string;
+}
+
+export interface AlterarStatusProdutoInput {
+  produto_id: string;
+  status: ProdutoStatusDomain;
+}
+
+export interface AlterarStatusProdutoResult {
+  produto_id: string;
+  status: ProdutoStatusDomain;
+}
+
+export interface ExcluirProdutoResult {
+  produto_id: string;
+  excluido: boolean;
+}
+
+// ---- Códigos auxiliares ----
+
+export interface AdicionarProdutoCodigoInput {
+  produto_id: string;
+  tipo_codigo: CodigoTipo;
+  valor_codigo: string;
+  variacao_id?: string | null;
+  observacao?: string | null;
+  client_uuid?: string | null;
+}
+
+export interface AdicionarProdutoCodigoResult {
+  codigo_id: string;
+  idempotente: boolean;
+}
+
+export interface ExcluirProdutoCodigoResult {
+  codigo_id: string;
+  excluido: boolean;
+}
+
+// ---- Variações ----
+
+export interface CriarProdutoVariacaoInput {
+  produto_id: string;
+  sku: string;
+  nome: string;
+  atributos?: Record<string, string>;
+  preco_custo?: number | null;
+  preco_venda?: number | null;
+  codigo_barras?: string | null;
+  client_uuid?: string | null;
+}
+
+export interface CriarProdutoVariacaoResult {
+  variacao_id: string;
+  idempotente: boolean;
+}
+
+export interface ExcluirProdutoVariacaoResult {
+  variacao_id: string;
+  excluido: boolean;
+}
