@@ -104,10 +104,9 @@ const produtos: DataAdapter["produtos"] = {
     // Cast para `any` porque a função RPC ainda não está em supabase/types.ts
     // (gerado automaticamente). Após a próxima sincronização de tipos, sai.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(
-      "buscar_produto_por_codigo",
-      { _codigo: valor },
-    );
+    const { data, error } = await (supabase as any).rpc("buscar_produto_por_codigo", {
+      _codigo: valor,
+    });
     if (error) throw error;
 
     const row = Array.isArray(data) ? data[0] : data;
@@ -142,9 +141,7 @@ const produtos: DataAdapter["produtos"] = {
     const { data, error } = await (supabase as any)
       .from("produtos")
       .select(PLU_COLUMNS)
-      .or(
-        `plu.eq.${valor},sku.eq.${valor},codigo_interno.eq.${valor}`,
-      )
+      .or(`plu.eq.${valor},sku.eq.${valor},codigo_interno.eq.${valor}`)
       .limit(1)
       .maybeSingle();
     if (error) throw error;
@@ -157,9 +154,7 @@ const produtos: DataAdapter["produtos"] = {
         const r2 = await (supabase as any)
           .from("produtos")
           .select(PLU_COLUMNS)
-          .or(
-            `plu.eq.${stripped},sku.eq.${stripped},codigo_interno.eq.${stripped}`,
-          )
+          .or(`plu.eq.${stripped},sku.eq.${stripped},codigo_interno.eq.${stripped}`)
           .limit(1)
           .maybeSingle();
         if (r2.error) throw r2.error;
@@ -247,14 +242,12 @@ const produtos: DataAdapter["produtos"] = {
     return { produto_id: String(d.produto_id ?? input.produto_id) };
   },
 
-  async alterarStatus(
-    input: AlterarStatusProdutoInput,
-  ): Promise<AlterarStatusProdutoResult> {
+  async alterarStatus(input: AlterarStatusProdutoInput): Promise<AlterarStatusProdutoResult> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(
-      "alterar_status_produto",
-      { _produto_id: input.produto_id, _status: input.status },
-    );
+    const { data, error } = await (supabase as any).rpc("alterar_status_produto", {
+      _produto_id: input.produto_id,
+      _status: input.status,
+    });
     if (error) throw error;
     const d = (data ?? {}) as Record<string, unknown>;
     return {
@@ -276,21 +269,16 @@ const produtos: DataAdapter["produtos"] = {
     };
   },
 
-  async adicionarCodigo(
-    input: AdicionarProdutoCodigoInput,
-  ): Promise<AdicionarProdutoCodigoResult> {
+  async adicionarCodigo(input: AdicionarProdutoCodigoInput): Promise<AdicionarProdutoCodigoResult> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(
-      "adicionar_produto_codigo",
-      {
-        _produto_id: input.produto_id,
-        _tipo_codigo: input.tipo_codigo,
-        _valor_codigo: input.valor_codigo,
-        _variacao_id: input.variacao_id ?? null,
-        _observacao: input.observacao ?? null,
-        _client_uuid: input.client_uuid ?? null,
-      },
-    );
+    const { data, error } = await (supabase as any).rpc("adicionar_produto_codigo", {
+      _produto_id: input.produto_id,
+      _tipo_codigo: input.tipo_codigo,
+      _valor_codigo: input.valor_codigo,
+      _variacao_id: input.variacao_id ?? null,
+      _observacao: input.observacao ?? null,
+      _client_uuid: input.client_uuid ?? null,
+    });
     if (error) throw error;
     const d = (data ?? {}) as Record<string, unknown>;
     return {
@@ -301,10 +289,9 @@ const produtos: DataAdapter["produtos"] = {
 
   async excluirCodigo(codigoId: string): Promise<ExcluirProdutoCodigoResult> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(
-      "excluir_produto_codigo",
-      { _codigo_id: codigoId },
-    );
+    const { data, error } = await (supabase as any).rpc("excluir_produto_codigo", {
+      _codigo_id: codigoId,
+    });
     if (error) throw error;
     const d = (data ?? {}) as Record<string, unknown>;
     return {
@@ -313,23 +300,18 @@ const produtos: DataAdapter["produtos"] = {
     };
   },
 
-  async criarVariacao(
-    input: CriarProdutoVariacaoInput,
-  ): Promise<CriarProdutoVariacaoResult> {
+  async criarVariacao(input: CriarProdutoVariacaoInput): Promise<CriarProdutoVariacaoResult> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(
-      "criar_produto_variacao",
-      {
-        _produto_id: input.produto_id,
-        _sku: input.sku,
-        _nome: input.nome,
-        _atributos: input.atributos ?? {},
-        _preco_custo: input.preco_custo ?? null,
-        _preco_venda: input.preco_venda ?? null,
-        _codigo_barras: input.codigo_barras ?? null,
-        _client_uuid: input.client_uuid ?? null,
-      },
-    );
+    const { data, error } = await (supabase as any).rpc("criar_produto_variacao", {
+      _produto_id: input.produto_id,
+      _sku: input.sku,
+      _nome: input.nome,
+      _atributos: input.atributos ?? {},
+      _preco_custo: input.preco_custo ?? null,
+      _preco_venda: input.preco_venda ?? null,
+      _codigo_barras: input.codigo_barras ?? null,
+      _client_uuid: input.client_uuid ?? null,
+    });
     if (error) throw error;
     const d = (data ?? {}) as Record<string, unknown>;
     return {
@@ -338,14 +320,11 @@ const produtos: DataAdapter["produtos"] = {
     };
   },
 
-  async excluirVariacao(
-    variacaoId: string,
-  ): Promise<ExcluirProdutoVariacaoResult> {
+  async excluirVariacao(variacaoId: string): Promise<ExcluirProdutoVariacaoResult> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(
-      "excluir_produto_variacao",
-      { _variacao_id: variacaoId },
-    );
+    const { data, error } = await (supabase as any).rpc("excluir_produto_variacao", {
+      _variacao_id: variacaoId,
+    });
     if (error) throw error;
     const d = (data ?? {}) as Record<string, unknown>;
     return {
@@ -354,19 +333,14 @@ const produtos: DataAdapter["produtos"] = {
     };
   },
 
-  async criarCategoria(
-    input: CriarCategoriaProdutoInput,
-  ): Promise<CriarCategoriaProdutoResult> {
+  async criarCategoria(input: CriarCategoriaProdutoInput): Promise<CriarCategoriaProdutoResult> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(
-      "criar_categoria_produto",
-      {
-        _nome: input.nome,
-        _parent_id: input.parent_id ?? null,
-        _descricao: input.descricao ?? null,
-        _client_uuid: input.client_uuid ?? null,
-      },
-    );
+    const { data, error } = await (supabase as any).rpc("criar_categoria_produto", {
+      _nome: input.nome,
+      _parent_id: input.parent_id ?? null,
+      _descricao: input.descricao ?? null,
+      _client_uuid: input.client_uuid ?? null,
+    });
     if (error) throw error;
     const d = (data ?? {}) as Record<string, unknown>;
     return {
@@ -393,8 +367,7 @@ const vendas: DataAdapter["vendas"] = {
       _troco: input.troco,
       _observacao: input.observacao,
       _itens: input.itens,
-      _pagamentos:
-        input.pagamentos && input.pagamentos.length > 0 ? input.pagamentos : null,
+      _pagamentos: input.pagamentos && input.pagamentos.length > 0 ? input.pagamentos : null,
       _gerar_financeiro: input.gerar_financeiro ?? true,
       _operador_id: input.operador_id ?? null,
       _terminal_id: input.terminal_id ?? null,
@@ -422,18 +395,20 @@ const vendas: DataAdapter["vendas"] = {
       cancelado_em: d.cancelado_em,
       qtd_itens_estornados: Number(d.qtd_itens_estornados) || 0,
       qtd_total_estornada: Number(d.qtd_total_estornada) || 0,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      itens_estornados: (d.itens_estornados ?? []).map((i: any): ItemEstornado => ({
-        produto_id: i.produto_id,
-        produto_nome: i.produto_nome,
-        quantidade: Number(i.quantidade) || 0,
-        saldo_anterior: Number(i.saldo_anterior) || 0,
-        saldo_posterior: Number(i.saldo_posterior) || 0,
-        valor_total: Number(i.valor_total) || 0,
-      })),
+
+      itens_estornados: (d.itens_estornados ?? []).map(
+        (i: any): ItemEstornado => ({
+          produto_id: i.produto_id,
+          produto_nome: i.produto_nome,
+          quantidade: Number(i.quantidade) || 0,
+          saldo_anterior: Number(i.saldo_anterior) || 0,
+          saldo_posterior: Number(i.saldo_posterior) || 0,
+          valor_total: Number(i.valor_total) || 0,
+        }),
+      ),
       qtd_lancamentos_cancelados: Number(d.qtd_lancamentos_cancelados) || 0,
       total_lancamentos_cancelados: Number(d.total_lancamentos_cancelados) || 0,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       lancamentos_cancelados: (d.lancamentos_cancelados ?? []).map(
         (l: any): LancamentoCancelado => ({
           id: l.id,
@@ -449,10 +424,9 @@ const vendas: DataAdapter["vendas"] = {
 
   async excluirCancelada(vendaId: string): Promise<ExcluirVendaCanceladaResult> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(
-      "excluir_venda_cancelada",
-      { _venda_id: vendaId },
-    );
+    const { data, error } = await (supabase as any).rpc("excluir_venda_cancelada", {
+      _venda_id: vendaId,
+    });
     if (error) throw error;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const d = data as any;
@@ -463,9 +437,7 @@ const vendas: DataAdapter["vendas"] = {
     };
   },
 
-  async alterarStatus(
-    input: AlterarStatusVendaInput,
-  ): Promise<AlterarStatusVendaResult> {
+  async alterarStatus(input: AlterarStatusVendaInput): Promise<AlterarStatusVendaResult> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (supabase as any).rpc("alterar_status_venda", {
       _venda_id: input.venda_id,
@@ -478,10 +450,8 @@ const vendas: DataAdapter["vendas"] = {
     const d = (data ?? {}) as Record<string, unknown>;
     return {
       venda_id: (d.venda_id as string) ?? input.venda_id,
-      novo_status:
-        (d.novo_status as StatusVendaEditavelDomain) ?? input.novo_status,
-      qtd_lancamentos_alterados:
-        Number(d.qtd_lancamentos_alterados ?? d.qtd_alterados ?? 0) || 0,
+      novo_status: (d.novo_status as StatusVendaEditavelDomain) ?? input.novo_status,
+      qtd_lancamentos_alterados: Number(d.qtd_lancamentos_alterados ?? d.qtd_alterados ?? 0) || 0,
       raw: d,
     };
   },
@@ -516,16 +486,13 @@ const caixa: DataAdapter["caixa"] = {
 
   async registrarMovimento(input: RegistrarMovimentoCaixaInput): Promise<string> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(
-      "caixa_registrar_movimento",
-      {
-        _caixa_id: input.caixa_id,
-        _tipo: input.tipo,
-        _valor: input.valor,
-        _motivo: input.motivo ?? undefined,
-        _client_uuid: input.client_uuid ?? null,
-      },
-    );
+    const { data, error } = await (supabase as any).rpc("caixa_registrar_movimento", {
+      _caixa_id: input.caixa_id,
+      _tipo: input.tipo,
+      _valor: input.valor,
+      _motivo: input.motivo ?? undefined,
+      _client_uuid: input.client_uuid ?? null,
+    });
     if (error) throw error;
     return data as string;
   },
@@ -548,17 +515,14 @@ const financeiro: DataAdapter["financeiro"] = {
     input: RegistrarPagamentoLancamentoInput,
   ): Promise<RegistrarPagamentoLancamentoResult> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(
-      "registrar_pagamento_lancamento",
-      {
-        _lancamento_id: input.lancamento_id,
-        _valor: input.valor,
-        _data_pagamento: input.data_pagamento,
-        _forma_pagamento: input.forma_pagamento ?? null,
-        _observacao: input.observacao ?? null,
-        _client_uuid: input.client_uuid ?? null,
-      },
-    );
+    const { data, error } = await (supabase as any).rpc("registrar_pagamento_lancamento", {
+      _lancamento_id: input.lancamento_id,
+      _valor: input.valor,
+      _data_pagamento: input.data_pagamento,
+      _forma_pagamento: input.forma_pagamento ?? null,
+      _observacao: input.observacao ?? null,
+      _client_uuid: input.client_uuid ?? null,
+    });
     if (error) throw error;
     const d = (data ?? {}) as Record<string, unknown>;
     return {
@@ -568,14 +532,11 @@ const financeiro: DataAdapter["financeiro"] = {
     };
   },
 
-  async removerPagamento(
-    pagamentoId: string,
-  ): Promise<RemoverPagamentoLancamentoResult> {
+  async removerPagamento(pagamentoId: string): Promise<RemoverPagamentoLancamentoResult> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(
-      "remover_pagamento_lancamento",
-      { _pagamento_id: pagamentoId },
-    );
+    const { data, error } = await (supabase as any).rpc("remover_pagamento_lancamento", {
+      _pagamento_id: pagamentoId,
+    });
     if (error) throw error;
     const d = (data ?? {}) as Record<string, unknown>;
     return {
@@ -585,9 +546,7 @@ const financeiro: DataAdapter["financeiro"] = {
     };
   },
 
-  async cancelarLancamento(
-    input: CancelarLancamentoInput,
-  ): Promise<CancelarLancamentoResult> {
+  async cancelarLancamento(input: CancelarLancamentoInput): Promise<CancelarLancamentoResult> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (supabase as any).rpc("cancelar_lancamento", {
       _lancamento_id: input.lancamento_id,
@@ -618,10 +577,10 @@ const financeiro: DataAdapter["financeiro"] = {
     input: AlterarVencimentoLancamentoInput,
   ): Promise<AlterarVencimentoLancamentoResult> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(
-      "alterar_vencimento_lancamento",
-      { _lancamento_id: input.lancamento_id, _nova_data: input.nova_data },
-    );
+    const { data, error } = await (supabase as any).rpc("alterar_vencimento_lancamento", {
+      _lancamento_id: input.lancamento_id,
+      _nova_data: input.nova_data,
+    });
     if (error) throw error;
     const d = (data ?? {}) as Record<string, unknown>;
     return {
@@ -630,20 +589,15 @@ const financeiro: DataAdapter["financeiro"] = {
     };
   },
 
-  async conciliarIfoodIndividual(
-    input: ConciliarIfoodIndividualInput,
-  ): Promise<unknown> {
+  async conciliarIfoodIndividual(input: ConciliarIfoodIndividualInput): Promise<unknown> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(
-      "conciliar_ifood_lancamento",
-      {
-        _lancamento_id: input.lancamento_id,
-        _data_repasse: input.data_repasse,
-        _valor_repasse: input.valor_repasse,
-        _numero_repasse: input.numero_repasse ?? undefined,
-        _observacao: input.observacao ?? undefined,
-      },
-    );
+    const { data, error } = await (supabase as any).rpc("conciliar_ifood_lancamento", {
+      _lancamento_id: input.lancamento_id,
+      _data_repasse: input.data_repasse,
+      _valor_repasse: input.valor_repasse,
+      _numero_repasse: input.numero_repasse ?? undefined,
+      _observacao: input.observacao ?? undefined,
+    });
     if (error) throw error;
     return data;
   },
@@ -665,23 +619,20 @@ const financeiro: DataAdapter["financeiro"] = {
     input: CriarLancamentoAvulsoInput,
   ): Promise<CriarLancamentoAvulsoResult> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(
-      "criar_lancamento_avulso",
-      {
-        _tipo: input.tipo,
-        _descricao: input.descricao,
-        _valor: input.valor,
-        _data_vencimento: input.data_vencimento,
-        _data_emissao: input.data_emissao ?? null,
-        _categoria_id: input.categoria_id ?? null,
-        _cliente_id: input.cliente_id ?? null,
-        _fornecedor_id: input.fornecedor_id ?? null,
-        _numero_documento: input.numero_documento ?? null,
-        _forma_pagamento: input.forma_pagamento ?? null,
-        _observacoes: input.observacoes ?? null,
-        _client_uuid: input.client_uuid ?? null,
-      },
-    );
+    const { data, error } = await (supabase as any).rpc("criar_lancamento_avulso", {
+      _tipo: input.tipo,
+      _descricao: input.descricao,
+      _valor: input.valor,
+      _data_vencimento: input.data_vencimento,
+      _data_emissao: input.data_emissao ?? null,
+      _categoria_id: input.categoria_id ?? null,
+      _cliente_id: input.cliente_id ?? null,
+      _fornecedor_id: input.fornecedor_id ?? null,
+      _numero_documento: input.numero_documento ?? null,
+      _forma_pagamento: input.forma_pagamento ?? null,
+      _observacoes: input.observacoes ?? null,
+      _client_uuid: input.client_uuid ?? null,
+    });
     if (error) throw error;
     const d = (data ?? {}) as Record<string, unknown>;
     return {
@@ -694,23 +645,20 @@ const financeiro: DataAdapter["financeiro"] = {
     input: EditarLancamentoAvulsoInput,
   ): Promise<EditarLancamentoAvulsoResult> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(
-      "editar_lancamento_avulso",
-      {
-        _lancamento_id: input.lancamento_id,
-        _descricao: input.descricao,
-        _valor: input.valor,
-        _data_vencimento: input.data_vencimento,
-        _data_emissao: input.data_emissao ?? null,
-        _categoria_id: input.categoria_id ?? null,
-        _cliente_id: input.cliente_id ?? null,
-        _fornecedor_id: input.fornecedor_id ?? null,
-        _numero_documento: input.numero_documento ?? null,
-        _forma_pagamento: input.forma_pagamento ?? null,
-        _observacoes: input.observacoes ?? null,
-        _client_uuid: input.client_uuid ?? null,
-      },
-    );
+    const { data, error } = await (supabase as any).rpc("editar_lancamento_avulso", {
+      _lancamento_id: input.lancamento_id,
+      _descricao: input.descricao,
+      _valor: input.valor,
+      _data_vencimento: input.data_vencimento,
+      _data_emissao: input.data_emissao ?? null,
+      _categoria_id: input.categoria_id ?? null,
+      _cliente_id: input.cliente_id ?? null,
+      _fornecedor_id: input.fornecedor_id ?? null,
+      _numero_documento: input.numero_documento ?? null,
+      _forma_pagamento: input.forma_pagamento ?? null,
+      _observacoes: input.observacoes ?? null,
+      _client_uuid: input.client_uuid ?? null,
+    });
     if (error) throw error;
     const d = (data ?? {}) as Record<string, unknown>;
     return {
@@ -719,14 +667,11 @@ const financeiro: DataAdapter["financeiro"] = {
     };
   },
 
-  async excluirLancamentoAvulso(
-    lancamentoId: string,
-  ): Promise<ExcluirLancamentoAvulsoResult> {
+  async excluirLancamentoAvulso(lancamentoId: string): Promise<ExcluirLancamentoAvulsoResult> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(
-      "excluir_lancamento_avulso",
-      { _lancamento_id: lancamentoId },
-    );
+    const { data, error } = await (supabase as any).rpc("excluir_lancamento_avulso", {
+      _lancamento_id: lancamentoId,
+    });
     if (error) throw error;
     const d = (data ?? {}) as Record<string, unknown>;
     return {
@@ -744,19 +689,16 @@ const estoque: DataAdapter["estoque"] = {
     input: RegistrarMovimentoEstoqueInput,
   ): Promise<RegistrarMovimentoEstoqueResult> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(
-      "registrar_movimento_estoque",
-      {
-        _produto_id: input.produto_id,
-        _variacao_id: input.variacao_id ?? null,
-        _tipo: input.tipo,
-        _quantidade: input.quantidade,
-        _custo_unitario: input.custo_unitario ?? null,
-        _observacoes: input.observacoes ?? null,
-        _origem: input.origem ?? "ajuste_manual",
-        _client_uuid: input.client_uuid ?? null,
-      },
-    );
+    const { data, error } = await (supabase as any).rpc("registrar_movimento_estoque", {
+      _produto_id: input.produto_id,
+      _variacao_id: input.variacao_id ?? null,
+      _tipo: input.tipo,
+      _quantidade: input.quantidade,
+      _custo_unitario: input.custo_unitario ?? null,
+      _observacoes: input.observacoes ?? null,
+      _origem: input.origem ?? "ajuste_manual",
+      _client_uuid: input.client_uuid ?? null,
+    });
     if (error) throw error;
     const d = (data ?? {}) as Record<string, unknown>;
     return {
@@ -831,14 +773,12 @@ const clientes: DataAdapter["clientes"] = {
     return { cliente_id: String(d.cliente_id ?? input.cliente_id) };
   },
 
-  async alterarStatus(
-    input: AlterarStatusClienteInput,
-  ): Promise<AlterarStatusClienteResult> {
+  async alterarStatus(input: AlterarStatusClienteInput): Promise<AlterarStatusClienteResult> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(
-      "alterar_status_cliente",
-      { _cliente_id: input.cliente_id, _status: input.status },
-    );
+    const { data, error } = await (supabase as any).rpc("alterar_status_cliente", {
+      _cliente_id: input.cliente_id,
+      _status: input.status,
+    });
     if (error) throw error;
     const d = (data ?? {}) as Record<string, unknown>;
     return {
@@ -922,20 +862,17 @@ const fornecedores: DataAdapter["fornecedores"] = {
     return { fornecedor_id: String(d.fornecedor_id ?? input.fornecedor_id) };
   },
 
-  async alterarStatus(
-    input: AlterarStatusFornecedorInput,
-  ): Promise<AlterarStatusFornecedorResult> {
+  async alterarStatus(input: AlterarStatusFornecedorInput): Promise<AlterarStatusFornecedorResult> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(
-      "alterar_status_fornecedor",
-      { _fornecedor_id: input.fornecedor_id, _status: input.status },
-    );
+    const { data, error } = await (supabase as any).rpc("alterar_status_fornecedor", {
+      _fornecedor_id: input.fornecedor_id,
+      _status: input.status,
+    });
     if (error) throw error;
     const d = (data ?? {}) as Record<string, unknown>;
     return {
       fornecedor_id: String(d.fornecedor_id ?? input.fornecedor_id),
-      status:
-        (d.status as AlterarStatusFornecedorResult["status"]) ?? input.status,
+      status: (d.status as AlterarStatusFornecedorResult["status"]) ?? input.status,
     };
   },
 

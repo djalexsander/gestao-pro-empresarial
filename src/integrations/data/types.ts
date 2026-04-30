@@ -14,12 +14,7 @@
 
 // -------------------- Códigos de produto --------------------
 
-export type CodigoTipo =
-  | "codigo_barras"
-  | "qr_code"
-  | "sku"
-  | "interno"
-  | "alternativo";
+export type CodigoTipo = "codigo_barras" | "qr_code" | "sku" | "interno" | "alternativo";
 
 export interface ProdutoBuscaResult {
   produto_id: string;
@@ -55,11 +50,7 @@ export interface ProdutoPluResult {
 
 // -------------------- Listagem de produtos --------------------
 
-export type TipoIdentificacao =
-  | "sku"
-  | "codigo_barras"
-  | "qr_code"
-  | "codigo_interno";
+export type TipoIdentificacao = "sku" | "codigo_barras" | "qr_code" | "codigo_interno";
 
 export type Produto = {
   id: string;
@@ -293,12 +284,7 @@ export interface ExcluirVendaCanceladaResult {
  *
  * Vendas com `status='cancelada'` NÃO podem ter o status alterado por aqui.
  */
-export type StatusVendaEditavelDomain =
-  | "pago"
-  | "pendente"
-  | "parcial"
-  | "cancelado"
-  | "vencido";
+export type StatusVendaEditavelDomain = "pago" | "pendente" | "parcial" | "cancelado" | "vencido";
 
 export interface AlterarStatusVendaInput {
   venda_id: string;
