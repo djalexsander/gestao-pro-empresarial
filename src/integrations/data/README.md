@@ -542,3 +542,68 @@ apresentar opção de inativar.
 3. **CRUD de `lotes_produto`** quando a UI de validade/lote entrar no roadmap (gap acima).
 4. **Plugar UI do "Novo lançamento financeiro"** com a infra do Bloco 7 já pronta.
 5. **Abstração de leitura** (`useQuery` → `dataClient.*.list/get`) para destravar a troca de fonte (cloud → servidor local + terminais) sem reescrever hooks.
+
+---
+
+## Bloco 10 — Funcionários (operadores PDV)
+
+### Métodos do adapter
+
+`dataClient.funcionarios`:
+- `criar(input)` — `client_uuid` para idempotência. PIN em texto, hash bcrypt feito **só no banco**.
+- `editar(input)` — altera `nome` / `login` / `role`. **Não toca no PIN.**
+- `alterarStatus({ funcionario_id, ativo })` — soft delete (ativar/inativar).
+- `excluir(funcionarioId)` — hard delete; bloqueado se houver caixas, movimentos de caixa ou vendas vinculadas.
+- `resetarPin({ funcionario_id, pin })` — única forma de trocar o PIN. PIN em texto, hash no banco.
+- `validarPin({ funcionario_id, pin })` — login do operador. Retorna `OperadorSessaoDomain` (sem hash).
+
+### Diagnóstico do fluxo atual
+
+- `FuncionariosTab` chama `useCriarFuncionario` / `useResetarPinFuncionario` / `useToggleFuncionarioAtivo` / `useExcluirFuncionario`, agora todos via `dataClient.funcionarios`.
+- `OperadorPinDialog` valida PIN via `validarPinOperador`, que delega a `dataClient.funcionarios.validarPin`.
+- `OperadorProvider` consome `OperadorSessao` (re-export de `OperadorSessaoDomain`).
+- Listagens (`useFuncionarios`, `useFuncionariosAtivos`) seguem em `supabase.rpc("funcionarios_listar")` direto — leitura entra na fase de "abstração de queries".
+
+### Segurança do PIN
+
+| Camada | O que faz | O que NUNCA faz |
+|---|---|---|
+| **Cliente (UI/hook)** | Coleta o PIN, valida formato (4-8 dígitos), envia em texto pelo TLS para a RPC. | Nunca calcula hash. Nunca persiste o PIN em estado/local storage. Nunca faz log. |
+| **Adapter (`cloud.ts`)** | Encaminha o texto puro para a RPC e devolve o resultado. | Nunca grava o PIN em variáveis de longa duração. |
+| **Banco (RPC)** | Aplica `extensions.crypt(pin, gen_salt('bf', 8))` para hash bcrypt e armazena em `funcionarios.pin_hash`. Compara via `crypt(pin, stored_hash)`. | Nunca devolve `pin_hash` para o cliente. As RPCs de listagem omitem essa coluna. |
+
+Trocar para outra função de hash (Argon2 etc.) é mudança server-side pura — o cliente não precisa saber.
+
+### Garantias de consistência
+
+- **Tenant resolvido no banco** (`auth.uid() → owner_id`) em todas as RPCs.
+- **Idempotência** em `criar` via `UNIQUE(owner_id, client_uuid)` — duplo clique e retry de rede ficam neutros.
+- **Login único por owner**: índice `UNIQUE(owner_id, lower(login))` impede dois funcionários com o mesmo login na mesma empresa.
+- **Locks** (`SELECT ... FOR UPDATE`) em `editar` / `alterarStatus` / `excluir` → serializa edições concorrentes do mesmo funcionário entre terminais.
+- **Regra do "último gerente ativo"**: tanto `editar` (rebaixar role) quanto `alterarStatus(false)` quanto `excluir` validam que sobra ao menos um gerente ativo na empresa. Bloqueio retorna mensagem clara.
+- **Hard delete só sem vínculos**: contagem em `caixas` + `caixa_movimentos` + `vendas.operador_id` (com fallback graceful se a coluna não existir). Em vínculo → `23503`.
+
+### Riscos identificados
+
+- **PIN em texto na rede**: mitigado por TLS (Supabase). No cenário futuro de servidor local, a comunicação terminal ↔ servidor PRECISA também ser TLS (ou mTLS); senão um sniffer da LAN captura o PIN. Recomendado adicionar essa exigência ao spec do servidor local.
+- **Brute force de PIN**: PIN tem só 4-8 dígitos (10⁴ a 10⁸ combinações). Hoje **não há rate limit nem lockout** após N tentativas erradas. Risco maior no cenário multi-terminal — qualquer terminal pode tentar PINs em massa. **Recomendado próximo write**: tabela `funcionario_tentativas_pin` + bloqueio temporário (ex.: 5 erros em 10 min → bloqueia por 15 min).
+- **Sem auditoria de quem alterou PIN/role**: não rastreamos quem trocou o PIN de quem. Entra junto com a fase geral de `audit_logs`.
+- **`ultimo_acesso` é atualizado dentro da própria RPC de validação** — se a transação falhar depois da escrita, o tempo fica "futuro" no banco. Baixo impacto, mas vale notar.
+- Os **263 warnings genéricos** do linter Supabase (`SECURITY DEFINER` com `EXECUTE` para `public`) são pré-existentes do projeto e não foram introduzidos por este bloco — todas as novas RPCs validam `auth.uid() IS NULL` no topo.
+
+### Pontos de concorrência relevantes (multi-terminal)
+
+- Dois terminais cadastrando funcionário com o mesmo login: índice único rejeita o segundo com mensagem amigável.
+- Dois terminais editando o mesmo funcionário: o segundo espera o lock. "Last write wins" — comportamento esperado.
+- Reset de PIN em paralelo com login: quem chegar primeiro no lock vence; o segundo login com PIN antigo falha.
+- Inativar/excluir o último gerente em terminais diferentes ao mesmo tempo: o lock + a contagem dentro da transação garantem que pelo menos um gerente sobre.
+- Validação de PIN não usa lock — é leitura + 1 update de timestamp; alta concorrência sem contenção.
+
+### Próximos writes recomendados (depois do Bloco 10)
+
+1. **Rate limit / lockout de PIN** — `funcionario_tentativas_pin` (timestamp + ip + terminal_id) + RPC que bloqueia após N falhas. Crítico antes de abrir terminais em LAN.
+2. **CRUD de categorias financeiras** — espelha `criar_categoria_produto`; fecha o conjunto de cadastros auxiliares.
+3. **CRUD de `lotes_produto`** quando a UI de validade/lote entrar (gap do Bloco 9).
+4. **Plugar UI do "Novo lançamento financeiro"** com a infra do Bloco 7.
+5. **Auditoria unificada** (`audit_logs` via trigger) cobrindo cliente, fornecedor, produto e funcionário num só passe.
+6. **Abstração de leitura** (`useQuery` → `dataClient.*.list/get`) para destravar a troca de fonte (cloud → servidor local + terminais) sem reescrever hooks.
