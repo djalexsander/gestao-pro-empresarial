@@ -1096,6 +1096,9 @@ const fornecedores: DataAdapter["fornecedores"] = {
     return data as unknown as import("../types").FornecedorDomain;
   },
 };
+
+// ============================================================
+// Funcionários (operadores PDV) — Bloco 10
 // PIN é hasheado SOMENTE no banco (bcrypt). Nunca tocamos no hash aqui.
 // ============================================================
 const funcionarios: DataAdapter["funcionarios"] = {
