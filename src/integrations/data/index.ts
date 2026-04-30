@@ -13,6 +13,8 @@ export type {
 } from "./adapter";
 export type {
   AbrirCaixaInput,
+  AlterarStatusVendaInput,
+  AlterarStatusVendaResult,
   CaixaStatusDomain,
   CancelarVendaInput,
   CancelarVendaResumo,
@@ -32,6 +34,7 @@ export type {
   ProdutoPluResult,
   RegistrarMovimentoCaixaInput,
   StatusPagamento,
+  StatusVendaEditavelDomain,
   TipoIdentificacao,
 } from "./types";
 export { getDataMode, type DataMode } from "./mode";
