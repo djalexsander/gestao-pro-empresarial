@@ -318,33 +318,8 @@ export function useAlterarStatusVenda() {
 }
 
 // =============== Cancelar venda (estorno) ===============
-export interface CancelarVendaResumo {
-  venda_id: string;
-  numero: string;
-  total: number;
-  motivo: string | null;
-  cancelado_em: string;
-  qtd_itens_estornados: number;
-  qtd_total_estornada: number;
-  itens_estornados: Array<{
-    produto_id: string;
-    produto_nome: string;
-    quantidade: number;
-    saldo_anterior: number;
-    saldo_posterior: number;
-    valor_total: number;
-  }>;
-  qtd_lancamentos_cancelados: number;
-  total_lancamentos_cancelados: number;
-  lancamentos_cancelados: Array<{
-    id: string;
-    descricao: string;
-    valor: number;
-    valor_pago: number;
-    tipo: string;
-    status_anterior: string;
-  }>;
-}
+// `CancelarVendaResumo` agora vive em `@/integrations/data` e é re-exportado
+// no topo deste arquivo para compatibilidade.
 
 // =============== Métricas do dia / período ===============
 export interface VendaMetricas {
