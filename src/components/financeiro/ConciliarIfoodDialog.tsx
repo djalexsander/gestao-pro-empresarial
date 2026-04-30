@@ -135,24 +135,22 @@ export function ConciliarIfoodDialog({
 
       if (mode === "individual") {
         if (!lancamentoId) throw new Error("Lançamento inválido.");
-        const { error } = await supabase.rpc("conciliar_ifood_lancamento", {
-          _lancamento_id: lancamentoId,
-          _data_repasse: dataRepasse,
-          _valor_repasse: valorRepasseNum,
-          _numero_repasse: numeroRepasse || undefined,
-          _observacao: observacao || undefined,
+        await dataClient.financeiro.conciliarIfoodIndividual({
+          lancamento_id: lancamentoId,
+          data_repasse: dataRepasse,
+          valor_repasse: valorRepasseNum,
+          numero_repasse: numeroRepasse || null,
+          observacao: observacao || null,
         });
-        if (error) throw error;
       } else {
         if (selecionados.size === 0) throw new Error("Selecione ao menos um lançamento.");
-        const { error } = await supabase.rpc("conciliar_ifood_lote", {
-          _lancamento_ids: Array.from(selecionados),
-          _data_repasse: dataRepasse,
-          _valor_repasse_total: valorRepasseNum,
-          _numero_repasse: numeroRepasse || undefined,
-          _observacao: observacao || undefined,
+        await dataClient.financeiro.conciliarIfoodLote({
+          lancamento_ids: Array.from(selecionados),
+          data_repasse: dataRepasse,
+          valor_repasse_total: valorRepasseNum,
+          numero_repasse: numeroRepasse || null,
+          observacao: observacao || null,
         });
-        if (error) throw error;
       }
     },
     onSuccess: () => {
