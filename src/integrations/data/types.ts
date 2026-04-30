@@ -393,6 +393,102 @@ export interface AlterarVencimentoLancamentoResult {
   data_vencimento: string;
 }
 
+// -------------------- Lançamento avulso (a pagar / a receber) --------------------
+
+/**
+ * Tipo do lançamento avulso. Não cobre `receita`/`despesa` (esses são tipos
+ * derivados usados pelo DRE; lançamentos avulsos sempre nascem como
+ * `pagar` ou `receber`).
+ */
+export type LancamentoAvulsoTipo = "receber" | "pagar";
+
+/**
+ * Criar um lançamento financeiro avulso (a pagar ou a receber, sem venda).
+ *
+ * **Idempotência:** envie `client_uuid` estável (1 por dialog aberto).
+ * Reenvio com mesmo UUID retorna o lançamento existente sem duplicar
+ * (cobre duplo clique no botão Salvar, Enter repetido e retry de rede).
+ *
+ * **Server-side garante:**
+ *  - tipo restrito a `receber`/`pagar`,
+ *  - validação de descrição/valor/vencimento obrigatórios,
+ *  - status inicial sempre `pendente`,
+ *  - vincular a venda/compra é **bloqueado por aqui** — esses fluxos têm
+ *    suas próprias RPCs (`finalizar_venda_pdv`, etc.).
+ */
+export interface CriarLancamentoAvulsoInput {
+  tipo: LancamentoAvulsoTipo;
+  descricao: string;
+  valor: number;
+  data_vencimento: string; // YYYY-MM-DD
+  data_emissao?: string | null; // YYYY-MM-DD; default = hoje
+  categoria_id?: string | null;
+  cliente_id?: string | null;
+  fornecedor_id?: string | null;
+  numero_documento?: string | null;
+  forma_pagamento?: FormaPagamentoLancamento | null;
+  observacoes?: string | null;
+  /** Chave de idempotência. Recomendado preencher SEMPRE. */
+  client_uuid?: string | null;
+}
+
+export interface CriarLancamentoAvulsoResult {
+  lancamento_id: string;
+  /** `true` se a chamada não criou lançamento novo (mesma chave já existia). */
+  idempotente: boolean;
+}
+
+/**
+ * Editar campos de um lançamento avulso.
+ *
+ * **Bloqueado pelo banco:**
+ *  - lançamentos vinculados a venda/compra (use o fluxo da venda),
+ *  - lançamentos `cancelado`, `pago` ou `recebido`,
+ *  - reduzir `valor` abaixo do total já pago.
+ *
+ * **Idempotência:** envie `client_uuid` estável por dialog. Reenvio com mesmo
+ * UUID em cima do MESMO lançamento retorna sem reaplicar. Reuso do UUID em
+ * outro lançamento gera erro (proteção contra erro de programação).
+ *
+ * `tipo` (receber/pagar) NÃO pode ser alterado — para mudar tipo, exclua e
+ * recrie.
+ */
+export interface EditarLancamentoAvulsoInput {
+  lancamento_id: string;
+  descricao: string;
+  valor: number;
+  data_vencimento: string; // YYYY-MM-DD
+  data_emissao?: string | null;
+  categoria_id?: string | null;
+  cliente_id?: string | null;
+  fornecedor_id?: string | null;
+  numero_documento?: string | null;
+  forma_pagamento?: FormaPagamentoLancamento | null;
+  observacoes?: string | null;
+  client_uuid?: string | null;
+}
+
+export interface EditarLancamentoAvulsoResult {
+  lancamento_id: string;
+  idempotente: boolean;
+}
+
+/**
+ * Excluir DEFINITIVAMENTE um lançamento avulso.
+ *
+ * **Permitido apenas se:**
+ *  - não vinculado a venda/compra,
+ *  - sem nenhum pagamento registrado em `lancamento_pagamentos`,
+ *  - status `pendente` ou `cancelado`.
+ *
+ * Para qualquer outro caso (já houve baixa), use `cancelarLancamento` —
+ * preserva o histórico de pagamentos.
+ */
+export interface ExcluirLancamentoAvulsoResult {
+  lancamento_id: string;
+  excluido: boolean;
+}
+
 // -------------------- Estoque (movimentação manual) --------------------
 
 /**
