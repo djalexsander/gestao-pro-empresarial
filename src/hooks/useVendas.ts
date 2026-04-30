@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { dataClient } from "@/integrations/data";
 import type {
+  CancelarVendaResumo as DataCancelarVendaResumo,
   FinalizarVendaInput as DataFinalizarVendaInput,
   FinalizarVendaItem as DataFinalizarVendaItem,
   FinalizarVendaPagamento as DataFinalizarVendaPagamento,
@@ -16,6 +17,7 @@ export type StatusPagamento = DataStatusPagamento;
 export type FinalizarVendaItem = DataFinalizarVendaItem;
 export type FinalizarVendaPagamento = DataFinalizarVendaPagamento;
 export type FinalizarVendaInput = DataFinalizarVendaInput;
+export type CancelarVendaResumo = DataCancelarVendaResumo;
 
 export type VendaStatus =
   | "rascunho"
@@ -316,33 +318,8 @@ export function useAlterarStatusVenda() {
 }
 
 // =============== Cancelar venda (estorno) ===============
-export interface CancelarVendaResumo {
-  venda_id: string;
-  numero: string;
-  total: number;
-  motivo: string | null;
-  cancelado_em: string;
-  qtd_itens_estornados: number;
-  qtd_total_estornada: number;
-  itens_estornados: Array<{
-    produto_id: string;
-    produto_nome: string;
-    quantidade: number;
-    saldo_anterior: number;
-    saldo_posterior: number;
-    valor_total: number;
-  }>;
-  qtd_lancamentos_cancelados: number;
-  total_lancamentos_cancelados: number;
-  lancamentos_cancelados: Array<{
-    id: string;
-    descricao: string;
-    valor: number;
-    valor_pago: number;
-    tipo: string;
-    status_anterior: string;
-  }>;
-}
+// `CancelarVendaResumo` agora vive em `@/integrations/data` e é re-exportado
+// no topo deste arquivo para compatibilidade.
 
 // =============== Métricas do dia / período ===============
 export interface VendaMetricas {
@@ -381,14 +358,7 @@ export function useVendaMetricasPeriodo(dataInicio: string, dataFim: string) {
 export function useExcluirVendaCancelada() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (venda_id: string) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any).rpc("excluir_venda_cancelada", {
-        _venda_id: venda_id,
-      });
-      if (error) throw error;
-      return data;
-    },
+    mutationFn: (venda_id: string) => dataClient.vendas.excluirCancelada(venda_id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["vendas"] });
       qc.invalidateQueries({ queryKey: ["financeiro"] });
@@ -402,51 +372,8 @@ export function useExcluirVendaCancelada() {
 export function useCancelarVenda() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({
-      venda_id,
-      motivo,
-    }: {
-      venda_id: string;
-      motivo?: string | null;
-    }): Promise<CancelarVendaResumo> => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any).rpc("cancelar_venda", {
-        _venda_id: venda_id,
-        _motivo: motivo ?? null,
-      });
-      if (error) throw error;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const d = data as any;
-      return {
-        venda_id: d.venda_id,
-        numero: d.numero,
-        total: Number(d.total) || 0,
-        motivo: d.motivo ?? null,
-        cancelado_em: d.cancelado_em,
-        qtd_itens_estornados: Number(d.qtd_itens_estornados) || 0,
-        qtd_total_estornada: Number(d.qtd_total_estornada) || 0,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        itens_estornados: (d.itens_estornados ?? []).map((i: any) => ({
-          produto_id: i.produto_id,
-          produto_nome: i.produto_nome,
-          quantidade: Number(i.quantidade) || 0,
-          saldo_anterior: Number(i.saldo_anterior) || 0,
-          saldo_posterior: Number(i.saldo_posterior) || 0,
-          valor_total: Number(i.valor_total) || 0,
-        })),
-        qtd_lancamentos_cancelados: Number(d.qtd_lancamentos_cancelados) || 0,
-        total_lancamentos_cancelados: Number(d.total_lancamentos_cancelados) || 0,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        lancamentos_cancelados: (d.lancamentos_cancelados ?? []).map((l: any) => ({
-          id: l.id,
-          descricao: l.descricao,
-          valor: Number(l.valor) || 0,
-          valor_pago: Number(l.valor_pago) || 0,
-          tipo: l.tipo,
-          status_anterior: l.status_anterior,
-        })),
-      };
-    },
+    mutationFn: (input: { venda_id: string; motivo?: string | null }) =>
+      dataClient.vendas.cancelar(input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["vendas"] });
       qc.invalidateQueries({ queryKey: ["estoque-saldos"] });

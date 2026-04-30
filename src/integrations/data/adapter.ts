@@ -18,6 +18,9 @@
 
 import type {
   AbrirCaixaInput,
+  CancelarVendaInput,
+  CancelarVendaResumo,
+  ExcluirVendaCanceladaResult,
   FecharCaixaInput,
   FecharCaixaResult,
   FinalizarVendaInput,
@@ -65,6 +68,33 @@ export interface VendasAdapter {
    * Retorna o `venda_id` (string).
    */
   finalizar(input: FinalizarVendaInput): Promise<string>;
+
+  /**
+   * Cancela uma venda **não cancelada** e executa, em UMA transação no banco:
+   *  - estorno de estoque (1 movimento `devolucao` por item),
+   *  - marcação de TODOS os lançamentos financeiros vinculados como
+   *    `cancelado` (mantém histórico, NÃO deleta),
+   *  - mudança de `vendas.status` → `cancelada`.
+   *
+   * NÃO permite cancelar uma venda já cancelada. NÃO toca em
+   * `caixa_movimentos` (o evento operacional do dia permanece registrado).
+   */
+  cancelar(input: CancelarVendaInput): Promise<CancelarVendaResumo>;
+
+  /**
+   * Exclui DEFINITIVAMENTE uma venda já cancelada.
+   *
+   * Diferença vs. `cancelar`:
+   *  - `cancelar` → muda status, estorna estoque, cancela lançamentos.
+   *    A venda continua visível no histórico.
+   *  - `excluirCancelada` → APAGA a linha de `vendas` (e itens via cascade).
+   *    Pré-requisito: status='cancelada'. Lançamentos e movimentos de estoque
+   *    têm `venda_id` desvinculado (NULL) — o histórico de cada um fica
+   *    preservado, mas perde a referência ao número da venda.
+   *
+   * Use com cautela: é um delete físico. RPC já valida no banco.
+   */
+  excluirCancelada(vendaId: string): Promise<ExcluirVendaCanceladaResult>;
 }
 
 export interface CaixaAdapter {

@@ -42,7 +42,11 @@ interface ProdutosAdapter {
 
 interface VendasAdapter {
   /** Idempotente quando `input.client_uuid` é enviado (recomendado). */
-  finalizar(input: FinalizarVendaInput): Promise<string /* venda_id */>;
+  finalizar(input: FinalizarVendaInput):           Promise<string /* venda_id */>;
+  /** Cancela a venda + estorna estoque + cancela lançamentos vinculados. */
+  cancelar(input: CancelarVendaInput):             Promise<CancelarVendaResumo>;
+  /** Apaga venda já cancelada (delete físico, valida status no banco). */
+  excluirCancelada(vendaId: string):               Promise<ExcluirVendaCanceladaResult>;
 }
 
 interface CaixaAdapter {
@@ -120,6 +124,8 @@ Para migrar um hook que hoje fala direto com Supabase:
 | **`useFecharCaixa`**                                 | **`caixa.fechar`**            | **write com `SELECT FOR UPDATE` — sem fechamento concorrente** |
 | **`useRegistrarMovimentoCaixa`**                     | **`caixa.registrarMovimento`** | **write idempotente (client_uuid por modal aberto)** |
 | **`useExcluirCaixa`**                                | **`caixa.excluir`**           | write |
+| **`useCancelarVenda`**                               | **`vendas.cancelar`**         | **write composto: estorna estoque + cancela lançamentos + muda status** |
+| **`useExcluirVendaCancelada`**                       | **`vendas.excluirCancelada`** | **delete físico (apenas vendas canceladas)** |
 
 ## Caixa — garantias de consistência
 
@@ -138,14 +144,62 @@ Para migrar um hook que hoje fala direto com Supabase:
   - **NÃO viram lançamento no Financeiro.** Ficam só em `caixa_movimentos`.
   - Apenas iFood, fiado e "outros" geram lançamento financeiro no fechamento.
 
+## Cancelar × Excluir venda — regra de negócio
+
+**`vendas.cancelar(input)`** — operação reversível em termos contábeis,
+realizada em UMA transação no banco:
+
+| Tabela / efeito                  | O que acontece |
+|---|---|
+| `vendas.status`                  | → `cancelada` |
+| `vendas.status_pagamento`        | → `cancelado` |
+| `estoque_movimentacoes`          | +1 linha `tipo='devolucao'` por item, com `saldo_anterior` e `saldo_posterior` capturados (estoque volta) |
+| `financeiro_lancamentos`         | TODOS os lançamentos com `venda_id = X` viram `status='cancelado'` (mantém histórico, anota motivo em `observacoes`) |
+| `caixa_movimentos` da venda      | NÃO é tocado — o evento operacional do dia (entrada de dinheiro original) permanece registrado |
+| `venda_pagamentos`               | NÃO é tocado — preserva o registro de como a venda foi paga |
+
+Pré-requisito: a venda **não pode** já estar cancelada.
+
+**`vendas.excluirCancelada(vendaId)`** — operação destrutiva, **só roda em
+vendas já canceladas**:
+
+| Tabela / efeito                  | O que acontece |
+|---|---|
+| `vendas`                         | DELETE físico (linha removida) |
+| `venda_itens`                    | apagados via cascade |
+| `venda_pagamentos`               | DELETE físico (sem cascade na FK) |
+| `financeiro_lancamentos.venda_id`| → NULL (lançamento cancelado fica no histórico, mas perde a referência ao número da venda) |
+| `estoque_movimentacoes.venda_id` | → NULL (movimento de venda + estorno ficam, perdem referência) |
+| `auditoria_logs`                 | +1 entrada `excluir_venda_cancelada` (best-effort) |
+
+Pré-requisito: status='cancelada'. Roda dentro de `SELECT … FOR UPDATE`
+para evitar exclusão concorrente.
+
+**Diferença chave para o usuário final:**
+- *Cancelar* = "essa venda foi um erro/devolução; volta o estoque, anula a cobrança, mas o histórico fica".
+- *Excluir cancelada* = "essa venda nunca devia ter aparecido; some do histórico de vendas, mas os movimentos colaterais ficam órfãos para auditoria".
+
+## Vendas — garantias de consistência
+
+- **Idempotência de criação**: `client_uuid` em `vendas` + índice único parcial.
+- **Cancelamento atômico**: tudo numa transação plpgsql; falha em qualquer
+  passo aborta estoque, lançamentos e mudança de status juntos.
+- **Sem dupla devolução de estoque**: a função recusa cancelar venda já
+  cancelada (`IF v_status = 'cancelada' THEN RAISE`), então não é possível
+  acumular `devolucao` em loop.
+- **Histórico financeiro preservado**: lançamentos cancelados nunca somem —
+  viram `status='cancelado'` com nota e motivo em `observacoes`.
+- **Exclusão protegida**: `excluir_venda_cancelada` recusa qualquer venda
+  fora de `status='cancelada'` e usa `FOR UPDATE` para serializar.
+
 ### Próximos recomendados (writes)
 
-1. **`useCancelarVenda`** + **`useExcluirVendaCancelada`** — fechar o ciclo
-   da venda na camada.
-2. **`useAlterarStatusVenda`** — fluxo financeiro ↔ vendas.
-3. **`useFinanceiro` / `useLancamentos`** — escrita financeira independente.
-4. **`useEstoque` ajustes manuais** — entradas/saídas avulsas.
-5. **`useRealtimeSync`** — abstrair a fonte realtime (Supabase Realtime ↔ WS LAN).
+1. **`useAlterarStatusVenda`** — fluxo financeiro ↔ vendas (RPC
+   `alterar_status_venda` já existe; falta migrar).
+2. **`useFinanceiro` / `useLancamentos`** — escrita financeira independente
+   (registrar pagamento de fiado, baixa manual etc.).
+3. **`useEstoque` ajustes manuais** — entradas/saídas avulsas.
+4. **`useRealtimeSync`** — abstrair a fonte realtime (Supabase Realtime ↔ WS LAN).
 
 ## Não-objetivos desta fase
 
