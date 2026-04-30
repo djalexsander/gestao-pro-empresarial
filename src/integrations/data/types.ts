@@ -973,3 +973,68 @@ export interface DesbloquearPinOperadorResult {
   funcionario_id: string;
   desbloqueado: boolean;
 }
+
+// -------------------- Lotes de produto (Bloco 14) --------------------
+
+/**
+ * Criar lote de produto. Idempotente via `client_uuid`.
+ * Se `registrar_entrada=true` e `quantidade_inicial>0`, também cria
+ * uma movimentação de estoque tipo `entrada`/origem `outro`.
+ */
+export interface CriarLoteProdutoInput {
+  produto_id: string;
+  numero_lote: string;
+  quantidade_inicial?: number;
+  variacao_id?: string | null;
+  data_fabricacao?: string | null; // YYYY-MM-DD
+  data_validade?: string | null;
+  custo_unitario?: number | null;
+  observacoes?: string | null;
+  registrar_entrada?: boolean;
+  client_uuid?: string | null;
+}
+export interface CriarLoteProdutoResult {
+  lote_id: string;
+  idempotente: boolean;
+}
+
+/**
+ * Editar lote. `produto_id` é imutável. `variacao_id` e `quantidade_inicial`
+ * só podem mudar se o lote ainda NÃO tiver vínculos (movimentação/compra/venda).
+ */
+export interface EditarLoteProdutoInput {
+  lote_id: string;
+  numero_lote: string;
+  data_fabricacao?: string | null;
+  data_validade?: string | null;
+  custo_unitario?: number | null;
+  observacoes?: string | null;
+  variacao_id?: string | null;
+  quantidade_inicial?: number | null;
+}
+export interface EditarLoteProdutoResult {
+  lote_id: string;
+}
+
+/**
+ * Ajusta o saldo do lote criando uma movimentação tipo `ajuste` com a
+ * diferença. Única forma segura de mexer em saldo após já existir movimento.
+ */
+export interface AjustarQuantidadeLoteInput {
+  lote_id: string;
+  nova_quantidade: number;
+  motivo?: string | null;
+  client_uuid?: string | null;
+}
+export interface AjustarQuantidadeLoteResult {
+  lote_id: string;
+  movimentacao_id: string | null;
+  diferenca?: number;
+  idempotente?: boolean;
+  sem_diferenca?: boolean;
+}
+
+export interface ExcluirLoteProdutoResult {
+  lote_id: string;
+  excluido: boolean;
+}
