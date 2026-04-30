@@ -1225,6 +1225,7 @@ export type Database = {
       funcionarios: {
         Row: {
           ativo: boolean
+          client_uuid: string | null
           created_at: string
           id: string
           login: string
@@ -1237,6 +1238,7 @@ export type Database = {
         }
         Insert: {
           ativo?: boolean
+          client_uuid?: string | null
           created_at?: string
           id?: string
           login: string
@@ -1249,6 +1251,7 @@ export type Database = {
         }
         Update: {
           ativo?: boolean
+          client_uuid?: string | null
           created_at?: string
           id?: string
           login?: string
@@ -3393,15 +3396,40 @@ export type Database = {
           valor_total: number
         }[]
       }
-      funcionario_criar: {
+      funcionario_alterar_status: {
+        Args: { _ativo: boolean; _funcionario_id: string }
+        Returns: Json
+      }
+      funcionario_criar:
+        | {
+            Args: {
+              _login: string
+              _nome: string
+              _pin: string
+              _role?: Database["public"]["Enums"]["app_role"]
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              _client_uuid?: string
+              _login: string
+              _nome: string
+              _pin: string
+              _role?: Database["public"]["Enums"]["app_role"]
+            }
+            Returns: Json
+          }
+      funcionario_editar: {
         Args: {
+          _funcionario_id: string
           _login: string
           _nome: string
-          _pin: string
-          _role?: Database["public"]["Enums"]["app_role"]
+          _role: Database["public"]["Enums"]["app_role"]
         }
-        Returns: string
+        Returns: Json
       }
+      funcionario_excluir: { Args: { _funcionario_id: string }; Returns: Json }
       funcionario_resetar_pin: {
         Args: { _funcionario_id: string; _novo_pin: string }
         Returns: undefined
