@@ -532,6 +532,56 @@ const caixa: DataAdapter["caixa"] = {
     if (error) throw error;
     return data;
   },
+
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  async aberto(filtro) {
+    const { data: uid } = await supabase.auth.getUser();
+    if (!uid.user) return null;
+    let q = supabase
+      .from("caixas")
+      .select("*")
+      .eq("owner_id", uid.user.id)
+      .eq("status", "aberto");
+    if (!filtro?.qualquer) {
+      if (filtro?.operador_id) q = q.eq("operador_id", filtro.operador_id);
+      else q = q.is("operador_id", null);
+    }
+    const { data, error } = await q
+      .order("data_abertura", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return (data as unknown as import("../types").CaixaDomain | null) ?? null;
+  },
+
+  async resumo(caixaId) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("caixa_resumo", {
+      _caixa_id: caixaId,
+    });
+    if (error) throw error;
+    return (data as unknown as import("../types").CaixaResumoDomain | null) ?? null;
+  },
+
+  async historico(input) {
+    const { data, error } = await supabase
+      .from("caixas")
+      .select("*")
+      .order("data_abertura", { ascending: false })
+      .limit(input?.limit ?? 50);
+    if (error) throw error;
+    return (data ?? []) as unknown as import("../types").CaixaDomain[];
+  },
+
+  async movimentos(caixaId) {
+    const { data, error } = await supabase
+      .from("caixa_movimentos")
+      .select("*")
+      .eq("caixa_id", caixaId)
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as unknown as import("../types").CaixaMovimentoDomain[];
+  },
 };
 
 // =====================================================================
