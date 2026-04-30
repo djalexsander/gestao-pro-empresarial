@@ -20,8 +20,14 @@ import type {
   AbrirCaixaInput,
   AlterarStatusVendaInput,
   AlterarStatusVendaResult,
+  AlterarVencimentoLancamentoInput,
+  AlterarVencimentoLancamentoResult,
+  CancelarLancamentoInput,
+  CancelarLancamentoResult,
   CancelarVendaInput,
   CancelarVendaResumo,
+  ConciliarIfoodIndividualInput,
+  ConciliarIfoodLoteInput,
   ExcluirVendaCanceladaResult,
   FecharCaixaInput,
   FecharCaixaResult,
@@ -29,7 +35,11 @@ import type {
   ProdutoBuscaResult,
   ProdutoComCategoria,
   ProdutoPluResult,
+  ReabrirLancamentoResult,
   RegistrarMovimentoCaixaInput,
+  RegistrarPagamentoLancamentoInput,
+  RegistrarPagamentoLancamentoResult,
+  RemoverPagamentoLancamentoResult,
 } from "./types";
 
 export interface ProdutosAdapter {
