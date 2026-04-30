@@ -18,6 +18,8 @@
 
 import type {
   AbrirCaixaInput,
+  AlterarStatusVendaInput,
+  AlterarStatusVendaResult,
   CancelarVendaInput,
   CancelarVendaResumo,
   ExcluirVendaCanceladaResult,
