@@ -53,6 +53,11 @@ interface FinalizarVendaDialogProps {
   cliente: { id: string; nome: string } | null;
   observacao: string;
   operadorEmail?: string | null;
+  /**
+   * Chave de idempotência da venda (UUID). Estável durante toda a vida do
+   * carrinho atual. Reenvio com o mesmo UUID NÃO duplica venda nem estoque.
+   */
+  clientUuid?: string | null;
   onConfirmed: (result: {
     vendaId: string;
     forma: FormaPagamento;
@@ -133,6 +138,7 @@ export function FinalizarVendaDialog({
   cliente,
   observacao,
   operadorEmail,
+  clientUuid,
   onConfirmed,
 }: FinalizarVendaDialogProps) {
   const [pagamentos, setPagamentos] = useState<PagamentoLinha[]>([]);
@@ -338,6 +344,7 @@ export function FinalizarVendaDialog({
         pagamentos: pagamentosPayload,
         operador_id: operador?.id ?? null,
         terminal_id: terminal?.id ?? null,
+        client_uuid: clientUuid ?? null,
       },
       {
         onSuccess: (vendaId) => {
