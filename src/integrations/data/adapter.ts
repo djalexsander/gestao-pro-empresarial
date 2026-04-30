@@ -145,8 +145,20 @@ export interface ProdutosAdapter {
   /**
    * Lista todos os produtos do tenant, com a categoria já “joinada”,
    * ordenados por nome.
+   *
+   * @deprecated Bloco 15: prefira `list()` com filtros tipados. Mantido por
+   * compat enquanto callers antigos não migram.
    */
   listar(): Promise<ProdutoComCategoria[]>;
+
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  /**
+   * Lista produtos com filtros tipados. Hoje implementação cloud aplica os
+   * filtros server-side (Supabase); amanhã a impl local pode aplicar local.
+   */
+  list(input?: ProdutosListInput): Promise<ProdutoComCategoria[]>;
+  /** Busca por id, com variações já “joinadas”. Retorna `null` se não encontrar. */
+  get(produtoId: string): Promise<ProdutoComVariacoes | null>;
 
   // ---------------------------- Writes ----------------------------
 
