@@ -853,3 +853,223 @@ Quando bloqueado, RPC retorna `23503` com mensagem clara mencionando a contagem 
 4. **Painel admin de lockouts** — usar `desbloquearPin` (Bloco 11).
 5. **UI de gerenciamento de categorias** (produto e financeira) — Bloco 12 ainda sem tela própria.
 6. **Auditoria unificada** (`audit_logs` via trigger) cobrindo todos os cadastros já migrados (cliente, fornecedor, produto, funcionário, categorias, lotes).
+
+
+## Bloco 15 — Abstração de leitura + Realtime por domínio
+
+### Objetivo
+
+Migrar as leituras principais que ainda falavam direto com `supabase` para a
+camada `dataClient.*.list/get/...` e padronizar a invalidação de cache em
+torno de um **bus por domínio**, para que a troca futura de fonte de dados
+(Supabase Cloud ↔ servidor local + LAN) não exija reescrever os hooks de
+React Query.
+
+### Diagnóstico do fluxo (antes do bloco)
+
+- Cada hook (`useProdutos`, `useClientes`, `useEstoque`, `useFornecedores`,
+  `useFuncionarios`, `useLotes`, `useCaixa`, `useCategorias`, …) montava sua
+  própria query Supabase, com `select(...)` e filtros hardcoded espalhados.
+- A invalidação de cache vivia atrelada a `supabase.channel(...).on('postgres_changes', ...)`
+  dentro do `useRealtimeSync`, que chamava `queryClient.invalidateQueries`
+  diretamente — acoplando React Query ao Supabase Realtime.
+- Trocar de fonte (cloud → LAN) exigiria reescrever todos os hooks **e** o
+  ponto de invalidação. Era a última peça que ainda travava o cenário
+  "servidor local + terminais em rede".
+
+### O que mudou nesta rodada
+
+#### 1. Contratos de leitura por domínio (no `DataAdapter`)
+
+Cada domínio crítico ganhou métodos de leitura tipados, com filtros como
+parâmetro (não mais hardcoded no hook):
+
+| Domínio | Métodos de leitura | Filtros principais |
+|---|---|---|
+| `produtos` | `list(input?)`, `get(id)`, `buscarPorCodigo`, `buscarPorPlu` | `incluirInativos?`, `categoriaId?`, `status?` |
+| `estoque` | `listSaldos(input?)`, `listMovimentacoes(input?)` | `produtoId?`, `lojaId?`, `apenasComSaldo?`, `periodo?` |
+| `lotes` | `list(input?)`, `get(id)` | `produtoId?`, `apenasComSaldo?`, `statusValidade?` |
+| `clientes` | `list(input?)`, `get(id)`, `listLite()` | `incluirInativos?`, `busca?` |
+| `fornecedores` | `list(input?)`, `get(id)` | `incluirInativos?`, `busca?` |
+| `funcionarios` | `list(input?)`, `get(id)` | `incluirInativos?`, `cargo?` |
+| `categoriasProduto` | `list(input?)`, `get(id)` | `incluirInativas?` |
+| `categoriasFinanceiras` | `listAtivas(input?)`, `get(id)` | `tipo?` |
+| `caixa` | `aberto()`, `resumo(caixaId)`, `metricas(input?)` | `periodo?` |
+
+> **Princípio**: filtros tipados por domínio (sem vazar semântica PostgREST).
+> Hooks viram orquestradores de cache; o que é "como buscar" mora no adapter.
+
+#### 2. `invalidationBus` (`src/integrations/data/realtime.ts`)
+
+Bus em memória, **um evento por domínio** (não por tabela), sem payload
+obrigatório:
+
+```ts
+invalidationBus.publish({
+  domain: "produtos",
+  op: "UPDATE",
+  id: "...",
+  source: "supabase", // ou "local-ws" | "local-emitter" | "polling" | "manual"
+});
+
+const off = invalidationBus.subscribe("produtos", (event) => { ... });
+```
+
+- 1 evento por domínio cobre todas as tabelas relacionadas
+  (ex.: `produtos` cobre `produtos`, `produto_codigos`, `produto_variacoes`).
+- `source` permite, no futuro, ignorar eventos do próprio terminal e
+  evitar loops em LAN.
+- `try/catch` por handler — um subscriber quebrado não derruba os outros.
+- SSR-safe: ninguém publica no servidor, ninguém consome.
+
+#### 3. `useRealtimeSync` (publisher)
+
+Continua escutando Supabase Realtime, mas em vez de invalidar query keys
+diretamente, **traduz o evento Postgres → domínio canônico** e publica no bus:
+
+```ts
+// useRealtimeSync.ts (resumo)
+invalidationBus.publish({
+  domain: tabelaParaDominio(payload.table),
+  op: payload.eventType,
+  id: payload.new?.id ?? payload.old?.id,
+  source: "supabase",
+});
+```
+
+Quando existir o servidor local, basta substituir/adicionar um publisher
+equivalente (WebSocket LAN, EventEmitter, polling) **sem tocar nos hooks**.
+
+#### 4. `QueryProvider` (bridge bus → React Query)
+
+Único ponto que conhece o mapeamento `domínio → queryKeys[]`. Subscreve uma
+vez na raiz da app e invalida tudo que depende daquele domínio:
+
+```ts
+const DOMAIN_TO_KEYS: Record<DataDomain, string[][]> = {
+  produtos:               [["produtos"], ["categorias"]],
+  estoque:                [["estoque-saldos"], ["movimentacoes"]],
+  lotes:                  [["lotes"]],
+  clientes:               [["clientes"], ["clientes-lite"]],
+  fornecedores:           [["fornecedores"]],
+  categorias_produto:     [["categorias"]],
+  categorias_financeiras: [["categorias_financeiras_ativas"]],
+  funcionarios:           [["funcionarios"]],
+  caixa:                  [["caixa"], ["caixa-resumo"], ["caixa-aberto"]],
+  vendas:                 [["vendas"], ["dashboard"]],
+  financeiro:             [["financeiro"], ["financeiro-indicadores"], ["dashboard"]],
+  terminais:              [["terminais"]],
+};
+```
+
+#### 5. `useDomainInvalidation` (uso ad-hoc por feature)
+
+Hook utilitário para casos pontuais (uma tela específica que precisa
+invalidar algo extra que não está no mapa global):
+
+```ts
+useDomainInvalidation("produtos", [["produtos-relatorio"]]);
+```
+
+Inerte se ninguém publicar; barato.
+
+### Hooks migrados nesta rodada
+
+`useProdutos`, `useClientes`, `useFornecedores`, `useFuncionarios`,
+`useLotes`, `useEstoque`, `useCaixa`, `useCategorias` (produto +
+financeiras). Todos passaram a chamar `dataClient.<dominio>.list/get/...`
+mantendo as **mesmas queryKeys** e a **mesma assinatura externa** — zero
+impacto em UI. Filtros antes hardcoded foram parametrizados quando fazia
+sentido (`incluirInativos`, `apenasComSaldo`, `categoriaId`, etc.).
+
+### Mapa: domínio → queryKeys → tabelas Supabase
+
+| Domínio | queryKeys React Query | Tabelas/views fonte |
+|---|---|---|
+| `produtos` | `["produtos"]`, `["categorias"]` | `produtos`, `produto_codigos`, `produto_variacoes`, `categorias_produto` |
+| `estoque` | `["estoque-saldos"]`, `["movimentacoes"]` | `estoque_saldos`, `estoque_movimentacoes` |
+| `lotes` | `["lotes"]` | `lotes_produto`, view `lotes_produto_com_saldo` |
+| `clientes` | `["clientes"]`, `["clientes-lite"]` | `clientes` |
+| `fornecedores` | `["fornecedores"]` | `fornecedores` |
+| `categorias_produto` | `["categorias"]` | `categorias_produto` |
+| `categorias_financeiras` | `["categorias_financeiras_ativas"]` | `categorias_financeiras` |
+| `funcionarios` | `["funcionarios"]` | `funcionarios` |
+| `caixa` | `["caixa"]`, `["caixa-resumo"]`, `["caixa-aberto"]` | `caixas`, `caixa_movimentos` |
+| `vendas` | `["vendas"]`, `["dashboard"]` | `vendas`, `vendas_itens`, `vendas_pagamentos` |
+| `financeiro` | `["financeiro"]`, `["financeiro-indicadores"]`, `["dashboard"]` | `financeiro_lancamentos`, `financeiro_pagamentos` |
+| `terminais` | `["terminais"]` | `terminais` |
+
+### Como isso prepara cloud ↔ servidor local
+
+```
+[Supabase Realtime]  ─┐
+[WS LAN local-server]─┼──► invalidationBus.publish({domain, op, id, source})
+[EventEmitter local] ─┘                          │
+                                                  ▼
+                                       QueryProvider (bridge)
+                                                  │
+                                                  ▼
+                                  queryClient.invalidateQueries(...)
+                                                  │
+                                                  ▼
+                          hooks (useProdutos, useEstoque, useLotes, …)
+                                                  │
+                                                  ▼
+                              dataClient.<dominio>.list/get(...)
+                                                  │
+                                                  ▼
+                  adapter ativo (cloud.ts hoje, local.ts/hybrid.ts amanhã)
+```
+
+Na Fase 4 (servidor local + LAN), só duas peças mudam:
+
+1. Um **novo publisher** (ex.: `useLanRealtimeSync`) abre WebSocket no
+   servidor local e publica no `invalidationBus` exatamente os mesmos
+   `DataDomain`. O `useRealtimeSync` atual pode coexistir (modo híbrido) ou
+   ser substituído.
+2. Um **novo `DataAdapter`** (`adapters/local.ts` ou `hybrid.ts`) implementa
+   os mesmos contratos de leitura/escrita falando com a API local.
+
+Hooks, components, queryKeys e o `QueryProvider` **não mudam**.
+
+### Gaps restantes (rodada 2 do Bloco 15)
+
+- **`vendas`**: ainda lê direto do Supabase em vários pontos. Sensível
+  (dashboard, relatórios, cancelamento). Migrar com cuidado e provavelmente
+  com filtros mais ricos (período, status, vendedor).
+- **`financeiro`**: já tem writes via `dataClient.financeiro.*`, mas as
+  leituras (lista de lançamentos, indicadores) ainda são diretas. Mesma
+  observação: domínio sensível, melhor isolar numa rodada própria.
+- **`terminais`**: leitura ainda direta — baixo risco, encaixa numa
+  varredura rápida.
+- **Loaders TanStack Router (`ensureQueryData`)**: não foram introduzidos
+  nesta rodada para não mexer em UI. Próximo passo natural quando quisermos
+  remover flashes de loading.
+
+### Riscos encontrados
+
+- **Mapa `DOMAIN_TO_KEYS` pode ficar desatualizado** se alguém criar uma
+  query nova com um queryKey desconhecido. Mitigação: convenção documentada
+  acima + `useDomainInvalidation` para casos ad-hoc.
+- **Eventos demais em telas pesadas**: hoje cada `UPDATE` em `produtos`
+  invalida `["produtos"]` E `["categorias"]`. Custo aceitável; se virar
+  problema, dá pra granularizar por `op` no subscriber.
+- **Loop potencial em LAN futura**: já mitigado pelo campo `source` no
+  evento — basta o publisher LAN marcar `source: "local-ws"` e ignorar
+  eventos com seu próprio `source`.
+
+### Status arquitetural
+
+Com o Bloco 15 fechado, a arquitetura principal de acesso a dados pode ser
+considerada **estabilizada**: writes, leituras e invalidação passam todos
+por contratos próprios. As próximas rodadas são **melhorias complementares**:
+
+1. **`RealtimeAdapter` formal** (próximo bloco) — interface explícita para
+   o publisher de eventos, com implementações `SupabaseRealtimeAdapter` e,
+   futuramente, `LanWebSocketRealtimeAdapter`. Hoje o publisher é o
+   `useRealtimeSync` direto; formalizar deixa a troca trivial.
+2. Migrar leituras de `vendas` e `financeiro` (rodada 2).
+3. Loaders TanStack Router + `useSuspenseQuery` onde fizer sentido.
+4. Auditoria unificada (`audit_logs` por trigger).
+5. UI de gerenciamento de categorias e de lotes (gaps de tela, não de
+   arquitetura).
