@@ -275,3 +275,46 @@ export interface ExcluirVendaCanceladaResult {
   numero: string;
   excluida_em: string;
 }
+
+// -------------------- Alterar status da venda --------------------
+
+/**
+ * Status editáveis manualmente para uma venda **não cancelada**.
+ *
+ * - `pago`      → quita TODOS os lançamentos vinculados (cria
+ *                 `lancamento_pagamentos` para o saldo restante de cada um).
+ * - `pendente`  → zera pagamentos e volta lançamentos para `pendente`.
+ * - `parcial`   → mantém pagamentos atuais; força status coerente.
+ * - `vencido`   → derivado pelo vencimento; força `pendente` para que a
+ *                 derivação atue.
+ * - `cancelado` → marca lançamentos como `cancelado` (NÃO estorna estoque,
+ *                 NÃO cancela a venda — para cancelamento real, use
+ *                 `vendas.cancelar`).
+ *
+ * Vendas com `status='cancelada'` NÃO podem ter o status alterado por aqui.
+ */
+export type StatusVendaEditavelDomain =
+  | "pago"
+  | "pendente"
+  | "parcial"
+  | "cancelado"
+  | "vencido";
+
+export interface AlterarStatusVendaInput {
+  venda_id: string;
+  novo_status: StatusVendaEditavelDomain;
+  motivo?: string | null;
+}
+
+/**
+ * Resultado consolidado da RPC `alterar_status_venda`.
+ *
+ * O backend retorna um JSON livre (`jsonb`); aqui normalizamos os campos
+ * mais comuns. Campos extras seguem disponíveis em `raw`.
+ */
+export interface AlterarStatusVendaResult {
+  venda_id: string;
+  novo_status: StatusVendaEditavelDomain;
+  qtd_lancamentos_alterados: number;
+  raw: Record<string, unknown>;
+}
