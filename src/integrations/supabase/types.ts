@@ -325,6 +325,7 @@ export type Database = {
       categorias_produto: {
         Row: {
           ativo: boolean
+          client_uuid: string | null
           created_at: string
           descricao: string | null
           id: string
@@ -335,6 +336,7 @@ export type Database = {
         }
         Insert: {
           ativo?: boolean
+          client_uuid?: string | null
           created_at?: string
           descricao?: string | null
           id?: string
@@ -345,6 +347,7 @@ export type Database = {
         }
         Update: {
           ativo?: boolean
+          client_uuid?: string | null
           created_at?: string
           descricao?: string | null
           id?: string
@@ -1727,6 +1730,7 @@ export type Database = {
       }
       produto_codigos: {
         Row: {
+          client_uuid: string | null
           created_at: string
           id: string
           observacao: string | null
@@ -1738,6 +1742,7 @@ export type Database = {
           variacao_id: string | null
         }
         Insert: {
+          client_uuid?: string | null
           created_at?: string
           id?: string
           observacao?: string | null
@@ -1749,6 +1754,7 @@ export type Database = {
           variacao_id?: string | null
         }
         Update: {
+          client_uuid?: string | null
           created_at?: string
           id?: string
           observacao?: string | null
@@ -1765,6 +1771,7 @@ export type Database = {
         Row: {
           ativo: boolean
           atributos: Json
+          client_uuid: string | null
           codigo_barras: string | null
           created_at: string
           id: string
@@ -1779,6 +1786,7 @@ export type Database = {
         Insert: {
           ativo?: boolean
           atributos?: Json
+          client_uuid?: string | null
           codigo_barras?: string | null
           created_at?: string
           id?: string
@@ -1793,6 +1801,7 @@ export type Database = {
         Update: {
           ativo?: boolean
           atributos?: Json
+          client_uuid?: string | null
           codigo_barras?: string | null
           created_at?: string
           id?: string
@@ -1820,6 +1829,7 @@ export type Database = {
           casas_decimais_quantidade: number
           categoria_id: string | null
           cest: string | null
+          client_uuid: string | null
           codigo_barras: string | null
           codigo_interno: string | null
           created_at: string
@@ -1850,6 +1860,7 @@ export type Database = {
           casas_decimais_quantidade?: number
           categoria_id?: string | null
           cest?: string | null
+          client_uuid?: string | null
           codigo_barras?: string | null
           codigo_interno?: string | null
           created_at?: string
@@ -1880,6 +1891,7 @@ export type Database = {
           casas_decimais_quantidade?: number
           categoria_id?: string | null
           cest?: string | null
+          client_uuid?: string | null
           codigo_barras?: string | null
           codigo_interno?: string | null
           created_at?: string
@@ -2560,6 +2572,17 @@ export type Database = {
         }
         Returns: Json
       }
+      adicionar_produto_codigo: {
+        Args: {
+          _client_uuid?: string
+          _observacao?: string
+          _produto_id: string
+          _tipo_codigo: string
+          _valor_codigo: string
+          _variacao_id?: string
+        }
+        Returns: Json
+      }
       admin_delete_empresa: { Args: { _id: string }; Returns: undefined }
       admin_delete_modulo: { Args: { _id: string }; Returns: undefined }
       admin_delete_pagamento: { Args: { _id: string }; Returns: undefined }
@@ -2922,6 +2945,13 @@ export type Database = {
         }
         Returns: Json
       }
+      alterar_status_produto: {
+        Args: {
+          _produto_id: string
+          _status: Database["public"]["Enums"]["produto_status"]
+        }
+        Returns: Json
+      }
       alterar_status_venda: {
         Args: { _motivo?: string; _novo_status: string; _venda_id: string }
         Returns: Json
@@ -3031,6 +3061,15 @@ export type Database = {
         }
         Returns: Json
       }
+      criar_categoria_produto: {
+        Args: {
+          _client_uuid?: string
+          _descricao?: string
+          _nome: string
+          _parent_id?: string
+        }
+        Returns: Json
+      }
       criar_cliente: {
         Args: {
           _bairro?: string
@@ -3092,6 +3131,46 @@ export type Database = {
           _observacoes: string
           _tipo: string
           _valor: number
+        }
+        Returns: Json
+      }
+      criar_produto: {
+        Args: {
+          _aceita_etiqueta_balanca?: boolean
+          _casas_decimais_quantidade?: number
+          _categoria_id?: string
+          _client_uuid?: string
+          _codigo_barras?: string
+          _codigo_interno?: string
+          _descricao?: string
+          _estoque_inicial?: number
+          _estoque_minimo: number
+          _marca?: string
+          _ncm?: string
+          _nome: string
+          _observacao_tecnica?: string
+          _plu?: string
+          _preco_custo: number
+          _preco_venda: number
+          _qr_code?: string
+          _sku: string
+          _status: Database["public"]["Enums"]["produto_status"]
+          _tipo_identificacao_principal?: string
+          _unidade: string
+          _vendido_por_peso?: boolean
+        }
+        Returns: Json
+      }
+      criar_produto_variacao: {
+        Args: {
+          _atributos?: Json
+          _client_uuid?: string
+          _codigo_barras?: string
+          _nome: string
+          _preco_custo?: number
+          _preco_venda?: number
+          _produto_id: string
+          _sku: string
         }
         Returns: Json
       }
@@ -3164,11 +3243,44 @@ export type Database = {
         }
         Returns: Json
       }
+      editar_produto: {
+        Args: {
+          _aceita_etiqueta_balanca?: boolean
+          _casas_decimais_quantidade?: number
+          _categoria_id?: string
+          _codigo_barras?: string
+          _codigo_interno?: string
+          _descricao?: string
+          _estoque_inicial?: number
+          _estoque_minimo: number
+          _marca?: string
+          _ncm?: string
+          _nome: string
+          _observacao_tecnica?: string
+          _plu?: string
+          _preco_custo: number
+          _preco_venda: number
+          _produto_id: string
+          _qr_code?: string
+          _sku: string
+          _status: Database["public"]["Enums"]["produto_status"]
+          _tipo_identificacao_principal?: string
+          _unidade: string
+          _vendido_por_peso?: boolean
+        }
+        Returns: Json
+      }
       excluir_caixa: { Args: { _caixa_id: string }; Returns: Json }
       excluir_cliente: { Args: { _cliente_id: string }; Returns: Json }
       excluir_fornecedor: { Args: { _fornecedor_id: string }; Returns: Json }
       excluir_lancamento_avulso: {
         Args: { _lancamento_id: string }
+        Returns: Json
+      }
+      excluir_produto: { Args: { _produto_id: string }; Returns: Json }
+      excluir_produto_codigo: { Args: { _codigo_id: string }; Returns: Json }
+      excluir_produto_variacao: {
+        Args: { _variacao_id: string }
         Returns: Json
       }
       excluir_venda_cancelada: { Args: { _venda_id: string }; Returns: Json }
