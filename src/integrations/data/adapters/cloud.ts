@@ -25,6 +25,11 @@ import type {
   CodigoTipo,
   ConciliarIfoodIndividualInput,
   ConciliarIfoodLoteInput,
+  CriarLancamentoAvulsoInput,
+  CriarLancamentoAvulsoResult,
+  EditarLancamentoAvulsoInput,
+  EditarLancamentoAvulsoResult,
+  ExcluirLancamentoAvulsoResult,
   ExcluirVendaCanceladaResult,
   FecharCaixaInput,
   FecharCaixaResult,
@@ -430,6 +435,80 @@ const financeiro: DataAdapter["financeiro"] = {
     });
     if (error) throw error;
     return data;
+  },
+
+  async criarLancamentoAvulso(
+    input: CriarLancamentoAvulsoInput,
+  ): Promise<CriarLancamentoAvulsoResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc(
+      "criar_lancamento_avulso",
+      {
+        _tipo: input.tipo,
+        _descricao: input.descricao,
+        _valor: input.valor,
+        _data_vencimento: input.data_vencimento,
+        _data_emissao: input.data_emissao ?? null,
+        _categoria_id: input.categoria_id ?? null,
+        _cliente_id: input.cliente_id ?? null,
+        _fornecedor_id: input.fornecedor_id ?? null,
+        _numero_documento: input.numero_documento ?? null,
+        _forma_pagamento: input.forma_pagamento ?? null,
+        _observacoes: input.observacoes ?? null,
+        _client_uuid: input.client_uuid ?? null,
+      },
+    );
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      lancamento_id: String(d.lancamento_id ?? ""),
+      idempotente: Boolean(d.idempotente),
+    };
+  },
+
+  async editarLancamentoAvulso(
+    input: EditarLancamentoAvulsoInput,
+  ): Promise<EditarLancamentoAvulsoResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc(
+      "editar_lancamento_avulso",
+      {
+        _lancamento_id: input.lancamento_id,
+        _descricao: input.descricao,
+        _valor: input.valor,
+        _data_vencimento: input.data_vencimento,
+        _data_emissao: input.data_emissao ?? null,
+        _categoria_id: input.categoria_id ?? null,
+        _cliente_id: input.cliente_id ?? null,
+        _fornecedor_id: input.fornecedor_id ?? null,
+        _numero_documento: input.numero_documento ?? null,
+        _forma_pagamento: input.forma_pagamento ?? null,
+        _observacoes: input.observacoes ?? null,
+        _client_uuid: input.client_uuid ?? null,
+      },
+    );
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      lancamento_id: String(d.lancamento_id ?? input.lancamento_id),
+      idempotente: Boolean(d.idempotente),
+    };
+  },
+
+  async excluirLancamentoAvulso(
+    lancamentoId: string,
+  ): Promise<ExcluirLancamentoAvulsoResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc(
+      "excluir_lancamento_avulso",
+      { _lancamento_id: lancamentoId },
+    );
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      lancamento_id: String(d.lancamento_id ?? lancamentoId),
+      excluido: Boolean(d.excluido),
+    };
   },
 };
 
