@@ -348,6 +348,33 @@ const produtos: DataAdapter["produtos"] = {
       idempotente: Boolean(d.idempotente),
     };
   },
+
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  async list(input) {
+    let q = supabase
+      .from("produtos")
+      .select("*, categoria:categorias_produto(id, nome)")
+      .order("nome");
+    if (input?.status) q = q.eq("status", input.status);
+    if (input?.categoria_id) q = q.eq("categoria_id", input.categoria_id);
+    if (input?.busca) {
+      const b = input.busca.trim();
+      if (b) q = q.or(`nome.ilike.%${b}%,sku.ilike.%${b}%`);
+    }
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []) as unknown as ProdutoComCategoria[];
+  },
+
+  async get(produtoId) {
+    const { data, error } = await supabase
+      .from("produtos")
+      .select("*, variacoes:produto_variacoes(*)")
+      .eq("id", produtoId)
+      .maybeSingle();
+    if (error) throw error;
+    return (data as unknown as import("../types").ProdutoComVariacoes | null) ?? null;
+  },
 };
 
 // =====================================================================
