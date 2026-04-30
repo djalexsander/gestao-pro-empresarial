@@ -1,67 +1,23 @@
 import { useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { invalidationBus, type DataDomain } from "@/integrations/data/realtime";
+import { realtimeClient } from "@/integrations/data/realtime-client";
 
 /**
- * Mapeamento tabela → domínio canônico (Bloco 15).
+ * Hook GLOBAL: inicializa o `RealtimeAdapter` ativo (Supabase hoje;
+ * WebSocket LAN no futuro) e o desliga no cleanup. Não conhece a fonte —
+ * o `realtimeClient` resolve a implementação.
  *
- * Antes (Bloco 14): este hook invalidava queryKeys diretamente.
- * Agora: ele PUBLICA no `invalidationBus` por domínio. Hooks de leitura
- * assinam via `useDomainInvalidation` (ou diretamente `bus.subscribe`).
+ * Deve ser usado UMA vez na raiz autenticada do app.
  *
- * Vantagem: amanhã, num cenário de servidor local + LAN, basta trocar a
- * fonte que publica no bus (WebSocket LAN, EventEmitter local, polling) —
- * a camada de hooks NÃO MUDA.
- */
-const TABLE_TO_DOMAIN: Record<string, DataDomain[]> = {
-  vendas: ["vendas", "caixa"],
-  venda_itens: ["vendas"],
-  caixas: ["caixa", "terminais"],
-  caixa_movimentos: ["caixa"],
-  produtos: ["produtos", "estoque"],
-  estoque_movimentacoes: ["estoque", "produtos", "lotes"],
-  financeiro_lancamentos: ["financeiro"],
-  terminais: ["terminais"],
-  clientes: ["clientes"],
-  fornecedores: ["fornecedores"],
-  funcionarios: ["funcionarios"],
-  categorias_produto: ["categorias_produto", "produtos"],
-  categorias_financeiras: ["categorias_financeiras"],
-  lotes_produto: ["lotes", "estoque"],
-};
-
-/**
- * Hook GLOBAL: assina realtime nas tabelas críticas e PUBLICA no
- * `invalidationBus` os domínios afetados. Deve ser usado UMA vez na raiz
- * autenticada do app.
+ * Histórico:
+ *  - Bloco 14: invalidava queryKeys diretamente.
+ *  - Bloco 15: passou a publicar no `invalidationBus` por domínio.
+ *  - Bloco 16: extraiu a lógica para `RealtimeAdapter` (este hook virou
+ *    apenas o ciclo de vida React do adapter).
  */
 export function useRealtimeSync(enabled: boolean = true) {
   useEffect(() => {
     if (!enabled) return;
-
-    const channel = supabase.channel("rede-terminais");
-
-    for (const table of Object.keys(TABLE_TO_DOMAIN)) {
-      channel.on(
-        "postgres_changes",
-        { event: "*", schema: "public", table },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (payload: any) => {
-          const domains = TABLE_TO_DOMAIN[table] ?? [];
-          for (const d of domains) {
-            invalidationBus.publish({
-              domain: d,
-              op: payload?.eventType ?? "*",
-              source: "supabase",
-            });
-          }
-        },
-      );
-    }
-
-    channel.subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    const stop = realtimeClient.start();
+    return stop;
   }, [enabled]);
 }
