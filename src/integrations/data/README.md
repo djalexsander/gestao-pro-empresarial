@@ -758,3 +758,55 @@ Quando bloqueado, RPC retorna `23503` com mensagem clara mencionando a contagem 
 4. **Painel admin de lockouts** — usar `desbloquearPin` (Bloco 11).
 5. **Auditoria unificada** (`audit_logs` via trigger) cobrindo todos os cadastros já migrados (cliente, fornecedor, produto, funcionário, categorias) num só passe.
 6. **Abstração de leitura** (`useQuery` → `dataClient.*.list/get`) para destravar a troca de fonte (cloud → servidor local + terminais) sem reescrever hooks. Inclui parametrizar o filtro `ativo` em `useCategorias`.
+
+---
+
+## Bloco 13 — UI de lançamento financeiro avulso
+
+### Diagnóstico do fluxo atual
+
+- O botão **Novo lançamento** em `/financeiro` agora abre `LancamentoFormDialog` em `mode="create"`, com `tipoInicial` derivado da aba ativa (`receber` / `pagar`; default `receber` na aba "fluxo").
+- O mesmo `LancamentoFormDialog` em `mode="edit"` é aberto a partir do `LancamentoDetalheDialog` quando o título é avulso e ainda não tem baixa (`!jaResolvido && !temVenda && totalPago === 0`).
+- O `LancamentoDetalheDialog` ganhou também o botão **Excluir** (chama `dataClient.financeiro.excluirLancamentoAvulso`), exibido só quando o banco permite (`status pendente|cancelado && !temVenda && totalPago === 0`).
+- Toda a infra de write **já existia** no `dataClient.financeiro` (Bloco 7): `criarLancamentoAvulso`, `editarLancamentoAvulso`, `excluirLancamentoAvulso`, `cancelarLancamento`, `reabrirLancamento`. Nenhuma RPC nova foi criada.
+- Categorias financeiras consumidas via `useQuery(["categorias_financeiras_ativas"])` filtrando `tipo` (`receita` para receber, `despesa` para pagar) — alinhado com a regra de tipo imutável definida no Bloco 12.
+- Cliente / fornecedor reutilizam os hooks de leitura existentes (`useClientes` / `useFornecedores`).
+
+### Reaproveitamento da infra anterior
+
+| Origem | O que foi reusado |
+| ------ | ----------------- |
+| Bloco 7 (lançamento avulso) | `criar/editar/excluir/cancelar/reabrir` no `dataClient.financeiro` — zero código novo no adapter. |
+| Bloco 8 (cliente/fornecedor) | hooks `useClientes` / `useFornecedores` para popular os selects. |
+| Bloco 12 (categorias) | leitura de `categorias_financeiras` ativas filtrada por `tipo`. |
+| `RegistrarPagamentoDialog` | padrão de `client_uuid` estável por modal aberto + handling de `Enter`/`Escape` via `useHotkeys`. |
+
+### Garantias de consistência
+
+- **Idempotência**: `client_uuid` é gerado uma vez por abertura do dialog. Duplo-clique, Enter repetido e retry de rede caem no mesmo UUID — o banco devolve o lançamento existente sem duplicar.
+- **Tipo imutável na edição**: o select de tipo fica `disabled` em modo edit (banco já bloqueia; UI só evita confusão).
+- **Categoria sempre coerente com tipo**: ao trocar `receber ↔ pagar` no modo create, a categoria é zerada se não pertencer ao novo tipo. Filtragem do select é por `tipo === tipoCategoria`.
+- **Cliente vs fornecedor mutuamente exclusivos**: o select do "outro lado" é escondido pelo `tipo`. Ao salvar, mandamos `null` no campo que não se aplica.
+- **Edição busca FKs sob demanda**: o objeto `LancamentoDetalhe` carregado pela rota só traz nomes (joins). Quando o usuário clica Editar, fazemos uma query pontual em `financeiro_lancamentos` pelo `id` para pegar `categoria_id`/`cliente_id`/`fornecedor_id`. O dialog só monta quando esses dados chegam, evitando estado intermediário com selects zerados.
+- **Status / pagamentos / vencimento**: nada é tocado pela UI nova. Edição usa a RPC `editar_lancamento_avulso` que já bloqueia mudança de tipo, valor abaixo do total pago e edição de títulos vinculados a venda/compra.
+- **Invalidations padronizadas**: ambos os modos invalidam `["financeiro_lancamentos"]`, `["financeiro_indicadores_mes"]`, `["dashboard"]` e `["relatorio_contas_receber"]` — mesmas chaves usadas pelos demais writes do bloco financeiro.
+- **Edição fecha o detalhe**: após salvar uma edição, o dialog de detalhe é fechado para forçar recarregamento limpo (evita exibir nomes desatualizados de cliente/categoria sem precisar refazer o join no client).
+
+### Riscos encontrados
+
+- **Selects sem busca**: para owners com muitos clientes/fornecedores/categorias, o `<Select>` shadcn fica longo. Aceito por ora — quando o `clientes-lite` passar de centenas, trocar por `Combobox` (mesmo padrão do `CategoriaCombobox`).
+- **Form não confirma exclusão com `AlertDialog`**: usa `confirm()` nativo (mesmo padrão já existente do `removerPagamento`). Funciona, mas inconsistente com o restante do app SaaS (`AlertDialog`). Trocar num passe de polish.
+- **Sem auditoria visível**: a edição não mostra "última edição em / por". O backend já tem trigger de `updated_at` mas não há `audit_logs` no fluxo. Ficará para o bloco de auditoria unificada.
+- **Botão Editar não aparece para títulos parciais**: por design — o banco bloqueia mudar valor abaixo do total pago, e edição misturada com baixa em curso é confusa. Se o usuário precisar ajustar valor de um parcial, deve cancelar o pagamento primeiro. Documentado aqui.
+- **Latência da query de FKs**: o dialog de edição mostra um pequeno gap (1 round-trip) entre clicar Editar e o form aparecer. Aceito — alternativa seria carregar IDs já no SELECT da listagem, aumentando payload de toda a página.
+
+### Próximos blocos recomendados
+
+1. **CRUD de `lotes_produto`** (gap do Bloco 9 — agora único cadastro sem write na camada).
+2. **UI de gerenciamento de categorias** (produto e financeira) consumindo os métodos do Bloco 12 — listagem com inativas, editar / inativar / excluir.
+3. **Painel admin de lockouts** — usar `desbloquearPin` (Bloco 11).
+4. **Trocar `confirm()` por `AlertDialog`** nos fluxos de cancelar/excluir/remover pagamento — passe de polish.
+5. **Combobox com busca** para os selects de cliente/fornecedor/categoria quando passar de ~100 itens.
+6. **Auditoria unificada** (`audit_logs` via trigger) cobrindo todos os cadastros já migrados.
+7. **Abstração de leitura** (`useQuery` → `dataClient.*.list/get`) — pré-requisito para o cenário servidor local + terminais em rede.
+

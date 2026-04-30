@@ -16,6 +16,7 @@ import {
   History,
   HandCoins,
   Trash2,
+  Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -35,6 +36,7 @@ import { formatBRL } from "@/lib/mock-data";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { ConciliarIfoodDialog } from "./ConciliarIfoodDialog";
 import { RegistrarPagamentoDialog } from "./RegistrarPagamentoDialog";
+import { LancamentoFormDialog } from "./LancamentoFormDialog";
 
 export type LancamentoDetalhe = {
   id: string;
@@ -110,8 +112,7 @@ function formatDoc(doc: string | null | undefined): string {
   if (!doc) return "—";
   const d = doc.replace(/\D/g, "");
   if (d.length === 11) return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
-  if (d.length === 14)
-    return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
+  if (d.length === 14) return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
   return doc;
 }
 
@@ -140,6 +141,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
   const [conciliarOpen, setConciliarOpen] = useState(false);
   const [pagamentoOpen, setPagamentoOpen] = useState(false);
   const [pagamentoModoTotal, setPagamentoModoTotal] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   // owner_id atual (usuário autenticado) para inserção do pagamento
   const { data: ownerId = "" } = useQuery({
@@ -157,18 +159,21 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
     enabled: open && !!lancamento?.id,
     queryFn: async (): Promise<PagamentoHist[]> => {
       if (!lancamento?.id) return [];
-      const { data, error } = await (supabase.from as unknown as (
-        t: string,
-      ) => {
-        select: (cols: string) => {
-          eq: (col: string, val: string) => {
-            order: (
+      const { data, error } = await (
+        supabase.from as unknown as (t: string) => {
+          select: (cols: string) => {
+            eq: (
               col: string,
-              opts?: { ascending?: boolean },
-            ) => Promise<{ data: PagamentoHist[] | null; error: { message: string } | null }>;
+              val: string,
+            ) => {
+              order: (
+                col: string,
+                opts?: { ascending?: boolean },
+              ) => Promise<{ data: PagamentoHist[] | null; error: { message: string } | null }>;
+            };
           };
-        };
-      })("lancamento_pagamentos")
+        }
+      )("lancamento_pagamentos")
         .select("id, valor, data_pagamento, forma_pagamento, observacao, created_at")
         .eq("lancamento_id", lancamento.id)
         .order("data_pagamento", { ascending: false });
@@ -222,6 +227,55 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
     onError: (e: Error) => toast.error(e.message ?? "Falha ao remover."),
   });
 
+  // Excluir lançamento avulso (banco bloqueia se houver pagamento ou vínculo).
+  const excluirLancamento = useMutation({
+    mutationFn: async () => {
+      if (!lancamento) return;
+      await dataClient.financeiro.excluirLancamentoAvulso(lancamento.id);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["financeiro_lancamentos"] });
+      qc.invalidateQueries({ queryKey: ["financeiro_indicadores_mes"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      toast.success("Lançamento excluído.");
+      onOpenChange(false);
+    },
+    onError: (e: Error) => toast.error(e.message ?? "Não foi possível excluir."),
+  });
+
+  // Carrega FKs (categoria/cliente/fornecedor) quando precisar editar — o objeto
+  // `lancamento` recebido só traz nomes, não IDs. Buscamos sob demanda.
+  const { data: lancamentoFks } = useQuery({
+    queryKey: ["lancamento_fks", lancamento?.id],
+    enabled: open && editOpen && !!lancamento?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("financeiro_lancamentos")
+        .select(
+          "id, tipo, descricao, valor, data_vencimento, data_emissao, categoria_id, cliente_id, fornecedor_id, numero_documento, forma_pagamento, observacoes, venda_id, compra_id",
+        )
+        .eq("id", lancamento!.id)
+        .single();
+      if (error) throw new Error(error.message);
+      return data as {
+        id: string;
+        tipo: "receber" | "pagar";
+        descricao: string;
+        valor: number;
+        data_vencimento: string;
+        data_emissao: string | null;
+        categoria_id: string | null;
+        cliente_id: string | null;
+        fornecedor_id: string | null;
+        numero_documento: string | null;
+        forma_pagamento: string | null;
+        observacoes: string | null;
+        venda_id: string | null;
+        compra_id: string | null;
+      };
+    },
+  });
+
   // hotkeys: P = pagamento parcial, B = baixa total, Esc fecha (já tratado pelo Dialog)
   useHotkeys(
     [
@@ -264,6 +318,13 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
   const temAuditoriaRepasse = !!lancamento.conciliado_em;
   const temCliente = !!(lancamento.cliente_nome || lancamento.cliente_documento);
   const temVenda = !!(lancamento.venda_id || lancamento.venda_numero);
+  // Edição/Exclusão só fazem sentido em títulos avulsos sem baixa.
+  // O banco também bloqueia — aqui escondemos para UX limpa.
+  const podeEditar = !jaResolvido && !temVenda && totalPago === 0;
+  const podeExcluir =
+    !temVenda &&
+    totalPago === 0 &&
+    (lancamento.status === "pendente" || lancamento.status === "cancelado");
 
   return (
     <>
@@ -283,7 +344,9 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
             {/* Resumo financeiro */}
             <div className="grid grid-cols-3 gap-3 rounded-md border bg-muted/30 p-3">
               <div>
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Valor original</p>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Valor original
+                </p>
                 <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
                   {formatBRL(valorTotal)}
                 </p>
@@ -356,9 +419,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
                     </Field>
                     {(lancamento.cliente_documento || lancamento.fornecedor_documento) && (
                       <Field icon={IdCard} label="CPF/CNPJ">
-                        {formatDoc(
-                          lancamento.cliente_documento ?? lancamento.fornecedor_documento,
-                        )}
+                        {formatDoc(lancamento.cliente_documento ?? lancamento.fornecedor_documento)}
                       </Field>
                     )}
                     {(lancamento.cliente_telefone || lancamento.fornecedor_telefone) && (
@@ -509,13 +570,40 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
           </div>
 
           <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-between">
-            <Button
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={cancelarTitulo.isPending}
-            >
-              Fechar
-            </Button>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={cancelarTitulo.isPending}
+              >
+                Fechar
+              </Button>
+              {podeEditar && (
+                <Button variant="outline" onClick={() => setEditOpen(true)} className="gap-1.5">
+                  <Pencil className="h-4 w-4" />
+                  Editar
+                </Button>
+              )}
+              {podeExcluir && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    if (
+                      confirm(
+                        "Excluir DEFINITIVAMENTE este lançamento? Esta ação não pode ser desfeita.",
+                      )
+                    ) {
+                      excluirLancamento.mutate();
+                    }
+                  }}
+                  disabled={excluirLancamento.isPending}
+                  className="gap-1.5 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Excluir
+                </Button>
+              )}
+            </div>
             <div className="flex flex-col gap-2 sm:flex-row">
               {!jaResolvido && (
                 <Button
@@ -601,6 +689,34 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
         tipo={lancamento.tipo}
         modoTotal={pagamentoModoTotal}
       />
+
+      {/* Edição: só monta o form quando temos os IDs FK carregados, evitando
+          renderizar com cliente/fornecedor/categoria zerados. */}
+      {editOpen && lancamentoFks && (
+        <LancamentoFormDialog
+          mode="edit"
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          lancamento={{
+            id: lancamentoFks.id,
+            tipo: lancamentoFks.tipo,
+            descricao: lancamentoFks.descricao,
+            valor: Number(lancamentoFks.valor ?? 0),
+            data_vencimento: lancamentoFks.data_vencimento,
+            data_emissao: lancamentoFks.data_emissao,
+            categoria_id: lancamentoFks.categoria_id,
+            cliente_id: lancamentoFks.cliente_id,
+            fornecedor_id: lancamentoFks.fornecedor_id,
+            numero_documento: lancamentoFks.numero_documento,
+            forma_pagamento: lancamentoFks.forma_pagamento,
+            observacoes: lancamentoFks.observacoes,
+          }}
+          onSaved={() => {
+            // O dialog de detalhe fica desatualizado; fecha pra o usuário reabrir limpo.
+            onOpenChange(false);
+          }}
+        />
+      )}
     </>
   );
 }
