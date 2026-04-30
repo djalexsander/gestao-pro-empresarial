@@ -42,7 +42,11 @@ interface ProdutosAdapter {
 
 interface VendasAdapter {
   /** Idempotente quando `input.client_uuid` é enviado (recomendado). */
-  finalizar(input: FinalizarVendaInput): Promise<string /* venda_id */>;
+  finalizar(input: FinalizarVendaInput):           Promise<string /* venda_id */>;
+  /** Cancela a venda + estorna estoque + cancela lançamentos vinculados. */
+  cancelar(input: CancelarVendaInput):             Promise<CancelarVendaResumo>;
+  /** Apaga venda já cancelada (delete físico, valida status no banco). */
+  excluirCancelada(vendaId: string):               Promise<ExcluirVendaCanceladaResult>;
 }
 
 interface CaixaAdapter {
