@@ -42,6 +42,9 @@ export function MovimentacaoDialog({ open, onOpenChange, produtoIdInicial }: Mov
   const [quantidade, setQuantidade] = useState<string>("");
   const [custo, setCusto] = useState<string>("");
   const [observacoes, setObservacoes] = useState<string>("");
+  // UUID estável por modal aberto → garante idempotência contra
+  // duplo clique, Enter repetido e retry de rede.
+  const [clientUuid, setClientUuid] = useState<string>("");
 
   useEffect(() => {
     if (open) {
@@ -50,6 +53,7 @@ export function MovimentacaoDialog({ open, onOpenChange, produtoIdInicial }: Mov
       setQuantidade("");
       setCusto("");
       setObservacoes("");
+      setClientUuid(crypto.randomUUID());
     }
   }, [open, produtoIdInicial]);
 
@@ -87,7 +91,7 @@ export function MovimentacaoDialog({ open, onOpenChange, produtoIdInicial }: Mov
         quantidade: quantidadeAbs,
         custo_unitario: custo ? Number(custo) : null,
         observacoes: observacoes || null,
-        saldo_atual: saldoAtual,
+        client_uuid: clientUuid,
       });
       onOpenChange(false);
     } catch {/* toast já tratado */}

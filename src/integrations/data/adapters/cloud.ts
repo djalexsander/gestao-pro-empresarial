@@ -36,6 +36,8 @@ import type {
   ProdutoPluResult,
   ReabrirLancamentoResult,
   RegistrarMovimentoCaixaInput,
+  RegistrarMovimentoEstoqueInput,
+  RegistrarMovimentoEstoqueResult,
   RegistrarPagamentoLancamentoInput,
   RegistrarPagamentoLancamentoResult,
   RemoverPagamentoLancamentoResult,
@@ -431,9 +433,42 @@ const financeiro: DataAdapter["financeiro"] = {
   },
 };
 
+// =====================================================================
+// Estoque
+// =====================================================================
+const estoque: DataAdapter["estoque"] = {
+  async registrarMovimento(
+    input: RegistrarMovimentoEstoqueInput,
+  ): Promise<RegistrarMovimentoEstoqueResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc(
+      "registrar_movimento_estoque",
+      {
+        _produto_id: input.produto_id,
+        _variacao_id: input.variacao_id ?? null,
+        _tipo: input.tipo,
+        _quantidade: input.quantidade,
+        _custo_unitario: input.custo_unitario ?? null,
+        _observacoes: input.observacoes ?? null,
+        _origem: input.origem ?? "ajuste_manual",
+        _client_uuid: input.client_uuid ?? null,
+      },
+    );
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      movimento_id: String(d.movimento_id ?? ""),
+      idempotente: Boolean(d.idempotente),
+      saldo_anterior: Number(d.saldo_anterior ?? 0) || 0,
+      saldo_posterior: Number(d.saldo_posterior ?? 0) || 0,
+    };
+  },
+};
+
 export const cloudAdapter: DataAdapter = {
   produtos,
   vendas,
   caixa,
   financeiro,
+  estoque,
 };
