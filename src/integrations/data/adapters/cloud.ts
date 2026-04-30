@@ -309,8 +309,131 @@ const caixa: DataAdapter["caixa"] = {
   },
 };
 
+// =====================================================================
+// Financeiro / Lançamentos
+// =====================================================================
+const financeiro: DataAdapter["financeiro"] = {
+  async registrarPagamento(
+    input: RegistrarPagamentoLancamentoInput,
+  ): Promise<RegistrarPagamentoLancamentoResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc(
+      "registrar_pagamento_lancamento",
+      {
+        _lancamento_id: input.lancamento_id,
+        _valor: input.valor,
+        _data_pagamento: input.data_pagamento,
+        _forma_pagamento: input.forma_pagamento ?? null,
+        _observacao: input.observacao ?? null,
+        _client_uuid: input.client_uuid ?? null,
+      },
+    );
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      pagamento_id: String(d.pagamento_id ?? ""),
+      lancamento_id: String(d.lancamento_id ?? input.lancamento_id),
+      idempotente: Boolean(d.idempotente),
+    };
+  },
+
+  async removerPagamento(
+    pagamentoId: string,
+  ): Promise<RemoverPagamentoLancamentoResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc(
+      "remover_pagamento_lancamento",
+      { _pagamento_id: pagamentoId },
+    );
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      removido: Boolean(d.removido),
+      idempotente: d.idempotente as boolean | undefined,
+      lancamento_id: d.lancamento_id as string | undefined,
+    };
+  },
+
+  async cancelarLancamento(
+    input: CancelarLancamentoInput,
+  ): Promise<CancelarLancamentoResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("cancelar_lancamento", {
+      _lancamento_id: input.lancamento_id,
+      _motivo: input.motivo ?? null,
+    });
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      lancamento_id: String(d.lancamento_id ?? input.lancamento_id),
+      idempotente: Boolean(d.idempotente),
+    };
+  },
+
+  async reabrirLancamento(lancamentoId: string): Promise<ReabrirLancamentoResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("reabrir_lancamento", {
+      _lancamento_id: lancamentoId,
+    });
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      lancamento_id: String(d.lancamento_id ?? lancamentoId),
+      novo_status: (d.novo_status as ReabrirLancamentoResult["novo_status"]) ?? "pendente",
+    };
+  },
+
+  async alterarVencimento(
+    input: AlterarVencimentoLancamentoInput,
+  ): Promise<AlterarVencimentoLancamentoResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc(
+      "alterar_vencimento_lancamento",
+      { _lancamento_id: input.lancamento_id, _nova_data: input.nova_data },
+    );
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      lancamento_id: String(d.lancamento_id ?? input.lancamento_id),
+      data_vencimento: String(d.data_vencimento ?? input.nova_data),
+    };
+  },
+
+  async conciliarIfoodIndividual(
+    input: ConciliarIfoodIndividualInput,
+  ): Promise<unknown> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc(
+      "conciliar_ifood_lancamento",
+      {
+        _lancamento_id: input.lancamento_id,
+        _data_repasse: input.data_repasse,
+        _valor_repasse: input.valor_repasse,
+        _numero_repasse: input.numero_repasse ?? undefined,
+        _observacao: input.observacao ?? undefined,
+      },
+    );
+    if (error) throw error;
+    return data;
+  },
+
+  async conciliarIfoodLote(input: ConciliarIfoodLoteInput): Promise<unknown> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("conciliar_ifood_lote", {
+      _lancamento_ids: input.lancamento_ids,
+      _data_repasse: input.data_repasse,
+      _valor_repasse_total: input.valor_repasse_total,
+      _numero_repasse: input.numero_repasse ?? undefined,
+      _observacao: input.observacao ?? undefined,
+    });
+    if (error) throw error;
+    return data;
+  },
+};
+
 export const cloudAdapter: DataAdapter = {
   produtos,
   vendas,
   caixa,
+  financeiro,
 };
