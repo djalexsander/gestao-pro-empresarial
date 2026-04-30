@@ -65,6 +65,9 @@ export function RegistrarPagamentoDialog({
   const [data, setData] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [forma, setForma] = useState<FormaPag>("dinheiro");
   const [obs, setObs] = useState<string>("");
+  // client_uuid estável por modal aberto: garante idempotência contra
+  // duplo-clique, Enter repetido e retry de rede. Reset ao reabrir.
+  const [clientUuid, setClientUuid] = useState<string>("");
 
   useEffect(() => {
     if (open) {
@@ -73,6 +76,7 @@ export function RegistrarPagamentoDialog({
       setData(new Date().toISOString().slice(0, 10));
       setForma("dinheiro");
       setObs("");
+      setClientUuid(crypto.randomUUID());
     }
   }, [open, modoTotal, saldoRestante, valorTotal]);
 
@@ -85,22 +89,14 @@ export function RegistrarPagamentoDialog({
 
   const salvar = useMutation({
     mutationFn: async () => {
-      const { data: u } = await supabase.auth.getUser();
-      // Tabela nova; types ainda não regenerados → cast controlado
-      const { error } = await (supabase.from as unknown as (
-        t: string,
-      ) => {
-        insert: (rows: Record<string, unknown>) => Promise<{ error: { message: string } | null }>;
-      })("lancamento_pagamentos").insert({
-        owner_id: ownerId,
+      await dataClient.financeiro.registrarPagamento({
         lancamento_id: lancamentoId,
         valor: valorNum,
         data_pagamento: data,
         forma_pagamento: forma,
         observacao: obs.trim() || null,
-        registrado_por: u.user?.id ?? null,
+        client_uuid: clientUuid || null,
       });
-      if (error) throw new Error(error.message);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["financeiro_lancamentos"] });
