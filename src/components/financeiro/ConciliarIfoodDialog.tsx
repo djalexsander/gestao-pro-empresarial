@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 import { formatBRL } from "@/lib/mock-data";
 
 type Mode = "individual" | "lote";
