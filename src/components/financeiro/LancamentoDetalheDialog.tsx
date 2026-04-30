@@ -142,6 +142,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
   const [conciliarOpen, setConciliarOpen] = useState(false);
   const [pagamentoOpen, setPagamentoOpen] = useState(false);
   const [pagamentoModoTotal, setPagamentoModoTotal] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   // owner_id atual (usuário autenticado) para inserção do pagamento
   const { data: ownerId = "" } = useQuery({
