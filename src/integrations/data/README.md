@@ -45,9 +45,18 @@ interface VendasAdapter {
   finalizar(input: FinalizarVendaInput): Promise<string /* venda_id */>;
 }
 
+interface CaixaAdapter {
+  abrir(input: AbrirCaixaInput):                       Promise<string /* caixa_id */>;
+  fechar(input: FecharCaixaInput):                     Promise<FecharCaixaResult>;
+  /** Idempotente quando `input.client_uuid` é enviado (recomendado). */
+  registrarMovimento(input: RegistrarMovimentoCaixaInput): Promise<string>;
+  excluir(caixaId: string):                            Promise<unknown>;
+}
+
 interface DataAdapter {
   produtos: ProdutosAdapter;
   vendas:   VendasAdapter;
+  caixa:    CaixaAdapter;
 }
 ```
 
