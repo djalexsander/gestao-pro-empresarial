@@ -192,13 +192,42 @@ para evitar exclusão concorrente.
 - **Exclusão protegida**: `excluir_venda_cancelada` recusa qualquer venda
   fora de `status='cancelada'` e usa `FOR UPDATE` para serializar.
 
+## Alterar status da venda (`vendas.alterarStatus`)
+
+Migra `useAlterarStatusVenda` para o adapter, reaproveitando a RPC
+`alterar_status_venda` (que já era SECURITY DEFINER, atômica, e valida
+permissão por `acessa_owner_id`).
+
+**Estados suportados**: `pago` · `pendente` · `parcial` · `vencido` · `cancelado`.
+
+**Idempotência por estado** (não por chave): a RPC sempre converge cada
+lançamento vinculado ao estado-alvo; chamadas repetidas com o mesmo
+`novo_status` não acumulam efeito.
+
+| Novo status  | Efeito em `financeiro_lancamentos`                                 | Efeito em `lancamento_pagamentos`                              |
+|--------------|---------------------------------------------------------------------|----------------------------------------------------------------|
+| `pago`       | quita saldo restante (`valor - valor_pago`)                         | INSERT do saldo restante; nada se já está quitado              |
+| `pendente`   | `status='pendente'`, `valor_pago=0`, `data_pagamento=NULL`          | DELETE de todos os pagamentos                                  |
+| `parcial`    | mantém `valor_pago`; força status coerente                          | mantém                                                         |
+| `vencido`    | força `pendente` (vencido é derivado do `data_vencimento`)          | mantém                                                         |
+| `cancelado`  | `status='cancelado'` (NÃO mexe em estoque nem na venda)             | mantém histórico                                               |
+
+**Restrição importante**: vendas com `status='cancelada'` não podem ter status
+alterado por aqui — `RAISE EXCEPTION` no banco. Para cancelamento real (com
+estorno de estoque), use `vendas.cancelar`.
+
+**Diferença vs. `vendas.cancelar`**: `alterarStatus({novo_status:'cancelado'})`
+cancela apenas os LANÇAMENTOS (limpeza administrativa de pendência);
+`cancelar` cancela a VENDA, estorna estoque e marca lançamentos juntos.
+
 ### Próximos recomendados (writes)
 
-1. **`useAlterarStatusVenda`** — fluxo financeiro ↔ vendas (RPC
-   `alterar_status_venda` já existe; falta migrar).
-2. **`useFinanceiro` / `useLancamentos`** — escrita financeira independente
-   (registrar pagamento de fiado, baixa manual etc.).
-3. **`useEstoque` ajustes manuais** — entradas/saídas avulsas.
+1. **`useFinanceiro` / `useLancamentos`** — escrita financeira independente
+   (registrar pagamento de fiado, baixa manual, edição de vencimento).
+2. **`useEstoque` ajustes manuais** — entradas/saídas avulsas com
+   `client_uuid` para idempotência.
+3. **`useIfoodRepasses`** — conciliação de repasses (próximo write
+   transversal financeiro ↔ vendas).
 4. **`useRealtimeSync`** — abstrair a fonte realtime (Supabase Realtime ↔ WS LAN).
 
 ## Não-objetivos desta fase

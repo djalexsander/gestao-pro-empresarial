@@ -18,6 +18,8 @@
 
 import type {
   AbrirCaixaInput,
+  AlterarStatusVendaInput,
+  AlterarStatusVendaResult,
   CancelarVendaInput,
   CancelarVendaResumo,
   ExcluirVendaCanceladaResult,
@@ -95,6 +97,27 @@ export interface VendasAdapter {
    * Use com cautela: é um delete físico. RPC já valida no banco.
    */
   excluirCancelada(vendaId: string): Promise<ExcluirVendaCanceladaResult>;
+
+  /**
+   * Altera o status de uma venda **não cancelada**, refletindo a mudança em
+   * todos os lançamentos financeiros vinculados de forma atômica e idempotente
+   * por estado (a RPC sempre converge o lançamento ao estado-alvo, sem
+   * acumular efeitos por chamadas repetidas).
+   *
+   * Reflexos garantidos pela RPC:
+   *  - `vendas.status_pagamento` → atualizado.
+   *  - `financeiro_lancamentos`  → status/`valor_pago`/`data_pagamento`
+   *    convergidos para o novo estado.
+   *  - `lancamento_pagamentos`   → criados (quitação) ou removidos (volta a
+   *    pendente). Histórico de pagamentos é reconstruído conforme o estado.
+   *
+   * Restrições:
+   *  - Vendas com `status='cancelada'` NÃO podem ser alteradas por aqui.
+   *    Use `vendas.cancelar` para cancelamento real (com estorno de estoque).
+   *  - `cancelado` aqui cancela apenas os LANÇAMENTOS, NÃO a venda nem o
+   *    estoque — uso administrativo para limpar pendências.
+   */
+  alterarStatus(input: AlterarStatusVendaInput): Promise<AlterarStatusVendaResult>;
 }
 
 export interface CaixaAdapter {

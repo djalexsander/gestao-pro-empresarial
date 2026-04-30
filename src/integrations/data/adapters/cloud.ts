@@ -14,6 +14,8 @@ import { supabase } from "@/integrations/supabase/client";
 import type { DataAdapter } from "../adapter";
 import type {
   AbrirCaixaInput,
+  AlterarStatusVendaInput,
+  AlterarStatusVendaResult,
   CancelarVendaInput,
   CancelarVendaResumo,
   CodigoTipo,
@@ -27,6 +29,7 @@ import type {
   ProdutoComCategoria,
   ProdutoPluResult,
   RegistrarMovimentoCaixaInput,
+  StatusVendaEditavelDomain,
 } from "../types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -216,6 +219,29 @@ const vendas: DataAdapter["vendas"] = {
       venda_id: d.venda_id,
       numero: d.numero,
       excluida_em: d.excluida_em,
+    };
+  },
+
+  async alterarStatus(
+    input: AlterarStatusVendaInput,
+  ): Promise<AlterarStatusVendaResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("alterar_status_venda", {
+      _venda_id: input.venda_id,
+      _novo_status: input.novo_status,
+      _motivo: input.motivo ?? null,
+    });
+    if (error) throw error;
+    // RPC retorna jsonb livre — normalizamos os campos comuns e mantemos o
+    // payload bruto em `raw` para auditoria/debug.
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      venda_id: (d.venda_id as string) ?? input.venda_id,
+      novo_status:
+        (d.novo_status as StatusVendaEditavelDomain) ?? input.novo_status,
+      qtd_lancamentos_alterados:
+        Number(d.qtd_lancamentos_alterados ?? d.qtd_alterados ?? 0) || 0,
+      raw: d,
     };
   },
 };
