@@ -810,3 +810,46 @@ Quando bloqueado, RPC retorna `23503` com mensagem clara mencionando a contagem 
 6. **Auditoria unificada** (`audit_logs` via trigger) cobrindo todos os cadastros já migrados.
 7. **Abstração de leitura** (`useQuery` → `dataClient.*.list/get`) — pré-requisito para o cenário servidor local + terminais em rede.
 
+
+## Bloco 14 — Lotes de produto
+
+### Diagnóstico do fluxo atual
+
+- A tabela `lotes_produto` já existia com vínculos opcionais a `produto_id`/`variacao_id` e era atualizada apenas indiretamente por compras/movimentos. **Não havia CRUD pela UI** — gap mapeado no Bloco 9 e fechado agora.
+- Adicionado `client_uuid` em `lotes_produto` + índice único parcial `(owner_id, client_uuid)` para idempotência.
+- Quatro RPCs novas (todas `SECURITY DEFINER`, validando tenant via `auth.uid()`):
+  - `criar_lote_produto` — cria o lote e, se `_registrar_entrada=true`, gera uma `estoque_movimentacao` tipo `entrada`/origem `outro` em uma única transação.
+  - `editar_lote_produto` — `produto_id` é **imutável**; `variacao_id` e `quantidade_inicial` só podem mudar se o lote ainda **não tem vínculos** (sem movimentos/compras/vendas), via helper `_lote_tem_vinculo`. Validida data fab ≤ data validade e custo ≥ 0.
+  - `ajustar_quantidade_lote` — única forma segura de mexer em saldo depois que já existe movimento. Gera `estoque_movimentacao` tipo `ajuste` com a diferença, sem reescrever histórico.
+  - `excluir_lote_produto` — hard delete, **bloqueado** por `_lote_tem_vinculo` (qualquer movimento/compra/venda). Quando bloqueado, orienta a usar `ajustar_quantidade_lote(0)` para zerar saldo.
+- Leitura via view `lotes_produto_com_saldo` (security_invoker → herda RLS de `lotes_produto`):
+  - `saldo_real` recalculado a partir de `estoque_movimentacoes` (entrada/devolução positivos; saída/transferência negativos; ajuste sinalizado por `saldo_posterior` vs `saldo_anterior`).
+  - `status_validade` derivado de `data_validade`: `vencido` / `critico` (≤ 7d) / `alerta` (≤ 30d) / `ok` / `null`.
+- Hook `useLotes` (read) + `useCreateLote` / `useUpdateLote` / `useAjustarQuantidadeLote` / `useDeleteLote` (writes), todos delegando para `dataClient.lotes`.
+
+### Garantias de consistência
+
+- **Idempotência em `criar` e `ajustarQuantidade`** via `client_uuid`. Reenvio do mesmo UUID retorna o id existente — cobre duplo clique, retry de rede e double-submit.
+- **Lock por lote**: `editar` e `ajustarQuantidade` fazem `SELECT ... FOR UPDATE` antes de mexer. Dois terminais ajustando o mesmo lote são serializados.
+- **Saldo é fonte derivada**: a coluna `quantidade_atual` na tabela existe por compatibilidade com triggers antigos, mas o **saldo real** vem da view (`saldo_real`). Isso evita drift entre o que o lote “acha que tem” e o que as movimentações dizem.
+- **`produto_id` imutável**: trocar produto de um lote criaria inconsistência histórica. Forçar criar um lote novo é a regra correta.
+- **Variação coerente com produto**: `criar` e `editar` validam que a `variacao_id` informada pertence ao mesmo `produto_id`.
+- **Datas validadas**: `data_fabricacao ≤ data_validade` e `custo_unitario ≥ 0`.
+- **Tenant resolvido server-side**: nenhuma RPC aceita `owner_id` do cliente.
+
+### Riscos encontrados
+
+- **`quantidade_atual` na tabela continua existindo** mas pode divergir do `saldo_real` da view se algum write antigo gravar direto. Mitigação: toda gravação nova passa pelas RPCs deste bloco; a UI deve sempre ler da view, nunca de `lotes_produto.quantidade_atual` diretamente. Documentado como “coluna legacy”.
+- **Sem alocação automática FIFO/FEFO**: a UI ainda não escolhe lote ao vender/dar baixa. Quando isso entrar (PDV com rastreio por lote), será preciso outro bloco para vincular `lote_id` automaticamente em `estoque_movimentacoes` por venda. Hoje o `lote_id` em movimentos é populado só quando o usuário escolhe explicitamente.
+- **Soft-delete não existe** para lote — só hard delete. Decisão consciente: lotes vencidos/zerados ficam visíveis no histórico via view; se incomodar, basta filtrar `saldo_real > 0` (suportado pelo hook).
+- **Cascata de exclusão** depende totalmente do bloqueio por vínculo. Se algum dia `estoque_movimentacoes.lote_id` virar `ON DELETE SET NULL`, a regra atual ainda protege (a exclusão é bloqueada antes), mas perderia a 2ª linha de defesa. Manter o `_lote_tem_vinculo` como autoridade.
+- **Concorrência exclusão vs. movimento**: janela curtíssima entre `_lote_tem_vinculo()` e o `DELETE` em READ COMMITTED — mesmo padrão já aceito em categorias. Se virar problema real, `SERIALIZABLE` resolve.
+
+### Próximos passos recomendados (depois do Bloco 14)
+
+1. **Abstração de leitura + Realtime** (`useQuery` → `dataClient.*.list/get` + canal único de invalidação): pré-requisito para servidor local + terminais em rede sem reescrever hooks. Última peça arquitetural pendente.
+2. **UI de lotes** (listagem por produto, criar/editar/ajustar/excluir, alertas de validade) — agora destravada pelo hook `useLotes`.
+3. **Alocação por lote no PDV/baixas** — vincular `lote_id` automaticamente em `estoque_movimentacoes` (FIFO por validade, ou seleção manual no PDV).
+4. **Painel admin de lockouts** — usar `desbloquearPin` (Bloco 11).
+5. **UI de gerenciamento de categorias** (produto e financeira) — Bloco 12 ainda sem tela própria.
+6. **Auditoria unificada** (`audit_logs` via trigger) cobrindo todos os cadastros já migrados (cliente, fornecedor, produto, funcionário, categorias, lotes).
