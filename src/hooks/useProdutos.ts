@@ -49,14 +49,14 @@ export function useCategorias() {
 
 export function useCreateCategoria() {
   const qc = useQueryClient();
-  const { user } = useAuth();
   return useMutation({
-    mutationFn: async (nome: string) => {
-      if (!user) throw new Error("Não autenticado");
+    mutationFn: async (nome: string): Promise<Categoria> => {
+      const client_uuid = crypto.randomUUID();
+      const r = await dataClient.produtos.criarCategoria({ nome, client_uuid });
       const { data, error } = await supabase
         .from("categorias_produto")
-        .insert({ nome: nome.trim(), owner_id: user.id })
-        .select()
+        .select("id, nome, parent_id, ativo")
+        .eq("id", r.categoria_id)
         .single();
       if (error) throw error;
       return data as Categoria;
