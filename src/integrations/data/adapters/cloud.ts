@@ -961,10 +961,15 @@ const funcionarios: DataAdapter["funcionarios"] = {
   },
 
   async validarPin(input) {
+    // Bloco 11: passa contexto opcional de terminal/UA para auditoria.
+    // A regra de lockout é por funcionário (server-side), não por terminal.
     const { data, error } = await supabase.rpc("funcionario_validar_pin", {
       _funcionario_id: input.funcionario_id,
       _pin: input.pin,
-    });
+      _terminal_id: input.terminal_id ?? null,
+      _ip_address: input.ip_address ?? null,
+      _user_agent: input.user_agent ?? null,
+    } as never);
     if (error) throw error;
     const d = (data ?? {}) as Record<string, unknown>;
     return {
@@ -972,6 +977,18 @@ const funcionarios: DataAdapter["funcionarios"] = {
       nome: String(d.nome ?? ""),
       login: String(d.login ?? ""),
       role: (d.role as "gerente" | "caixa") ?? "caixa",
+    };
+  },
+
+  async desbloquearPin(input) {
+    const { data, error } = await supabase.rpc("funcionario_desbloquear_pin", {
+      _funcionario_id: input.funcionario_id,
+    } as never);
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      funcionario_id: String(d.funcionario_id ?? input.funcionario_id),
+      desbloqueado: Boolean(d.desbloqueado),
     };
   },
 };

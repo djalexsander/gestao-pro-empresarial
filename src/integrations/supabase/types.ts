@@ -1222,6 +1222,75 @@ export type Database = {
         }
         Relationships: []
       }
+      funcionario_lockouts: {
+        Row: {
+          bloqueado_ate: string | null
+          funcionario_id: string
+          janela_iniciada_em: string | null
+          owner_id: string
+          tentativas_na_janela: number
+          total_bloqueios: number
+          ultima_tentativa_em: string | null
+          updated_at: string
+        }
+        Insert: {
+          bloqueado_ate?: string | null
+          funcionario_id: string
+          janela_iniciada_em?: string | null
+          owner_id: string
+          tentativas_na_janela?: number
+          total_bloqueios?: number
+          ultima_tentativa_em?: string | null
+          updated_at?: string
+        }
+        Update: {
+          bloqueado_ate?: string | null
+          funcionario_id?: string
+          janela_iniciada_em?: string | null
+          owner_id?: string
+          tentativas_na_janela?: number
+          total_bloqueios?: number
+          ultima_tentativa_em?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      funcionario_tentativas_pin: {
+        Row: {
+          client_uuid: string | null
+          created_at: string
+          funcionario_id: string
+          id: string
+          ip_address: string | null
+          owner_id: string
+          sucesso: boolean
+          terminal_id: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          client_uuid?: string | null
+          created_at?: string
+          funcionario_id: string
+          id?: string
+          ip_address?: string | null
+          owner_id: string
+          sucesso: boolean
+          terminal_id?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          client_uuid?: string | null
+          created_at?: string
+          funcionario_id?: string
+          id?: string
+          ip_address?: string | null
+          owner_id?: string
+          sucesso?: boolean
+          terminal_id?: string | null
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
       funcionarios: {
         Row: {
           ativo: boolean
@@ -3420,6 +3489,10 @@ export type Database = {
             }
             Returns: Json
           }
+      funcionario_desbloquear_pin: {
+        Args: { _funcionario_id: string }
+        Returns: Json
+      }
       funcionario_editar: {
         Args: {
           _funcionario_id: string
@@ -3435,7 +3508,13 @@ export type Database = {
         Returns: undefined
       }
       funcionario_validar_pin: {
-        Args: { _funcionario_id: string; _pin: string }
+        Args: {
+          _funcionario_id: string
+          _ip_address?: string
+          _pin: string
+          _terminal_id?: string
+          _user_agent?: string
+        }
         Returns: Json
       }
       funcionarios_listar: {

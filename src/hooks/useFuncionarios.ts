@@ -163,13 +163,36 @@ export function useExcluirFuncionario() {
   });
 }
 
-/** Valida o PIN de um funcionário. Retorna a sessão do operador. */
+/**
+ * Valida o PIN de um funcionário. Retorna a sessão do operador.
+ *
+ * **Bloco 11 — Rate limit / lockout:**
+ *  - O servidor registra cada tentativa em `funcionario_tentativas_pin` e
+ *    aplica bloqueio temporário (5 falhas em 10 min => 15 min de lockout).
+ *  - O `error.message` já vem com mensagem clara para mostrar no toast:
+ *      * `"PIN incorreto. N tentativa(s) restante(s)."`
+ *      * `"Operador temporariamente bloqueado. Tente novamente em N segundo(s)."`
+ *      * `"Muitas tentativas inválidas. Operador bloqueado por N segundo(s)."`
+ *  - O parâmetro `terminalId` é opcional e usado só para auditoria.
+ */
 export async function validarPinOperador(
   funcionarioId: string,
   pin: string,
+  terminalId?: string | null,
 ): Promise<OperadorSessao> {
   return dataClient.funcionarios.validarPin({
     funcionario_id: funcionarioId,
     pin,
+    terminal_id: terminalId ?? null,
+    user_agent:
+      typeof navigator !== "undefined" ? navigator.userAgent ?? null : null,
   });
+}
+
+/**
+ * Desbloqueia manualmente um operador antes do prazo. Apenas owner/admin
+ * da empresa pode chamar (validado server-side). Útil para painel admin.
+ */
+export async function desbloquearPinOperador(funcionarioId: string) {
+  return dataClient.funcionarios.desbloquearPin({ funcionario_id: funcionarioId });
 }

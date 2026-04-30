@@ -861,7 +861,41 @@ export interface ResetarPinFuncionarioInput {
   pin: string;
 }
 
+/**
+ * Input de validação de PIN.
+ *
+ * **Bloco 11 — Rate limit / lockout:**
+ *   - Toda tentativa (válida ou não) é registrada em `funcionario_tentativas_pin`
+ *     server-side (auditoria + base para rate limit).
+ *   - 5 falhas em 10 min => operador é bloqueado por 15 min.
+ *   - Mesmo no bloqueio o PIN NÃO é comparado — a RPC recusa antes.
+ *   - Mensagens de erro (lançadas como exception, capturadas no toast da UI):
+ *       * `"PIN incorreto. N tentativa(s) restante(s)."`  (ERRCODE P0001)
+ *       * `"Operador temporariamente bloqueado. Tente novamente em N segundo(s)."` (ERRCODE P0003)
+ *       * `"Muitas tentativas inválidas. Operador bloqueado por N segundo(s)."`    (ERRCODE P0003)
+ *
+ * Os campos `terminal_id`, `ip_address` e `user_agent` são opcionais e
+ * usados apenas para o log de auditoria — NÃO afetam a regra de bloqueio,
+ * que é por funcionário (e não por terminal). Isso é proposital: trocar
+ * de terminal não deve permitir continuar tentando PIN do mesmo operador.
+ */
 export interface ValidarPinOperadorInput {
   funcionario_id: string;
   pin: string;
+  terminal_id?: string | null;
+  ip_address?: string | null;
+  user_agent?: string | null;
+}
+
+/**
+ * Desbloqueio manual de PIN por gerente/admin (Bloco 11).
+ * Permitido apenas para owner ou membro com papel `owner`/`admin` da empresa.
+ */
+export interface DesbloquearPinOperadorInput {
+  funcionario_id: string;
+}
+
+export interface DesbloquearPinOperadorResult {
+  funcionario_id: string;
+  desbloqueado: boolean;
 }
