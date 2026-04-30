@@ -100,6 +100,32 @@ import type {
   AlterarStatusCategoriaFinanceiraInput,
   AlterarStatusCategoriaFinanceiraResult,
   ExcluirCategoriaFinanceiraResult,
+  // Reads (Bloco 15)
+  CaixaAbertoFiltro,
+  CaixaDomain,
+  CaixaMovimentoDomain,
+  CaixaResumoDomain,
+  CategoriaFinanceiraDomain,
+  CategoriaProdutoDomain,
+  CategoriasFinanceirasListInput,
+  CategoriasProdutoListInput,
+  ClienteDomain,
+  ClienteHistoricoVendaDomain,
+  ClienteLiteDomain,
+  ClienteMetricasDomain,
+  ClientesListInput,
+  ClientesLiteListInput,
+  EstoqueSaldoLinha,
+  FornecedorDomain,
+  FornecedoresListInput,
+  FuncionarioDomain,
+  FuncionariosListInput,
+  LoteComSaldoDomain,
+  LotesListInput,
+  MovimentacaoEstoqueDomain,
+  MovimentacoesListInput,
+  ProdutoComVariacoes,
+  ProdutosListInput,
 } from "./types";
 
 export interface ProdutosAdapter {
@@ -119,8 +145,20 @@ export interface ProdutosAdapter {
   /**
    * Lista todos os produtos do tenant, com a categoria já “joinada”,
    * ordenados por nome.
+   *
+   * @deprecated Bloco 15: prefira `list()` com filtros tipados. Mantido por
+   * compat enquanto callers antigos não migram.
    */
   listar(): Promise<ProdutoComCategoria[]>;
+
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  /**
+   * Lista produtos com filtros tipados. Hoje implementação cloud aplica os
+   * filtros server-side (Supabase); amanhã a impl local pode aplicar local.
+   */
+  list(input?: ProdutosListInput): Promise<ProdutoComCategoria[]>;
+  /** Busca por id, com variações já “joinadas”. Retorna `null` se não encontrar. */
+  get(produtoId: string): Promise<ProdutoComVariacoes | null>;
 
   // ---------------------------- Writes ----------------------------
 
@@ -290,6 +328,20 @@ export interface CaixaAdapter {
    * Encaminhado direto para a função do banco — toda regra fica lá.
    */
   excluir(caixaId: string): Promise<unknown>;
+
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  /**
+   * Caixa aberto do tenant. `operador_id` `null` = caixa do admin direto;
+   * `qualquer: true` retorna o caixa aberto mais recente independente
+   * de operador (usado pelo painel admin /caixa).
+   */
+  aberto(filtro: CaixaAbertoFiltro): Promise<CaixaDomain | null>;
+  /** Resumo ao vivo (RPC `caixa_resumo`). */
+  resumo(caixaId: string): Promise<CaixaResumoDomain | null>;
+  /** Histórico de caixas, mais recentes primeiro. */
+  historico(input?: { limit?: number }): Promise<CaixaDomain[]>;
+  /** Movimentos de um caixa específico (cronológico). */
+  movimentos(caixaId: string): Promise<CaixaMovimentoDomain[]>;
 }
 
 /**
@@ -417,6 +469,16 @@ export interface EstoqueAdapter {
   registrarMovimento(
     input: RegistrarMovimentoEstoqueInput,
   ): Promise<RegistrarMovimentoEstoqueResult>;
+
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  /**
+   * Linhas mínimas para calcular saldo agregado por produto. Hoje retorna
+   * tudo (típico = poucas centenas a poucos milhares por tenant) — quando
+   * crescer, o adapter local pode calcular o saldo já agregado.
+   */
+  saldosLinhas(): Promise<EstoqueSaldoLinha[]>;
+  /** Histórico de movimentações com produto “joinado”. */
+  movimentacoes(input?: MovimentacoesListInput): Promise<MovimentacaoEstoqueDomain[]>;
 }
 
 /**
@@ -451,6 +513,29 @@ export interface ClientesAdapter {
    * a usar `alterarStatus('inativo')`. Garante zero inconsistência histórica.
    */
   excluir(clienteId: string): Promise<ExcluirClienteResult>;
+
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  /** Lista completa para tela de gerenciamento. */
+  list(input?: ClientesListInput): Promise<ClienteDomain[]>;
+  /**
+   * Lista resumida (id/nome/fantasia/documento), default só ativos.
+   * Usada no PDV / selects de combo.
+   */
+  listLite(input?: ClientesLiteListInput): Promise<ClienteLiteDomain[]>;
+  /** Busca por id (lança se não encontrar). */
+  get(clienteId: string): Promise<ClienteDomain>;
+  /** Métricas agregadas por cliente (RPC `cliente_metricas`). */
+  metricas(): Promise<Map<string, ClienteMetricasDomain>>;
+  /** Histórico de vendas de 1 cliente (mais recentes, limit ~50). */
+  historico(clienteId: string): Promise<ClienteHistoricoVendaDomain[]>;
+  /**
+   * Busca duplicidade de documento. Retorna o cliente conflitante ou `null`.
+   * `ignoreId` permite excluir o próprio em edição.
+   */
+  checkDocumentoDuplicado(
+    documento: string,
+    ignoreId?: string | null,
+  ): Promise<ClienteDomain | null>;
 }
 
 /**
@@ -466,6 +551,10 @@ export interface FornecedoresAdapter {
    * Quando bloqueado, oriente o usuário a inativar via `alterarStatus`.
    */
   excluir(fornecedorId: string): Promise<ExcluirFornecedorResult>;
+
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  list(input?: FornecedoresListInput): Promise<FornecedorDomain[]>;
+  get(fornecedorId: string): Promise<FornecedorDomain>;
 }
 
 /**
@@ -511,6 +600,10 @@ export interface FuncionariosAdapter {
    * owner/admin da empresa.
    */
   desbloquearPin(input: DesbloquearPinOperadorInput): Promise<DesbloquearPinOperadorResult>;
+
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  /** Lista funcionários do tenant. RPC `funcionarios_listar`. */
+  list(input?: FuncionariosListInput): Promise<FuncionarioDomain[]>;
 }
 
 /**
@@ -529,6 +622,10 @@ export interface CategoriasProdutoAdapter {
   ): Promise<AlterarStatusCategoriaProdutoResult>;
   /** Hard delete bloqueado por vínculos (produtos, subcategorias). */
   excluir(categoriaId: string): Promise<ExcluirCategoriaProdutoResult>;
+
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  /** Default: somente ativas. Para tela de gerenciamento, passar `incluir_inativas: true`. */
+  list(input?: CategoriasProdutoListInput): Promise<CategoriaProdutoDomain[]>;
 }
 
 /**
@@ -547,6 +644,10 @@ export interface CategoriasFinanceirasAdapter {
     input: AlterarStatusCategoriaFinanceiraInput,
   ): Promise<AlterarStatusCategoriaFinanceiraResult>;
   excluir(categoriaId: string): Promise<ExcluirCategoriaFinanceiraResult>;
+
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  /** Filtro opcional por tipo (receita/despesa) e por incluir inativas. */
+  list(input?: CategoriasFinanceirasListInput): Promise<CategoriaFinanceiraDomain[]>;
 }
 
 /**
@@ -563,6 +664,10 @@ export interface LotesAdapter {
     input: import("./types").AjustarQuantidadeLoteInput,
   ): Promise<import("./types").AjustarQuantidadeLoteResult>;
   excluir(loteId: string): Promise<import("./types").ExcluirLoteProdutoResult>;
+
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  /** Leitura via view `lotes_produto_com_saldo`. */
+  list(input?: LotesListInput): Promise<LoteComSaldoDomain[]>;
 }
 
 export interface DataAdapter {
