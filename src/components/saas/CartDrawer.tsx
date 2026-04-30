@@ -66,7 +66,10 @@ export function CartDrawer() {
       if (cobErr) {
         // A mensagem útil vem no body da resposta, não no error.message.
         const ctx = (cobErr as { context?: { response?: Response } })?.context;
-        let detalhe = cobErr.message ?? "Falha ao gerar Pix";
+        let detalhe =
+          cobErr.message && cobErr.message !== "Edge Function returned a non-2xx status code"
+            ? cobErr.message
+            : "Não foi possível criar a cobrança Pix. Confira o CNPJ/CPF em Configurações → Empresa e tente novamente.";
         if (ctx?.response) {
           try {
             const body = await ctx.response.clone().json();

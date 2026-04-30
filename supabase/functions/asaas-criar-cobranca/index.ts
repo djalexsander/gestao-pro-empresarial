@@ -144,6 +144,14 @@ Deno.serve(async (req) => {
     return json(403, { error: "Sem permissão para esta empresa" });
   }
 
+  // A tela Configurações → Empresa salva os dados fiscais em configuracoes_empresa.
+  // Usa esses dados como fonte preferencial para não exigir duplicação manual em empresas.
+  const { data: configEmpresa } = await supabase
+    .from("configuracoes_empresa")
+    .select("razao_social, nome_fantasia, cnpj, email, telefone")
+    .eq("owner_id", empresa.owner_id)
+    .maybeSingle();
+
   // Idempotência: se já tem cobrança criada, retorna a existente
   if (pagamento.asaas_payment_id) {
     return json(200, {
@@ -158,29 +166,36 @@ Deno.serve(async (req) => {
   // 1) Garantir customer Asaas
   let customerId = empresa.asaas_customer_id;
   if (!customerId) {
-    const cpfCnpj = (empresa.documento ?? "").replace(/\D/g, "");
+    const cpfCnpj = (configEmpresa?.cnpj ?? empresa.documento ?? "").replace(/\D/g, "");
     if (!cpfCnpj || (cpfCnpj.length !== 11 && cpfCnpj.length !== 14)) {
       return json(400, {
         error:
           "Para gerar a cobrança Pix, cadastre o CNPJ ou CPF da empresa em Configurações → Empresa.",
       });
     }
+    const nomeCliente =
+      configEmpresa?.razao_social || configEmpresa?.nome_fantasia || empresa.nome;
     try {
       const created = await asaasFetch(baseUrl, "/customers", {
         method: "POST",
         body: JSON.stringify({
-          name: empresa.nome,
+          name: nomeCliente,
           cpfCnpj,
-          email: empresa.email ?? undefined,
-          mobilePhone: empresa.telefone ?? undefined,
-          externalReference: `empresa:${empresa.id}`,
+          email: configEmpresa?.email ?? empresa.email ?? undefined,
+          mobilePhone: configEmpresa?.telefone ?? empresa.telefone ?? undefined,
+          externalReference: `gestaopro|${empresa.id}`,
         }),
       });
       customerId = created?.id;
       if (!customerId) throw new Error("Customer sem id");
       await supabase
         .from("empresas")
-        .update({ asaas_customer_id: customerId })
+        .update({
+          asaas_customer_id: customerId,
+          documento: empresa.documento ?? cpfCnpj,
+          email: empresa.email ?? configEmpresa?.email ?? null,
+          telefone: empresa.telefone ?? configEmpresa?.telefone ?? null,
+        })
         .eq("id", empresa.id);
     } catch (e) {
       console.error("[asaas-criar-cobranca] erro ao criar customer:", e);
@@ -252,6 +267,7 @@ Deno.serve(async (req) => {
       asaas_pix_qrcode: pixQr,
       asaas_pix_copia_cola: pixCopia,
       asaas_billing_type: billingType,
+      external_reference: externalReference,
       data_vencimento: due,
       forma_pagamento: billingType.toLowerCase(),
     })
