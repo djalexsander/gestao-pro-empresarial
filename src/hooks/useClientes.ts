@@ -283,6 +283,9 @@ export function useDeleteCliente() {
     onError: (e: Error) => toast.error(e.message),
   });
 }
+
+/**
+ * Verifica se um documento já existe (sem contar o próprio id em edição).
  * Retorna o cliente conflitante ou null.
  */
 export async function checkDocumentoDuplicado(
