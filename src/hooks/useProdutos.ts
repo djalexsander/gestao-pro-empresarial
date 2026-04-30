@@ -30,15 +30,7 @@ export type Variacao = {
 export function useCategorias() {
   return useQuery({
     queryKey: ["categorias"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("categorias_produto")
-        .select("id, nome, parent_id, ativo")
-        .eq("ativo", true)
-        .order("nome");
-      if (error) throw error;
-      return (data ?? []) as Categoria[];
-    },
+    queryFn: () => dataClient.categoriasProduto.list() as Promise<Categoria[]>,
   });
 }
 
