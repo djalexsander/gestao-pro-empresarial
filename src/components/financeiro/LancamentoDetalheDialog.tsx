@@ -36,6 +36,7 @@ import { formatBRL } from "@/lib/mock-data";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { ConciliarIfoodDialog } from "./ConciliarIfoodDialog";
 import { RegistrarPagamentoDialog } from "./RegistrarPagamentoDialog";
+import { LancamentoFormDialog } from "./LancamentoFormDialog";
 
 export type LancamentoDetalhe = {
   id: string;
