@@ -1605,6 +1605,7 @@ function PDVPage() {
         observacao={observacao}
         operadorEmail={user?.email}
         clientUuid={cartUuid}
+        onConfirmed={({ vendaId, forma, status, troco, valorRecebido }) => {
           setFinalizarOpen(false);
           som.beep("ok");
           setVendaConcluida({
