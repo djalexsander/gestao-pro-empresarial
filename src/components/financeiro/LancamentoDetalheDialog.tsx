@@ -225,6 +225,55 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
     onError: (e: Error) => toast.error(e.message ?? "Falha ao remover."),
   });
 
+  // Excluir lançamento avulso (banco bloqueia se houver pagamento ou vínculo).
+  const excluirLancamento = useMutation({
+    mutationFn: async () => {
+      if (!lancamento) return;
+      await dataClient.financeiro.excluirLancamentoAvulso(lancamento.id);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["financeiro_lancamentos"] });
+      qc.invalidateQueries({ queryKey: ["financeiro_indicadores_mes"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      toast.success("Lançamento excluído.");
+      onOpenChange(false);
+    },
+    onError: (e: Error) => toast.error(e.message ?? "Não foi possível excluir."),
+  });
+
+  // Carrega FKs (categoria/cliente/fornecedor) quando precisar editar — o objeto
+  // `lancamento` recebido só traz nomes, não IDs. Buscamos sob demanda.
+  const { data: lancamentoFks } = useQuery({
+    queryKey: ["lancamento_fks", lancamento?.id],
+    enabled: open && editOpen && !!lancamento?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("financeiro_lancamentos")
+        .select(
+          "id, tipo, descricao, valor, data_vencimento, data_emissao, categoria_id, cliente_id, fornecedor_id, numero_documento, forma_pagamento, observacoes, venda_id, compra_id",
+        )
+        .eq("id", lancamento!.id)
+        .single();
+      if (error) throw new Error(error.message);
+      return data as {
+        id: string;
+        tipo: "receber" | "pagar";
+        descricao: string;
+        valor: number;
+        data_vencimento: string;
+        data_emissao: string | null;
+        categoria_id: string | null;
+        cliente_id: string | null;
+        fornecedor_id: string | null;
+        numero_documento: string | null;
+        forma_pagamento: string | null;
+        observacoes: string | null;
+        venda_id: string | null;
+        compra_id: string | null;
+      };
+    },
+  });
+
   // hotkeys: P = pagamento parcial, B = baixa total, Esc fecha (já tratado pelo Dialog)
   useHotkeys(
     [
