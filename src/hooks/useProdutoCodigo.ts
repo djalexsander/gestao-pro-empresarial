@@ -2,67 +2,29 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { dataClient } from "@/integrations/data";
+import type {
+  CodigoTipo,
+  ProdutoBuscaResult,
+} from "@/integrations/data";
 
-export type CodigoTipo =
-  | "codigo_barras"
-  | "qr_code"
-  | "sku"
-  | "interno"
-  | "alternativo";
-
-export interface ProdutoBuscaResult {
-  produto_id: string;
-  sku: string;
-  nome: string;
-  codigo_barras: string | null;
-  qr_code: string | null;
-  codigo_interno: string | null;
-  tipo_identificacao_principal: string;
-  preco_venda: number;
-  preco_custo: number;
-  unidade: string;
-  status: "ativo" | "inativo" | "descontinuado";
-  categoria_id: string | null;
-  categoria_nome: string | null;
-  fonte: CodigoTipo;
-  saldo_estoque: number;
-}
+// Re-exports para preservar a API pública anterior do módulo.
+// Outros arquivos importam estes tipos daqui — manter compatível.
+export type { CodigoTipo, ProdutoBuscaResult };
 
 /**
  * Busca um produto por qualquer código (barras, QR, SKU, interno, alternativo)
  * dentro da empresa do usuário autenticado.
+ *
+ * Esta função é o ponto de entrada do scanner/PDV. Desde a Fase 1 da
+ * arquitetura desktop, ela delega para a camada `@/integrations/data`,
+ * que decide em runtime se a leitura vai para o Supabase cloud (atual)
+ * ou para o servidor local da loja (futuro).
  */
 export async function buscarProdutoPorCodigo(
   codigo: string,
 ): Promise<ProdutoBuscaResult | null> {
-  const valor = codigo.trim();
-  if (!valor) return null;
-  // Cast para `any` porque a função RPC ainda não está em supabase/types.ts
-  // (gerado automaticamente). Após a próxima sincronização tipos, o cast pode sair.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any).rpc("buscar_produto_por_codigo", {
-    _codigo: valor,
-  });
-  if (error) throw error;
-  const row = Array.isArray(data) ? data[0] : data;
-  if (!row) return null;
-  return {
-    produto_id: row.produto_id,
-    sku: row.sku,
-    nome: row.nome,
-    codigo_barras: row.codigo_barras,
-    qr_code: row.qr_code,
-    codigo_interno: row.codigo_interno,
-    tipo_identificacao_principal: row.tipo_identificacao_principal,
-    preco_venda: Number(row.preco_venda ?? 0),
-    preco_custo: Number(row.preco_custo ?? 0),
-    unidade: row.unidade,
-    status: row.status,
-    categoria_id: row.categoria_id,
-    categoria_nome: row.categoria_nome,
-    fonte: row.fonte as CodigoTipo,
-    saldo_estoque: Number(row.saldo_estoque ?? 0),
-  };
+  return dataClient.produtos.buscarPorCodigo(codigo);
 }
 
 /** React Query wrapper para busca por código (manual/imperativa). */
