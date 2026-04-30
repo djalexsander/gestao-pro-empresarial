@@ -358,14 +358,7 @@ export function useVendaMetricasPeriodo(dataInicio: string, dataFim: string) {
 export function useExcluirVendaCancelada() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (venda_id: string) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any).rpc("excluir_venda_cancelada", {
-        _venda_id: venda_id,
-      });
-      if (error) throw error;
-      return data;
-    },
+    mutationFn: (venda_id: string) => dataClient.vendas.excluirCancelada(venda_id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["vendas"] });
       qc.invalidateQueries({ queryKey: ["financeiro"] });
@@ -379,51 +372,8 @@ export function useExcluirVendaCancelada() {
 export function useCancelarVenda() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({
-      venda_id,
-      motivo,
-    }: {
-      venda_id: string;
-      motivo?: string | null;
-    }): Promise<CancelarVendaResumo> => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any).rpc("cancelar_venda", {
-        _venda_id: venda_id,
-        _motivo: motivo ?? null,
-      });
-      if (error) throw error;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const d = data as any;
-      return {
-        venda_id: d.venda_id,
-        numero: d.numero,
-        total: Number(d.total) || 0,
-        motivo: d.motivo ?? null,
-        cancelado_em: d.cancelado_em,
-        qtd_itens_estornados: Number(d.qtd_itens_estornados) || 0,
-        qtd_total_estornada: Number(d.qtd_total_estornada) || 0,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        itens_estornados: (d.itens_estornados ?? []).map((i: any) => ({
-          produto_id: i.produto_id,
-          produto_nome: i.produto_nome,
-          quantidade: Number(i.quantidade) || 0,
-          saldo_anterior: Number(i.saldo_anterior) || 0,
-          saldo_posterior: Number(i.saldo_posterior) || 0,
-          valor_total: Number(i.valor_total) || 0,
-        })),
-        qtd_lancamentos_cancelados: Number(d.qtd_lancamentos_cancelados) || 0,
-        total_lancamentos_cancelados: Number(d.total_lancamentos_cancelados) || 0,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        lancamentos_cancelados: (d.lancamentos_cancelados ?? []).map((l: any) => ({
-          id: l.id,
-          descricao: l.descricao,
-          valor: Number(l.valor) || 0,
-          valor_pago: Number(l.valor_pago) || 0,
-          tipo: l.tipo,
-          status_anterior: l.status_anterior,
-        })),
-      };
-    },
+    mutationFn: (input: { venda_id: string; motivo?: string | null }) =>
+      dataClient.vendas.cancelar(input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["vendas"] });
       qc.invalidateQueries({ queryKey: ["estoque-saldos"] });
