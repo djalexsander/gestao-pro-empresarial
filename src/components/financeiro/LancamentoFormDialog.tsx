@@ -118,7 +118,11 @@ export function LancamentoFormDialog(props: Props) {
       const l = props.lancamento;
       setTipo(l.tipo);
       setDescricao(l.descricao ?? "");
-      setValor(Number(l.valor ?? 0).toFixed(2).replace(".", ","));
+      setValor(
+        Number(l.valor ?? 0)
+          .toFixed(2)
+          .replace(".", ","),
+      );
       setDataVencimento((l.data_vencimento ?? todayISO()).slice(0, 10));
       setDataEmissao((l.data_emissao ?? todayISO()).slice(0, 10));
       setCategoriaId(l.categoria_id ?? NONE);
@@ -174,8 +178,7 @@ export function LancamentoFormDialog(props: Props) {
   const { data: fornecedores = [] } = useFornecedores();
 
   const valorNum = parseValor(valor);
-  const podeSalvar =
-    descricao.trim().length > 0 && valorNum > 0 && !!dataVencimento && !!tipo;
+  const podeSalvar = descricao.trim().length > 0 && valorNum > 0 && !!dataVencimento && !!tipo;
 
   const salvar = useMutation({
     mutationFn: async () => {
@@ -458,11 +461,7 @@ export function LancamentoFormDialog(props: Props) {
         </div>
 
         <DialogFooter className="gap-2">
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={salvar.isPending}
-          >
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={salvar.isPending}>
             Cancelar <kbd className="ml-2 rounded bg-muted px-1.5 text-[10px]">Esc</kbd>
           </Button>
           <Button

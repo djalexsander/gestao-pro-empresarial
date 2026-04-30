@@ -65,10 +65,7 @@ import {
 import { useFinanceiroIndicadores } from "@/hooks/useFinanceiroIndicadores";
 import { exportarBlocoCSV, exportarBlocoPDF } from "@/lib/export-bloco";
 import { ExportFormatDialog } from "@/components/shared/ExportFormatDialog";
-import {
-  exportarRelatorioCard,
-  type ExportFormato,
-} from "@/lib/export-relatorio-card";
+import { exportarRelatorioCard, type ExportFormato } from "@/lib/export-relatorio-card";
 import { toast } from "sonner";
 
 type FinTab = "receber" | "pagar" | "fluxo";
@@ -226,7 +223,11 @@ function FinanceContent() {
           celular: string | null;
           email: string | null;
         } | null;
-        venda: { numero: string | null; data_finalizacao: string | null; total: number | null } | null;
+        venda: {
+          numero: string | null;
+          data_finalizacao: string | null;
+          total: number | null;
+        } | null;
         categoria: { nome: string | null } | null;
       };
       return ((data ?? []) as Row[]).map<Lancamento>((r) => ({
@@ -1028,8 +1029,7 @@ function FluxoCaixaPanel() {
         // Considera recebido se status pago/recebido OU iFood conciliado.
         // Quando efetivado, o valor cheio do lançamento conta como recebido —
         // a diferença entre valor e valor_pago é taxa (iFood), não pendência.
-        const efetivado =
-          l.status === "pago" || l.status === "recebido" || !!l.conciliado_em;
+        const efetivado = l.status === "pago" || l.status === "recebido" || !!l.conciliado_em;
         cur.recebido += efetivado ? valor : pago;
         lancMap.set(key, cur);
       }
@@ -1268,10 +1268,9 @@ function FluxoCaixaPanel() {
       </div>
 
       <div className="rounded-md border border-dashed border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground">
-        <strong className="text-foreground">Como ler:</strong> abertura e
-        fechamento de caixa são <em>movimentos operacionais</em> (fundo de
-        troco / encerramento). Eles aparecem no extrato como referência, mas{" "}
-        <strong>não entram</strong> nas entradas, saídas, resultado nem no
+        <strong className="text-foreground">Como ler:</strong> abertura e fechamento de caixa são{" "}
+        <em>movimentos operacionais</em> (fundo de troco / encerramento). Eles aparecem no extrato
+        como referência, mas <strong>não entram</strong> nas entradas, saídas, resultado nem no
         saldo acumulado real do período.
       </div>
 
@@ -1333,10 +1332,7 @@ function FluxoCaixaPanel() {
                 </TableRow>
               ) : (
                 rowsComSaldo.map((r) => (
-                  <TableRow
-                    key={r.id}
-                    className={cn(r.operacional && "bg-muted/30")}
-                  >
+                  <TableRow key={r.id} className={cn(r.operacional && "bg-muted/30")}>
                     <TableCell className="text-muted-foreground">
                       {formatDateTime(r.data)}
                     </TableCell>
@@ -1345,23 +1341,17 @@ function FluxoCaixaPanel() {
                         variant="outline"
                         className={cn(
                           "font-normal",
-                          r.operacional &&
-                            "border-info/40 bg-info/10 text-info",
+                          r.operacional && "border-info/40 bg-info/10 text-info",
                         )}
                       >
                         {TIPO_LABEL[r.tipo]}
                         {r.operacional && (
-                          <span className="ml-1 text-[10px] opacity-80">
-                            • operacional
-                          </span>
+                          <span className="ml-1 text-[10px] opacity-80">• operacional</span>
                         )}
                       </Badge>
                     </TableCell>
                     <TableCell
-                      className={cn(
-                        "font-medium",
-                        r.operacional && "text-muted-foreground",
-                      )}
+                      className={cn("font-medium", r.operacional && "text-muted-foreground")}
                     >
                       {r.descricao}
                     </TableCell>

@@ -112,8 +112,7 @@ function formatDoc(doc: string | null | undefined): string {
   if (!doc) return "—";
   const d = doc.replace(/\D/g, "");
   if (d.length === 11) return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
-  if (d.length === 14)
-    return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
+  if (d.length === 14) return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
   return doc;
 }
 
@@ -160,18 +159,21 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
     enabled: open && !!lancamento?.id,
     queryFn: async (): Promise<PagamentoHist[]> => {
       if (!lancamento?.id) return [];
-      const { data, error } = await (supabase.from as unknown as (
-        t: string,
-      ) => {
-        select: (cols: string) => {
-          eq: (col: string, val: string) => {
-            order: (
+      const { data, error } = await (
+        supabase.from as unknown as (t: string) => {
+          select: (cols: string) => {
+            eq: (
               col: string,
-              opts?: { ascending?: boolean },
-            ) => Promise<{ data: PagamentoHist[] | null; error: { message: string } | null }>;
+              val: string,
+            ) => {
+              order: (
+                col: string,
+                opts?: { ascending?: boolean },
+              ) => Promise<{ data: PagamentoHist[] | null; error: { message: string } | null }>;
+            };
           };
-        };
-      })("lancamento_pagamentos")
+        }
+      )("lancamento_pagamentos")
         .select("id, valor, data_pagamento, forma_pagamento, observacao, created_at")
         .eq("lancamento_id", lancamento.id)
         .order("data_pagamento", { ascending: false });
@@ -342,7 +344,9 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
             {/* Resumo financeiro */}
             <div className="grid grid-cols-3 gap-3 rounded-md border bg-muted/30 p-3">
               <div>
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Valor original</p>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Valor original
+                </p>
                 <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
                   {formatBRL(valorTotal)}
                 </p>
@@ -415,9 +419,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
                     </Field>
                     {(lancamento.cliente_documento || lancamento.fornecedor_documento) && (
                       <Field icon={IdCard} label="CPF/CNPJ">
-                        {formatDoc(
-                          lancamento.cliente_documento ?? lancamento.fornecedor_documento,
-                        )}
+                        {formatDoc(lancamento.cliente_documento ?? lancamento.fornecedor_documento)}
                       </Field>
                     )}
                     {(lancamento.cliente_telefone || lancamento.fornecedor_telefone) && (
@@ -577,11 +579,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
                 Fechar
               </Button>
               {podeEditar && (
-                <Button
-                  variant="outline"
-                  onClick={() => setEditOpen(true)}
-                  className="gap-1.5"
-                >
+                <Button variant="outline" onClick={() => setEditOpen(true)} className="gap-1.5">
                   <Pencil className="h-4 w-4" />
                   Editar
                 </Button>
