@@ -691,6 +691,34 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
         tipo={lancamento.tipo}
         modoTotal={pagamentoModoTotal}
       />
+
+      {/* Edição: só monta o form quando temos os IDs FK carregados, evitando
+          renderizar com cliente/fornecedor/categoria zerados. */}
+      {editOpen && lancamentoFks && (
+        <LancamentoFormDialog
+          mode="edit"
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          lancamento={{
+            id: lancamentoFks.id,
+            tipo: lancamentoFks.tipo,
+            descricao: lancamentoFks.descricao,
+            valor: Number(lancamentoFks.valor ?? 0),
+            data_vencimento: lancamentoFks.data_vencimento,
+            data_emissao: lancamentoFks.data_emissao,
+            categoria_id: lancamentoFks.categoria_id,
+            cliente_id: lancamentoFks.cliente_id,
+            fornecedor_id: lancamentoFks.fornecedor_id,
+            numero_documento: lancamentoFks.numero_documento,
+            forma_pagamento: lancamentoFks.forma_pagamento,
+            observacoes: lancamentoFks.observacoes,
+          }}
+          onSaved={() => {
+            // O dialog de detalhe fica desatualizado; fecha pra o usuário reabrir limpo.
+            onOpenChange(false);
+          }}
+        />
+      )}
     </>
   );
 }
