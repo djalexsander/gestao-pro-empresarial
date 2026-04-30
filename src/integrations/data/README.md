@@ -40,8 +40,14 @@ interface ProdutosAdapter {
   listar():                         Promise<ProdutoComCategoria[]>;
 }
 
+interface VendasAdapter {
+  /** Idempotente quando `input.client_uuid` é enviado (recomendado). */
+  finalizar(input: FinalizarVendaInput): Promise<string /* venda_id */>;
+}
+
 interface DataAdapter {
   produtos: ProdutosAdapter;
+  vendas:   VendasAdapter;
 }
 ```
 
@@ -53,7 +59,35 @@ import { dataClient } from "@/integrations/data";
 const produto = await dataClient.produtos.buscarPorCodigo("7891234567890");
 const balanca = await dataClient.produtos.buscarPorPlu("000123");
 const lista   = await dataClient.produtos.listar();
+
+const vendaId = await dataClient.vendas.finalizar({
+  ...payload,
+  client_uuid: cartUuid, // gerado pelo PDV no início do carrinho
+});
 ```
+
+## Idempotência de vendas (write crítico)
+
+A operação `vendas.finalizar` é **idempotente ponta-a-ponta** quando recebe
+`client_uuid`:
+
+- **Frontend (PDV)** gera um UUID via `crypto.randomUUID()` ao montar o
+  carrinho e o renova a cada `clearVenda()`. O mesmo UUID acompanha todas
+  as tentativas de finalizar a mesma venda.
+- **Backend** (`finalizar_venda_pdv`):
+  - Antes de inserir, faz `SELECT id FROM vendas WHERE owner_id = auth.uid()
+    AND client_uuid = _client_uuid`. Se já existe, retorna o id e
+    **não duplica** venda, itens, baixa de estoque, pagamentos, lançamento
+    financeiro nem movimento de caixa.
+  - Em concorrência extrema, o índice único parcial
+    `vendas_owner_client_uuid_uniq (owner_id, client_uuid) WHERE client_uuid
+    IS NOT NULL` garante que apenas uma chamada vence; a outra cai no
+    `EXCEPTION unique_violation` e retorna o id existente.
+  - Cada reenvio incrementa `vendas.idempotent_replay_count` (auditoria
+    interna, transparente para o usuário).
+
+**Cenários cobertos:** duplo clique no botão, Enter repetido, retry de rede,
+abas duplicadas, e (futuro) reenvio offline pela fila do terminal.
 
 ## Migração de hooks (Fase 1)
 
@@ -61,34 +95,29 @@ Para migrar um hook que hoje fala direto com Supabase:
 
 1. Mover os tipos de domínio dele para `types.ts`.
 2. Adicionar o método correspondente em `DataAdapter` (`adapter.ts`).
-3. Implementar no `cloud.ts` (mesmo código que o hook fazia).
+3. Implementar no `cloud.ts`.
 4. No hook, trocar a chamada Supabase por `dataClient.<modulo>.<método>(...)`.
 5. Sem mudança de UI, sem mudança no React Query.
 
-### Já migrado (somente leitura — risco zero)
+### Já migrado
 
-| Hook / função                  | Método do adapter                  | Usado em |
+| Hook / função                                        | Método do adapter             | Notas |
 |---|---|---|
-| `buscarProdutoPorCodigo` / `useBuscarProdutoPorCodigo` | `produtos.buscarPorCodigo` | Scanner do PDV, busca rápida |
-| `buscarProdutoPorPlu`          | `produtos.buscarPorPlu`            | Etiqueta de balança no PDV |
-| `useProdutos`                  | `produtos.listar`                  | Cadastro de produtos, grade do PDV |
+| `buscarProdutoPorCodigo` / `useBuscarProdutoPorCodigo` | `produtos.buscarPorCodigo`    | leitura |
+| `buscarProdutoPorPlu`                                | `produtos.buscarPorPlu`       | leitura |
+| `useProdutos`                                        | `produtos.listar`             | leitura |
+| **`useFinalizarVendaPDV`**                           | **`vendas.finalizar`**        | **write idempotente (client_uuid)** |
 
-### Ainda usando Supabase direto neste módulo
+### Próximos recomendados (writes)
 
-`useProduto`, `useCategorias`, `useCreateCategoria`, `useCreateProduto`,
-`useUpdateProduto`, `useDeleteProduto`, `useCreateVariacao`,
-`useDeleteVariacao`, `useProdutoCodigos`, `useAddProdutoCodigo`,
-`useDeleteProdutoCodigo` — migrar em lotes futuros (writes).
-
-### Próximos recomendados
-
-1. **`useVendas.criarVenda`** — primeiro **write** crítico. Vamos aproveitar
-   para introduzir `client_uuid` (idempotência), que já é útil em produção
-   cloud e indispensável quando houver LAN piscando entre terminal e
-   servidor local.
-2. `useEstoque` (consulta de saldo).
-3. `useCaixa` (abrir/fechar/movimentos).
-4. `useRealtimeSync` — abstrair a fonte realtime
+1. **`useCancelarVenda`** + **`useExcluirVendaCancelada`** — para fechar o
+   ciclo de vida da venda na camada de dados.
+2. **`useAlterarStatusVenda`** — fluxo de status (financeiro ↔ vendas).
+3. **`useCaixa`** (abrir/fechar/movimentos) — chave para preparar o modo
+   terminal local.
+4. **`useFinanceiro` / `useLancamentos`** — escrita financeira ligada a vendas.
+5. **`useEstoque` ajustes manuais** — entradas/saídas avulsas.
+6. **`useRealtimeSync`** — abstrair a fonte realtime
    (Supabase Realtime ↔ WS LAN).
 
 ## Não-objetivos desta fase
