@@ -490,6 +490,13 @@ export interface FuncionariosAdapter {
    * a UI já trata via toast.
    */
   validarPin(input: ValidarPinOperadorInput): Promise<OperadorSessaoDomain>;
+  /**
+   * Desbloqueia manualmente um operador antes do prazo (Bloco 11).
+   * Use quando o gerente quiser liberar imediatamente após o operador
+   * provar identidade. Server-side valida que o chamador é
+   * owner/admin da empresa.
+   */
+  desbloquearPin(input: DesbloquearPinOperadorInput): Promise<DesbloquearPinOperadorResult>;
 }
 
 export interface DataAdapter {
