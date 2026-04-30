@@ -207,17 +207,25 @@ function mapError(e: unknown): Error {
   return new Error(msg);
 }
 
+async function fetchClienteById(id: string): Promise<Cliente> {
+  const { data, error } = await supabase
+    .from("clientes")
+    .select("*")
+    .eq("id", id)
+    .single();
+  if (error) throw error;
+  return data as Cliente;
+}
+
 export function useCreateCliente() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: ClienteInput) => {
+    mutationFn: async (input: ClienteInput): Promise<Cliente> => {
       const payload = sanitize(input);
-      // Idempotência: 1 UUID por chamada de mutation. React Query já garante
-      // que retries usam a mesma mutationFn, então um retry de rede reusa o
-      // mesmo client_uuid e o backend retorna o id existente sem duplicar.
       const client_uuid = crypto.randomUUID();
       try {
-        return await dataClient.clientes.criar({ ...payload, client_uuid });
+        const r = await dataClient.clientes.criar({ ...payload, client_uuid });
+        return await fetchClienteById(r.cliente_id);
       } catch (e) {
         throw mapError(e);
       }
@@ -234,12 +242,16 @@ export function useCreateCliente() {
 export function useUpdateCliente() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, ...input }: ClienteInput & { id: string }) => {
+    mutationFn: async ({
+      id,
+      ...input
+    }: ClienteInput & { id: string }): Promise<Cliente> => {
       try {
-        return await dataClient.clientes.editar({
+        const r = await dataClient.clientes.editar({
           cliente_id: id,
           ...sanitize(input),
         });
+        return await fetchClienteById(r.cliente_id);
       } catch (e) {
         throw mapError(e);
       }
