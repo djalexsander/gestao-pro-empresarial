@@ -17,6 +17,14 @@ export type {
 } from "./adapter";
 export type {
   AbrirCaixaInput,
+  AdicionarProdutoCodigoInput,
+  AdicionarProdutoCodigoResult,
+  AlterarStatusClienteInput,
+  AlterarStatusClienteResult,
+  AlterarStatusFornecedorInput,
+  AlterarStatusFornecedorResult,
+  AlterarStatusProdutoInput,
+  AlterarStatusProdutoResult,
   AlterarStatusClienteInput,
   AlterarStatusClienteResult,
   AlterarStatusFornecedorInput,
