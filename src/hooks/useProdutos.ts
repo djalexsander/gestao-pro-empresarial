@@ -49,14 +49,14 @@ export function useCategorias() {
 
 export function useCreateCategoria() {
   const qc = useQueryClient();
-  const { user } = useAuth();
   return useMutation({
-    mutationFn: async (nome: string) => {
-      if (!user) throw new Error("Não autenticado");
+    mutationFn: async (nome: string): Promise<Categoria> => {
+      const client_uuid = crypto.randomUUID();
+      const r = await dataClient.produtos.criarCategoria({ nome, client_uuid });
       const { data, error } = await supabase
         .from("categorias_produto")
-        .insert({ nome: nome.trim(), owner_id: user.id })
-        .select()
+        .select("id, nome, parent_id, ativo")
+        .eq("id", r.categoria_id)
         .single();
       if (error) throw error;
       return data as Categoria;
@@ -136,21 +136,33 @@ function prettifyProdutoError(msg: string): string {
   return msg;
 }
 
+async function fetchProdutoRow(id: string) {
+  const { data, error } = await supabase
+    .from("produtos")
+    .select("*")
+    .eq("id", id)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+function mapProdutoErr(e: unknown): Error {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const msg: string = (e as any)?.message ?? String(e);
+  return new Error(prettifyProdutoError(msg));
+}
+
 export function useCreateProduto() {
   const qc = useQueryClient();
-  const { user } = useAuth();
   return useMutation({
     mutationFn: async (input: ProdutoInput) => {
-      if (!user) throw new Error("Não autenticado");
-      // Cast: types gerados ainda não conhecem campos novos (qr_code, codigo_interno, etc.)
-      const { data, error } = await supabase
-        .from("produtos")
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .insert({ ...input, owner_id: user.id } as any)
-        .select()
-        .single();
-      if (error) throw new Error(prettifyProdutoError(error.message));
-      return data;
+      const client_uuid = crypto.randomUUID();
+      try {
+        const r = await dataClient.produtos.criar({ ...input, client_uuid });
+        return await fetchProdutoRow(r.produto_id);
+      } catch (e) {
+        throw mapProdutoErr(e);
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["produtos"] });
@@ -165,15 +177,15 @@ export function useUpdateProduto() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, ...input }: ProdutoInput & { id: string }) => {
-      const { data, error } = await supabase
-        .from("produtos")
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .update(input as any)
-        .eq("id", id)
-        .select()
-        .single();
-      if (error) throw new Error(prettifyProdutoError(error.message));
-      return data;
+      try {
+        const r = await dataClient.produtos.editar({
+          produto_id: id,
+          ...input,
+        });
+        return await fetchProdutoRow(r.produto_id);
+      } catch (e) {
+        throw mapProdutoErr(e);
+      }
     },
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["produtos"] });
@@ -184,13 +196,14 @@ export function useUpdateProduto() {
   });
 }
 
+/**
+ * Hard delete. A RPC bloqueia se houver vendas/compras/movimentos/lotes
+ * vinculados — nesse caso, oriente o usuário a inativar o produto.
+ */
 export function useDeleteProduto() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("produtos").delete().eq("id", id);
-      if (error) throw error;
-    },
+    mutationFn: async (id: string) => dataClient.produtos.excluir(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["produtos"] });
       qc.invalidateQueries({ queryKey: ["estoque-saldos"] });
@@ -204,7 +217,6 @@ export function useDeleteProduto() {
 
 export function useCreateVariacao() {
   const qc = useQueryClient();
-  const { user } = useAuth();
   return useMutation({
     mutationFn: async (input: {
       produto_id: string;
@@ -214,11 +226,16 @@ export function useCreateVariacao() {
       preco_custo?: number | null;
       preco_venda?: number | null;
     }) => {
-      if (!user) throw new Error("Não autenticado");
+      const client_uuid = crypto.randomUUID();
+      const r = await dataClient.produtos.criarVariacao({
+        ...input,
+        client_uuid,
+      });
+      // Mantém contrato (retorno usado por dialogs): re-busca a linha.
       const { data, error } = await supabase
         .from("produto_variacoes")
-        .insert({ ...input, atributos: input.atributos ?? {}, owner_id: user.id })
-        .select()
+        .select("*")
+        .eq("id", r.variacao_id)
         .single();
       if (error) throw error;
       return data;
@@ -234,10 +251,8 @@ export function useCreateVariacao() {
 export function useDeleteVariacao() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id }: { id: string; produto_id: string }) => {
-      const { error } = await supabase.from("produto_variacoes").delete().eq("id", id);
-      if (error) throw error;
-    },
+    mutationFn: async ({ id }: { id: string; produto_id: string }) =>
+      dataClient.produtos.excluirVariacao(id),
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["produto", vars.produto_id] });
       toast.success("Variação removida.");

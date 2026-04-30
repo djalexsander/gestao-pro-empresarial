@@ -18,10 +18,14 @@
 
 import type {
   AbrirCaixaInput,
+  AdicionarProdutoCodigoInput,
+  AdicionarProdutoCodigoResult,
   AlterarStatusClienteInput,
   AlterarStatusClienteResult,
   AlterarStatusFornecedorInput,
   AlterarStatusFornecedorResult,
+  AlterarStatusProdutoInput,
+  AlterarStatusProdutoResult,
   AlterarStatusVendaInput,
   AlterarStatusVendaResult,
   AlterarVencimentoLancamentoInput,
@@ -32,21 +36,32 @@ import type {
   CancelarVendaResumo,
   ConciliarIfoodIndividualInput,
   ConciliarIfoodLoteInput,
+  CriarCategoriaProdutoInput,
+  CriarCategoriaProdutoResult,
   CriarClienteInput,
   CriarClienteResult,
   CriarFornecedorInput,
   CriarFornecedorResult,
   CriarLancamentoAvulsoInput,
   CriarLancamentoAvulsoResult,
+  CriarProdutoInput,
+  CriarProdutoResult,
+  CriarProdutoVariacaoInput,
+  CriarProdutoVariacaoResult,
   EditarClienteInput,
   EditarClienteResult,
   EditarFornecedorInput,
   EditarFornecedorResult,
   EditarLancamentoAvulsoInput,
   EditarLancamentoAvulsoResult,
+  EditarProdutoInput,
+  EditarProdutoResult,
   ExcluirClienteResult,
   ExcluirFornecedorResult,
   ExcluirLancamentoAvulsoResult,
+  ExcluirProdutoCodigoResult,
+  ExcluirProdutoResult,
+  ExcluirProdutoVariacaoResult,
   ExcluirVendaCanceladaResult,
   FecharCaixaInput,
   FecharCaixaResult,
@@ -82,6 +97,77 @@ export interface ProdutosAdapter {
    * ordenados por nome.
    */
   listar(): Promise<ProdutoComCategoria[]>;
+
+  // ---------------------------- Writes ----------------------------
+
+  /**
+   * Cria um produto. **Idempotência:** envie `client_uuid` estável por
+   * dialog aberto. Reenvio com mesmo UUID retorna o id existente sem
+   * duplicar (cobre duplo clique e retry de rede).
+   */
+  criar(input: CriarProdutoInput): Promise<CriarProdutoResult>;
+
+  /** Edita campos do produto. Não altera vínculos (códigos/variações/lotes). */
+  editar(input: EditarProdutoInput): Promise<EditarProdutoResult>;
+
+  /**
+   * Soft delete: alterna entre `ativo` / `inativo` / `descontinuado`.
+   * **Recomendado** sempre que houver vínculo histórico (vendas, compras,
+   * movimentos de estoque). Preserva histórico.
+   */
+  alterarStatus(
+    input: AlterarStatusProdutoInput,
+  ): Promise<AlterarStatusProdutoResult>;
+
+  /**
+   * Hard delete. Permitido APENAS se o produto não tiver vendas, compras,
+   * movimentos de estoque nem lotes vinculados — caso contrário a RPC aborta
+   * com erro orientando a usar `alterarStatus('inativo')`. Garante zero
+   * inconsistência histórica. Quando sem vínculos, remove em cascata os
+   * `produto_codigos` e `produto_variacoes` órfãos.
+   */
+  excluir(produtoId: string): Promise<ExcluirProdutoResult>;
+
+  // ---------------------------- Códigos auxiliares ----------------
+
+  /**
+   * Adiciona um código auxiliar (barras, QR, SKU, interno, alternativo).
+   * **Idempotência:** envie `client_uuid` por chamada (1 UUID por click no
+   * botão "adicionar código").
+   */
+  adicionarCodigo(
+    input: AdicionarProdutoCodigoInput,
+  ): Promise<AdicionarProdutoCodigoResult>;
+
+  /** Remove um código auxiliar. Validação de tenant no banco. */
+  excluirCodigo(codigoId: string): Promise<ExcluirProdutoCodigoResult>;
+
+  // ---------------------------- Variações -------------------------
+
+  /**
+   * Cria uma variação de produto. **Idempotência** via `client_uuid`.
+   */
+  criarVariacao(
+    input: CriarProdutoVariacaoInput,
+  ): Promise<CriarProdutoVariacaoResult>;
+
+  /**
+   * Hard delete de variação. Bloqueado se houver venda/compra/movimento
+   * com `variacao_id` apontando para ela — nesse caso oriente o usuário a
+   * inativar o produto inteiro. Remove em cascata `produto_codigos` da
+   * variação quando permitido.
+   */
+  excluirVariacao(variacaoId: string): Promise<ExcluirProdutoVariacaoResult>;
+
+  // ---------------------------- Categoria -------------------------
+
+  /**
+   * Cria uma categoria de produto. **Idempotência** via `client_uuid`.
+   * (CRUD completo de categoria virá em bloco próprio.)
+   */
+  criarCategoria(
+    input: CriarCategoriaProdutoInput,
+  ): Promise<CriarCategoriaProdutoResult>;
 }
 
 export interface VendasAdapter {

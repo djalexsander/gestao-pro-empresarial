@@ -68,7 +68,6 @@ export function useProdutoCodigos(produtoId: string | undefined) {
 
 export function useAddProdutoCodigo() {
   const qc = useQueryClient();
-  const { user } = useAuth();
   return useMutation({
     mutationFn: async (input: {
       produto_id: string;
@@ -76,28 +75,26 @@ export function useAddProdutoCodigo() {
       valor_codigo: string;
       observacao?: string | null;
     }) => {
-      if (!user) throw new Error("Não autenticado");
       const valor = input.valor_codigo.trim();
       if (!valor) throw new Error("Código vazio");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any)
-        .from("produto_codigos")
-        .insert({
-          owner_id: user.id,
+      const client_uuid = crypto.randomUUID();
+      try {
+        const r = await dataClient.produtos.adicionarCodigo({
           produto_id: input.produto_id,
           tipo_codigo: input.tipo_codigo,
           valor_codigo: valor,
           observacao: input.observacao ?? null,
-        })
-        .select()
-        .single();
-      if (error) {
-        if (String(error.message).toLowerCase().includes("duplicate")) {
+          client_uuid,
+        });
+        return { id: r.codigo_id } as ProdutoCodigo;
+      } catch (e) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const msg: string = (e as any)?.message ?? String(e);
+        if (msg.toLowerCase().includes("duplicate")) {
           throw new Error("Este código já está cadastrado em outro produto.");
         }
-        throw error;
+        throw new Error(msg);
       }
-      return data as ProdutoCodigo;
     },
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["produto-codigos", vars.produto_id] });
@@ -110,14 +107,8 @@ export function useAddProdutoCodigo() {
 export function useDeleteProdutoCodigo() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id }: { id: string; produto_id: string }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase as any)
-        .from("produto_codigos")
-        .delete()
-        .eq("id", id);
-      if (error) throw error;
-    },
+    mutationFn: async ({ id }: { id: string; produto_id: string }) =>
+      dataClient.produtos.excluirCodigo(id),
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["produto-codigos", vars.produto_id] });
       toast.success("Código removido.");

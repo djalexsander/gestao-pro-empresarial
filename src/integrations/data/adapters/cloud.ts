@@ -14,10 +14,14 @@ import { supabase } from "@/integrations/supabase/client";
 import type { DataAdapter } from "../adapter";
 import type {
   AbrirCaixaInput,
+  AdicionarProdutoCodigoInput,
+  AdicionarProdutoCodigoResult,
   AlterarStatusClienteInput,
   AlterarStatusClienteResult,
   AlterarStatusFornecedorInput,
   AlterarStatusFornecedorResult,
+  AlterarStatusProdutoInput,
+  AlterarStatusProdutoResult,
   AlterarStatusVendaInput,
   AlterarStatusVendaResult,
   AlterarVencimentoLancamentoInput,
@@ -29,21 +33,32 @@ import type {
   CodigoTipo,
   ConciliarIfoodIndividualInput,
   ConciliarIfoodLoteInput,
+  CriarCategoriaProdutoInput,
+  CriarCategoriaProdutoResult,
   CriarClienteInput,
   CriarClienteResult,
   CriarFornecedorInput,
   CriarFornecedorResult,
   CriarLancamentoAvulsoInput,
   CriarLancamentoAvulsoResult,
+  CriarProdutoInput,
+  CriarProdutoResult,
+  CriarProdutoVariacaoInput,
+  CriarProdutoVariacaoResult,
   EditarClienteInput,
   EditarClienteResult,
   EditarFornecedorInput,
   EditarFornecedorResult,
   EditarLancamentoAvulsoInput,
   EditarLancamentoAvulsoResult,
+  EditarProdutoInput,
+  EditarProdutoResult,
   ExcluirClienteResult,
   ExcluirFornecedorResult,
   ExcluirLancamentoAvulsoResult,
+  ExcluirProdutoCodigoResult,
+  ExcluirProdutoResult,
+  ExcluirProdutoVariacaoResult,
   ExcluirVendaCanceladaResult,
   FecharCaixaInput,
   FecharCaixaResult,
@@ -163,6 +178,201 @@ const produtos: DataAdapter["produtos"] = {
       .order("nome");
     if (error) throw error;
     return (data ?? []) as unknown as ProdutoComCategoria[];
+  },
+
+  // ---------------------------- Writes ----------------------------
+
+  async criar(input: CriarProdutoInput): Promise<CriarProdutoResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("criar_produto", {
+      _sku: input.sku,
+      _nome: input.nome,
+      _unidade: input.unidade,
+      _preco_custo: input.preco_custo,
+      _preco_venda: input.preco_venda,
+      _estoque_minimo: input.estoque_minimo,
+      _status: input.status,
+      _tipo_identificacao_principal: input.tipo_identificacao_principal ?? "sku",
+      _codigo_barras: input.codigo_barras ?? null,
+      _qr_code: input.qr_code ?? null,
+      _codigo_interno: input.codigo_interno ?? null,
+      _observacao_tecnica: input.observacao_tecnica ?? null,
+      _descricao: input.descricao ?? null,
+      _marca: input.marca ?? null,
+      _categoria_id: input.categoria_id ?? null,
+      _estoque_inicial: input.estoque_inicial ?? 0,
+      _ncm: input.ncm ?? null,
+      _vendido_por_peso: input.vendido_por_peso ?? false,
+      _plu: input.plu ?? null,
+      _aceita_etiqueta_balanca: input.aceita_etiqueta_balanca ?? false,
+      _casas_decimais_quantidade: input.casas_decimais_quantidade ?? 3,
+      _client_uuid: input.client_uuid ?? null,
+    });
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      produto_id: String(d.produto_id ?? ""),
+      idempotente: Boolean(d.idempotente),
+    };
+  },
+
+  async editar(input: EditarProdutoInput): Promise<EditarProdutoResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("editar_produto", {
+      _produto_id: input.produto_id,
+      _sku: input.sku,
+      _nome: input.nome,
+      _unidade: input.unidade,
+      _preco_custo: input.preco_custo,
+      _preco_venda: input.preco_venda,
+      _estoque_minimo: input.estoque_minimo,
+      _status: input.status,
+      _tipo_identificacao_principal: input.tipo_identificacao_principal ?? "sku",
+      _codigo_barras: input.codigo_barras ?? null,
+      _qr_code: input.qr_code ?? null,
+      _codigo_interno: input.codigo_interno ?? null,
+      _observacao_tecnica: input.observacao_tecnica ?? null,
+      _descricao: input.descricao ?? null,
+      _marca: input.marca ?? null,
+      _categoria_id: input.categoria_id ?? null,
+      _estoque_inicial: input.estoque_inicial ?? null,
+      _ncm: input.ncm ?? null,
+      _vendido_por_peso: input.vendido_por_peso ?? null,
+      _plu: input.plu ?? null,
+      _aceita_etiqueta_balanca: input.aceita_etiqueta_balanca ?? null,
+      _casas_decimais_quantidade: input.casas_decimais_quantidade ?? null,
+    });
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return { produto_id: String(d.produto_id ?? input.produto_id) };
+  },
+
+  async alterarStatus(
+    input: AlterarStatusProdutoInput,
+  ): Promise<AlterarStatusProdutoResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc(
+      "alterar_status_produto",
+      { _produto_id: input.produto_id, _status: input.status },
+    );
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      produto_id: String(d.produto_id ?? input.produto_id),
+      status: (d.status as AlterarStatusProdutoResult["status"]) ?? input.status,
+    };
+  },
+
+  async excluir(produtoId: string): Promise<ExcluirProdutoResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("excluir_produto", {
+      _produto_id: produtoId,
+    });
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      produto_id: String(d.produto_id ?? produtoId),
+      excluido: Boolean(d.excluido),
+    };
+  },
+
+  async adicionarCodigo(
+    input: AdicionarProdutoCodigoInput,
+  ): Promise<AdicionarProdutoCodigoResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc(
+      "adicionar_produto_codigo",
+      {
+        _produto_id: input.produto_id,
+        _tipo_codigo: input.tipo_codigo,
+        _valor_codigo: input.valor_codigo,
+        _variacao_id: input.variacao_id ?? null,
+        _observacao: input.observacao ?? null,
+        _client_uuid: input.client_uuid ?? null,
+      },
+    );
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      codigo_id: String(d.codigo_id ?? ""),
+      idempotente: Boolean(d.idempotente),
+    };
+  },
+
+  async excluirCodigo(codigoId: string): Promise<ExcluirProdutoCodigoResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc(
+      "excluir_produto_codigo",
+      { _codigo_id: codigoId },
+    );
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      codigo_id: String(d.codigo_id ?? codigoId),
+      excluido: Boolean(d.excluido),
+    };
+  },
+
+  async criarVariacao(
+    input: CriarProdutoVariacaoInput,
+  ): Promise<CriarProdutoVariacaoResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc(
+      "criar_produto_variacao",
+      {
+        _produto_id: input.produto_id,
+        _sku: input.sku,
+        _nome: input.nome,
+        _atributos: input.atributos ?? {},
+        _preco_custo: input.preco_custo ?? null,
+        _preco_venda: input.preco_venda ?? null,
+        _codigo_barras: input.codigo_barras ?? null,
+        _client_uuid: input.client_uuid ?? null,
+      },
+    );
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      variacao_id: String(d.variacao_id ?? ""),
+      idempotente: Boolean(d.idempotente),
+    };
+  },
+
+  async excluirVariacao(
+    variacaoId: string,
+  ): Promise<ExcluirProdutoVariacaoResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc(
+      "excluir_produto_variacao",
+      { _variacao_id: variacaoId },
+    );
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      variacao_id: String(d.variacao_id ?? variacaoId),
+      excluido: Boolean(d.excluido),
+    };
+  },
+
+  async criarCategoria(
+    input: CriarCategoriaProdutoInput,
+  ): Promise<CriarCategoriaProdutoResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc(
+      "criar_categoria_produto",
+      {
+        _nome: input.nome,
+        _parent_id: input.parent_id ?? null,
+        _descricao: input.descricao ?? null,
+        _client_uuid: input.client_uuid ?? null,
+      },
+    );
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      categoria_id: String(d.categoria_id ?? ""),
+      idempotente: Boolean(d.idempotente),
+    };
   },
 };
 
