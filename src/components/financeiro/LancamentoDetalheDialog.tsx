@@ -568,13 +568,44 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
           </div>
 
           <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-between">
-            <Button
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={cancelarTitulo.isPending}
-            >
-              Fechar
-            </Button>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={cancelarTitulo.isPending}
+              >
+                Fechar
+              </Button>
+              {podeEditar && (
+                <Button
+                  variant="outline"
+                  onClick={() => setEditOpen(true)}
+                  className="gap-1.5"
+                >
+                  <Pencil className="h-4 w-4" />
+                  Editar
+                </Button>
+              )}
+              {podeExcluir && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    if (
+                      confirm(
+                        "Excluir DEFINITIVAMENTE este lançamento? Esta ação não pode ser desfeita.",
+                      )
+                    ) {
+                      excluirLancamento.mutate();
+                    }
+                  }}
+                  disabled={excluirLancamento.isPending}
+                  className="gap-1.5 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Excluir
+                </Button>
+              )}
+            </div>
             <div className="flex flex-col gap-2 sm:flex-row">
               {!jaResolvido && (
                 <Button
