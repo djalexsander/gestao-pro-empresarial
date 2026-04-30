@@ -323,12 +323,67 @@ export interface EstoqueAdapter {
   ): Promise<RegistrarMovimentoEstoqueResult>;
 }
 
+/**
+ * Operações de escrita de **Cliente** (cadastro PF/PJ).
+ *
+ * Toda gravação passa por RPC `SECURITY DEFINER` no banco para garantir:
+ *  - tenant resolvido pelo backend (sem confiar no payload),
+ *  - normalização do documento (apenas dígitos),
+ *  - idempotência de criação por `client_uuid`,
+ *  - exclusão segura: hard delete só sem vínculos. Com vínculos
+ *    (vendas ou lançamentos), a RPC bloqueia e sugere inativar.
+ */
+export interface ClientesAdapter {
+  /**
+   * Cria um cliente. **Idempotência:** envie `client_uuid` estável por dialog
+   * aberto. Reenvio com mesmo UUID retorna o id existente sem duplicar.
+   */
+  criar(input: CriarClienteInput): Promise<CriarClienteResult>;
+
+  /** Edita campos do cadastro. Não toca em status (use `alterarStatus`). */
+  editar(input: EditarClienteInput): Promise<EditarClienteResult>;
+
+  /**
+   * Soft delete: alterna `ativo` ↔ `inativo`. **Recomendado** sempre que
+   * houver vínculo histórico (vendas, lançamentos). Preserva auditoria.
+   */
+  alterarStatus(
+    input: AlterarStatusClienteInput,
+  ): Promise<AlterarStatusClienteResult>;
+
+  /**
+   * Hard delete. Permitido APENAS se o cliente não tiver vendas nem
+   * lançamentos vinculados — caso contrário a RPC aborta com erro orientando
+   * a usar `alterarStatus('inativo')`. Garante zero inconsistência histórica.
+   */
+  excluir(clienteId: string): Promise<ExcluirClienteResult>;
+}
+
+/**
+ * Operações de escrita de **Fornecedor**. Mesma filosofia do `ClientesAdapter`,
+ * com vínculos checados em `compras` e `financeiro_lancamentos`.
+ */
+export interface FornecedoresAdapter {
+  criar(input: CriarFornecedorInput): Promise<CriarFornecedorResult>;
+  editar(input: EditarFornecedorInput): Promise<EditarFornecedorResult>;
+  alterarStatus(
+    input: AlterarStatusFornecedorInput,
+  ): Promise<AlterarStatusFornecedorResult>;
+  /**
+   * Hard delete. Bloqueado se houver compras ou lançamentos vinculados.
+   * Quando bloqueado, oriente o usuário a inativar via `alterarStatus`.
+   */
+  excluir(fornecedorId: string): Promise<ExcluirFornecedorResult>;
+}
+
 export interface DataAdapter {
   produtos: ProdutosAdapter;
   vendas: VendasAdapter;
   caixa: CaixaAdapter;
   financeiro: FinanceiroAdapter;
   estoque: EstoqueAdapter;
+  clientes: ClientesAdapter;
+  fornecedores: FornecedoresAdapter;
   // Próximos a serem adicionados conforme a Fase 1 avança:
   // realtime: RealtimeAdapter;
 }
