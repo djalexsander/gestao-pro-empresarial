@@ -2,11 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { dataClient } from "@/integrations/data";
-import type {
-  Produto,
-  ProdutoComCategoria,
-  TipoIdentificacao,
-} from "@/integrations/data";
+import type { Produto, ProdutoComCategoria, TipoIdentificacao } from "@/integrations/data";
 
 // Re-exports para preservar a API pública anterior deste módulo.
 export type { Produto, TipoIdentificacao };
@@ -136,11 +132,7 @@ function prettifyProdutoError(msg: string): string {
 }
 
 async function fetchProdutoRow(id: string) {
-  const { data, error } = await supabase
-    .from("produtos")
-    .select("*")
-    .eq("id", id)
-    .single();
+  const { data, error } = await supabase.from("produtos").select("*").eq("id", id).single();
   if (error) throw error;
   return data;
 }
