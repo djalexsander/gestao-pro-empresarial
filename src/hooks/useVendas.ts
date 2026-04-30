@@ -289,6 +289,21 @@ export type StatusVendaEditavel =
   | "cancelado"
   | "vencido";
 
+/**
+ * Altera o status de uma venda **não cancelada** via camada `dataClient`.
+ *
+ * A RPC subjacente (`alterar_status_venda`) é atômica e **idempotente por
+ * estado**: chamadas repetidas com o mesmo `novo_status` convergem ao mesmo
+ * estado final, sem acumular pagamentos nem duplicar registros em
+ * `lancamento_pagamentos`. Isso a torna segura para clique duplo / retry.
+ *
+ * Reflexos garantidos no banco:
+ *  - `vendas.status_pagamento` atualizado.
+ *  - `financeiro_lancamentos` convergidos para o estado-alvo.
+ *  - `lancamento_pagamentos` reconstruídos conforme `pago` ↔ `pendente`.
+ *
+ * Não usar para CANCELAR a venda (estorno de estoque): use `useCancelarVenda`.
+ */
 export function useAlterarStatusVenda() {
   const qc = useQueryClient();
   return useMutation({
@@ -297,14 +312,11 @@ export function useAlterarStatusVenda() {
       novo_status: StatusVendaEditavel;
       motivo?: string | null;
     }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any).rpc("alterar_status_venda", {
-        _venda_id: input.venda_id,
-        _novo_status: input.novo_status,
-        _motivo: input.motivo ?? null,
+      return dataClient.vendas.alterarStatus({
+        venda_id: input.venda_id,
+        novo_status: input.novo_status,
+        motivo: input.motivo ?? null,
       });
-      if (error) throw error;
-      return data;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["vendas"] });
