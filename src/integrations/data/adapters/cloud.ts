@@ -1249,10 +1249,19 @@ const categoriasProduto: DataAdapter["categoriasProduto"] = {
       excluido: Boolean(d.excluido),
     };
   },
-};
 
-// ============================================================
-// Categorias financeiras — Bloco 12
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  async list(input) {
+    let q = supabase
+      .from("categorias_produto")
+      .select("id, nome, parent_id, ativo, descricao")
+      .order("nome");
+    if (!input?.incluir_inativas) q = q.eq("ativo", true);
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []) as unknown as import("../types").CategoriaProdutoDomain[];
+  },
+};
 // ============================================================
 const categoriasFinanceiras: DataAdapter["categoriasFinanceiras"] = {
   async criar(input) {
@@ -1308,10 +1317,20 @@ const categoriasFinanceiras: DataAdapter["categoriasFinanceiras"] = {
       excluido: Boolean(d.excluido),
     };
   },
-};
 
-// ============================================================
-// Lotes de produto — Bloco 14
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  async list(input) {
+    let q = supabase
+      .from("categorias_financeiras")
+      .select("id, nome, tipo, parent_id, cor, ativo")
+      .order("nome");
+    if (input?.tipo) q = q.eq("tipo", input.tipo);
+    if (!input?.incluir_inativas) q = q.eq("ativo", true);
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []) as unknown as import("../types").CategoriaFinanceiraDomain[];
+  },
+};
 // ============================================================
 const lotes: DataAdapter["lotes"] = {
   async criar(input) {
@@ -1379,6 +1398,20 @@ const lotes: DataAdapter["lotes"] = {
       lote_id: String(d.lote_id ?? loteId),
       excluido: Boolean(d.excluido),
     };
+  },
+
+  // ---------------------------- Reads (Bloco 15) ----------------------------
+  async list(input) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q = (supabase as any)
+      .from("lotes_produto_com_saldo")
+      .select("*")
+      .order("data_validade", { ascending: true, nullsFirst: false });
+    if (input?.produto_id) q = q.eq("produto_id", input.produto_id);
+    if (input?.somente_com_saldo) q = q.gt("saldo_real", 0);
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []) as import("../types").LoteComSaldoDomain[];
   },
 };
 
