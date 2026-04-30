@@ -996,6 +996,7 @@ export type Database = {
         Row: {
           caixa_id: string | null
           categoria_id: string | null
+          client_uuid: string | null
           cliente_id: string | null
           compra_id: string | null
           conciliado_em: string | null
@@ -1028,6 +1029,7 @@ export type Database = {
         Insert: {
           caixa_id?: string | null
           categoria_id?: string | null
+          client_uuid?: string | null
           cliente_id?: string | null
           compra_id?: string | null
           conciliado_em?: string | null
@@ -1062,6 +1064,7 @@ export type Database = {
         Update: {
           caixa_id?: string | null
           categoria_id?: string | null
+          client_uuid?: string | null
           cliente_id?: string | null
           compra_id?: string | null
           conciliado_em?: string | null
@@ -3008,12 +3011,50 @@ export type Database = {
         }
         Returns: Json
       }
+      criar_lancamento_avulso: {
+        Args: {
+          _categoria_id: string
+          _client_uuid: string
+          _cliente_id: string
+          _data_emissao: string
+          _data_vencimento: string
+          _descricao: string
+          _forma_pagamento: string
+          _fornecedor_id: string
+          _numero_documento: string
+          _observacoes: string
+          _tipo: string
+          _valor: number
+        }
+        Returns: Json
+      }
       current_empresa_id: { Args: never; Returns: string }
       derivar_status_pagamento_venda: {
         Args: { _venda_id: string }
         Returns: string
       }
+      editar_lancamento_avulso: {
+        Args: {
+          _categoria_id: string
+          _client_uuid: string
+          _cliente_id: string
+          _data_emissao: string
+          _data_vencimento: string
+          _descricao: string
+          _forma_pagamento: string
+          _fornecedor_id: string
+          _lancamento_id: string
+          _numero_documento: string
+          _observacoes: string
+          _valor: number
+        }
+        Returns: Json
+      }
       excluir_caixa: { Args: { _caixa_id: string }; Returns: Json }
+      excluir_lancamento_avulso: {
+        Args: { _lancamento_id: string }
+        Returns: Json
+      }
       excluir_venda_cancelada: { Args: { _venda_id: string }; Returns: Json }
       fechar_caixa: {
         Args: {
