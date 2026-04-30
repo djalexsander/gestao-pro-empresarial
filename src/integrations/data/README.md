@@ -1073,3 +1073,154 @@ por contratos próprios. As próximas rodadas são **melhorias complementares**:
 4. Auditoria unificada (`audit_logs` por trigger).
 5. UI de gerenciamento de categorias e de lotes (gaps de tela, não de
    arquitetura).
+
+
+## Bloco 16 — RealtimeAdapter formal
+
+### Objetivo
+
+Formalizar a camada de realtime como um **contrato plugável**, do mesmo jeito
+que `DataAdapter` formalizou reads/writes. O hook `useRealtimeSync` deixa de
+conhecer Supabase diretamente — ele apenas inicia o adapter ativo. A troca
+futura entre Supabase Realtime e WebSocket/LAN passa a ser troca de
+implementação, não reescrita de hook.
+
+### Arquivos novos
+
+| Arquivo | Papel |
+|---|---|
+| `src/integrations/data/realtime-adapter.ts` | Contrato `RealtimeAdapter` + helpers compartilhados (`publishTableChange`, `realtimeTables`, `defaultSubscribeDomain`) e o mapa canônico `TABLE_TO_DOMAIN` em UM lugar só. |
+| `src/integrations/data/adapters/cloud-realtime.ts` | `SupabaseRealtimeAdapter` — implementação cloud, idêntica em comportamento ao que vivia inline no `useRealtimeSync`. |
+| `src/integrations/data/realtime-client.ts` | `realtimeClient` / `getRealtimeAdapter()` — resolve a implementação ativa via `getDataMode()`. Espelha o padrão do `dataClient`. |
+
+### Arquivo simplificado
+
+`src/hooks/useRealtimeSync.ts` virou ~10 linhas: apenas amarra o ciclo de
+vida React (`useEffect` → `realtimeClient.start()` → `stop` no cleanup). Não
+importa mais `supabase` nem conhece tabelas.
+
+### Contrato
+
+```ts
+interface RealtimeAdapter {
+  readonly source: "supabase" | "local-ws" | "local-emitter" | "polling" | "manual";
+  start(options?: RealtimeStartOptions): RealtimeStop;
+  subscribeDomain?(domain: DataDomain, handler: (e: DomainEvent) => void): RealtimeStop;
+}
+```
+
+- `start()` abre a conexão e começa a publicar no `invalidationBus`. Devolve
+  um `stop()` idempotente, compatível com `useEffect` cleanup.
+- `subscribeDomain` é atalho opcional sobre o bus; o caminho canônico de
+  consumo segue sendo `useDomainInvalidation` + `invalidationBus`.
+- `RealtimeStartOptions` carrega `url`, `token`, `terminalId` para o caso
+  LAN. Adapter cloud ignora — já tem a sessão.
+
+### Integração com o bus
+
+O adapter NÃO conhece React Query nem queryKeys — apenas traduz eventos da
+fonte em `DomainEvent` e publica no `invalidationBus`. O `QueryProvider`
+(Bloco 15) continua sendo o único bridge bus → React Query.
+
+```
+Fonte (Supabase Realtime / WS LAN / Emitter)
+         │
+         ▼
+RealtimeAdapter.start()  ──►  publishTableChange(tabela, op, source, id)
+         │                                │
+         │                                ▼
+         │                         invalidationBus.publish({domain, op, source, id})
+         │                                │
+         │                                ▼
+         │                       QueryProvider (bridge global)
+         │                                │
+         │                                ▼
+         │                  queryClient.invalidateQueries(...)
+         │
+         └── stop() devolvido para o useEffect cleanup
+```
+
+### Implementação cloud (hoje)
+
+`SupabaseRealtimeAdapter`:
+- abre `supabase.channel("rede-terminais")`
+- assina `postgres_changes` em todas as tabelas listadas em `realtimeTables()`
+- para cada evento, chama `publishTableChange(table, op, "supabase", id)`
+- `stop()` chama `supabase.removeChannel(channel)` (idempotente)
+
+Comportamento e debounce são **idênticos** ao que existia antes. Verificado
+com `tsc --noEmit` limpo.
+
+### Implementação futura (LAN)
+
+Esqueleto sugerido para a Fase 4:
+
+```ts
+// src/integrations/data/adapters/local-realtime.ts
+export class LanWebSocketRealtimeAdapter implements RealtimeAdapter {
+  readonly source = "local-ws" as const;
+
+  start({ url, token, terminalId }: RealtimeStartOptions = {}): RealtimeStop {
+    const ws = new WebSocket(`${url}?token=${token}&terminal=${terminalId}`);
+
+    ws.addEventListener("message", (msg) => {
+      const evt = JSON.parse(msg.data) as { table: string; op: DomainEvent["op"]; id?: string; from?: string };
+      // Ignora próprio eco
+      if (evt.from && evt.from === terminalId) return;
+      publishTableChange(evt.table, evt.op, "local-ws", evt.id);
+    });
+
+    return () => ws.close();
+  }
+}
+```
+
+E o resolver passa a entregar:
+
+```ts
+// realtime-client.ts (futuro)
+case "local-server": cached = new LanWebSocketRealtimeAdapter(); break;
+case "hybrid":       cached = new CompositeRealtimeAdapter([
+                       supabaseRealtimeAdapter,
+                       new LanWebSocketRealtimeAdapter(),
+                     ]); break;
+```
+
+`CompositeRealtimeAdapter` é trivial: chama `start()` de cada filho e devolve
+um `stop()` que chama todos os `stop()`s. Nada mais muda — hooks, components,
+queryKeys, bridge, tudo segue igual.
+
+### Riscos
+
+- **Singleton no resolver**: `getRealtimeAdapter()` cacheia a primeira
+  resolução. Se algum dia precisarmos trocar o modo em runtime (cloud →
+  hybrid), basta expor um `resetRealtimeAdapter()`. Por ora não é necessário.
+- **Eco em modo híbrido**: dois adapters ativos publicando o mesmo evento
+  (Supabase + LAN) gerarão duas invalidações. Como invalidação React Query é
+  idempotente, é apenas custo extra — não corrompe estado. Mitigação fina:
+  `terminalId` + `event.source` no consumidor.
+- **Mapa `TABLE_TO_DOMAIN`** continua sendo cloud-centric (nomes de tabelas
+  Postgres). Quando o publisher LAN existir, ele deve emitir os mesmos
+  nomes de tabela ou o adapter LAN precisa traduzir antes de chamar
+  `publishTableChange`. Documentado.
+
+### Status arquitetural
+
+Com o Bloco 16, as quatro camadas plugáveis ficam fechadas:
+
+| Camada | Contrato | Implementações |
+|---|---|---|
+| Reads | `DataAdapter.<dominio>.list/get/...` | `cloud.ts` (hoje); `local.ts` / `hybrid.ts` (futuro) |
+| Writes | `DataAdapter.<dominio>.<acao>` | `cloud.ts` (hoje); `local.ts` / `hybrid.ts` (futuro) |
+| Invalidation | `invalidationBus` | singleton in-memory (definitivo) |
+| Realtime | `RealtimeAdapter` | `cloud-realtime.ts` (hoje); `local-realtime.ts` / `composite` (futuro) |
+
+**Não resta mais nenhum ponto estrutural pendente** para o cenário cloud
+atual + servidor local + LAN. O que vem a seguir são melhorias
+complementares:
+
+1. Migrar leituras de `vendas` e `financeiro` (rodada 2 do Bloco 15).
+2. Loaders TanStack Router (`ensureQueryData` + `useSuspenseQuery`).
+3. UI pendentes (gerenciamento de categorias, listagem de lotes).
+4. Auditoria unificada via `audit_logs`.
+5. Substituir `confirm()` nativo por `AlertDialog` em fluxos destrutivos.

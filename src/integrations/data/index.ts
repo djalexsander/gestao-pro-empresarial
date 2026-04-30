@@ -162,3 +162,12 @@ export type {
 } from "./types";
 export { getDataMode, type DataMode } from "./mode";
 export { invalidationBus, type DataDomain, type DomainEvent } from "./realtime";
+export { realtimeClient, getRealtimeAdapter } from "./realtime-client";
+export {
+  publishTableChange,
+  realtimeTables,
+  defaultSubscribeDomain,
+  type RealtimeAdapter,
+  type RealtimeStartOptions,
+  type RealtimeStop,
+} from "./realtime-adapter";
