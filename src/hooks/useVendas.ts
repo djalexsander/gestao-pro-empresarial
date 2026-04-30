@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { dataClient } from "@/integrations/data";
 import type {
+  CancelarVendaResumo as DataCancelarVendaResumo,
   FinalizarVendaInput as DataFinalizarVendaInput,
   FinalizarVendaItem as DataFinalizarVendaItem,
   FinalizarVendaPagamento as DataFinalizarVendaPagamento,
@@ -16,6 +17,7 @@ export type StatusPagamento = DataStatusPagamento;
 export type FinalizarVendaItem = DataFinalizarVendaItem;
 export type FinalizarVendaPagamento = DataFinalizarVendaPagamento;
 export type FinalizarVendaInput = DataFinalizarVendaInput;
+export type CancelarVendaResumo = DataCancelarVendaResumo;
 
 export type VendaStatus =
   | "rascunho"
