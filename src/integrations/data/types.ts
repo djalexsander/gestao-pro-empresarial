@@ -393,6 +393,69 @@ export interface AlterarVencimentoLancamentoResult {
   data_vencimento: string;
 }
 
+// -------------------- Estoque (movimentação manual) --------------------
+
+/**
+ * Tipo de movimentação manual de estoque.
+ *
+ * - `entrada`        → soma quantidade ao saldo.
+ * - `saida`          → subtrai quantidade do saldo.
+ * - `ajuste`         → soma quantidade (use sinal positivo para acertar p/cima;
+ *                      no UI, valor negativo é convertido para `saida`).
+ * - `devolucao`      → soma quantidade (devolução de cliente).
+ * - `transferencia`  → subtrai quantidade (saída para outro depósito/loja).
+ */
+export type MovimentacaoEstoqueTipo =
+  | "entrada"
+  | "saida"
+  | "ajuste"
+  | "devolucao"
+  | "transferencia";
+
+export type MovimentacaoEstoqueOrigem =
+  | "compra"
+  | "venda"
+  | "ajuste_manual"
+  | "devolucao_cliente"
+  | "devolucao_fornecedor"
+  | "inventario"
+  | "outro";
+
+/**
+ * Registrar uma movimentação manual de estoque.
+ *
+ * **Idempotência:** envie `client_uuid` estável (1 por modal aberto).
+ * Reenvio com mesmo UUID retorna o movimento existente sem duplicar
+ * baixa/entrada de estoque.
+ *
+ * **Server-side garante:**
+ *  - lock advisory por produto (`pg_advisory_xact_lock`) → serializa
+ *    movimentações concorrentes do mesmo item entre vários terminais.
+ *  - recálculo de `saldo_anterior`/`saldo_posterior` no banco a partir do
+ *    histórico (não confia no que o cliente enviou).
+ *  - bloqueia saída/transferência que deixaria o estoque negativo.
+ */
+export interface RegistrarMovimentoEstoqueInput {
+  produto_id: string;
+  variacao_id?: string | null;
+  tipo: MovimentacaoEstoqueTipo;
+  /** Sempre positivo. Sinal vem do `tipo`. */
+  quantidade: number;
+  custo_unitario?: number | null;
+  observacoes?: string | null;
+  origem?: MovimentacaoEstoqueOrigem | null;
+  /** Chave de idempotência. Recomendado preencher SEMPRE. */
+  client_uuid?: string | null;
+}
+
+export interface RegistrarMovimentoEstoqueResult {
+  movimento_id: string;
+  /** `true` se a chamada não criou movimento novo (mesma chave já existia). */
+  idempotente: boolean;
+  saldo_anterior: number;
+  saldo_posterior: number;
+}
+
 // -------------------- Conciliação iFood --------------------
 
 export interface ConciliarIfoodIndividualInput {

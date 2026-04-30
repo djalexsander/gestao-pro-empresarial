@@ -37,6 +37,8 @@ import type {
   ProdutoPluResult,
   ReabrirLancamentoResult,
   RegistrarMovimentoCaixaInput,
+  RegistrarMovimentoEstoqueInput,
+  RegistrarMovimentoEstoqueResult,
   RegistrarPagamentoLancamentoInput,
   RegistrarPagamentoLancamentoResult,
   RemoverPagamentoLancamentoResult,
@@ -234,12 +236,45 @@ export interface FinanceiroAdapter {
   conciliarIfoodLote(input: ConciliarIfoodLoteInput): Promise<unknown>;
 }
 
+/**
+ * Operações de escrita do **Estoque** (movimentações manuais avulsas).
+ *
+ * Movimentações automáticas (venda → baixa, compra → entrada, cancelamento →
+ * devolução) NÃO passam por aqui — elas são geradas pelas RPCs de venda/
+ * compra/cancelamento. Este adapter cobre **somente ajustes manuais**:
+ * entrada manual, saída manual, ajuste de saldo, devolução avulsa,
+ * transferência.
+ *
+ * Toda gravação passa por RPC `SECURITY DEFINER` no banco para garantir:
+ *  - lock por produto (sem corrida entre terminais),
+ *  - recálculo do saldo no servidor (cliente não dita o saldo),
+ *  - bloqueio de saldo negativo,
+ *  - idempotência por `client_uuid`.
+ */
+export interface EstoqueAdapter {
+  /**
+   * Registra uma movimentação manual de estoque.
+   *
+   * **Idempotência:** envie `client_uuid` estável (1 por modal aberto).
+   * Reenvio com mesmo UUID retorna o movimento existente sem duplicar
+   * entrada/saída.
+   *
+   * **Concorrência multi-terminal:** o banco usa `pg_advisory_xact_lock`
+   * por `produto_id`, então duas movimentações simultâneas do mesmo item
+   * em terminais diferentes são serializadas — cada uma vê o saldo já
+   * atualizado pela anterior antes de gravar.
+   */
+  registrarMovimento(
+    input: RegistrarMovimentoEstoqueInput,
+  ): Promise<RegistrarMovimentoEstoqueResult>;
+}
+
 export interface DataAdapter {
   produtos: ProdutosAdapter;
   vendas: VendasAdapter;
   caixa: CaixaAdapter;
   financeiro: FinanceiroAdapter;
+  estoque: EstoqueAdapter;
   // Próximos a serem adicionados conforme a Fase 1 avança:
-  // estoque: EstoqueAdapter;
   // realtime: RealtimeAdapter;
 }
