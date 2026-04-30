@@ -328,7 +328,7 @@ function FinanceContent() {
               <Download className="h-4 w-4" />
               Exportar resumo
             </Button>
-            <Button size="sm" className="gap-1.5">
+            <Button size="sm" className="gap-1.5" onClick={() => setNovoOpen(true)}>
               <Plus className="h-4 w-4" />
               Novo lançamento
             </Button>
