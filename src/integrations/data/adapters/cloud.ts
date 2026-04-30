@@ -14,10 +14,15 @@ import { supabase } from "@/integrations/supabase/client";
 import type { DataAdapter } from "../adapter";
 import type {
   AbrirCaixaInput,
+  CancelarVendaInput,
+  CancelarVendaResumo,
   CodigoTipo,
+  ExcluirVendaCanceladaResult,
   FecharCaixaInput,
   FecharCaixaResult,
   FinalizarVendaInput,
+  ItemEstornado,
+  LancamentoCancelado,
   ProdutoBuscaResult,
   ProdutoComCategoria,
   ProdutoPluResult,
