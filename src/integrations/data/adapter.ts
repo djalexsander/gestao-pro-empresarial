@@ -17,10 +17,14 @@
  */
 
 import type {
+  AbrirCaixaInput,
+  FecharCaixaInput,
+  FecharCaixaResult,
   FinalizarVendaInput,
   ProdutoBuscaResult,
   ProdutoComCategoria,
   ProdutoPluResult,
+  RegistrarMovimentoCaixaInput,
 } from "./types";
 
 export interface ProdutosAdapter {
@@ -63,11 +67,50 @@ export interface VendasAdapter {
   finalizar(input: FinalizarVendaInput): Promise<string>;
 }
 
+export interface CaixaAdapter {
+  /**
+   * Abre um novo caixa para o owner autenticado.
+   *
+   * **Concorrência:** o banco protege com índice único parcial — dois
+   * terminais não conseguem abrir caixa simultâneo no mesmo terminal_id
+   * nem dois caixas para o mesmo operador.
+   *
+   * Retorna o `caixa_id`.
+   */
+  abrir(input: AbrirCaixaInput): Promise<string>;
+
+  /**
+   * Fecha um caixa aberto, calcula diferença, gera lançamentos no Financeiro
+   * para iFood/fiado/outros, e registra o movimento de fechamento.
+   *
+   * **Concorrência:** o banco usa `SELECT FOR UPDATE` para impedir
+   * fechamento duplicado concorrente.
+   *
+   * Sangria e suprimento NÃO viram lançamento financeiro — são puramente
+   * operacionais (movimento de gaveta).
+   */
+  fechar(input: FecharCaixaInput): Promise<FecharCaixaResult>;
+
+  /**
+   * Registra sangria (saída operacional) ou suprimento (entrada operacional).
+   *
+   * **Idempotência:** envie `client_uuid` estável por modal aberto. Reenvio
+   * com mesmo UUID retorna o id existente sem duplicar movimento.
+   */
+  registrarMovimento(input: RegistrarMovimentoCaixaInput): Promise<string>;
+
+  /**
+   * Exclui um caixa (apenas se permitido pela RPC `excluir_caixa`).
+   * Encaminhado direto para a função do banco — toda regra fica lá.
+   */
+  excluir(caixaId: string): Promise<unknown>;
+}
+
 export interface DataAdapter {
   produtos: ProdutosAdapter;
   vendas: VendasAdapter;
+  caixa: CaixaAdapter;
   // Próximos a serem adicionados conforme a Fase 1 avança:
   // estoque: EstoqueAdapter;
-  // caixa: CaixaAdapter;
   // realtime: RealtimeAdapter;
 }

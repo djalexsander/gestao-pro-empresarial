@@ -141,6 +141,52 @@ export interface FinalizarVendaPagamento {
  * venda já criada, sem duplicar nada (venda, itens, baixa de estoque,
  * pagamentos, lançamento financeiro ou movimento de caixa).
  */
+// -------------------- Caixa --------------------
+
+export type CaixaStatusDomain = "aberto" | "fechado";
+
+export interface AbrirCaixaInput {
+  valor_inicial: number;
+  observacao?: string | null;
+  operador_id?: string | null;
+  terminal_id?: string | null;
+}
+
+export interface FecharCaixaInput {
+  caixa_id: string;
+  valor_informado: number;
+  observacao?: string | null;
+}
+
+export interface FecharCaixaResult {
+  caixa_id: string;
+  valor_esperado: number;
+  valor_informado: number;
+  diferenca: number;
+  fechado_em: string;
+}
+
+/**
+ * Movimento operacional do caixa (sangria/suprimento).
+ *
+ * - **suprimento**: entrada operacional de dinheiro físico na gaveta.
+ * - **sangria**: saída operacional de dinheiro físico da gaveta.
+ *
+ * Esses movimentos NÃO são receita nem despesa — não viram lançamento no
+ * Financeiro. Eles existem apenas para o controle de caixa operacional.
+ *
+ * **Idempotência:** envie `client_uuid` estável (1 por modal aberto). Reenvio
+ * com mesmo UUID retorna o id existente sem duplicar movimento.
+ */
+export interface RegistrarMovimentoCaixaInput {
+  caixa_id: string;
+  tipo: "sangria" | "suprimento";
+  valor: number;
+  motivo?: string | null;
+  /** Chave de idempotência. Recomendado preencher SEMPRE. */
+  client_uuid?: string | null;
+}
+
 export interface FinalizarVendaInput {
   cliente_id: string | null;
   subtotal: number;

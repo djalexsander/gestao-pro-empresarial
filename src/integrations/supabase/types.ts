@@ -143,6 +143,7 @@ export type Database = {
       caixa_movimentos: {
         Row: {
           caixa_id: string
+          client_uuid: string | null
           created_at: string
           id: string
           motivo: string | null
@@ -156,6 +157,7 @@ export type Database = {
         }
         Insert: {
           caixa_id: string
+          client_uuid?: string | null
           created_at?: string
           id?: string
           motivo?: string | null
@@ -169,6 +171,7 @@ export type Database = {
         }
         Update: {
           caixa_id?: string
+          client_uuid?: string | null
           created_at?: string
           id?: string
           motivo?: string | null
@@ -2923,15 +2926,26 @@ export type Database = {
         Args: { _operador_id?: string }
         Returns: string
       }
-      caixa_registrar_movimento: {
-        Args: {
-          _caixa_id: string
-          _motivo?: string
-          _tipo: string
-          _valor: number
-        }
-        Returns: string
-      }
+      caixa_registrar_movimento:
+        | {
+            Args: {
+              _caixa_id: string
+              _motivo?: string
+              _tipo: string
+              _valor: number
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              _caixa_id: string
+              _client_uuid?: string
+              _motivo?: string
+              _tipo: string
+              _valor: number
+            }
+            Returns: string
+          }
       caixa_resumo: { Args: { _caixa_id: string }; Returns: Json }
       calcular_saldo_estoque: {
         Args: { _produto_id: string; _variacao_id?: string }

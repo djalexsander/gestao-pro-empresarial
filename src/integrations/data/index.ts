@@ -5,9 +5,18 @@
  *   import { dataClient, type ProdutoBuscaResult } from "@/integrations/data";
  */
 export { dataClient } from "./client";
-export type { DataAdapter, ProdutosAdapter, VendasAdapter } from "./adapter";
 export type {
+  CaixaAdapter,
+  DataAdapter,
+  ProdutosAdapter,
+  VendasAdapter,
+} from "./adapter";
+export type {
+  AbrirCaixaInput,
+  CaixaStatusDomain,
   CodigoTipo,
+  FecharCaixaInput,
+  FecharCaixaResult,
   FinalizarVendaInput,
   FinalizarVendaItem,
   FinalizarVendaPagamento,
@@ -16,6 +25,7 @@ export type {
   ProdutoBuscaResult,
   ProdutoComCategoria,
   ProdutoPluResult,
+  RegistrarMovimentoCaixaInput,
   StatusPagamento,
   TipoIdentificacao,
 } from "./types";

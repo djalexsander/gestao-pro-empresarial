@@ -45,9 +45,18 @@ interface VendasAdapter {
   finalizar(input: FinalizarVendaInput): Promise<string /* venda_id */>;
 }
 
+interface CaixaAdapter {
+  abrir(input: AbrirCaixaInput):                       Promise<string /* caixa_id */>;
+  fechar(input: FecharCaixaInput):                     Promise<FecharCaixaResult>;
+  /** Idempotente quando `input.client_uuid` é enviado (recomendado). */
+  registrarMovimento(input: RegistrarMovimentoCaixaInput): Promise<string>;
+  excluir(caixaId: string):                            Promise<unknown>;
+}
+
 interface DataAdapter {
   produtos: ProdutosAdapter;
   vendas:   VendasAdapter;
+  caixa:    CaixaAdapter;
 }
 ```
 
@@ -106,23 +115,42 @@ Para migrar um hook que hoje fala direto com Supabase:
 | `buscarProdutoPorCodigo` / `useBuscarProdutoPorCodigo` | `produtos.buscarPorCodigo`    | leitura |
 | `buscarProdutoPorPlu`                                | `produtos.buscarPorPlu`       | leitura |
 | `useProdutos`                                        | `produtos.listar`             | leitura |
-| **`useFinalizarVendaPDV`**                           | **`vendas.finalizar`**        | **write idempotente (client_uuid)** |
+| `useFinalizarVendaPDV`                               | `vendas.finalizar`            | write idempotente (client_uuid) |
+| **`useAbrirCaixa`**                                  | **`caixa.abrir`**             | **write protegido por índice único parcial (1 caixa aberto por terminal e por operador)** |
+| **`useFecharCaixa`**                                 | **`caixa.fechar`**            | **write com `SELECT FOR UPDATE` — sem fechamento concorrente** |
+| **`useRegistrarMovimentoCaixa`**                     | **`caixa.registrarMovimento`** | **write idempotente (client_uuid por modal aberto)** |
+| **`useExcluirCaixa`**                                | **`caixa.excluir`**           | write |
+
+## Caixa — garantias de consistência
+
+- **1 caixa aberto por terminal**: índice único parcial
+  `caixas_owner_terminal_aberto_uniq (owner_id, terminal_id) WHERE status='aberto'`.
+- **1 caixa aberto por operador**: índice único parcial
+  `caixas_owner_operador_aberto_uniq (owner_id, COALESCE(operador_id, …)) WHERE status='aberto'`.
+- **Fechamento concorrente**: `fechar_caixa` faz `SELECT … FOR UPDATE` no
+  caixa antes de calcular o resumo e atualizar — dois cliques simultâneos
+  serializam, o segundo recebe "Caixa já está fechado".
+- **Sangria/suprimento**: `client_uuid` no `caixa_movimentos` com índice
+  único parcial. Reenvio retorna o id existente.
+- **Separação operacional × financeiro**:
+  - **suprimento** = entrada operacional de dinheiro físico (gaveta).
+  - **sangria** = saída operacional de dinheiro físico (gaveta).
+  - **NÃO viram lançamento no Financeiro.** Ficam só em `caixa_movimentos`.
+  - Apenas iFood, fiado e "outros" geram lançamento financeiro no fechamento.
 
 ### Próximos recomendados (writes)
 
-1. **`useCancelarVenda`** + **`useExcluirVendaCancelada`** — para fechar o
-   ciclo de vida da venda na camada de dados.
-2. **`useAlterarStatusVenda`** — fluxo de status (financeiro ↔ vendas).
-3. **`useCaixa`** (abrir/fechar/movimentos) — chave para preparar o modo
-   terminal local.
-4. **`useFinanceiro` / `useLancamentos`** — escrita financeira ligada a vendas.
-5. **`useEstoque` ajustes manuais** — entradas/saídas avulsas.
-6. **`useRealtimeSync`** — abstrair a fonte realtime
-   (Supabase Realtime ↔ WS LAN).
+1. **`useCancelarVenda`** + **`useExcluirVendaCancelada`** — fechar o ciclo
+   da venda na camada.
+2. **`useAlterarStatusVenda`** — fluxo financeiro ↔ vendas.
+3. **`useFinanceiro` / `useLancamentos`** — escrita financeira independente.
+4. **`useEstoque` ajustes manuais** — entradas/saídas avulsas.
+5. **`useRealtimeSync`** — abstrair a fonte realtime (Supabase Realtime ↔ WS LAN).
 
 ## Não-objetivos desta fase
 
 - Não muda UI.
 - Não muda React Query (`queryKey`, `staleTime`, etc.).
-- Não muda RLS, schema ou auth.
+- Não muda RLS, schema de tabelas existentes (apenas adiciona índices/colunas
+  de hardening).
 - Não introduz banco local — apenas prepara o caminho.

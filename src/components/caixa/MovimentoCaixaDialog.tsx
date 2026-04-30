@@ -51,12 +51,24 @@ export function MovimentoCaixaDialog({ open, onOpenChange, caixaId, tipo }: Prop
 
   const [valor, setValor] = useState("");
   const [motivo, setMotivo] = useState("");
+  // UUID estável por abertura do modal — cobre duplo clique, Enter repetido,
+  // retry de rede e qualquer reenvio da mesma operação. Reset a cada abertura.
+  const [clientUuid, setClientUuid] = useState<string>(() =>
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   const registrar = useRegistrarMovimentoCaixa();
 
   useEffect(() => {
     if (open) {
       setValor("");
       setMotivo("");
+      setClientUuid(
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      );
     }
   }, [open]);
 
@@ -69,6 +81,7 @@ export function MovimentoCaixaDialog({ open, onOpenChange, caixaId, tipo }: Prop
       tipo,
       valor: v,
       motivo: motivo.trim() || null,
+      client_uuid: clientUuid,
     });
     onOpenChange(false);
   }

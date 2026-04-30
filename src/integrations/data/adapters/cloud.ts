@@ -13,11 +13,15 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { DataAdapter } from "../adapter";
 import type {
+  AbrirCaixaInput,
   CodigoTipo,
+  FecharCaixaInput,
+  FecharCaixaResult,
   FinalizarVendaInput,
   ProdutoBuscaResult,
   ProdutoComCategoria,
   ProdutoPluResult,
+  RegistrarMovimentoCaixaInput,
 } from "../types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -153,7 +157,61 @@ const vendas: DataAdapter["vendas"] = {
   },
 };
 
+// =====================================================================
+// Caixa
+// =====================================================================
+const caixa: DataAdapter["caixa"] = {
+  async abrir(input: AbrirCaixaInput): Promise<string> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("abrir_caixa", {
+      _valor_inicial: input.valor_inicial,
+      _observacao: input.observacao ?? undefined,
+      _operador_id: input.operador_id ?? undefined,
+      _terminal_id: input.terminal_id ?? undefined,
+    });
+    if (error) throw error;
+    return data as string;
+  },
+
+  async fechar(input: FecharCaixaInput): Promise<FecharCaixaResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("fechar_caixa", {
+      _caixa_id: input.caixa_id,
+      _valor_informado: input.valor_informado,
+      _observacao: input.observacao ?? undefined,
+    });
+    if (error) throw error;
+    return data as FecharCaixaResult;
+  },
+
+  async registrarMovimento(input: RegistrarMovimentoCaixaInput): Promise<string> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc(
+      "caixa_registrar_movimento",
+      {
+        _caixa_id: input.caixa_id,
+        _tipo: input.tipo,
+        _valor: input.valor,
+        _motivo: input.motivo ?? undefined,
+        _client_uuid: input.client_uuid ?? null,
+      },
+    );
+    if (error) throw error;
+    return data as string;
+  },
+
+  async excluir(caixaId: string): Promise<unknown> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("excluir_caixa", {
+      _caixa_id: caixaId,
+    });
+    if (error) throw error;
+    return data;
+  },
+};
+
 export const cloudAdapter: DataAdapter = {
   produtos,
   vendas,
+  caixa,
 };
