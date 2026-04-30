@@ -13,11 +13,15 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { DataAdapter } from "../adapter";
 import type {
+  AbrirCaixaInput,
   CodigoTipo,
+  FecharCaixaInput,
+  FecharCaixaResult,
   FinalizarVendaInput,
   ProdutoBuscaResult,
   ProdutoComCategoria,
   ProdutoPluResult,
+  RegistrarMovimentoCaixaInput,
 } from "../types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
