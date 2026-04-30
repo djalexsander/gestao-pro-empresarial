@@ -569,3 +569,112 @@ export interface ConciliarIfoodLoteInput {
   numero_repasse?: string | null;
   observacao?: string | null;
 }
+
+// -------------------- Cliente / Fornecedor (cadastros) --------------------
+
+export type PessoaTipoDomain = "PF" | "PJ";
+export type CadastroStatusDomain = "ativo" | "inativo";
+
+/**
+ * Campos compartilhados pelo formulário de cliente. Todas as strings vazias
+ * podem chegar como `null` — a RPC normaliza com `NULLIF(trim(...), '')`.
+ */
+export interface CriarClienteInput {
+  tipo: PessoaTipoDomain;
+  nome: string;
+  nome_fantasia?: string | null;
+  documento?: string | null;
+  inscricao_estadual?: string | null;
+  email?: string | null;
+  telefone?: string | null;
+  celular?: string | null;
+  data_nascimento?: string | null;
+  cep?: string | null;
+  logradouro?: string | null;
+  numero?: string | null;
+  complemento?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  estado?: string | null;
+  observacoes?: string | null;
+  status?: CadastroStatusDomain;
+  /** Idempotência. Recomendado preencher por dialog aberto. */
+  client_uuid?: string | null;
+}
+
+export interface CriarClienteResult {
+  cliente_id: string;
+  idempotente: boolean;
+}
+
+export interface EditarClienteInput extends CriarClienteInput {
+  cliente_id: string;
+}
+
+export interface EditarClienteResult {
+  cliente_id: string;
+}
+
+export interface AlterarStatusClienteInput {
+  cliente_id: string;
+  status: CadastroStatusDomain;
+}
+
+export interface AlterarStatusClienteResult {
+  cliente_id: string;
+  status: CadastroStatusDomain;
+}
+
+export interface ExcluirClienteResult {
+  cliente_id: string;
+  excluido: boolean;
+}
+
+export interface CriarFornecedorInput {
+  tipo: PessoaTipoDomain;
+  razao_social: string;
+  nome_fantasia?: string | null;
+  documento?: string | null;
+  inscricao_estadual?: string | null;
+  email?: string | null;
+  telefone?: string | null;
+  contato_nome?: string | null;
+  cep?: string | null;
+  logradouro?: string | null;
+  numero?: string | null;
+  complemento?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  estado?: string | null;
+  observacoes?: string | null;
+  status?: CadastroStatusDomain;
+  client_uuid?: string | null;
+}
+
+export interface CriarFornecedorResult {
+  fornecedor_id: string;
+  idempotente: boolean;
+}
+
+export interface EditarFornecedorInput extends CriarFornecedorInput {
+  fornecedor_id: string;
+}
+
+export interface EditarFornecedorResult {
+  fornecedor_id: string;
+}
+
+export interface AlterarStatusFornecedorInput {
+  fornecedor_id: string;
+  status: CadastroStatusDomain;
+}
+
+export interface AlterarStatusFornecedorResult {
+  fornecedor_id: string;
+  status: CadastroStatusDomain;
+}
+
+export interface ExcluirFornecedorResult {
+  fornecedor_id: string;
+  excluido: boolean;
+}

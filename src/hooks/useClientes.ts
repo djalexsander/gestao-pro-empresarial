@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 
 // =============== Tipos ===============
 export type ClienteStatus = "ativo" | "inativo";
@@ -206,21 +207,28 @@ function mapError(e: unknown): Error {
   return new Error(msg);
 }
 
+async function fetchClienteById(id: string): Promise<Cliente> {
+  const { data, error } = await supabase
+    .from("clientes")
+    .select("*")
+    .eq("id", id)
+    .single();
+  if (error) throw error;
+  return data as Cliente;
+}
+
 export function useCreateCliente() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: ClienteInput): Promise<Cliente> => {
-      const { data: userData } = await supabase.auth.getUser();
-      const uid = userData.user?.id;
-      if (!uid) throw new Error("Não autenticado");
-      const payload = { ...sanitize(input), owner_id: uid };
-      const { data, error } = await supabase
-        .from("clientes")
-        .insert(payload)
-        .select("*")
-        .single();
-      if (error) throw mapError(error);
-      return data as Cliente;
+      const payload = sanitize(input);
+      const client_uuid = crypto.randomUUID();
+      try {
+        const r = await dataClient.clientes.criar({ ...payload, client_uuid });
+        return await fetchClienteById(r.cliente_id);
+      } catch (e) {
+        throw mapError(e);
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["clientes-lite"] });
@@ -238,14 +246,15 @@ export function useUpdateCliente() {
       id,
       ...input
     }: ClienteInput & { id: string }): Promise<Cliente> => {
-      const { data, error } = await supabase
-        .from("clientes")
-        .update(sanitize(input))
-        .eq("id", id)
-        .select("*")
-        .single();
-      if (error) throw mapError(error);
-      return data as Cliente;
+      try {
+        const r = await dataClient.clientes.editar({
+          cliente_id: id,
+          ...sanitize(input),
+        });
+        return await fetchClienteById(r.cliente_id);
+      } catch (e) {
+        throw mapError(e);
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["clientes-lite"] });
@@ -259,17 +268,29 @@ export function useUpdateCliente() {
 export function useToggleClienteStatus() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: ClienteStatus }) => {
-      const { error } = await supabase
-        .from("clientes")
-        .update({ status })
-        .eq("id", id);
-      if (error) throw error;
-    },
+    mutationFn: async ({ id, status }: { id: string; status: ClienteStatus }) =>
+      dataClient.clientes.alterarStatus({ cliente_id: id, status }),
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["clientes-lite"] });
       qc.invalidateQueries({ queryKey: ["clientes"] });
       toast.success(vars.status === "ativo" ? "Cliente ativado" : "Cliente inativado");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+/**
+ * Hard delete. A RPC bloqueia se houver vendas/lançamentos vinculados —
+ * nesse caso, a UI deve oferecer "inativar" via `useToggleClienteStatus`.
+ */
+export function useDeleteCliente() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => dataClient.clientes.excluir(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["clientes-lite"] });
+      qc.invalidateQueries({ queryKey: ["clientes"] });
+      toast.success("Cliente removido");
     },
     onError: (e: Error) => toast.error(e.message),
   });

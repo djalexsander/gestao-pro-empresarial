@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/components/auth/AuthProvider";
+import { dataClient } from "@/integrations/data";
 
 export type Fornecedor = {
   id: string;
@@ -42,19 +42,24 @@ export function useFornecedores() {
   });
 }
 
+async function fetchFornecedorById(id: string): Promise<Fornecedor> {
+  const { data, error } = await supabase
+    .from("fornecedores")
+    .select("*")
+    .eq("id", id)
+    .single();
+  if (error) throw error;
+  return data as Fornecedor;
+}
+
 export function useCreateFornecedor() {
   const qc = useQueryClient();
-  const { user } = useAuth();
   return useMutation({
-    mutationFn: async (input: FornecedorInput) => {
-      if (!user) throw new Error("Não autenticado");
-      const { data, error } = await supabase
-        .from("fornecedores")
-        .insert({ ...input, owner_id: user.id })
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
+    mutationFn: async (input: FornecedorInput): Promise<Fornecedor> => {
+      // Idempotência: 1 UUID por chamada (retries da mesma mutation reusam).
+      const client_uuid = crypto.randomUUID();
+      const r = await dataClient.fornecedores.criar({ ...input, client_uuid });
+      return fetchFornecedorById(r.fornecedor_id);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["fornecedores"] });
@@ -67,15 +72,15 @@ export function useCreateFornecedor() {
 export function useUpdateFornecedor() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, ...input }: FornecedorInput & { id: string }) => {
-      const { data, error } = await supabase
-        .from("fornecedores")
-        .update(input)
-        .eq("id", id)
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
+    mutationFn: async ({
+      id,
+      ...input
+    }: FornecedorInput & { id: string }): Promise<Fornecedor> => {
+      const r = await dataClient.fornecedores.editar({
+        fornecedor_id: id,
+        ...input,
+      });
+      return fetchFornecedorById(r.fornecedor_id);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["fornecedores"] });
@@ -85,16 +90,43 @@ export function useUpdateFornecedor() {
   });
 }
 
+/**
+ * Hard delete. A RPC bloqueia se houver compras ou lançamentos vinculados —
+ * nesse caso, oriente o usuário a inativar via `useToggleFornecedorStatus`.
+ */
 export function useDeleteFornecedor() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("fornecedores").delete().eq("id", id);
-      if (error) throw error;
-    },
+    mutationFn: async (id: string) => dataClient.fornecedores.excluir(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["fornecedores"] });
       toast.success("Fornecedor removido.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+/**
+ * Soft delete: alterna `ativo` ↔ `inativo`. Recomendado quando o fornecedor
+ * já tem compras ou lançamentos vinculados (a exclusão é bloqueada nesse
+ * caso). Preserva o histórico.
+ */
+export function useToggleFornecedorStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      status,
+    }: {
+      id: string;
+      status: "ativo" | "inativo";
+    }) =>
+      dataClient.fornecedores.alterarStatus({ fornecedor_id: id, status }),
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ["fornecedores"] });
+      toast.success(
+        vars.status === "ativo" ? "Fornecedor ativado" : "Fornecedor inativado",
+      );
     },
     onError: (e: Error) => toast.error(e.message),
   });

@@ -14,6 +14,10 @@ import { supabase } from "@/integrations/supabase/client";
 import type { DataAdapter } from "../adapter";
 import type {
   AbrirCaixaInput,
+  AlterarStatusClienteInput,
+  AlterarStatusClienteResult,
+  AlterarStatusFornecedorInput,
+  AlterarStatusFornecedorResult,
   AlterarStatusVendaInput,
   AlterarStatusVendaResult,
   AlterarVencimentoLancamentoInput,
@@ -25,10 +29,20 @@ import type {
   CodigoTipo,
   ConciliarIfoodIndividualInput,
   ConciliarIfoodLoteInput,
+  CriarClienteInput,
+  CriarClienteResult,
+  CriarFornecedorInput,
+  CriarFornecedorResult,
   CriarLancamentoAvulsoInput,
   CriarLancamentoAvulsoResult,
+  EditarClienteInput,
+  EditarClienteResult,
+  EditarFornecedorInput,
+  EditarFornecedorResult,
   EditarLancamentoAvulsoInput,
   EditarLancamentoAvulsoResult,
+  ExcluirClienteResult,
+  ExcluirFornecedorResult,
   ExcluirLancamentoAvulsoResult,
   ExcluirVendaCanceladaResult,
   FecharCaixaInput,
@@ -544,10 +558,197 @@ const estoque: DataAdapter["estoque"] = {
   },
 };
 
+// =====================================================================
+// Clientes
+// =====================================================================
+const clientes: DataAdapter["clientes"] = {
+  async criar(input: CriarClienteInput): Promise<CriarClienteResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("criar_cliente", {
+      _tipo: input.tipo,
+      _nome: input.nome,
+      _nome_fantasia: input.nome_fantasia ?? null,
+      _documento: input.documento ?? null,
+      _inscricao_estadual: input.inscricao_estadual ?? null,
+      _email: input.email ?? null,
+      _telefone: input.telefone ?? null,
+      _celular: input.celular ?? null,
+      _data_nascimento: input.data_nascimento ?? null,
+      _cep: input.cep ?? null,
+      _logradouro: input.logradouro ?? null,
+      _numero: input.numero ?? null,
+      _complemento: input.complemento ?? null,
+      _bairro: input.bairro ?? null,
+      _cidade: input.cidade ?? null,
+      _estado: input.estado ?? null,
+      _observacoes: input.observacoes ?? null,
+      _status: input.status ?? "ativo",
+      _client_uuid: input.client_uuid ?? null,
+    });
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      cliente_id: String(d.cliente_id ?? ""),
+      idempotente: Boolean(d.idempotente),
+    };
+  },
+
+  async editar(input: EditarClienteInput): Promise<EditarClienteResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("editar_cliente", {
+      _cliente_id: input.cliente_id,
+      _tipo: input.tipo,
+      _nome: input.nome,
+      _nome_fantasia: input.nome_fantasia ?? null,
+      _documento: input.documento ?? null,
+      _inscricao_estadual: input.inscricao_estadual ?? null,
+      _email: input.email ?? null,
+      _telefone: input.telefone ?? null,
+      _celular: input.celular ?? null,
+      _data_nascimento: input.data_nascimento ?? null,
+      _cep: input.cep ?? null,
+      _logradouro: input.logradouro ?? null,
+      _numero: input.numero ?? null,
+      _complemento: input.complemento ?? null,
+      _bairro: input.bairro ?? null,
+      _cidade: input.cidade ?? null,
+      _estado: input.estado ?? null,
+      _observacoes: input.observacoes ?? null,
+      _status: input.status ?? null,
+    });
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return { cliente_id: String(d.cliente_id ?? input.cliente_id) };
+  },
+
+  async alterarStatus(
+    input: AlterarStatusClienteInput,
+  ): Promise<AlterarStatusClienteResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc(
+      "alterar_status_cliente",
+      { _cliente_id: input.cliente_id, _status: input.status },
+    );
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      cliente_id: String(d.cliente_id ?? input.cliente_id),
+      status: (d.status as AlterarStatusClienteResult["status"]) ?? input.status,
+    };
+  },
+
+  async excluir(clienteId: string): Promise<ExcluirClienteResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("excluir_cliente", {
+      _cliente_id: clienteId,
+    });
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      cliente_id: String(d.cliente_id ?? clienteId),
+      excluido: Boolean(d.excluido),
+    };
+  },
+};
+
+// =====================================================================
+// Fornecedores
+// =====================================================================
+const fornecedores: DataAdapter["fornecedores"] = {
+  async criar(input: CriarFornecedorInput): Promise<CriarFornecedorResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("criar_fornecedor", {
+      _tipo: input.tipo,
+      _razao_social: input.razao_social,
+      _nome_fantasia: input.nome_fantasia ?? null,
+      _documento: input.documento ?? null,
+      _inscricao_estadual: input.inscricao_estadual ?? null,
+      _email: input.email ?? null,
+      _telefone: input.telefone ?? null,
+      _contato_nome: input.contato_nome ?? null,
+      _cep: input.cep ?? null,
+      _logradouro: input.logradouro ?? null,
+      _numero: input.numero ?? null,
+      _complemento: input.complemento ?? null,
+      _bairro: input.bairro ?? null,
+      _cidade: input.cidade ?? null,
+      _estado: input.estado ?? null,
+      _observacoes: input.observacoes ?? null,
+      _status: input.status ?? "ativo",
+      _client_uuid: input.client_uuid ?? null,
+    });
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      fornecedor_id: String(d.fornecedor_id ?? ""),
+      idempotente: Boolean(d.idempotente),
+    };
+  },
+
+  async editar(input: EditarFornecedorInput): Promise<EditarFornecedorResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("editar_fornecedor", {
+      _fornecedor_id: input.fornecedor_id,
+      _tipo: input.tipo,
+      _razao_social: input.razao_social,
+      _nome_fantasia: input.nome_fantasia ?? null,
+      _documento: input.documento ?? null,
+      _inscricao_estadual: input.inscricao_estadual ?? null,
+      _email: input.email ?? null,
+      _telefone: input.telefone ?? null,
+      _contato_nome: input.contato_nome ?? null,
+      _cep: input.cep ?? null,
+      _logradouro: input.logradouro ?? null,
+      _numero: input.numero ?? null,
+      _complemento: input.complemento ?? null,
+      _bairro: input.bairro ?? null,
+      _cidade: input.cidade ?? null,
+      _estado: input.estado ?? null,
+      _observacoes: input.observacoes ?? null,
+      _status: input.status ?? null,
+    });
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return { fornecedor_id: String(d.fornecedor_id ?? input.fornecedor_id) };
+  },
+
+  async alterarStatus(
+    input: AlterarStatusFornecedorInput,
+  ): Promise<AlterarStatusFornecedorResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc(
+      "alterar_status_fornecedor",
+      { _fornecedor_id: input.fornecedor_id, _status: input.status },
+    );
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      fornecedor_id: String(d.fornecedor_id ?? input.fornecedor_id),
+      status:
+        (d.status as AlterarStatusFornecedorResult["status"]) ?? input.status,
+    };
+  },
+
+  async excluir(fornecedorId: string): Promise<ExcluirFornecedorResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("excluir_fornecedor", {
+      _fornecedor_id: fornecedorId,
+    });
+    if (error) throw error;
+    const d = (data ?? {}) as Record<string, unknown>;
+    return {
+      fornecedor_id: String(d.fornecedor_id ?? fornecedorId),
+      excluido: Boolean(d.excluido),
+    };
+  },
+};
+
 export const cloudAdapter: DataAdapter = {
   produtos,
   vendas,
   caixa,
   financeiro,
   estoque,
+  clientes,
+  fornecedores,
 };

@@ -369,6 +369,7 @@ export type Database = {
           celular: string | null
           cep: string | null
           cidade: string | null
+          client_uuid: string | null
           complemento: string | null
           created_at: string
           data_nascimento: string | null
@@ -393,6 +394,7 @@ export type Database = {
           celular?: string | null
           cep?: string | null
           cidade?: string | null
+          client_uuid?: string | null
           complemento?: string | null
           created_at?: string
           data_nascimento?: string | null
@@ -417,6 +419,7 @@ export type Database = {
           celular?: string | null
           cep?: string | null
           cidade?: string | null
+          client_uuid?: string | null
           complemento?: string | null
           created_at?: string
           data_nascimento?: string | null
@@ -1146,6 +1149,7 @@ export type Database = {
           bairro: string | null
           cep: string | null
           cidade: string | null
+          client_uuid: string | null
           complemento: string | null
           contato_nome: string | null
           created_at: string
@@ -1169,6 +1173,7 @@ export type Database = {
           bairro?: string | null
           cep?: string | null
           cidade?: string | null
+          client_uuid?: string | null
           complemento?: string | null
           contato_nome?: string | null
           created_at?: string
@@ -1192,6 +1197,7 @@ export type Database = {
           bairro?: string | null
           cep?: string | null
           cidade?: string | null
+          client_uuid?: string | null
           complemento?: string | null
           contato_nome?: string | null
           created_at?: string
@@ -2902,6 +2908,20 @@ export type Database = {
         }
         Returns: string
       }
+      alterar_status_cliente: {
+        Args: {
+          _cliente_id: string
+          _status: Database["public"]["Enums"]["cadastro_status"]
+        }
+        Returns: Json
+      }
+      alterar_status_fornecedor: {
+        Args: {
+          _fornecedor_id: string
+          _status: Database["public"]["Enums"]["cadastro_status"]
+        }
+        Returns: Json
+      }
       alterar_status_venda: {
         Args: { _motivo?: string; _novo_status: string; _venda_id: string }
         Returns: Json
@@ -3011,6 +3031,53 @@ export type Database = {
         }
         Returns: Json
       }
+      criar_cliente: {
+        Args: {
+          _bairro?: string
+          _celular?: string
+          _cep?: string
+          _cidade?: string
+          _client_uuid?: string
+          _complemento?: string
+          _data_nascimento?: string
+          _documento?: string
+          _email?: string
+          _estado?: string
+          _inscricao_estadual?: string
+          _logradouro?: string
+          _nome: string
+          _nome_fantasia?: string
+          _numero?: string
+          _observacoes?: string
+          _status?: Database["public"]["Enums"]["cadastro_status"]
+          _telefone?: string
+          _tipo: Database["public"]["Enums"]["pessoa_tipo"]
+        }
+        Returns: Json
+      }
+      criar_fornecedor: {
+        Args: {
+          _bairro?: string
+          _cep?: string
+          _cidade?: string
+          _client_uuid?: string
+          _complemento?: string
+          _contato_nome?: string
+          _documento?: string
+          _email?: string
+          _estado?: string
+          _inscricao_estadual?: string
+          _logradouro?: string
+          _nome_fantasia?: string
+          _numero?: string
+          _observacoes?: string
+          _razao_social: string
+          _status?: Database["public"]["Enums"]["cadastro_status"]
+          _telefone?: string
+          _tipo: Database["public"]["Enums"]["pessoa_tipo"]
+        }
+        Returns: Json
+      }
       criar_lancamento_avulso: {
         Args: {
           _categoria_id: string
@@ -3033,6 +3100,53 @@ export type Database = {
         Args: { _venda_id: string }
         Returns: string
       }
+      editar_cliente: {
+        Args: {
+          _bairro?: string
+          _celular?: string
+          _cep?: string
+          _cidade?: string
+          _cliente_id: string
+          _complemento?: string
+          _data_nascimento?: string
+          _documento?: string
+          _email?: string
+          _estado?: string
+          _inscricao_estadual?: string
+          _logradouro?: string
+          _nome: string
+          _nome_fantasia?: string
+          _numero?: string
+          _observacoes?: string
+          _status?: Database["public"]["Enums"]["cadastro_status"]
+          _telefone?: string
+          _tipo: Database["public"]["Enums"]["pessoa_tipo"]
+        }
+        Returns: Json
+      }
+      editar_fornecedor: {
+        Args: {
+          _bairro?: string
+          _cep?: string
+          _cidade?: string
+          _complemento?: string
+          _contato_nome?: string
+          _documento?: string
+          _email?: string
+          _estado?: string
+          _fornecedor_id: string
+          _inscricao_estadual?: string
+          _logradouro?: string
+          _nome_fantasia?: string
+          _numero?: string
+          _observacoes?: string
+          _razao_social: string
+          _status?: Database["public"]["Enums"]["cadastro_status"]
+          _telefone?: string
+          _tipo: Database["public"]["Enums"]["pessoa_tipo"]
+        }
+        Returns: Json
+      }
       editar_lancamento_avulso: {
         Args: {
           _categoria_id: string
@@ -3051,6 +3165,8 @@ export type Database = {
         Returns: Json
       }
       excluir_caixa: { Args: { _caixa_id: string }; Returns: Json }
+      excluir_cliente: { Args: { _cliente_id: string }; Returns: Json }
+      excluir_fornecedor: { Args: { _fornecedor_id: string }; Returns: Json }
       excluir_lancamento_avulso: {
         Args: { _lancamento_id: string }
         Returns: Json
