@@ -669,6 +669,8 @@ export interface ExcluirFornecedorResult {
 
 export type ProdutoStatusDomain = "ativo" | "inativo" | "descontinuado";
 
+// -------------------- Categorias de produto --------------------
+
 export interface CriarCategoriaProdutoInput {
   nome: string;
   parent_id?: string | null;
@@ -679,6 +681,78 @@ export interface CriarCategoriaProdutoInput {
 export interface CriarCategoriaProdutoResult {
   categoria_id: string;
   idempotente: boolean;
+}
+
+export interface EditarCategoriaProdutoInput {
+  categoria_id: string;
+  nome: string;
+  parent_id?: string | null;
+  descricao?: string | null;
+}
+
+export interface EditarCategoriaProdutoResult {
+  categoria_id: string;
+}
+
+export interface AlterarStatusCategoriaProdutoInput {
+  categoria_id: string;
+  ativo: boolean;
+}
+
+export interface AlterarStatusCategoriaProdutoResult {
+  categoria_id: string;
+  ativo: boolean;
+  idempotente: boolean;
+}
+
+export interface ExcluirCategoriaProdutoResult {
+  categoria_id: string;
+  excluido: boolean;
+}
+
+// -------------------- Categorias financeiras --------------------
+
+export type CategoriaFinanceiraTipoDomain = "receita" | "despesa";
+
+export interface CriarCategoriaFinanceiraInput {
+  nome: string;
+  tipo: CategoriaFinanceiraTipoDomain;
+  parent_id?: string | null;
+  cor?: string | null;
+  client_uuid?: string | null;
+}
+
+export interface CriarCategoriaFinanceiraResult {
+  categoria_id: string;
+  idempotente: boolean;
+}
+
+export interface EditarCategoriaFinanceiraInput {
+  categoria_id: string;
+  nome: string;
+  /** O `tipo` (receita/despesa) NÃO pode ser alterado — preserva relatórios. */
+  parent_id?: string | null;
+  cor?: string | null;
+}
+
+export interface EditarCategoriaFinanceiraResult {
+  categoria_id: string;
+}
+
+export interface AlterarStatusCategoriaFinanceiraInput {
+  categoria_id: string;
+  ativo: boolean;
+}
+
+export interface AlterarStatusCategoriaFinanceiraResult {
+  categoria_id: string;
+  ativo: boolean;
+  idempotente: boolean;
+}
+
+export interface ExcluirCategoriaFinanceiraResult {
+  categoria_id: string;
+  excluido: boolean;
 }
 
 export interface CriarProdutoInput {
