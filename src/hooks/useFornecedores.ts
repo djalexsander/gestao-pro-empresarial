@@ -31,25 +31,12 @@ export type FornecedorInput = Omit<Fornecedor, "id" | "created_at" | "updated_at
 export function useFornecedores() {
   return useQuery({
     queryKey: ["fornecedores"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("fornecedores")
-        .select("*")
-        .order("razao_social");
-      if (error) throw error;
-      return (data ?? []) as Fornecedor[];
-    },
+    queryFn: () => dataClient.fornecedores.list() as Promise<Fornecedor[]>,
   });
 }
 
 async function fetchFornecedorById(id: string): Promise<Fornecedor> {
-  const { data, error } = await supabase
-    .from("fornecedores")
-    .select("*")
-    .eq("id", id)
-    .single();
-  if (error) throw error;
-  return data as Fornecedor;
+  return dataClient.fornecedores.get(id) as Promise<Fornecedor>;
 }
 
 export function useCreateFornecedor() {

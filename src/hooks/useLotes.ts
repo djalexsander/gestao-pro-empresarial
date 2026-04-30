@@ -56,19 +56,11 @@ export function useLotes(filtros?: { produto_id?: string; somente_com_saldo?: bo
 
   return useQuery({
     queryKey: ["lotes", produtoId, somenteComSaldo],
-    queryFn: async (): Promise<LoteComSaldo[]> => {
-      // A view ainda não está nos types gerados pelo Supabase; cast pontual.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let q = (supabase as any)
-        .from("lotes_produto_com_saldo")
-        .select("*")
-        .order("data_validade", { ascending: true, nullsFirst: false });
-      if (produtoId) q = q.eq("produto_id", produtoId);
-      if (somenteComSaldo) q = q.gt("saldo_real", 0);
-      const { data, error } = await q;
-      if (error) throw error;
-      return (data ?? []) as LoteComSaldo[];
-    },
+    queryFn: () =>
+      dataClient.lotes.list({
+        produto_id: produtoId,
+        somente_com_saldo: somenteComSaldo,
+      }) as Promise<LoteComSaldo[]>,
   });
 }
 

@@ -85,26 +85,8 @@ export interface CaixaMovimento {
 export function useCaixaAberto(operadorId?: string | null) {
   return useQuery({
     queryKey: ["caixa", "aberto", operadorId ?? "admin"],
-    queryFn: async (): Promise<Caixa | null> => {
-      const { data: uid } = await supabase.auth.getUser();
-      if (!uid.user) return null;
-      let query = supabase
-        .from("caixas")
-        .select("*")
-        .eq("owner_id", uid.user.id)
-        .eq("status", "aberto");
-      if (operadorId) {
-        query = query.eq("operador_id", operadorId);
-      } else {
-        query = query.is("operador_id", null);
-      }
-      const { data, error } = await query
-        .order("data_abertura", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return (data as Caixa | null) ?? null;
-    },
+    queryFn: () =>
+      dataClient.caixa.aberto({ operador_id: operadorId ?? null }) as Promise<Caixa | null>,
     staleTime: 10_000,
   });
 }
@@ -117,20 +99,7 @@ export function useCaixaAberto(operadorId?: string | null) {
 export function useQualquerCaixaAberto() {
   return useQuery({
     queryKey: ["caixa", "aberto", "qualquer"],
-    queryFn: async (): Promise<Caixa | null> => {
-      const { data: uid } = await supabase.auth.getUser();
-      if (!uid.user) return null;
-      const { data, error } = await supabase
-        .from("caixas")
-        .select("*")
-        .eq("owner_id", uid.user.id)
-        .eq("status", "aberto")
-        .order("data_abertura", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return (data as Caixa | null) ?? null;
-    },
+    queryFn: () => dataClient.caixa.aberto({ qualquer: true }) as Promise<Caixa | null>,
     staleTime: 10_000,
   });
 }
@@ -140,6 +109,9 @@ export function useCaixaResumo(caixaId: string | null | undefined) {
   const qc = useQueryClient();
 
   // Realtime: invalida o resumo quando vendas/movimentos do caixa mudam.
+  // Mantemos a assinatura específica por caixa_id (filtro server-side via
+  // `filter:`), porque o invalidationBus global cobre apenas o domínio
+  // inteiro — aqui queremos refrescar apenas o caixa visível.
   useEffect(() => {
     if (!caixaId) return;
     const channel = supabase
@@ -170,12 +142,7 @@ export function useCaixaResumo(caixaId: string | null | undefined) {
     enabled: !!caixaId,
     queryFn: async (): Promise<CaixaResumo | null> => {
       if (!caixaId) return null;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any).rpc("caixa_resumo", {
-        _caixa_id: caixaId,
-      });
-      if (error) throw error;
-      return data as unknown as CaixaResumo;
+      return (await dataClient.caixa.resumo(caixaId)) as CaixaResumo | null;
     },
     refetchInterval: 15_000,
     staleTime: 5_000,
@@ -186,15 +153,7 @@ export function useCaixaResumo(caixaId: string | null | undefined) {
 export function useCaixasHistorico(limit = 50) {
   return useQuery({
     queryKey: ["caixa", "historico", limit],
-    queryFn: async (): Promise<Caixa[]> => {
-      const { data, error } = await supabase
-        .from("caixas")
-        .select("*")
-        .order("data_abertura", { ascending: false })
-        .limit(limit);
-      if (error) throw error;
-      return (data ?? []) as Caixa[];
-    },
+    queryFn: () => dataClient.caixa.historico({ limit }) as Promise<Caixa[]>,
     staleTime: 30_000,
   });
 }
@@ -206,13 +165,7 @@ export function useCaixaMovimentos(caixaId: string | null | undefined) {
     enabled: !!caixaId,
     queryFn: async (): Promise<CaixaMovimento[]> => {
       if (!caixaId) return [];
-      const { data, error } = await supabase
-        .from("caixa_movimentos")
-        .select("*")
-        .eq("caixa_id", caixaId)
-        .order("created_at", { ascending: true });
-      if (error) throw error;
-      return (data ?? []) as CaixaMovimento[];
+      return (await dataClient.caixa.movimentos(caixaId)) as CaixaMovimento[];
     },
     staleTime: 10_000,
   });
