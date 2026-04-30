@@ -425,3 +425,66 @@ ciclo financeiro inteiro na camada `dataClient`.
 - Não muda RLS, schema de tabelas existentes (apenas adiciona índices/colunas
   de hardening).
 - Não introduz banco local — apenas prepara o caminho.
+
+---
+
+## Bloco 8 — CRUD de Cliente / Fornecedor
+
+### Métodos do adapter
+
+`dataClient.clientes`:
+- `criar(input)` — `client_uuid` para idempotência de criação.
+- `editar(input)`
+- `alterarStatus({ cliente_id, status })` — soft delete (ativo/inativo).
+- `excluir(clienteId)` — hard delete; bloqueado pela RPC se houver vínculos.
+
+`dataClient.fornecedores`:
+- `criar(input)` — idem.
+- `editar(input)`
+- `alterarStatus({ fornecedor_id, status })`
+- `excluir(fornecedorId)` — bloqueado se houver compras/lançamentos vinculados.
+
+### Diferença "soft delete" vs "hard delete"
+
+| Operação | Quando usar | Efeito histórico |
+|---|---|---|
+| `alterarStatus('inativo')` | **Padrão**. Sempre seguro: o cadastro some das listas ativas mas continua referenciado por vendas, compras e lançamentos antigos. | Preservado integralmente. |
+| `excluir(id)` | Apenas para cadastro **sem nenhum vínculo** (criado por engano). | Apaga a linha. RPC bloqueia se houver qualquer venda, compra ou lançamento — então é seguro chamar; nunca gera FK órfã. |
+
+A UI deve sempre tentar `excluir` primeiro: se a RPC retornar erro `23503`,
+apresentar opção de inativar.
+
+### Garantias de consistência
+
+- **Tenant resolvido no banco** (`auth.uid()`), nunca confiando no payload.
+- **Documento normalizado** server-side (`regexp_replace '\D+' → ''`).
+- **Idempotência de criação** via `client_uuid` (`UNIQUE(owner_id, client_uuid)`),
+  cobre duplo-clique e retry de rede do React Query.
+- **Lock por linha** em editar/excluir (`SELECT ... FOR UPDATE`) evita corrida
+  entre terminais editando o mesmo cadastro.
+- **Hard delete só sem vínculos**: contagem de `vendas`/`compras`/
+  `financeiro_lancamentos` antes de `DELETE`. Em caso de vínculo, exceção
+  `23503` com a contagem informada.
+
+### Riscos identificados
+
+- O front continua fazendo `select` direto após `criar`/`editar` para retornar
+  o objeto `Cliente`/`Fornecedor` completo (compatibilidade com o `onSaved`
+  do PDV e dos dialogs). Isso é leitura, não write — a fonte de leitura será
+  abstraída em uma fase posterior, junto com `useProdutos`/`useVendasList`.
+- `checkDocumentoDuplicado` em `useClientes` ainda usa `supabase` direto
+  (leitura). Migra junto com a abstração de queries.
+- Não há trail de auditoria de alterações de cadastro. Mesmo gap dos outros
+  blocos — abordagem unificada via trigger `audit_logs` em fase própria.
+
+### Próximos writes recomendados
+
+1. **CRUD de produto** — `produtos`, `produto_codigos`, `produto_variacoes`,
+   `lotes_produto`. Maior superfície que cliente/fornecedor; precisa de
+   transação ao criar produto + códigos + variações iniciais.
+2. **CRUD de categorias** (produto e financeira) — pequeno, fecha cadastros.
+3. **CRUD de funcionários (operadores PDV)** — toca em `funcionarios.pin_hash`
+   (sensível: hash precisa ser feito no banco, nunca no cliente).
+4. **Plugar UI do "Novo lançamento financeiro"** já com infra pronta.
+5. **Abstração de leitura** (`useQuery` → `dataClient.*.list/get`), que
+   destrava a futura troca de fonte sem reescrever hooks.
