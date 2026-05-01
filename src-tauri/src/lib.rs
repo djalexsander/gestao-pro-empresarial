@@ -3,8 +3,13 @@ mod local_server;
 use local_server::LocalServerStatus;
 
 #[tauri::command]
-fn start_local_server(port: u16, server_name: Option<String>) -> Result<LocalServerStatus, String> {
-    local_server::start(port, server_name)
+fn start_local_server(
+    port: u16,
+    server_name: Option<String>,
+    upstream_url: Option<String>,
+    upstream_anon_key: Option<String>,
+) -> Result<LocalServerStatus, String> {
+    local_server::start(port, server_name, upstream_url, upstream_anon_key)
 }
 
 #[tauri::command]
