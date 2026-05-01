@@ -67,6 +67,11 @@ function SettingsPage() {
           <BalancaTab />
         </TabsContent>
 
+        <TabsContent value="desktop" className="mt-4">
+          <DesktopTab />
+        </TabsContent>
+
+
         <TabsContent value="prefs" className="mt-4">
           <Card>
             <CardHeader>
