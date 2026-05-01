@@ -10,6 +10,7 @@ import {
 import {
   clearDesktopConfig,
   getDesktopConfig,
+  hydrateDesktopConfig,
   setDesktopConfig,
   setDesktopRole,
   subscribeDesktopConfig,
@@ -47,6 +48,21 @@ export function DesktopRoleProvider({ children }: { children: ReactNode }) {
   const [config, setConfigState] = useState<DesktopConfig>(() =>
     desktop ? getDesktopConfig() : { ...DESKTOP_CONFIG_DEFAULT },
   );
+  const [hidratado, setHidratado] = useState<boolean>(!desktop);
+
+  // Aguarda hidratação inicial (Tauri Store é assíncrono).
+  useEffect(() => {
+    if (!desktop) return;
+    let cancelled = false;
+    void hydrateDesktopConfig().then(() => {
+      if (cancelled) return;
+      setConfigState(getDesktopConfig());
+      setHidratado(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [desktop]);
 
   // Mantém em sync com mudanças externas (wizard em outra aba do dev, etc.)
   useEffect(() => {
@@ -77,12 +93,12 @@ export function DesktopRoleProvider({ children }: { children: ReactNode }) {
       isDesktop: desktop,
       config,
       role: config.role,
-      precisaConfigurar: desktop && config.role === "unset",
+      precisaConfigurar: desktop && hidratado && config.role === "unset",
       definirRole,
       salvarConfig,
       resetar,
     }),
-    [desktop, config, definirRole, salvarConfig, resetar],
+    [desktop, config, hidratado, definirRole, salvarConfig, resetar],
   );
 
   return (

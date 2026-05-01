@@ -55,6 +55,7 @@
     "@tanstack/router-plugin": "^1.167.10",
     "@tanstack/zod-adapter": "^1.166.9",
     "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/plugin-store": "^2.4.2",
     "@types/qrcode": "^1.5.6",
     "@zxing/browser": "^0.1.5",
     "@zxing/library": "^0.21.3",
