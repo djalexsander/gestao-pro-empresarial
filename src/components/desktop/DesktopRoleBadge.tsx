@@ -1,19 +1,31 @@
-import { Server, Monitor } from "lucide-react";
+import { Server, Monitor, Wifi, WifiOff, Cloud, AlertTriangle } from "lucide-react";
 import { useDesktopRole } from "./DesktopRoleProvider";
+import { useServerConnection } from "./useServerConnection";
 
 /**
  * Badge compacto exibido no topo do shell quando o app está rodando como
- * desktop. Identifica visualmente o papel da máquina (Servidor ou Terminal).
- *
- * Em web ou desktop ainda não configurado, não renderiza nada.
+ * desktop. Identifica o papel da máquina E o status real de conexão com o
+ * backend local.
  */
 export function DesktopRoleBadge() {
   const { isDesktop, role, config } = useDesktopRole();
+  const { conn } = useServerConnection();
+
   if (!isDesktop || role === "unset") return null;
 
   const isServer = role === "server";
-  const Icon = isServer ? Server : Monitor;
-  const label = isServer ? "Servidor Local" : "Terminal Cliente";
+  const RoleIcon = isServer ? Server : Monitor;
+  const roleLabel = isServer ? "Servidor" : "Terminal";
+
+  // Mini-ícone de conexão à direita
+  const connMap = {
+    online: { icon: Wifi, cls: "text-emerald-500" },
+    offline: { icon: WifiOff, cls: "text-red-500" },
+    "invalid-server": { icon: AlertTriangle, cls: "text-amber-500" },
+    "cloud-fallback": { icon: Cloud, cls: "text-blue-500" },
+    unknown: { icon: Cloud, cls: "text-muted-foreground" },
+  } as const;
+  const ConnIcon = connMap[conn.status].icon;
 
   return (
     <div
@@ -24,15 +36,17 @@ export function DesktopRoleBadge() {
       }`}
       title={
         role === "terminal" && config.terminal
-          ? `${config.terminal.terminalNome} → ${config.terminal.host}:${config.terminal.porta}`
-          : label
+          ? `${config.terminal.terminalNome} → ${config.terminal.host}:${config.terminal.porta} · ${conn.mensagem ?? conn.status}`
+          : `${roleLabel} · ${conn.mensagem ?? conn.status}`
       }
     >
-      <Icon className="h-3.5 w-3.5" />
-      <span className="font-semibold">{label}</span>
+      <RoleIcon className="h-3.5 w-3.5" />
+      <span className="font-semibold">{roleLabel}</span>
       {role === "terminal" && config.terminal?.terminalNome && (
         <span className="opacity-70">· {config.terminal.terminalNome}</span>
       )}
+      <span className="mx-1 h-3 w-px bg-current opacity-30" />
+      <ConnIcon className={`h-3.5 w-3.5 ${connMap[conn.status].cls}`} />
     </div>
   );
 }
