@@ -81,12 +81,27 @@ export function DesktopTab() {
             )}
 
             {isServer && (
-              <RoleSummary
-                icon={<Server className="h-6 w-6" />}
-                titulo="Servidor Local"
-                cor="emerald"
-                descricao="Esta máquina é o ponto central da loja. Tem acesso completo ao ERP, financeiro, relatórios e PDV."
-              />
+              <>
+                <RoleSummary
+                  icon={<Server className="h-6 w-6" />}
+                  titulo={config.serverNome ?? "Servidor Local"}
+                  cor="emerald"
+                  descricao="Esta máquina é o ponto central da loja. Tem acesso completo ao ERP, financeiro, relatórios e PDV."
+                />
+                <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 text-sm sm:grid-cols-2">
+                  <Field label="Server ID" value={config.serverId ?? "—"} mono />
+                  <Field label="Machine ID" value={config.machineId} mono />
+                  {daemon?.hostname && (
+                    <Field label="Hostname" value={daemon.hostname} />
+                  )}
+                  {typeof daemon?.terminals_conectados === "number" && (
+                    <Field
+                      label="Terminais conectados"
+                      value={String(daemon.terminals_conectados)}
+                    />
+                  )}
+                </div>
+              </>
             )}
 
             {isTerminal && (
@@ -100,9 +115,22 @@ export function DesktopTab() {
                 {config.terminal && (
                   <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 text-sm sm:grid-cols-2">
                     <Field label="Nome do terminal" value={config.terminal.terminalNome} />
-                    <Field label="ID interno" value={config.terminal.terminalId} mono />
+                    <Field label="Terminal ID" value={config.terminal.terminalId} mono />
+                    <Field label="Machine ID" value={config.machineId} mono />
                     <Field label="Servidor (host)" value={config.terminal.host} />
                     <Field label="Porta" value={String(config.terminal.porta)} />
+                    {info?.server_name && (
+                      <Field label="Servidor remoto" value={info.server_name} />
+                    )}
+                    {info?.server_id && (
+                      <Field label="Server ID remoto" value={info.server_id} mono />
+                    )}
+                    {serverMatch != null && (
+                      <Field
+                        label="Identidade do servidor"
+                        value={serverMatch ? "✓ Confere" : "⚠ Diferente"}
+                      />
+                    )}
                   </div>
                 )}
               </>
