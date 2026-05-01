@@ -293,13 +293,26 @@ export function setDesktopRole(
   const novo: DesktopConfig = {
     ...atual,
     role,
+    // Servidor: garante serverId estável e nome.
+    serverId: role === "server" ? atual.serverId ?? novoServerId() : atual.serverId,
+    serverNome:
+      role === "server"
+        ? atual.serverNome ?? "Servidor Gestão Pro"
+        : atual.serverNome,
     terminal: role === "terminal" ? terminal ?? atual.terminal : undefined,
   };
   setDesktopConfig(novo);
 }
 
 export function clearDesktopConfig(): void {
+  // Preserva o machineId mesmo após reset (identidade da máquina é estável).
+  const atual = getDesktopConfig();
+  const machineId = atual.machineId || criarDesktopConfigInicial().machineId;
   adapter.clear();
+  setDesktopConfig({
+    ...DESKTOP_CONFIG_DEFAULT,
+    machineId,
+  });
 }
 
 export function subscribeDesktopConfig(
