@@ -31,7 +31,10 @@ export function useLocalServerBoot() {
     // Só inicia o backend quando a máquina for explicitamente o Servidor.
     if (role === "server") {
       const port = config.terminal?.porta ?? DEFAULT_LOCAL_PORT;
-      const nome = config.terminal?.terminalNome ?? "Servidor Gestão Pro";
+      const nome =
+        config.serverNome ??
+        config.terminal?.terminalNome ??
+        "Servidor Gestão Pro";
       const upstreamUrl =
         (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? null;
       const upstreamAnonKey =
@@ -40,6 +43,7 @@ export function useLocalServerBoot() {
       void startLocalServer({
         port,
         serverName: nome,
+        serverId: config.serverId ?? null,
         upstreamUrl,
         upstreamAnonKey,
       })
@@ -61,5 +65,12 @@ export function useLocalServerBoot() {
       void stopLocalServer().catch(() => {});
       startedRef.current = false;
     }
-  }, [isDesktop, role, config.terminal?.porta, config.terminal?.terminalNome]);
+  }, [
+    isDesktop,
+    role,
+    config.terminal?.porta,
+    config.serverNome,
+    config.serverId,
+    config.terminal?.terminalNome,
+  ]);
 }
