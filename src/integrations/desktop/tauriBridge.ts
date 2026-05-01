@@ -60,6 +60,7 @@ async function getInvoke(): Promise<TauriInvoke | null> {
 export interface StartLocalServerOptions {
   port: number;
   serverName: string | null;
+  serverId?: string | null;
   upstreamUrl?: string | null;
   upstreamAnonKey?: string | null;
 }
@@ -72,6 +73,7 @@ export async function startLocalServer(
   return invoke<LocalServerStatus>("start_local_server", {
     port: opts.port,
     serverName: opts.serverName,
+    serverId: opts.serverId ?? null,
     upstreamUrl: opts.upstreamUrl ?? null,
     upstreamAnonKey: opts.upstreamAnonKey ?? null,
   });
