@@ -10,6 +10,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { UpdateBanner } from "@/components/shared/UpdateBanner";
 import { CartProvider } from "@/components/saas/CartContext";
+import { DesktopRoleProvider } from "@/components/desktop/DesktopRoleProvider";
 
 import appCss from "../styles.css?url";
 
@@ -95,11 +96,13 @@ function RootComponent() {
             <ModeProvider>
               <OperadorProvider>
                 <TerminalProvider>
-                  <CartProvider>
-                    <AppLayout />
-                    <UpdateBanner />
-                    <Toaster richColors position="top-right" />
-                  </CartProvider>
+                  <DesktopRoleProvider>
+                    <CartProvider>
+                      <AppLayout />
+                      <UpdateBanner />
+                      <Toaster richColors position="top-right" />
+                    </CartProvider>
+                  </DesktopRoleProvider>
                 </TerminalProvider>
               </OperadorProvider>
             </ModeProvider>
