@@ -21,6 +21,7 @@ import {
   type TerminalConexaoConfig,
 } from "@/integrations/desktop/types";
 import { isDesktop } from "@/integrations/data/mode";
+import { useLocalServerBoot } from "./useLocalServerBoot";
 
 interface DesktopRoleContextValue {
   /** True quando rodando no shell desktop (Tauri). */
@@ -86,9 +87,19 @@ export function DesktopRoleProvider({ children }: { children: ReactNode }) {
 
   return (
     <DesktopRoleContext.Provider value={value}>
+      <LocalServerBootGate />
       {children}
     </DesktopRoleContext.Provider>
   );
+}
+
+/**
+ * Componente interno: roda o boot do backend local quando a máquina for
+ * Servidor. Vive dentro do provider para ter acesso ao contexto.
+ */
+function LocalServerBootGate() {
+  useLocalServerBoot();
+  return null;
 }
 
 export function useDesktopRole(): DesktopRoleContextValue {
