@@ -81,12 +81,32 @@ if (!existsSync(indexHtml)) {
 }
 
 // 5. Valida conteúdo mínimo do index.html
-const html = readFileSync(indexHtml, "utf8");
+let html = readFileSync(indexHtml, "utf8");
 if (!html.includes("<html") || !html.includes("</html>")) {
   fail(
     `index.html parece inválido (faltam tags <html>...</html>).\n` +
     `Caminho: ${indexHtml}`,
   );
+}
+
+// 6. Reescreve paths absolutos ("/foo", "/./assets/...") para relativos ("./foo")
+//    porque o WebView do Tauri carrega via file:// e "/" resolve para a raiz
+//    do filesystem do SO, quebrando todos os assets.
+//    Estratégia conservadora: só atributos href/src/content que começam
+//    com "/" e NÃO são URL absoluta (http://, https://, //, data:, mailto:).
+import { writeFileSync } from "node:fs";
+
+const before = html;
+html = html.replace(
+  /\b(href|src)=("|')\/(?!\/)([^"']*)\2/g,
+  (_m, attr, q, rest) => `${attr}=${q}./${rest.replace(/^\.\//, "")}${q}`,
+);
+// Também corrige "/./assets/..." que o prerender às vezes emite.
+html = html.replace(/(href|src)=("|')\.\/\.\//g, "$1=$2./");
+
+if (html !== before) {
+  writeFileSync(indexHtml, html, "utf8");
+  log(`Reescritos paths absolutos -> relativos em index.html`);
 }
 
 log(`✅ OK — Tauri pode consumir: ${DEST}`);
