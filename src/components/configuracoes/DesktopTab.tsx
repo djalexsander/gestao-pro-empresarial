@@ -26,7 +26,8 @@ import type { ServerConnStatus } from "@/integrations/desktop/serverConnection";
  */
 export function DesktopTab() {
   const { isDesktop, role, config, resetar } = useDesktopRole();
-  const { conn, daemon, reverificar, testando } = useServerConnection();
+  const { conn, info, daemon, serverMatch, reverificar, testando } =
+    useServerConnection();
   const [editando, setEditando] = useState(false);
 
   if (!isDesktop) {
