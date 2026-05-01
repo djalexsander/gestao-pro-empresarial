@@ -240,11 +240,7 @@ export function hydrateDesktopConfig(): Promise<void> {
         try {
           const fromNative = await store.get<DesktopConfig>(TAURI_STORE_KEY);
           if (fromNative && typeof fromNative === "object") {
-            memoryCache = {
-              ...DESKTOP_CONFIG_DEFAULT,
-              ...fromNative,
-              schemaVersion: 1,
-            };
+            memoryCache = normalizar(fromNative);
             // Sincroniza espelho local
             writeLocalStorage(memoryCache);
           } else if (fromLocal.role !== "unset") {
