@@ -121,7 +121,8 @@ export async function pingServidorLocal(
       ultimoSync: new Date(),
       baseUrl,
       serverVersion: payload.version ?? null,
-      serverName: null,
+      serverName: payload.server_name ?? null,
+      serverId: payload.server_id ?? null,
       mensagem: null,
     };
   } catch (err) {
@@ -139,10 +140,25 @@ export async function pingServidorLocal(
   }
 }
 
-/** Consulta opcional ao /server-info para enriquecer o status (nome do server). */
+export interface ServerInfoPayload {
+  app?: string;
+  version?: string;
+  protocol_version?: number;
+  role?: string;
+  server_id?: string | null;
+  server_name?: string | null;
+  hostname?: string | null;
+  started_at?: number | null;
+  started_at_iso?: string | null;
+  port?: number | null;
+  upstream_configured?: boolean;
+  terminals_conectados?: number;
+}
+
+/** Consulta opcional ao /server-info para enriquecer o status. */
 export async function fetchServerInfo(
   cfg?: TerminalConexaoConfig,
-): Promise<{ server_name?: string | null; version?: string | null } | null> {
+): Promise<ServerInfoPayload | null> {
   const baseUrl = getBaseUrl(cfg);
   if (!baseUrl) return null;
   const ctrl = new AbortController();
@@ -155,9 +171,71 @@ export async function fetchServerInfo(
     });
     clearTimeout(timer);
     if (!res.ok) return null;
-    return (await res.json()) as {
+    return (await res.json()) as ServerInfoPayload;
+  } catch {
+    clearTimeout(timer);
+    return null;
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Heartbeat — terminal informa identidade ao servidor local
+// ----------------------------------------------------------------------------
+
+export interface HeartbeatPayload {
+  terminal_id: string;
+  terminal_nome?: string | null;
+  machine_id?: string | null;
+  role?: string | null;
+  app_version?: string | null;
+  expected_server_id?: string | null;
+}
+
+export interface HeartbeatResult {
+  ok: boolean;
+  serverId?: string | null;
+  serverName?: string | null;
+  serverVersion?: string | null;
+  serverMatch?: boolean | null;
+  acceptedAt?: number;
+}
+
+export async function enviarHeartbeatLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: HeartbeatPayload,
+): Promise<HeartbeatResult | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(`${baseUrl}/heartbeat`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (!res.ok) return { ok: false };
+    const data = (await res.json()) as {
+      ok: boolean;
+      server_id?: string | null;
       server_name?: string | null;
-      version?: string | null;
+      server_version?: string | null;
+      server_match?: boolean | null;
+      accepted_at?: number;
+    };
+    return {
+      ok: !!data.ok,
+      serverId: data.server_id ?? null,
+      serverName: data.server_name ?? null,
+      serverVersion: data.server_version ?? null,
+      serverMatch: data.server_match ?? null,
+      acceptedAt: data.accepted_at,
     };
   } catch {
     clearTimeout(timer);
