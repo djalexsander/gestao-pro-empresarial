@@ -33,6 +33,10 @@ export interface ServerConnInfo {
   serverName?: string | null;
   /** Versão do app no servidor remoto, quando online. */
   serverVersion?: string | null;
+  /** Identificador estável do servidor remoto. */
+  serverId?: string | null;
+  /** Hostname da máquina servidora. */
+  serverHostname?: string | null;
   /** Mensagem amigável para exibir na UI quando algo dá errado. */
   mensagem?: string | null;
 }
@@ -52,6 +56,8 @@ interface HealthPayload {
   app?: string;
   version?: string;
   role?: string;
+  server_id?: string | null;
+  server_name?: string | null;
   timestamp?: number;
   uptime_ms?: number;
 }
