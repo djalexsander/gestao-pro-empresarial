@@ -19,6 +19,7 @@ export interface LocalServerStatus {
   server_name: string | null;
   app: string;
   version: string;
+  upstream_configured?: boolean;
 }
 
 const STATUS_OFF: LocalServerStatus = {
@@ -28,6 +29,7 @@ const STATUS_OFF: LocalServerStatus = {
   server_name: null,
   app: "Gestao Pro",
   version: "0",
+  upstream_configured: false,
 };
 
 type TauriInvoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -49,15 +51,23 @@ async function getInvoke(): Promise<TauriInvoke | null> {
   }
 }
 
+export interface StartLocalServerOptions {
+  port: number;
+  serverName: string | null;
+  upstreamUrl?: string | null;
+  upstreamAnonKey?: string | null;
+}
+
 export async function startLocalServer(
-  port: number,
-  serverName: string | null,
+  opts: StartLocalServerOptions,
 ): Promise<LocalServerStatus> {
   const invoke = await getInvoke();
   if (!invoke) return STATUS_OFF;
   return invoke<LocalServerStatus>("start_local_server", {
-    port,
-    serverName,
+    port: opts.port,
+    serverName: opts.serverName,
+    upstreamUrl: opts.upstreamUrl ?? null,
+    upstreamAnonKey: opts.upstreamAnonKey ?? null,
   });
 }
 

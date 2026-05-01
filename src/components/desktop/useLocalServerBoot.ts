@@ -32,7 +32,17 @@ export function useLocalServerBoot() {
     if (role === "server") {
       const port = config.terminal?.porta ?? DEFAULT_LOCAL_PORT;
       const nome = config.terminal?.terminalNome ?? "Servidor Gestão Pro";
-      void startLocalServer(port, nome)
+      const upstreamUrl =
+        (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? null;
+      const upstreamAnonKey =
+        (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ??
+        null;
+      void startLocalServer({
+        port,
+        serverName: nome,
+        upstreamUrl,
+        upstreamAnonKey,
+      })
         .then((st) => {
           if (st.running && !startedRef.current) {
             startedRef.current = true;

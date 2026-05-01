@@ -3,41 +3,47 @@
  * dataClient — Ponto único de acesso a dados do app
  * ============================================================================
  *
- * Hooks e componentes devem importar daqui:
+ * Resolve o adapter por modo (cloud / local-server / local-terminal / hybrid).
+ * O modo é determinado em `mode.ts` a partir de:
+ *   - env (`VITE_DATA_MODE`)
+ *   - papel da máquina desktop (configStore)
+ *   - fallback `cloud`
  *
- *   import { dataClient } from "@/integrations/data/client";
- *   const produto = await dataClient.produtos.buscarPorCodigo("789...");
- *
- * O modo de operação (`cloud` | `local-server` | `local-terminal` | `hybrid`)
- * é resolvido em `mode.ts`. Adicionar um novo modo significa:
- *   1. criar `adapters/<modo>.ts` implementando `DataAdapter`;
- *   2. registrá-lo no `switch` abaixo.
- *
- * Nenhum outro arquivo precisa ser tocado.
+ * IMPORTANTE: a resolução é dinâmica via Proxy. Isso permite trocar de modo
+ * em runtime (ex.: o usuário muda o papel da máquina no wizard) sem
+ * precisar recarregar a aplicação.
  */
 
 import type { DataAdapter } from "./adapter";
 import { cloudAdapter } from "./adapters/cloud";
+import { localServerAdapter } from "./adapters/local-server";
+import { localTerminalAdapter } from "./adapters/local-terminal";
 import { getDataMode } from "./mode";
 
 function resolveAdapter(): DataAdapter {
   const mode = getDataMode();
   switch (mode) {
-    case "cloud":
-      return cloudAdapter;
     case "local-server":
+      return localServerAdapter;
     case "local-terminal":
+      return localTerminalAdapter;
     case "hybrid":
-      // Implementações futuras (Fases 3-5). Por enquanto cai no cloud
-      // para não quebrar caso alguém ative a env var antes do tempo.
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[data] modo "${mode}" ainda não implementado — usando cloud adapter.`,
-      );
+      // Por ora cai no cloud; será preenchido em fase futura.
       return cloudAdapter;
+    case "cloud":
     default:
       return cloudAdapter;
   }
 }
 
-export const dataClient: DataAdapter = resolveAdapter();
+/**
+ * Proxy dinâmico: cada acesso a `dataClient.<dominio>` re-resolve o adapter,
+ * garantindo que mudanças no papel da máquina (configStore) entrem em vigor
+ * imediatamente.
+ */
+export const dataClient: DataAdapter = new Proxy({} as DataAdapter, {
+  get(_target, prop, receiver) {
+    const adapter = resolveAdapter();
+    return Reflect.get(adapter, prop, receiver);
+  },
+}) as DataAdapter;
