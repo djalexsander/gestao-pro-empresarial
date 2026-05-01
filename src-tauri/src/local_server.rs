@@ -22,7 +22,7 @@ use axum::{
     extract::{Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use once_cell::sync::Lazy;
@@ -41,8 +41,12 @@ struct ServerState {
     port: Option<u16>,
     started_at_ms: Option<i64>,
     server_name: Option<String>,
+    server_id: Option<String>,
+    hostname: Option<String>,
     shutdown_tx: Option<oneshot::Sender<()>>,
     upstream: Option<UpstreamConfig>,
+    /// Últimos heartbeats por terminalId (em memória; banco local virá depois).
+    terminals: HashMap<String, TerminalHeartbeat>,
 }
 
 #[derive(Clone, Debug)]
@@ -57,6 +61,7 @@ static STATE: Lazy<Mutex<ServerState>> = Lazy::new(|| Mutex::new(ServerState::de
 
 const APP_NAME: &str = "Gestao Pro";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+const PROTOCOL_VERSION: u32 = 1;
 
 #[derive(Clone)]
 struct AppCtx {
@@ -72,6 +77,8 @@ struct HealthResponse {
     app: &'static str,
     version: &'static str,
     role: &'static str,
+    server_id: Option<String>,
+    server_name: Option<String>,
     timestamp: i64,
     uptime_ms: i64,
 }
@@ -80,11 +87,16 @@ struct HealthResponse {
 struct ServerInfoResponse {
     app: &'static str,
     version: &'static str,
+    protocol_version: u32,
     role: &'static str,
+    server_id: Option<String>,
     server_name: Option<String>,
+    hostname: Option<String>,
     started_at: Option<i64>,
+    started_at_iso: Option<String>,
     port: Option<u16>,
     upstream_configured: bool,
+    terminals_conectados: usize,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -93,49 +105,168 @@ pub struct LocalServerStatus {
     pub port: Option<u16>,
     pub started_at: Option<i64>,
     pub server_name: Option<String>,
+    pub server_id: Option<String>,
+    pub hostname: Option<String>,
     pub app: &'static str,
     pub version: &'static str,
     pub upstream_configured: bool,
+    pub terminals_conectados: usize,
+}
+
+// ---------- Heartbeat ----------
+
+#[derive(Deserialize, Debug, Clone)]
+struct HeartbeatRequest {
+    terminal_id: String,
+    terminal_nome: Option<String>,
+    machine_id: Option<String>,
+    role: Option<String>,
+    app_version: Option<String>,
+    /// Se vier preenchido, o terminal está validando que está falando com o
+    /// servidor certo.
+    expected_server_id: Option<String>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+struct TerminalHeartbeat {
+    terminal_id: String,
+    terminal_nome: Option<String>,
+    machine_id: Option<String>,
+    role: Option<String>,
+    app_version: Option<String>,
+    last_seen_ms: i64,
+    last_seen_iso: String,
+}
+
+#[derive(Serialize)]
+struct HeartbeatResponse {
+    ok: bool,
+    server_id: Option<String>,
+    server_name: Option<String>,
+    server_version: &'static str,
+    accepted_at: i64,
+    /// Quando `expected_server_id` foi enviado e bate, vem `true`.
+    server_match: Option<bool>,
+}
+
+#[derive(Serialize)]
+struct TerminalsListResponse {
+    total: usize,
+    terminals: Vec<TerminalHeartbeat>,
 }
 
 fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
+fn now_iso() -> String {
+    chrono::Utc::now().to_rfc3339()
+}
+
+fn iso_from_ms(ms: i64) -> Option<String> {
+    chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms).map(|d| d.to_rfc3339())
+}
+
 // ---------- Handlers básicos ----------
 
 async fn health_handler() -> Json<HealthResponse> {
-    let started = STATE.lock().ok().and_then(|s| s.started_at_ms).unwrap_or_else(now_ms);
+    let (started, server_id, server_name) = STATE
+        .lock()
+        .ok()
+        .map(|s| (s.started_at_ms.unwrap_or_else(now_ms), s.server_id.clone(), s.server_name.clone()))
+        .unwrap_or((now_ms(), None, None));
     Json(HealthResponse {
         status: "ok",
         app: APP_NAME,
         version: APP_VERSION,
         role: "server",
+        server_id,
+        server_name,
         timestamp: now_ms(),
         uptime_ms: now_ms() - started,
     })
 }
 
 async fn server_info_handler() -> Json<ServerInfoResponse> {
-    let (server_name, started_at, port, upstream_configured) = STATE
-        .lock()
-        .ok()
-        .map(|s| (
+    let snap = STATE.lock().ok().map(|s| {
+        (
             s.server_name.clone(),
+            s.server_id.clone(),
+            s.hostname.clone(),
             s.started_at_ms,
             s.port,
             s.upstream.is_some(),
-        ))
-        .unwrap_or((None, None, None, false));
+            s.terminals.len(),
+        )
+    });
+    let (server_name, server_id, hostname, started_at, port, upstream_configured, terminals_conectados) =
+        snap.unwrap_or((None, None, None, None, None, false, 0));
 
     Json(ServerInfoResponse {
         app: APP_NAME,
         version: APP_VERSION,
+        protocol_version: PROTOCOL_VERSION,
         role: "server",
+        server_id,
         server_name,
+        hostname,
         started_at,
+        started_at_iso: started_at.and_then(iso_from_ms),
         port,
         upstream_configured,
+        terminals_conectados,
+    })
+}
+
+// ---------- Heartbeat ----------
+
+async fn heartbeat_handler(
+    Json(req): Json<HeartbeatRequest>,
+) -> Result<Json<HeartbeatResponse>, (StatusCode, String)> {
+    if req.terminal_id.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "terminal_id obrigatório".into()));
+    }
+
+    let now = now_ms();
+    let hb = TerminalHeartbeat {
+        terminal_id: req.terminal_id.clone(),
+        terminal_nome: req.terminal_nome.clone(),
+        machine_id: req.machine_id.clone(),
+        role: req.role.clone(),
+        app_version: req.app_version.clone(),
+        last_seen_ms: now,
+        last_seen_iso: now_iso(),
+    };
+
+    let (server_id, server_name, server_match) = {
+        let mut s = STATE.lock().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        s.terminals.insert(req.terminal_id.clone(), hb);
+        let m = req
+            .expected_server_id
+            .as_ref()
+            .map(|exp| s.server_id.as_deref() == Some(exp.as_str()));
+        (s.server_id.clone(), s.server_name.clone(), m)
+    };
+
+    Ok(Json(HeartbeatResponse {
+        ok: true,
+        server_id,
+        server_name,
+        server_version: APP_VERSION,
+        accepted_at: now,
+        server_match,
+    }))
+}
+
+async fn terminals_handler() -> Json<TerminalsListResponse> {
+    let terminals: Vec<TerminalHeartbeat> = STATE
+        .lock()
+        .ok()
+        .map(|s| s.terminals.values().cloned().collect())
+        .unwrap_or_default();
+    Json(TerminalsListResponse {
+        total: terminals.len(),
+        terminals,
     })
 }
 
@@ -297,6 +428,8 @@ fn build_router(ctx: AppCtx) -> Router {
     Router::new()
         .route("/health", get(health_handler))
         .route("/server-info", get(server_info_handler))
+        .route("/heartbeat", post(heartbeat_handler))
+        .route("/terminals", get(terminals_handler))
         .route("/api/produtos/list", get(produtos_list_handler))
         .route("/api/estoque/saldos", get(estoque_saldos_handler))
         .route("/api/estoque/movimentacoes", get(estoque_movimentacoes_handler))
@@ -314,15 +447,19 @@ pub fn current_status() -> LocalServerStatus {
         port: s.port,
         started_at: s.started_at_ms,
         server_name: s.server_name.clone(),
+        server_id: s.server_id.clone(),
+        hostname: s.hostname.clone(),
         app: APP_NAME,
         version: APP_VERSION,
         upstream_configured: s.upstream.is_some(),
+        terminals_conectados: s.terminals.len(),
     }
 }
 
 pub fn start(
     port: u16,
     server_name: Option<String>,
+    server_id: Option<String>,
     upstream_url: Option<String>,
     upstream_anon_key: Option<String>,
 ) -> Result<LocalServerStatus, String> {
@@ -333,17 +470,34 @@ pub fn start(
         _ => None,
     };
 
+    let host = hostname::get()
+        .ok()
+        .and_then(|s| s.into_string().ok());
+
     {
-        let s = STATE.lock().map_err(|e| e.to_string())?;
+        let mut s = STATE.lock().map_err(|e| e.to_string())?;
         if s.running {
+            // Atualiza identidade se o frontend mandou novos valores.
+            if server_name.is_some() {
+                s.server_name = server_name.clone();
+            }
+            if server_id.is_some() {
+                s.server_id = server_id.clone();
+            }
+            if s.hostname.is_none() {
+                s.hostname = host.clone();
+            }
             return Ok(LocalServerStatus {
                 running: true,
                 port: s.port,
                 started_at: s.started_at_ms,
                 server_name: s.server_name.clone(),
+                server_id: s.server_id.clone(),
+                hostname: s.hostname.clone(),
                 app: APP_NAME,
                 version: APP_VERSION,
                 upstream_configured: s.upstream.is_some(),
+                terminals_conectados: s.terminals.len(),
             });
         }
     }
@@ -385,8 +539,11 @@ pub fn start(
         s.port = Some(port);
         s.started_at_ms = Some(now_ms());
         s.server_name = server_name;
+        s.server_id = server_id;
+        s.hostname = host;
         s.shutdown_tx = Some(tx);
         s.upstream = upstream;
+        s.terminals.clear();
     }
 
     Ok(current_status())
@@ -399,6 +556,7 @@ pub fn stop() -> Result<LocalServerStatus, String> {
         s.port = None;
         s.started_at_ms = None;
         s.upstream = None;
+        s.terminals.clear();
         s.shutdown_tx.take()
     };
     if let Some(tx) = tx_opt {

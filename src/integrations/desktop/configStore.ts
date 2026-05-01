@@ -23,6 +23,8 @@
 
 import {
   DESKTOP_CONFIG_DEFAULT,
+  criarDesktopConfigInicial,
+  novoServerId,
   type DesktopConfig,
   type DesktopRole,
   type TerminalConexaoConfig,
@@ -64,15 +66,28 @@ function notifyChange(cfg: DesktopConfig) {
 // ----------------------------------------------------------------------------
 // Adapter: localStorage (web + espelho síncrono no desktop)
 // ----------------------------------------------------------------------------
+function normalizar(parsed: Partial<DesktopConfig> | null | undefined): DesktopConfig {
+  const base: DesktopConfig = {
+    ...DESKTOP_CONFIG_DEFAULT,
+    ...(parsed ?? {}),
+    schemaVersion: 1,
+  };
+  // Garante machineId estável (gerado uma vez e nunca mais alterado).
+  if (!base.machineId) {
+    base.machineId = criarDesktopConfigInicial().machineId;
+  }
+  return base;
+}
+
 function readLocalStorage(): DesktopConfig {
-  if (typeof window === "undefined") return { ...DESKTOP_CONFIG_DEFAULT };
+  if (typeof window === "undefined") return normalizar(null);
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...DESKTOP_CONFIG_DEFAULT };
+    if (!raw) return normalizar(null);
     const parsed = JSON.parse(raw) as Partial<DesktopConfig>;
-    return { ...DESKTOP_CONFIG_DEFAULT, ...parsed, schemaVersion: 1 };
+    return normalizar(parsed);
   } catch {
-    return { ...DESKTOP_CONFIG_DEFAULT };
+    return normalizar(null);
   }
 }
 
@@ -225,11 +240,7 @@ export function hydrateDesktopConfig(): Promise<void> {
         try {
           const fromNative = await store.get<DesktopConfig>(TAURI_STORE_KEY);
           if (fromNative && typeof fromNative === "object") {
-            memoryCache = {
-              ...DESKTOP_CONFIG_DEFAULT,
-              ...fromNative,
-              schemaVersion: 1,
-            };
+            memoryCache = normalizar(fromNative);
             // Sincroniza espelho local
             writeLocalStorage(memoryCache);
           } else if (fromLocal.role !== "unset") {
@@ -282,13 +293,26 @@ export function setDesktopRole(
   const novo: DesktopConfig = {
     ...atual,
     role,
+    // Servidor: garante serverId estável e nome.
+    serverId: role === "server" ? atual.serverId ?? novoServerId() : atual.serverId,
+    serverNome:
+      role === "server"
+        ? atual.serverNome ?? "Servidor Gestão Pro"
+        : atual.serverNome,
     terminal: role === "terminal" ? terminal ?? atual.terminal : undefined,
   };
   setDesktopConfig(novo);
 }
 
 export function clearDesktopConfig(): void {
+  // Preserva o machineId mesmo após reset (identidade da máquina é estável).
+  const atual = getDesktopConfig();
+  const machineId = atual.machineId || criarDesktopConfigInicial().machineId;
   adapter.clear();
+  setDesktopConfig({
+    ...DESKTOP_CONFIG_DEFAULT,
+    machineId,
+  });
 }
 
 export function subscribeDesktopConfig(

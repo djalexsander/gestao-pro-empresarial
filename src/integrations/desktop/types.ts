@@ -33,6 +33,19 @@ export interface TerminalConexaoConfig {
 export interface DesktopConfig {
   /** Papel da máquina. `unset` = ainda não passou pelo wizard. */
   role: DesktopRole;
+  /**
+   * Identificador estável desta MÁQUINA (independente do papel).
+   * Gerado uma única vez na primeira abertura. Sobrevive a trocas de papel.
+   */
+  machineId: string;
+  /**
+   * Identificador estável do SERVIDOR — usado quando role = "server".
+   * Permite que terminais validem que estão falando com o servidor certo
+   * mesmo se o IP/porta mudarem.
+   */
+  serverId?: string;
+  /** Nome amigável do servidor (ex.: "Servidor Loja Centro"). */
+  serverNome?: string;
   /** Quando o papel é `terminal`, a config de conexão com o servidor local. */
   terminal?: TerminalConexaoConfig;
   /** Marca de tempo do último ajuste (ms). */
@@ -41,7 +54,25 @@ export interface DesktopConfig {
   schemaVersion: 1;
 }
 
+function gerarId(prefix: string): string {
+  return `${prefix}-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
+}
+
 export const DESKTOP_CONFIG_DEFAULT: DesktopConfig = {
   role: "unset",
+  machineId: "",
   schemaVersion: 1,
 };
+
+/** Cria uma config inicial com machineId já preenchido. */
+export function criarDesktopConfigInicial(): DesktopConfig {
+  return {
+    role: "unset",
+    machineId: gerarId("mac"),
+    schemaVersion: 1,
+  };
+}
+
+export function novoServerId(): string {
+  return gerarId("srv");
+}

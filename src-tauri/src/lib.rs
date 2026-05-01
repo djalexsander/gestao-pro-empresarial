@@ -6,10 +6,11 @@ use local_server::LocalServerStatus;
 fn start_local_server(
     port: u16,
     server_name: Option<String>,
+    server_id: Option<String>,
     upstream_url: Option<String>,
     upstream_anon_key: Option<String>,
 ) -> Result<LocalServerStatus, String> {
-    local_server::start(port, server_name, upstream_url, upstream_anon_key)
+    local_server::start(port, server_name, server_id, upstream_url, upstream_anon_key)
 }
 
 #[tauri::command]
