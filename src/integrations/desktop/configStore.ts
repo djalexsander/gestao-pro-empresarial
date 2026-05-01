@@ -66,15 +66,28 @@ function notifyChange(cfg: DesktopConfig) {
 // ----------------------------------------------------------------------------
 // Adapter: localStorage (web + espelho síncrono no desktop)
 // ----------------------------------------------------------------------------
+function normalizar(parsed: Partial<DesktopConfig> | null | undefined): DesktopConfig {
+  const base: DesktopConfig = {
+    ...DESKTOP_CONFIG_DEFAULT,
+    ...(parsed ?? {}),
+    schemaVersion: 1,
+  };
+  // Garante machineId estável (gerado uma vez e nunca mais alterado).
+  if (!base.machineId) {
+    base.machineId = criarDesktopConfigInicial().machineId;
+  }
+  return base;
+}
+
 function readLocalStorage(): DesktopConfig {
-  if (typeof window === "undefined") return { ...DESKTOP_CONFIG_DEFAULT };
+  if (typeof window === "undefined") return normalizar(null);
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...DESKTOP_CONFIG_DEFAULT };
+    if (!raw) return normalizar(null);
     const parsed = JSON.parse(raw) as Partial<DesktopConfig>;
-    return { ...DESKTOP_CONFIG_DEFAULT, ...parsed, schemaVersion: 1 };
+    return normalizar(parsed);
   } catch {
-    return { ...DESKTOP_CONFIG_DEFAULT };
+    return normalizar(null);
   }
 }
 
