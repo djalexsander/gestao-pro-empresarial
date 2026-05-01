@@ -10,6 +10,7 @@ import { TerminaisTab } from "@/components/configuracoes/TerminaisTab";
 import { SociosTab } from "@/components/configuracoes/SociosTab";
 import { PlanosModulosTab } from "@/components/configuracoes/PlanosModulosTab";
 import { BalancaTab } from "@/components/configuracoes/BalancaTab";
+import { DesktopTab } from "@/components/configuracoes/DesktopTab";
 
 export const Route = createFileRoute("/configuracoes")({
   head: () => ({
@@ -37,6 +38,7 @@ function SettingsPage() {
           <TabsTrigger value="funcionarios">Funcionários</TabsTrigger>
           <TabsTrigger value="terminais">Terminais</TabsTrigger>
           <TabsTrigger value="balanca">Balança</TabsTrigger>
+          <TabsTrigger value="desktop">Desktop</TabsTrigger>
           <TabsTrigger value="prefs">Preferências</TabsTrigger>
           <TabsTrigger value="integracoes">Integrações</TabsTrigger>
         </TabsList>
