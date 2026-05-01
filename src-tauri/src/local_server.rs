@@ -22,7 +22,7 @@ use axum::{
     extract::{Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use once_cell::sync::Lazy;
@@ -41,8 +41,12 @@ struct ServerState {
     port: Option<u16>,
     started_at_ms: Option<i64>,
     server_name: Option<String>,
+    server_id: Option<String>,
+    hostname: Option<String>,
     shutdown_tx: Option<oneshot::Sender<()>>,
     upstream: Option<UpstreamConfig>,
+    /// Últimos heartbeats por terminalId (em memória; banco local virá depois).
+    terminals: HashMap<String, TerminalHeartbeat>,
 }
 
 #[derive(Clone, Debug)]
@@ -57,6 +61,7 @@ static STATE: Lazy<Mutex<ServerState>> = Lazy::new(|| Mutex::new(ServerState::de
 
 const APP_NAME: &str = "Gestao Pro";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+const PROTOCOL_VERSION: u32 = 1;
 
 #[derive(Clone)]
 struct AppCtx {
@@ -72,6 +77,8 @@ struct HealthResponse {
     app: &'static str,
     version: &'static str,
     role: &'static str,
+    server_id: Option<String>,
+    server_name: Option<String>,
     timestamp: i64,
     uptime_ms: i64,
 }
@@ -80,11 +87,16 @@ struct HealthResponse {
 struct ServerInfoResponse {
     app: &'static str,
     version: &'static str,
+    protocol_version: u32,
     role: &'static str,
+    server_id: Option<String>,
     server_name: Option<String>,
+    hostname: Option<String>,
     started_at: Option<i64>,
+    started_at_iso: Option<String>,
     port: Option<u16>,
     upstream_configured: bool,
+    terminals_conectados: usize,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -93,9 +105,54 @@ pub struct LocalServerStatus {
     pub port: Option<u16>,
     pub started_at: Option<i64>,
     pub server_name: Option<String>,
+    pub server_id: Option<String>,
+    pub hostname: Option<String>,
     pub app: &'static str,
     pub version: &'static str,
     pub upstream_configured: bool,
+    pub terminals_conectados: usize,
+}
+
+// ---------- Heartbeat ----------
+
+#[derive(Deserialize, Debug, Clone)]
+struct HeartbeatRequest {
+    terminal_id: String,
+    terminal_nome: Option<String>,
+    machine_id: Option<String>,
+    role: Option<String>,
+    app_version: Option<String>,
+    /// Se vier preenchido, o terminal está validando que está falando com o
+    /// servidor certo.
+    expected_server_id: Option<String>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+struct TerminalHeartbeat {
+    terminal_id: String,
+    terminal_nome: Option<String>,
+    machine_id: Option<String>,
+    role: Option<String>,
+    app_version: Option<String>,
+    last_seen_ms: i64,
+    last_seen_iso: String,
+}
+
+#[derive(Serialize)]
+struct HeartbeatResponse {
+    ok: bool,
+    server_id: Option<String>,
+    server_name: Option<String>,
+    server_version: &'static str,
+    accepted_at: i64,
+    /// Quando `expected_server_id` foi enviado e bate, vem `true`.
+    server_match: Option<bool>,
+}
+
+#[derive(Serialize)]
+struct TerminalsListResponse {
+    total: usize,
+    terminals: Vec<TerminalHeartbeat>,
 }
 
 fn now_ms() -> i64 {
