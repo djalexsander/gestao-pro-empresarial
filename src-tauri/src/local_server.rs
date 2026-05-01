@@ -428,6 +428,8 @@ fn build_router(ctx: AppCtx) -> Router {
     Router::new()
         .route("/health", get(health_handler))
         .route("/server-info", get(server_info_handler))
+        .route("/heartbeat", post(heartbeat_handler))
+        .route("/terminals", get(terminals_handler))
         .route("/api/produtos/list", get(produtos_list_handler))
         .route("/api/estoque/saldos", get(estoque_saldos_handler))
         .route("/api/estoque/movimentacoes", get(estoque_movimentacoes_handler))
@@ -445,15 +447,19 @@ pub fn current_status() -> LocalServerStatus {
         port: s.port,
         started_at: s.started_at_ms,
         server_name: s.server_name.clone(),
+        server_id: s.server_id.clone(),
+        hostname: s.hostname.clone(),
         app: APP_NAME,
         version: APP_VERSION,
         upstream_configured: s.upstream.is_some(),
+        terminals_conectados: s.terminals.len(),
     }
 }
 
 pub fn start(
     port: u16,
     server_name: Option<String>,
+    server_id: Option<String>,
     upstream_url: Option<String>,
     upstream_anon_key: Option<String>,
 ) -> Result<LocalServerStatus, String> {
@@ -464,17 +470,34 @@ pub fn start(
         _ => None,
     };
 
+    let host = hostname::get()
+        .ok()
+        .and_then(|s| s.into_string().ok());
+
     {
-        let s = STATE.lock().map_err(|e| e.to_string())?;
+        let mut s = STATE.lock().map_err(|e| e.to_string())?;
         if s.running {
+            // Atualiza identidade se o frontend mandou novos valores.
+            if server_name.is_some() {
+                s.server_name = server_name.clone();
+            }
+            if server_id.is_some() {
+                s.server_id = server_id.clone();
+            }
+            if s.hostname.is_none() {
+                s.hostname = host.clone();
+            }
             return Ok(LocalServerStatus {
                 running: true,
                 port: s.port,
                 started_at: s.started_at_ms,
                 server_name: s.server_name.clone(),
+                server_id: s.server_id.clone(),
+                hostname: s.hostname.clone(),
                 app: APP_NAME,
                 version: APP_VERSION,
                 upstream_configured: s.upstream.is_some(),
+                terminals_conectados: s.terminals.len(),
             });
         }
     }
@@ -516,8 +539,11 @@ pub fn start(
         s.port = Some(port);
         s.started_at_ms = Some(now_ms());
         s.server_name = server_name;
+        s.server_id = server_id;
+        s.hostname = host;
         s.shutdown_tx = Some(tx);
         s.upstream = upstream;
+        s.terminals.clear();
     }
 
     Ok(current_status())
@@ -530,6 +556,7 @@ pub fn stop() -> Result<LocalServerStatus, String> {
         s.port = None;
         s.started_at_ms = None;
         s.upstream = None;
+        s.terminals.clear();
         s.shutdown_tx.take()
     };
     if let Some(tx) = tx_opt {
