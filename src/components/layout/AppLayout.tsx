@@ -156,6 +156,7 @@ function AppShell() {
           <div className="flex-1">
             <AppMenubar activeModule={activeModule} onModuleSelect={setOverrideModule} />
           </div>
+          <DesktopRoleBadge />
           {modoAtual && (
             <button
               type="button"
