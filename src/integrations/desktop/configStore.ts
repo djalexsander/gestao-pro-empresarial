@@ -23,6 +23,8 @@
 
 import {
   DESKTOP_CONFIG_DEFAULT,
+  criarDesktopConfigInicial,
+  novoServerId,
   type DesktopConfig,
   type DesktopRole,
   type TerminalConexaoConfig,
