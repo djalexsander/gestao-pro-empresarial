@@ -1705,6 +1705,20 @@ pub fn start(
         run_outbox_scheduler(scheduler_ctx, scheduler_rx).await;
     });
 
+    // Scheduler paralelo para a outbox de VENDAS — mesma política de
+    // backoff/retry, fila própria, observabilidade própria.
+    let (vendas_scheduler_tx, vendas_scheduler_rx) = oneshot::channel::<()>();
+    let vendas_ctx = AppCtx {
+        upstream: upstream.clone(),
+        http: reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .map_err(|e| format!("Falha ao criar HTTP client (vendas scheduler): {e}"))?,
+    };
+    handle.spawn(async move {
+        run_outbox_vendas_scheduler(vendas_ctx, vendas_scheduler_rx).await;
+    });
+
     {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = true;
@@ -1715,6 +1729,7 @@ pub fn start(
         s.hostname = host;
         s.shutdown_tx = Some(tx);
         s.scheduler_shutdown_tx = Some(scheduler_tx);
+        s.vendas_scheduler_shutdown_tx = Some(vendas_scheduler_tx);
         s.upstream = upstream;
         s.terminals.clear();
     }
