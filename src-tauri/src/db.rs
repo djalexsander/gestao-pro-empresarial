@@ -3759,15 +3759,17 @@ pub fn lancamento_manual_inserir(input: &LancamentoManualInput) -> DbResult<Lanc
         // caixa_local_uuid é NOT NULL na tabela original; usamos string vazia
         // quando não vinculado (lançamento manual fora de caixa).
         let caixa = input.caixa_local_uuid.clone().unwrap_or_default();
-        conn.execute(
+
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
             "INSERT INTO lancamentos_financeiros_local(
                 local_uuid, caixa_local_uuid, tipo, categoria, forma_pagamento,
                 valor, descricao, origem, payload, created_at_ms,
                 status, venda_local_uuid, cliente_id, fornecedor_id,
                 data_competencia_ms, data_vencimento_ms, data_pagamento_ms,
-                client_uuid, operador_id
+                client_uuid, operador_id, sync_status
              ) VALUES (?1,?2,?3,?4,?5,?6,?7,'manual',NULL,?8,
-                       ?9,?10,?11,?12,?13,?14,?15,?16,?17)",
+                       ?9,?10,?11,?12,?13,?14,?15,?16,?17,'pending')",
             params![
                 lid, caixa, input.tipo, input.categoria, input.forma_pagamento,
                 input.valor, input.descricao, now_ms,
@@ -3776,6 +3778,40 @@ pub fn lancamento_manual_inserir(input: &LancamentoManualInput) -> DbResult<Lanc
                 input.client_uuid, input.operador_id
             ],
         )?;
+
+        // v12 — enfileira na outbox financeira para sync com o upstream.
+        // Mapeia tipo local → tipo upstream (entrada→receita, saida→despesa).
+        let tipo_upstream = if input.tipo == "entrada" { "receita" } else { "despesa" };
+        let date_iso = |ms: i64| {
+            let dt = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms)
+                .unwrap_or_else(|| chrono::Utc::now());
+            dt.format("%Y-%m-%d").to_string()
+        };
+        let venc_ms = input.data_vencimento_ms.unwrap_or(competencia);
+        let payload = serde_json::json!({
+            "_tipo": tipo_upstream,
+            "_descricao": input.descricao.clone().unwrap_or_else(|| input.categoria.clone()),
+            "_valor": input.valor,
+            "_data_vencimento": date_iso(venc_ms),
+            "_data_emissao": date_iso(competencia),
+            "_categoria_id": serde_json::Value::Null,
+            "_cliente_id": input.cliente_id,
+            "_fornecedor_id": input.fornecedor_id,
+            "_numero_documento": serde_json::Value::Null,
+            "_forma_pagamento": input.forma_pagamento,
+            "_observacoes": serde_json::Value::Null,
+            // _client_uuid ponta-a-ponta usa nosso local_uuid: estável e único.
+            "_client_uuid": &lid,
+        });
+        let outbox_id = random_uuid_v4();
+        tx.execute(
+            "INSERT INTO outbox_financeiro(
+                local_uuid, client_uuid, lanc_local_uuid, payload,
+                status, attempts, created_at_ms, updated_at_ms, next_attempt_at_ms
+             ) VALUES (?1,?2,?3,?4,'pending',0,?5,?5,NULL)",
+            params![outbox_id, input.client_uuid, lid, payload.to_string(), now_ms],
+        )?;
+        tx.commit()?;
         Ok(LancamentoManualResult { local_uuid: lid, idempotente: false })
     })
 }
