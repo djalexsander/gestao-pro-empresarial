@@ -37,6 +37,43 @@ export function DesktopTab() {
     useServerConnection();
   const [editando, setEditando] = useState(false);
 
+  // ---- Banco local: polling leve do /db/info e /terminals/known ----
+  const [dbInfo, setDbInfo] = useState<DbInfoPayload | null>(null);
+  const [knownTerminals, setKnownTerminals] = useState<PersistedTerminal[]>([]);
+
+  useEffect(() => {
+    if (!isDesktop || role === "unset") return;
+    const cfg =
+      role === "terminal"
+        ? config.terminal
+        : daemon?.running && daemon.port
+          ? {
+              host: "127.0.0.1",
+              porta: daemon.port,
+              terminalId: "self",
+              terminalNome: "self",
+            }
+          : undefined;
+    if (!cfg) return;
+
+    let alive = true;
+    const carregar = async () => {
+      const [info, terms] = await Promise.all([
+        fetchDbInfo(cfg),
+        fetchKnownTerminals(cfg),
+      ]);
+      if (!alive) return;
+      setDbInfo(info);
+      setKnownTerminals(terms);
+    };
+    void carregar();
+    const t = setInterval(() => void carregar(), 30_000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [isDesktop, role, config.terminal, daemon?.running, daemon?.port]);
+
   if (!isDesktop) {
     return (
       <Card>
