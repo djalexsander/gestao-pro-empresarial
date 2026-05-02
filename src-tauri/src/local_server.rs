@@ -2316,6 +2316,19 @@ pub fn start(
         run_outbox_cancel_scheduler(cancel_ctx, cancel_scheduler_rx).await;
     });
 
+    // Scheduler paralelo para a outbox FINANCEIRA (lançamentos manuais).
+    let (fin_scheduler_tx, fin_scheduler_rx) = oneshot::channel::<()>();
+    let fin_ctx = AppCtx {
+        upstream: upstream.clone(),
+        http: reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .map_err(|e| format!("Falha ao criar HTTP client (fin scheduler): {e}"))?,
+    };
+    handle.spawn(async move {
+        run_outbox_financeiro_scheduler(fin_ctx, fin_scheduler_rx).await;
+    });
+
     {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = true;
