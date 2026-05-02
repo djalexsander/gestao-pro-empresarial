@@ -23,6 +23,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { DataAdapter } from "../adapter";
 import type {
+  FinalizarVendaInput,
   RegistrarMovimentoEstoqueInput,
   RegistrarMovimentoEstoqueResult,
 } from "../types";
@@ -32,6 +33,7 @@ import { getDesktopConfig } from "@/integrations/desktop/configStore";
 import {
   getBaseUrl,
   registrarMovimentoLocal,
+  registrarVendaLocal,
 } from "@/integrations/desktop/serverConnection";
 
 const HTTP_TIMEOUT_MS = 4000;
