@@ -1738,20 +1738,21 @@ pub fn start(
 }
 
 pub fn stop() -> Result<LocalServerStatus, String> {
-    let (tx_opt, sched_opt) = {
+    let (tx_opt, sched_opt, vendas_sched_opt) = {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = false;
         s.port = None;
         s.started_at_ms = None;
         s.upstream = None;
         s.terminals.clear();
-        (s.shutdown_tx.take(), s.scheduler_shutdown_tx.take())
+        (
+            s.shutdown_tx.take(),
+            s.scheduler_shutdown_tx.take(),
+            s.vendas_scheduler_shutdown_tx.take(),
+        )
     };
-    if let Some(tx) = tx_opt {
-        let _ = tx.send(());
-    }
-    if let Some(tx) = sched_opt {
-        let _ = tx.send(());
-    }
+    if let Some(tx) = tx_opt { let _ = tx.send(()); }
+    if let Some(tx) = sched_opt { let _ = tx.send(()); }
+    if let Some(tx) = vendas_sched_opt { let _ = tx.send(()); }
     Ok(current_status())
 }
