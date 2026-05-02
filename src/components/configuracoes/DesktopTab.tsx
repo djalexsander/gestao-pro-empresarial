@@ -265,6 +265,15 @@ export function DesktopTab() {
         setCaixaResumo(null);
         setCaixaLancamentos([]);
       }
+
+      // v11 — financeiro local geral (independe de caixa aberto).
+      const [resumoFin, recentes] = await Promise.all([
+        fetchFinanceiroResumo(cfg, { limit: 1000 }),
+        fetchFinanceiroLancamentos(cfg, { limit: 10 }),
+      ]);
+      if (!alive) return;
+      setFinResumo(resumoFin);
+      setFinRecentes(recentes);
     };
     void carregar();
     const tFull = setInterval(() => void carregar(), 30_000);
