@@ -52,6 +52,8 @@ struct ServerState {
     vendas_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     /// Sinaliza o scheduler de background (outbox de caixa) para parar.
     caixa_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
+    /// Sinaliza o scheduler de background (outbox de cancelamentos) para parar.
+    cancel_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     upstream: Option<UpstreamConfig>,
     /// Últimos heartbeats por terminalId (em memória; banco local virá depois).
     terminals: HashMap<String, TerminalHeartbeat>,
@@ -2080,6 +2082,11 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/db/outbox/caixa/stats", get(outbox_caixa_stats_handler))
         .route("/db/outbox/caixa/flush", post(outbox_caixa_flush_handler))
         .route("/db/outbox/caixa/retry-errors", post(outbox_caixa_retry_errors_handler))
+        .route("/api/vendas/cancelar", post(cancelar_venda_local_handler))
+        .route("/db/outbox/cancelamentos", get(outbox_cancel_list_handler))
+        .route("/db/outbox/cancelamentos/stats", get(outbox_cancel_stats_handler))
+        .route("/db/outbox/cancelamentos/flush", post(outbox_cancel_flush_handler))
+        .route("/db/outbox/cancelamentos/retry-errors", post(outbox_cancel_retry_errors_handler))
         .route("/api/clientes/lite", get(clientes_lite_handler))
         .with_state(ctx)
         .layer(cors)
@@ -2225,6 +2232,21 @@ pub fn start(
         run_outbox_caixa_scheduler(caixa_ctx, caixa_scheduler_rx).await;
     });
 
+    // Scheduler paralelo para a outbox de CANCELAMENTOS — depende causalmente
+    // do remote_id da venda original; o push interno re-agenda enquanto a
+    // venda não estiver sincronizada.
+    let (cancel_scheduler_tx, cancel_scheduler_rx) = oneshot::channel::<()>();
+    let cancel_ctx = AppCtx {
+        upstream: upstream.clone(),
+        http: reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .map_err(|e| format!("Falha ao criar HTTP client (cancel scheduler): {e}"))?,
+    };
+    handle.spawn(async move {
+        run_outbox_cancel_scheduler(cancel_ctx, cancel_scheduler_rx).await;
+    });
+
     {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = true;
@@ -2237,6 +2259,7 @@ pub fn start(
         s.scheduler_shutdown_tx = Some(scheduler_tx);
         s.vendas_scheduler_shutdown_tx = Some(vendas_scheduler_tx);
         s.caixa_scheduler_shutdown_tx = Some(caixa_scheduler_tx);
+        s.cancel_scheduler_shutdown_tx = Some(cancel_scheduler_tx);
         s.upstream = upstream;
         s.terminals.clear();
     }
@@ -2245,7 +2268,7 @@ pub fn start(
 }
 
 pub fn stop() -> Result<LocalServerStatus, String> {
-    let (tx_opt, sched_opt, vendas_sched_opt, caixa_sched_opt) = {
+    let (tx_opt, sched_opt, vendas_sched_opt, caixa_sched_opt, cancel_sched_opt) = {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = false;
         s.port = None;
@@ -2257,12 +2280,14 @@ pub fn stop() -> Result<LocalServerStatus, String> {
             s.scheduler_shutdown_tx.take(),
             s.vendas_scheduler_shutdown_tx.take(),
             s.caixa_scheduler_shutdown_tx.take(),
+            s.cancel_scheduler_shutdown_tx.take(),
         )
     };
     if let Some(tx) = tx_opt { let _ = tx.send(()); }
     if let Some(tx) = sched_opt { let _ = tx.send(()); }
     if let Some(tx) = vendas_sched_opt { let _ = tx.send(()); }
     if let Some(tx) = caixa_sched_opt { let _ = tx.send(()); }
+    if let Some(tx) = cancel_sched_opt { let _ = tx.send(()); }
     Ok(current_status())
 }
 
@@ -2415,13 +2440,20 @@ async fn outbox_cancel_stats_handler() -> Result<Json<db::OutboxCancelStats>, (S
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
+#[derive(Serialize)]
+struct OutboxCancelListResponse {
+    total: usize,
+    items: Vec<db::OutboxCancelItem>,
+}
+
 async fn outbox_cancel_list_handler(
     Query(q): Query<HashMap<String, String>>,
-) -> Result<Json<Vec<db::OutboxCancelItem>>, (StatusCode, String)> {
+) -> Result<Json<OutboxCancelListResponse>, (StatusCode, String)> {
     let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(200);
     let status = q.get("status").map(|s| s.as_str());
-    db::outbox_cancel_list(limit, status).map(Json)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    let items = db::outbox_cancel_list(limit, status)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(OutboxCancelListResponse { total: items.len(), items }))
 }
 
 async fn outbox_cancel_flush_handler(

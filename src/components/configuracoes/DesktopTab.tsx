@@ -27,13 +27,16 @@ import {
   fetchDomainStats,
   fetchKnownTerminals,
   fetchOutboxCaixaStats,
+  fetchOutboxCancelamentosStats,
   fetchOutboxStats,
   fetchOutboxVendasStats,
   flushOutbox,
   flushOutboxCaixa,
+  flushOutboxCancelamentos,
   flushOutboxVendas,
   regenerarLancamentosCaixaLocal,
   retryOutboxCaixaErrors,
+  retryOutboxCancelamentosErrors,
   retryOutboxErrors,
   retryOutboxVendasErrors,
   runDbSync,
@@ -43,6 +46,7 @@ import {
   type DomainStat,
   type LancamentoLocalRow,
   type OutboxCaixaStats,
+  type OutboxCancelamentosStats,
   type OutboxStats,
   type PersistedTerminal,
   type ServerConnStatus,
@@ -70,6 +74,9 @@ export function DesktopTab() {
   const [flushingVendas, setFlushingVendas] = useState(false);
   const [outboxCaixa, setOutboxCaixa] = useState<OutboxCaixaStats | null>(null);
   const [flushingCaixa, setFlushingCaixa] = useState(false);
+  const [outboxCancel, setOutboxCancel] =
+    useState<OutboxCancelamentosStats | null>(null);
+  const [flushingCancel, setFlushingCancel] = useState(false);
   const [caixaAberto, setCaixaAberto] = useState<CaixaLocalAbertoRow | null>(null);
   const [caixaResumo, setCaixaResumo] = useState<CaixaResumoLocal | null>(null);
   const [caixaLancamentos, setCaixaLancamentos] = useState<LancamentoLocalRow[]>([]);
@@ -162,6 +169,24 @@ export function DesktopTab() {
     setOutboxCaixa(await fetchOutboxCaixaStats(localCfg));
   };
 
+  const handleFlushCancel = async () => {
+    if (!localCfg) return;
+    setFlushingCancel(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      await flushOutboxCancelamentos(localCfg, data.session?.access_token ?? null);
+      setOutboxCancel(await fetchOutboxCancelamentosStats(localCfg));
+    } finally {
+      setFlushingCancel(false);
+    }
+  };
+
+  const handleRetryErrorsCancel = async () => {
+    if (!localCfg) return;
+    await retryOutboxCancelamentosErrors(localCfg);
+    setOutboxCancel(await fetchOutboxCancelamentosStats(localCfg));
+  };
+
   const handleRegenerarLancamentos = async () => {
     if (!localCfg || !caixaAberto?.local_uuid) return;
     setRegenerandoLanc(true);
@@ -195,13 +220,14 @@ export function DesktopTab() {
 
     let alive = true;
     const carregar = async () => {
-      const [info, terms, stats, ob, obv, obc, ca] = await Promise.all([
+      const [info, terms, stats, ob, obv, obc, occ, ca] = await Promise.all([
         fetchDbInfo(cfg),
         fetchKnownTerminals(cfg),
         fetchDomainStats(cfg),
         fetchOutboxStats(cfg),
         fetchOutboxVendasStats(cfg),
         fetchOutboxCaixaStats(cfg),
+        fetchOutboxCancelamentosStats(cfg),
         fetchCaixaLocalAberto(cfg),
       ]);
       if (!alive) return;
@@ -211,6 +237,7 @@ export function DesktopTab() {
       setOutbox(ob);
       setOutboxVendas(obv);
       setOutboxCaixa(obc);
+      setOutboxCancel(occ);
       setCaixaAberto(ca);
 
       // Resumo + lançamentos: prioriza caixa aberto, senão omite (último
@@ -231,15 +258,17 @@ export function DesktopTab() {
     void carregar();
     const tFull = setInterval(() => void carregar(), 30_000);
     const tOutbox = setInterval(async () => {
-      const [ob, obv, obc] = await Promise.all([
+      const [ob, obv, obc, occ] = await Promise.all([
         fetchOutboxStats(cfg),
         fetchOutboxVendasStats(cfg),
         fetchOutboxCaixaStats(cfg),
+        fetchOutboxCancelamentosStats(cfg),
       ]);
       if (!alive) return;
       setOutbox(ob);
       setOutboxVendas(obv);
       setOutboxCaixa(obc);
+      setOutboxCancel(occ);
     }, 5_000);
     return () => {
       alive = false;
@@ -909,6 +938,96 @@ export function DesktopTab() {
                 localmente e despachados em ordem causal (abrir → movimento →
                 fechar) por <code>local_uuid</code>. Mesmo backoff exponencial
                 de estoque/vendas. Idempotência ponta-a-ponta.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {role !== "unset" && outboxCancel && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Fila offline — cancelamentos de venda
+              </CardTitle>
+              <div className="flex gap-2">
+                {outboxCancel.error > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void handleRetryErrorsCancel()}
+                  >
+                    Reenfileirar erros
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={flushingCancel || outboxCancel.pending === 0}
+                  onClick={() => void handleFlushCancel()}
+                >
+                  {flushingCancel ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                  )}
+                  Sincronizar agora
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 text-sm sm:grid-cols-4">
+                <Field label="Pendentes" value={String(outboxCancel.pending)} />
+                <Field label="Enviando" value={String(outboxCancel.sending)} />
+                <Field label="Enviadas" value={String(outboxCancel.sent)} />
+                <Field label="Com erro" value={String(outboxCancel.error)} />
+                <Field
+                  label="Aguardando venda sync"
+                  value={String(outboxCancel.waiting_venda_sync)}
+                />
+                <Field
+                  label="Próx. tentativa auto"
+                  value={
+                    outboxCancel.next_attempt_at_ms
+                      ? new Date(outboxCancel.next_attempt_at_ms).toLocaleString("pt-BR")
+                      : "—"
+                  }
+                />
+                <Field
+                  label="Último auto-flush"
+                  value={
+                    outboxCancel.last_auto_flush_ms
+                      ? `${new Date(outboxCancel.last_auto_flush_ms).toLocaleTimeString("pt-BR")}` +
+                        (outboxCancel.last_auto_attempted != null
+                          ? ` · ${outboxCancel.last_auto_sent ?? 0}/${outboxCancel.last_auto_attempted} ok`
+                          : "")
+                      : "—"
+                  }
+                />
+                <Field
+                  label="Último envio"
+                  value={
+                    outboxCancel.last_sent_at_ms
+                      ? new Date(outboxCancel.last_sent_at_ms).toLocaleString("pt-BR")
+                      : "—"
+                  }
+                />
+                {outboxCancel.last_error && (
+                  <div className="sm:col-span-4">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                      Último erro
+                    </div>
+                    <div className="mt-0.5 break-all text-xs text-destructive">
+                      {outboxCancel.last_error}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Cancelamentos estornam estoque local, regeneram os lançamentos
+                derivados do caixa e respeitam ordem causal: só vão ao upstream
+                depois que a venda original estiver sincronizada. Idempotência
+                garantida pelo <code>local_uuid</code>.
               </p>
             </CardContent>
           </Card>
