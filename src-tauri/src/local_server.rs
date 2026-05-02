@@ -720,8 +720,10 @@ async fn clientes_lite_handler(
     headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
+    // Inclui `status` e `updated_at` no select — necessários para tombstone
+    // (status != ativo) e para o cursor de sync incremental.
     let mut params: Vec<(&str, String)> = vec![
-        ("select", "id,nome,nome_fantasia,documento".into()),
+        ("select", "id,nome,nome_fantasia,documento,status,updated_at".into()),
         ("order", "nome.asc".into()),
     ];
     // status vazio = todos; ausente = "ativo" (default)
