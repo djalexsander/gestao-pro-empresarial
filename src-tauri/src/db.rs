@@ -679,6 +679,11 @@ pub enum IngestStrategy {
     /// Tombstone "soft" é aplicado para qualquer linha cujo `status` no
     /// upstream tenha mudado para algo diferente de "ativo".
     Incremental,
+    /// Append-only por `data_movimentacao` (ou cursor equivalente). Usado
+    /// para domínios imutáveis como `estoque_movimentacoes`: registros
+    /// nunca são apagados, só inseridos. Não há tombstone — o cursor
+    /// avança e cada nova linha simplesmente é INSERT OR IGNORE.
+    Append,
 }
 
 impl IngestStrategy {
