@@ -1847,7 +1847,7 @@ pub fn outbox_mark_sent(local_uuid: &str, remote_id: &str, now_ms: i64) -> DbRes
 }
 
 /// Política de backoff exponencial limitado (em ms):
-/// 1ª falha → 5s, 2ª → 15s, 3ª → 1min, 4ª → 5min, 5ª+ → 15min.
+/// 1ª falha → 5s, 2ª → 15s, 3ª → 1min, 4ª → 5min, 5ª+ → 15min (cap).
 fn backoff_ms_for_attempts(attempts: i64) -> i64 {
     match attempts {
         a if a <= 1 => 5_000,
@@ -1858,18 +1858,18 @@ fn backoff_ms_for_attempts(attempts: i64) -> i64 {
     }
 }
 
-/// Marca como erro E volta para `pending` com `next_attempt_at_ms` agendado.
-/// Manter em `pending` (não em `error`) garante que o scheduler retoma
-/// automaticamente; o estado `error` só aparece quando o usuário aciona
-/// manualmente "Reenfileirar erros" ou se quisermos um teto futuro.
-///
-/// IMPORTANTE: aqui mantemos o status como `error` para preservar a
-/// observabilidade atual da UI ("Com erro: N"); o scheduler trata
-/// `error` igual a `pending` quando o backoff vence — ver
-/// `outbox_due_for_retry`.
+/// Após este nº de tentativas automáticas o item para de ser retomado pelo
+/// scheduler e fica como `error`, exigindo "Reenfileirar erros" / manual.
+const MAX_AUTO_ATTEMPTS: i64 = 8;
+
+/// Marca falha de envio. Decide entre dois caminhos:
+///  * `attempts < MAX_AUTO_ATTEMPTS` → mantém `status='pending'` com
+///    `next_attempt_at_ms` agendado para o backoff. O scheduler retoma
+///    automaticamente.
+///  * caso contrário → `status='error'` (precisa de intervenção manual).
+/// Em ambos os casos, `last_error` é preservado para a UI.
 pub fn outbox_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbResult<()> {
     with_conn(|conn| {
-        // Recupera attempts atual para calcular o próximo agendamento.
         let attempts: i64 = conn
             .query_row(
                 "SELECT attempts FROM outbox_estoque_movs WHERE local_uuid=?1",
@@ -1878,16 +1878,25 @@ pub fn outbox_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbResult<(
             )
             .optional()?
             .unwrap_or(1);
-        let next = now_ms + backoff_ms_for_attempts(attempts);
-        // Deixa em `pending` para o scheduler retomar automaticamente após o
-        // backoff. `last_error` preserva a mensagem para a UI.
-        conn.execute(
-            "UPDATE outbox_estoque_movs
-                SET status='pending', last_error=?2, updated_at_ms=?3,
-                    next_attempt_at_ms=?4
-              WHERE local_uuid=?1",
-            params![local_uuid, err, now_ms, next],
-        )?;
+
+        if attempts >= MAX_AUTO_ATTEMPTS {
+            conn.execute(
+                "UPDATE outbox_estoque_movs
+                    SET status='error', last_error=?2, updated_at_ms=?3,
+                        next_attempt_at_ms=NULL
+                  WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms],
+            )?;
+        } else {
+            let next = now_ms + backoff_ms_for_attempts(attempts);
+            conn.execute(
+                "UPDATE outbox_estoque_movs
+                    SET status='pending', last_error=?2, updated_at_ms=?3,
+                        next_attempt_at_ms=?4
+                  WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms, next],
+            )?;
+        }
         Ok(())
     })
 }
