@@ -63,6 +63,9 @@ export function DesktopTab() {
   const [flushing, setFlushing] = useState(false);
   const [outboxVendas, setOutboxVendas] = useState<OutboxStats | null>(null);
   const [flushingVendas, setFlushingVendas] = useState(false);
+  const [outboxCaixa, setOutboxCaixa] = useState<OutboxCaixaStats | null>(null);
+  const [flushingCaixa, setFlushingCaixa] = useState(false);
+  const [caixaAberto, setCaixaAberto] = useState<CaixaLocalAbertoRow | null>(null);
 
   // cfg derivado para chamadas ao backend local (terminal usa o config; servidor
   // bate em si mesmo via 127.0.0.1).
