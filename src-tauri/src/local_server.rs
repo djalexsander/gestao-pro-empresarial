@@ -519,6 +519,51 @@ async fn clientes_lite_handler(
     proxy_with_cache(&ctx, &headers, "clientes_lite", "/rest/v1/clientes", &q_owned).await
 }
 
+// ---------- Endpoints de banco local ----------
+
+#[derive(Serialize)]
+struct KnownTerminalsResponse {
+    total: usize,
+    terminals: Vec<db::PersistedTerminal>,
+}
+
+async fn known_terminals_handler() -> Result<Json<KnownTerminalsResponse>, (StatusCode, String)> {
+    let terminals = db::list_terminals(200)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(KnownTerminalsResponse {
+        total: terminals.len(),
+        terminals,
+    }))
+}
+
+#[derive(Serialize)]
+struct EventsResponse {
+    total: usize,
+    events: Vec<db::PersistedEvent>,
+}
+
+async fn events_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<EventsResponse>, (StatusCode, String)> {
+    let limit = q
+        .get("limit")
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(100)
+        .clamp(1, 500);
+    let events = db::list_events(limit)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(EventsResponse {
+        total: events.len(),
+        events,
+    }))
+}
+
+async fn db_info_handler() -> Result<Json<db::DbInfo>, (StatusCode, String)> {
+    db::db_info()
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
 // ---------- Router ----------
 
 fn build_router(ctx: AppCtx) -> Router {
@@ -532,6 +577,9 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/server-info", get(server_info_handler))
         .route("/heartbeat", post(heartbeat_handler))
         .route("/terminals", get(terminals_handler))
+        .route("/terminals/known", get(known_terminals_handler))
+        .route("/events", get(events_handler))
+        .route("/db/info", get(db_info_handler))
         .route("/api/produtos/list", get(produtos_list_handler))
         .route("/api/estoque/saldos", get(estoque_saldos_handler))
         .route("/api/estoque/movimentacoes", get(estoque_movimentacoes_handler))
