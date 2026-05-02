@@ -30,16 +30,19 @@ import {
   fetchKnownTerminals,
   fetchOutboxCaixaStats,
   fetchOutboxCancelamentosStats,
+  fetchOutboxFinanceiroStats,
   fetchOutboxStats,
   fetchOutboxVendasStats,
   flushOutbox,
   flushOutboxCaixa,
   flushOutboxCancelamentos,
+  flushOutboxFinanceiro,
   flushOutboxVendas,
   regenerarLancamentosCaixaLocal,
   retryOutboxCaixaErrors,
   retryOutboxCancelamentosErrors,
   retryOutboxErrors,
+  retryOutboxFinanceiroErrors,
   retryOutboxVendasErrors,
   runDbSync,
   type CaixaLocalAbertoRow,
@@ -49,6 +52,7 @@ import {
   type LancamentoLocalRow,
   type OutboxCaixaStats,
   type OutboxCancelamentosStats,
+  type OutboxFinanceiroStats,
   type OutboxStats,
   type PersistedTerminal,
   type ServerConnStatus,
@@ -79,6 +83,8 @@ export function DesktopTab() {
   const [outboxCancel, setOutboxCancel] =
     useState<OutboxCancelamentosStats | null>(null);
   const [flushingCancel, setFlushingCancel] = useState(false);
+  const [outboxFin, setOutboxFin] = useState<OutboxFinanceiroStats | null>(null);
+  const [flushingFin, setFlushingFin] = useState(false);
   const [caixaAberto, setCaixaAberto] = useState<CaixaLocalAbertoRow | null>(null);
   const [caixaResumo, setCaixaResumo] = useState<CaixaResumoLocal | null>(null);
   const [caixaLancamentos, setCaixaLancamentos] = useState<LancamentoLocalRow[]>([]);

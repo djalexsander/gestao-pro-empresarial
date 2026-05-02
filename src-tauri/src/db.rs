@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i64 = 11;
+const SCHEMA_VERSION: i64 = 12;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -515,6 +515,9 @@ pub fn init() -> DbResult<()> {
         "ALTER TABLE lancamentos_financeiros_local ADD COLUMN operador_id TEXT",
         "ALTER TABLE lancamentos_financeiros_local ADD COLUMN cancelado_em_ms INTEGER",
         "ALTER TABLE lancamentos_financeiros_local ADD COLUMN cancelado_motivo TEXT",
+        // v12: vínculo com upstream + sync state
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN remote_id TEXT",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'local_only'",
     ];
     for sql in alters {
         // Erro só ocorre quando a coluna já existe — seguro ignorar.
@@ -647,7 +650,50 @@ pub fn init() -> DbResult<()> {
         "#,
     )?;
 
-    // schema_version
+    // ------------------------------------------------------------------
+    // v12 — Outbox de lançamentos financeiros manuais.
+    //
+    // Mesma arquitetura das outras outboxes (estoque/vendas/caixa/cancel):
+    //   * `local_uuid`         → PK estável; também serve de _client_uuid
+    //                            ponta-a-ponta para a RPC upstream.
+    //   * `client_uuid`        → idempotência ao nível do produtor (UI/PDV).
+    //   * `lanc_local_uuid`    → FK lógica para lancamentos_financeiros_local.
+    //   * `payload`            → JSON do request enviado à RPC
+    //                            `criar_lancamento_avulso`.
+    //   * `status`             → pending | sending | sent | error
+    //   * `next_attempt_at_ms` → backoff exponencial.
+    //   * `remote_id`          → id devolvido pela RPC após sucesso.
+    // ------------------------------------------------------------------
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS outbox_financeiro (
+            local_uuid          TEXT PRIMARY KEY,
+            client_uuid         TEXT,
+            lanc_local_uuid     TEXT NOT NULL,
+            payload             TEXT NOT NULL,
+            status              TEXT NOT NULL DEFAULT 'pending',
+            attempts            INTEGER NOT NULL DEFAULT 0,
+            last_error          TEXT,
+            remote_id           TEXT,
+            remote_response     TEXT,
+            created_at_ms       INTEGER NOT NULL,
+            updated_at_ms       INTEGER NOT NULL,
+            sent_at_ms          INTEGER,
+            next_attempt_at_ms  INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_outbox_fin_status
+            ON outbox_financeiro(status, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_fin_status_next
+            ON outbox_financeiro(status, next_attempt_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_fin_lanc
+            ON outbox_financeiro(lanc_local_uuid);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_fin_client_uuid
+            ON outbox_financeiro(client_uuid) WHERE client_uuid IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_fin_lanc
+            ON outbox_financeiro(lanc_local_uuid);
+        "#,
+    )?;
+
     conn.execute(
         "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -3482,6 +3528,9 @@ pub struct LancamentoLocalRow {
     pub operador_id: Option<String>,
     pub cancelado_em_ms: Option<i64>,
     pub cancelado_motivo: Option<String>,
+    // v12 — sync com upstream
+    pub remote_id: Option<String>,
+    pub sync_status: String,
 }
 
 const LANC_SELECT_COLS: &str = "local_uuid, caixa_local_uuid, tipo, categoria, forma_pagamento,
@@ -3489,7 +3538,8 @@ const LANC_SELECT_COLS: &str = "local_uuid, caixa_local_uuid, tipo, categoria, f
         COALESCE(status,'confirmado') AS status,
         venda_local_uuid, cliente_id, fornecedor_id,
         data_competencia_ms, data_vencimento_ms, data_pagamento_ms,
-        operador_id, cancelado_em_ms, cancelado_motivo";
+        operador_id, cancelado_em_ms, cancelado_motivo,
+        remote_id, COALESCE(sync_status,'local_only') AS sync_status";
 
 fn map_lanc_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<LancamentoLocalRow> {
     Ok(LancamentoLocalRow {
@@ -3512,6 +3562,8 @@ fn map_lanc_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<LancamentoLocalRow> {
         operador_id: r.get(16)?,
         cancelado_em_ms: r.get(17)?,
         cancelado_motivo: r.get(18)?,
+        remote_id: r.get(19)?,
+        sync_status: r.get(20)?,
     })
 }
 
@@ -3707,15 +3759,17 @@ pub fn lancamento_manual_inserir(input: &LancamentoManualInput) -> DbResult<Lanc
         // caixa_local_uuid é NOT NULL na tabela original; usamos string vazia
         // quando não vinculado (lançamento manual fora de caixa).
         let caixa = input.caixa_local_uuid.clone().unwrap_or_default();
-        conn.execute(
+
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
             "INSERT INTO lancamentos_financeiros_local(
                 local_uuid, caixa_local_uuid, tipo, categoria, forma_pagamento,
                 valor, descricao, origem, payload, created_at_ms,
                 status, venda_local_uuid, cliente_id, fornecedor_id,
                 data_competencia_ms, data_vencimento_ms, data_pagamento_ms,
-                client_uuid, operador_id
+                client_uuid, operador_id, sync_status
              ) VALUES (?1,?2,?3,?4,?5,?6,?7,'manual',NULL,?8,
-                       ?9,?10,?11,?12,?13,?14,?15,?16,?17)",
+                       ?9,?10,?11,?12,?13,?14,?15,?16,?17,'pending')",
             params![
                 lid, caixa, input.tipo, input.categoria, input.forma_pagamento,
                 input.valor, input.descricao, now_ms,
@@ -3724,6 +3778,40 @@ pub fn lancamento_manual_inserir(input: &LancamentoManualInput) -> DbResult<Lanc
                 input.client_uuid, input.operador_id
             ],
         )?;
+
+        // v12 — enfileira na outbox financeira para sync com o upstream.
+        // Mapeia tipo local → tipo upstream (entrada→receita, saida→despesa).
+        let tipo_upstream = if input.tipo == "entrada" { "receita" } else { "despesa" };
+        let date_iso = |ms: i64| {
+            let dt = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms)
+                .unwrap_or_else(|| chrono::Utc::now());
+            dt.format("%Y-%m-%d").to_string()
+        };
+        let venc_ms = input.data_vencimento_ms.unwrap_or(competencia);
+        let payload = serde_json::json!({
+            "_tipo": tipo_upstream,
+            "_descricao": input.descricao.clone().unwrap_or_else(|| input.categoria.clone()),
+            "_valor": input.valor,
+            "_data_vencimento": date_iso(venc_ms),
+            "_data_emissao": date_iso(competencia),
+            "_categoria_id": serde_json::Value::Null,
+            "_cliente_id": input.cliente_id,
+            "_fornecedor_id": input.fornecedor_id,
+            "_numero_documento": serde_json::Value::Null,
+            "_forma_pagamento": input.forma_pagamento,
+            "_observacoes": serde_json::Value::Null,
+            // _client_uuid ponta-a-ponta usa nosso local_uuid: estável e único.
+            "_client_uuid": &lid,
+        });
+        let outbox_id = random_uuid_v4();
+        tx.execute(
+            "INSERT INTO outbox_financeiro(
+                local_uuid, client_uuid, lanc_local_uuid, payload,
+                status, attempts, created_at_ms, updated_at_ms, next_attempt_at_ms
+             ) VALUES (?1,?2,?3,?4,'pending',0,?5,?5,NULL)",
+            params![outbox_id, input.client_uuid, lid, payload.to_string(), now_ms],
+        )?;
+        tx.commit()?;
         Ok(LancamentoManualResult { local_uuid: lid, idempotente: false })
     })
 }
@@ -4839,6 +4927,289 @@ pub fn outbox_cancel_reset_errors(now_ms: i64) -> DbResult<i64> {
     with_conn(|conn| {
         let n = conn.execute(
             "UPDATE outbox_cancelamentos_venda
+                SET status='pending', updated_at_ms=?1,
+                    next_attempt_at_ms=NULL, last_error=NULL
+              WHERE status IN ('error','pending') AND last_error IS NOT NULL",
+            params![now_ms],
+        )?;
+        Ok(n as i64)
+    })
+}
+
+// ============================================================================
+// v12 — Outbox financeira (lançamentos manuais → upstream)
+// ============================================================================
+
+#[derive(Debug, Serialize, Default)]
+pub struct OutboxFinanceiroStats {
+    pub pending: i64,
+    pub sending: i64,
+    pub sent: i64,
+    pub error: i64,
+    pub last_sent_at_ms: Option<i64>,
+    pub last_error: Option<String>,
+    pub due_now: i64,
+    pub next_attempt_at_ms: Option<i64>,
+    pub last_auto_flush_ms: Option<i64>,
+    pub last_auto_flush_sent_ms: Option<i64>,
+    pub last_auto_attempted: Option<i64>,
+    pub last_auto_sent: Option<i64>,
+    pub last_auto_failed: Option<i64>,
+    pub last_manual_flush_ms: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OutboxFinanceiroItem {
+    pub local_uuid: String,
+    pub client_uuid: Option<String>,
+    pub lanc_local_uuid: String,
+    pub payload: String,
+    pub status: String,
+    pub attempts: i64,
+    pub last_error: Option<String>,
+    pub remote_id: Option<String>,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub sent_at_ms: Option<i64>,
+}
+
+fn map_fin_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<OutboxFinanceiroItem> {
+    Ok(OutboxFinanceiroItem {
+        local_uuid: r.get(0)?,
+        client_uuid: r.get(1)?,
+        lanc_local_uuid: r.get(2)?,
+        payload: r.get(3)?,
+        status: r.get(4)?,
+        attempts: r.get(5)?,
+        last_error: r.get(6)?,
+        remote_id: r.get(7)?,
+        created_at_ms: r.get(8)?,
+        updated_at_ms: r.get(9)?,
+        sent_at_ms: r.get(10)?,
+    })
+}
+
+const FIN_COLS: &str =
+    "local_uuid, client_uuid, lanc_local_uuid, payload, status, attempts,
+     last_error, remote_id, created_at_ms, updated_at_ms, sent_at_ms";
+
+pub fn outbox_financeiro_stats() -> DbResult<OutboxFinanceiroStats> {
+    with_conn(|conn| {
+        let mut s = OutboxFinanceiroStats::default();
+        let mut stmt = conn
+            .prepare("SELECT status, COUNT(*) FROM outbox_financeiro GROUP BY status")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        for r in rows {
+            let (st, n) = r?;
+            match st.as_str() {
+                "pending" => s.pending = n,
+                "sending" => s.sending = n,
+                "sent" => s.sent = n,
+                "error" => s.error = n,
+                _ => {}
+            }
+        }
+        s.last_sent_at_ms = conn.query_row(
+            "SELECT MAX(sent_at_ms) FROM outbox_financeiro WHERE status='sent'",
+            [], |r| r.get::<_, Option<i64>>(0),
+        ).optional()?.flatten();
+        s.last_error = conn.query_row(
+            "SELECT last_error FROM outbox_financeiro
+              WHERE status='error' ORDER BY updated_at_ms DESC LIMIT 1",
+            [], |r| r.get::<_, Option<String>>(0),
+        ).optional()?.flatten();
+        let now = chrono::Utc::now().timestamp_millis();
+        s.due_now = conn.query_row(
+            "SELECT COUNT(*) FROM outbox_financeiro
+              WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1",
+            params![now], |r| r.get::<_, i64>(0),
+        ).optional()?.unwrap_or(0);
+        s.next_attempt_at_ms = conn.query_row(
+            "SELECT MIN(COALESCE(next_attempt_at_ms,0))
+               FROM outbox_financeiro WHERE status='pending'",
+            [], |r| r.get::<_, Option<i64>>(0),
+        ).optional()?.flatten();
+        s.last_auto_flush_ms = meta_get_i64(conn, "outbox_fin_last_auto_flush_ms")?;
+        s.last_auto_flush_sent_ms = meta_get_i64(conn, "outbox_fin_last_auto_flush_sent_ms")?;
+        s.last_auto_attempted = meta_get_i64(conn, "outbox_fin_last_auto_attempted")?;
+        s.last_auto_sent = meta_get_i64(conn, "outbox_fin_last_auto_sent")?;
+        s.last_auto_failed = meta_get_i64(conn, "outbox_fin_last_auto_failed")?;
+        s.last_manual_flush_ms = meta_get_i64(conn, "outbox_fin_last_manual_flush_ms")?;
+        Ok(s)
+    })
+}
+
+pub fn outbox_financeiro_record_flush_round(
+    kind: &str, now_ms: i64, attempted: i64, sent: i64, failed: i64,
+) -> DbResult<()> {
+    with_conn(|conn| {
+        if kind == "auto" {
+            meta_set_i64(conn, "outbox_fin_last_auto_flush_ms", now_ms)?;
+            meta_set_i64(conn, "outbox_fin_last_auto_attempted", attempted)?;
+            meta_set_i64(conn, "outbox_fin_last_auto_sent", sent)?;
+            meta_set_i64(conn, "outbox_fin_last_auto_failed", failed)?;
+            if sent > 0 {
+                meta_set_i64(conn, "outbox_fin_last_auto_flush_sent_ms", now_ms)?;
+            }
+        } else {
+            meta_set_i64(conn, "outbox_fin_last_manual_flush_ms", now_ms)?;
+        }
+        Ok(())
+    })
+}
+
+pub fn outbox_financeiro_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxFinanceiroItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let mut out = Vec::new();
+        if let Some(st) = only_status {
+            let sql = format!(
+                "SELECT {cols} FROM outbox_financeiro WHERE status=?1
+                 ORDER BY created_at_ms DESC LIMIT ?2",
+                cols = FIN_COLS,
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![st, limit], map_fin_item)?;
+            for r in rows { out.push(r?); }
+        } else {
+            let sql = format!(
+                "SELECT {cols} FROM outbox_financeiro
+                 ORDER BY created_at_ms DESC LIMIT ?1",
+                cols = FIN_COLS,
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![limit], map_fin_item)?;
+            for r in rows { out.push(r?); }
+        }
+        Ok(out)
+    })
+}
+
+pub fn outbox_financeiro_pending_batch(limit: i64) -> DbResult<Vec<OutboxFinanceiroItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let now = chrono::Utc::now().timestamp_millis();
+        let sql = format!(
+            "SELECT {cols} FROM outbox_financeiro
+              WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1
+              ORDER BY created_at_ms ASC LIMIT ?2",
+            cols = FIN_COLS,
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![now, limit], map_fin_item)?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    })
+}
+
+pub fn outbox_financeiro_pending_batch_all(limit: i64) -> DbResult<Vec<OutboxFinanceiroItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let sql = format!(
+            "SELECT {cols} FROM outbox_financeiro WHERE status='pending'
+             ORDER BY created_at_ms ASC LIMIT ?1",
+            cols = FIN_COLS,
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![limit], map_fin_item)?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    })
+}
+
+pub fn outbox_financeiro_get(local_uuid: &str) -> DbResult<Option<OutboxFinanceiroItem>> {
+    with_conn(|conn| {
+        let sql = format!(
+            "SELECT {cols} FROM outbox_financeiro WHERE local_uuid=?1",
+            cols = FIN_COLS,
+        );
+        let r = conn.query_row(&sql, params![local_uuid], map_fin_item).optional()?;
+        Ok(r)
+    })
+}
+
+pub fn outbox_financeiro_mark_sending(local_uuid: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        conn.execute(
+            "UPDATE outbox_financeiro
+                SET status='sending', updated_at_ms=?2, attempts=attempts+1
+              WHERE local_uuid=?1",
+            params![local_uuid, now_ms],
+        )?;
+        Ok(())
+    })
+}
+
+pub fn outbox_financeiro_mark_sent(local_uuid: &str, remote_id: &str, response: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            "UPDATE outbox_financeiro
+                SET status='sent', sent_at_ms=?2, updated_at_ms=?2,
+                    remote_id=?3, remote_response=?4, last_error=NULL,
+                    next_attempt_at_ms=NULL
+              WHERE local_uuid=?1",
+            params![local_uuid, now_ms, remote_id, response],
+        )?;
+        // Propaga o remote_id para o lançamento local (leitura/UI).
+        let lanc: Option<String> = tx.query_row(
+            "SELECT lanc_local_uuid FROM outbox_financeiro WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).optional()?;
+        if let Some(lu) = lanc {
+            tx.execute(
+                "UPDATE lancamentos_financeiros_local
+                    SET remote_id=?1, sync_status='synced'
+                  WHERE local_uuid=?2 AND (remote_id IS NULL OR remote_id='')",
+                params![remote_id, lu],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    })
+}
+
+pub fn outbox_financeiro_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        let attempts: i64 = conn.query_row(
+            "SELECT attempts FROM outbox_financeiro WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).optional()?.unwrap_or(1);
+        if attempts >= MAX_AUTO_ATTEMPTS {
+            conn.execute(
+                "UPDATE outbox_financeiro
+                    SET status='error', last_error=?2, updated_at_ms=?3,
+                        next_attempt_at_ms=NULL
+                  WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms],
+            )?;
+            // Marca o lançamento como em erro de sincronização.
+            let _ = conn.execute(
+                "UPDATE lancamentos_financeiros_local
+                    SET sync_status='error'
+                  WHERE local_uuid=(SELECT lanc_local_uuid FROM outbox_financeiro WHERE local_uuid=?1)",
+                params![local_uuid],
+            );
+        } else {
+            let next = now_ms + backoff_ms_for_attempts(attempts);
+            conn.execute(
+                "UPDATE outbox_financeiro
+                    SET status='pending', last_error=?2, updated_at_ms=?3,
+                        next_attempt_at_ms=?4
+                  WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms, next],
+            )?;
+        }
+        Ok(())
+    })
+}
+
+pub fn outbox_financeiro_reset_errors(now_ms: i64) -> DbResult<i64> {
+    with_conn(|conn| {
+        let n = conn.execute(
+            "UPDATE outbox_financeiro
                 SET status='pending', updated_at_ms=?1,
                     next_attempt_at_ms=NULL, last_error=NULL
               WHERE status IN ('error','pending') AND last_error IS NOT NULL",

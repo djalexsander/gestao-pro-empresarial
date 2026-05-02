@@ -54,6 +54,8 @@ struct ServerState {
     caixa_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     /// Sinaliza o scheduler de background (outbox de cancelamentos) para parar.
     cancel_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
+    /// Sinaliza o scheduler de background (outbox financeira) para parar.
+    fin_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     upstream: Option<UpstreamConfig>,
     /// Últimos heartbeats por terminalId (em memória; banco local virá depois).
     terminals: HashMap<String, TerminalHeartbeat>,
@@ -2154,6 +2156,10 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/db/outbox/cancelamentos/stats", get(outbox_cancel_stats_handler))
         .route("/db/outbox/cancelamentos/flush", post(outbox_cancel_flush_handler))
         .route("/db/outbox/cancelamentos/retry-errors", post(outbox_cancel_retry_errors_handler))
+        .route("/db/outbox/financeiro", get(outbox_fin_list_handler))
+        .route("/db/outbox/financeiro/stats", get(outbox_fin_stats_handler))
+        .route("/db/outbox/financeiro/flush", post(outbox_fin_flush_handler))
+        .route("/db/outbox/financeiro/retry-errors", post(outbox_fin_retry_errors_handler))
         .route("/api/clientes/lite", get(clientes_lite_handler))
         .with_state(ctx)
         .layer(cors)
@@ -2314,6 +2320,19 @@ pub fn start(
         run_outbox_cancel_scheduler(cancel_ctx, cancel_scheduler_rx).await;
     });
 
+    // Scheduler paralelo para a outbox FINANCEIRA (lançamentos manuais).
+    let (fin_scheduler_tx, fin_scheduler_rx) = oneshot::channel::<()>();
+    let fin_ctx = AppCtx {
+        upstream: upstream.clone(),
+        http: reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .map_err(|e| format!("Falha ao criar HTTP client (fin scheduler): {e}"))?,
+    };
+    handle.spawn(async move {
+        run_outbox_financeiro_scheduler(fin_ctx, fin_scheduler_rx).await;
+    });
+
     {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = true;
@@ -2327,6 +2346,7 @@ pub fn start(
         s.vendas_scheduler_shutdown_tx = Some(vendas_scheduler_tx);
         s.caixa_scheduler_shutdown_tx = Some(caixa_scheduler_tx);
         s.cancel_scheduler_shutdown_tx = Some(cancel_scheduler_tx);
+        s.fin_scheduler_shutdown_tx = Some(fin_scheduler_tx);
         s.upstream = upstream;
         s.terminals.clear();
     }
@@ -2335,7 +2355,7 @@ pub fn start(
 }
 
 pub fn stop() -> Result<LocalServerStatus, String> {
-    let (tx_opt, sched_opt, vendas_sched_opt, caixa_sched_opt, cancel_sched_opt) = {
+    let (tx_opt, sched_opt, vendas_sched_opt, caixa_sched_opt, cancel_sched_opt, fin_sched_opt) = {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = false;
         s.port = None;
@@ -2348,6 +2368,7 @@ pub fn stop() -> Result<LocalServerStatus, String> {
             s.vendas_scheduler_shutdown_tx.take(),
             s.caixa_scheduler_shutdown_tx.take(),
             s.cancel_scheduler_shutdown_tx.take(),
+            s.fin_scheduler_shutdown_tx.take(),
         )
     };
     if let Some(tx) = tx_opt { let _ = tx.send(()); }
@@ -2355,6 +2376,7 @@ pub fn stop() -> Result<LocalServerStatus, String> {
     if let Some(tx) = vendas_sched_opt { let _ = tx.send(()); }
     if let Some(tx) = caixa_sched_opt { let _ = tx.send(()); }
     if let Some(tx) = cancel_sched_opt { let _ = tx.send(()); }
+    if let Some(tx) = fin_sched_opt { let _ = tx.send(()); }
     Ok(current_status())
 }
 
@@ -2569,6 +2591,173 @@ async fn run_outbox_cancel_scheduler(
         let empty = HeaderMap::new();
         for it in &pending {
             let _ = push_one_outbox_cancel(&ctx, &empty, &it.local_uuid).await;
+        }
+    }
+}
+
+// ============================================================================
+// OUTBOX FINANCEIRA — handlers + scheduler (v12)
+// ============================================================================
+
+async fn push_one_outbox_financeiro(
+    ctx: &AppCtx,
+    headers: &HeaderMap,
+    local_uuid: &str,
+) -> Result<String, String> {
+    let upstream = ctx.upstream.as_ref().ok_or("upstream não configurado")?;
+    let now = now_ms();
+
+    let item = db::outbox_financeiro_get(local_uuid)
+        .map_err(|e| e.to_string())?
+        .ok_or("item não encontrado na outbox financeira")?;
+    if item.status == "sent" { return Ok(item.remote_id.unwrap_or_default()); }
+
+    let payload: serde_json::Value =
+        serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
+
+    db::outbox_financeiro_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
+
+    let auth = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+
+    let url = format!(
+        "{}/rest/v1/rpc/criar_lancamento_avulso",
+        upstream.base_url.trim_end_matches('/')
+    );
+    let resp = ctx.http.post(&url)
+        .header("apikey", &upstream.anon_key)
+        .header(axum::http::header::AUTHORIZATION, auth)
+        .header(axum::http::header::CONTENT_TYPE, "application/json")
+        .header(axum::http::header::ACCEPT, "application/json")
+        .json(&payload)
+        .send().await
+        .map_err(|e| {
+            let msg = format!("rede: {e}");
+            let _ = db::outbox_financeiro_mark_error(local_uuid, &msg, now);
+            msg
+        })?;
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        let lower = text.to_lowercase();
+        // Idempotência: lançamento já criado anteriormente.
+        if lower.contains("already") || lower.contains("já existe") || lower.contains("duplicate") {
+            db::outbox_financeiro_mark_sent(local_uuid, "", &text, now)
+                .map_err(|e| e.to_string())?;
+            return Ok(text);
+        }
+        let msg = format!("HTTP {}: {}", status.as_u16(), text);
+        let _ = db::outbox_financeiro_mark_error(local_uuid, &msg, now);
+        return Err(msg);
+    }
+    let parsed: serde_json::Value =
+        serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+    let remote_id = if let Some(s) = parsed.as_str() {
+        s.to_string()
+    } else if let Some(s) = parsed.get("id").and_then(|v| v.as_str()) {
+        s.to_string()
+    } else {
+        text.trim().trim_matches('"').to_string()
+    };
+    db::outbox_financeiro_mark_sent(local_uuid, &remote_id, &text, now)
+        .map_err(|e| e.to_string())?;
+    Ok(remote_id)
+}
+
+async fn outbox_fin_stats_handler(
+) -> Result<Json<db::OutboxFinanceiroStats>, (StatusCode, String)> {
+    db::outbox_financeiro_stats().map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+#[derive(Serialize)]
+struct OutboxFinListResponse {
+    total: usize,
+    items: Vec<db::OutboxFinanceiroItem>,
+}
+
+async fn outbox_fin_list_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<OutboxFinListResponse>, (StatusCode, String)> {
+    let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(200);
+    let status = q.get("status").map(|s| s.as_str());
+    let items = db::outbox_financeiro_list(limit, status)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(OutboxFinListResponse { total: items.len(), items }))
+}
+
+async fn outbox_fin_flush_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<Json<FlushResponse>, (StatusCode, String)> {
+    let pending = db::outbox_financeiro_pending_batch_all(100)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let mut sent = 0usize;
+    let mut failed = 0usize;
+    let mut errors: Vec<String> = Vec::new();
+    for it in &pending {
+        match push_one_outbox_financeiro(&ctx, &headers, &it.local_uuid).await {
+            Ok(_) => sent += 1,
+            Err(e) => { failed += 1; errors.push(format!("{}: {}", it.local_uuid, e)); }
+        }
+    }
+    let _ = db::outbox_financeiro_record_flush_round(
+        "manual", now_ms(), pending.len() as i64, sent as i64, failed as i64,
+    );
+    Ok(Json(FlushResponse { attempted: pending.len(), sent, failed, errors }))
+}
+
+async fn outbox_fin_retry_errors_handler() -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
+    let n = db::outbox_financeiro_reset_errors(now_ms())
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(RetryErrorsResponse { requeued: n }))
+}
+
+async fn run_outbox_financeiro_scheduler(
+    ctx: AppCtx,
+    mut shutdown_rx: oneshot::Receiver<()>,
+) {
+    eprintln!("[gestao-pro] outbox financeiro scheduler: iniciado");
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_millis(SCHEDULER_TICK_MS)) => {}
+            _ = &mut shutdown_rx => {
+                eprintln!("[gestao-pro] outbox financeiro scheduler: parado");
+                break;
+            }
+        }
+        if ctx.upstream.is_none() {
+            let _ = db::outbox_financeiro_record_flush_round("auto", now_ms(), 0, 0, 0);
+            continue;
+        }
+        let pending = match db::outbox_financeiro_pending_batch(SCHEDULER_BATCH) {
+            Ok(p) => p,
+            Err(e) => { eprintln!("[gestao-pro] outbox financeiro: batch err: {e}"); continue; }
+        };
+        if pending.is_empty() {
+            let _ = db::outbox_financeiro_record_flush_round("auto", now_ms(), 0, 0, 0);
+            continue;
+        }
+        let empty = HeaderMap::new();
+        let mut sent = 0i64;
+        let mut failed = 0i64;
+        for it in &pending {
+            match push_one_outbox_financeiro(&ctx, &empty, &it.local_uuid).await {
+                Ok(_) => sent += 1,
+                Err(_) => failed += 1,
+            }
+        }
+        let _ = db::outbox_financeiro_record_flush_round(
+            "auto", now_ms(), pending.len() as i64, sent, failed,
+        );
+        if sent > 0 || failed > 0 {
+            eprintln!(
+                "[gestao-pro] outbox financeiro auto-flush: attempted={} sent={} failed={}",
+                pending.len(), sent, failed,
+            );
         }
     }
 }
