@@ -23,6 +23,7 @@ import {
   fetchDbInfo,
   fetchDomainStats,
   fetchKnownTerminals,
+  runDbSync,
   type DbInfoPayload,
   type DomainStat,
   type PersistedTerminal,
