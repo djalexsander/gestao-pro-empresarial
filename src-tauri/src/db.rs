@@ -1821,6 +1821,40 @@ pub fn outbox_pending_batch(limit: i64) -> DbResult<Vec<OutboxItem>> {
     })
 }
 
+/// Igual a `outbox_pending_batch` mas IGNORA `next_attempt_at_ms`. Usado
+/// pelo flush manual: o operador clicou "Sincronizar agora" e quer ignorar
+/// a janela de espera do backoff.
+pub fn outbox_pending_batch_all(limit: i64) -> DbResult<Vec<OutboxItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let mut stmt = conn.prepare(
+            "SELECT local_uuid, client_uuid, payload, status, attempts, last_error,
+                    remote_id, created_at_ms, updated_at_ms, sent_at_ms
+               FROM outbox_estoque_movs
+              WHERE status = 'pending'
+              ORDER BY created_at_ms ASC
+              LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit], |r| {
+            Ok(OutboxItem {
+                local_uuid: r.get(0)?,
+                client_uuid: r.get(1)?,
+                payload: r.get(2)?,
+                status: r.get(3)?,
+                attempts: r.get(4)?,
+                last_error: r.get(5)?,
+                remote_id: r.get(6)?,
+                created_at_ms: r.get(7)?,
+                updated_at_ms: r.get(8)?,
+                sent_at_ms: r.get(9)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    })
+}
+
 pub fn outbox_mark_sending(local_uuid: &str, now_ms: i64) -> DbResult<()> {
     with_conn(|conn| {
         conn.execute(
