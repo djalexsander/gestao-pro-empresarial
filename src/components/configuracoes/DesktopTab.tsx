@@ -23,6 +23,8 @@ import {
   fetchCaixaLancamentosLocal,
   fetchCaixaLocalAberto,
   fetchCaixaResumoLocal,
+  fetchFinanceiroLancamentos,
+  fetchFinanceiroResumo,
   fetchDbInfo,
   fetchDomainStats,
   fetchKnownTerminals,
