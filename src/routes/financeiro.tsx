@@ -69,6 +69,7 @@ import {
   useReceberOrigem,
 } from "@/hooks/useFinanceiroSecoes";
 import { SecaoFiltro, type SecaoFiltroValue } from "@/components/financeiro/SecaoFiltro";
+import { SecaoExport } from "@/components/financeiro/SecaoExport";
 import { formatPeriodoBR } from "@/lib/dateRange";
 import { exportarBlocoCSV, exportarBlocoPDF } from "@/lib/export-bloco";
 import { ExportFormatDialog } from "@/components/shared/ExportFormatDialog";
