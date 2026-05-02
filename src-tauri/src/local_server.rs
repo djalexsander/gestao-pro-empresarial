@@ -566,6 +566,7 @@ async fn proxy_with_incremental_sync(
     }
 }
 
+#[allow(dead_code)]
 async fn proxy_with_cache(
     ctx: &AppCtx,
     headers: &HeaderMap,
