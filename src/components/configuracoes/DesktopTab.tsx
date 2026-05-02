@@ -1078,6 +1078,7 @@ export function DesktopTab() {
                 depois que a venda original estiver sincronizada. Idempotência
                 garantida pelo <code>local_uuid</code>.
               </p>
+            </CardContent>
           </Card>
         )}
 
