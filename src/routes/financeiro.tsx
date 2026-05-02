@@ -69,6 +69,7 @@ import {
   useReceberOrigem,
 } from "@/hooks/useFinanceiroSecoes";
 import { SecaoFiltro, type SecaoFiltroValue } from "@/components/financeiro/SecaoFiltro";
+import { SecaoExport } from "@/components/financeiro/SecaoExport";
 import { formatPeriodoBR } from "@/lib/dateRange";
 import { exportarBlocoCSV, exportarBlocoPDF } from "@/lib/export-bloco";
 import { ExportFormatDialog } from "@/components/shared/ExportFormatDialog";
@@ -362,13 +363,39 @@ function FinanceContent() {
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Posição financeira
           </p>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {posicao && (
               <span className="hidden text-[11px] text-muted-foreground sm:inline">
                 {formatPeriodoBR(posicao.periodo)}
               </span>
             )}
             <SecaoFiltro value={filtroPosicao} onChange={setFiltroPosicao} />
+            <SecaoExport
+              prefix="financeiro_posicao"
+              titulo="Posição financeira"
+              periodo={posicao ? formatPeriodoBR(posicao.periodo) : null}
+              rows={[
+                {
+                  indicador: "Total a receber",
+                  valor: posicao?.totalReceber ?? 0,
+                  quantidade: posicao?.qtdReceber ?? 0,
+                  filtro: posicao ? formatPeriodoBR(posicao.periodo) : null,
+                },
+                {
+                  indicador: "Total a pagar",
+                  valor: posicao?.totalPagar ?? 0,
+                  quantidade: posicao?.qtdPagar ?? 0,
+                  filtro: posicao ? formatPeriodoBR(posicao.periodo) : null,
+                },
+                {
+                  indicador: "Saldo previsto",
+                  valor: posicao?.saldo ?? 0,
+                  quantidade: null,
+                  filtro: posicao ? formatPeriodoBR(posicao.periodo) : null,
+                },
+              ]}
+              disabled={!posicao}
+            />
           </div>
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -404,13 +431,45 @@ function FinanceContent() {
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Performance do período
           </p>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {performance && (
               <span className="hidden text-[11px] text-muted-foreground sm:inline">
                 {formatPeriodoBR(performance.periodo)}
               </span>
             )}
             <SecaoFiltro value={filtroPerformance} onChange={setFiltroPerformance} />
+            <SecaoExport
+              prefix="financeiro_performance"
+              titulo="Performance do período"
+              periodo={performance ? formatPeriodoBR(performance.periodo) : null}
+              rows={[
+                {
+                  indicador: "Total vendido",
+                  valor: performance?.totalVendido ?? 0,
+                  quantidade: performance?.qtdVendas ?? 0,
+                  filtro: performance ? formatPeriodoBR(performance.periodo) : null,
+                },
+                {
+                  indicador: "Custo dos produtos vendidos",
+                  valor: performance?.custoTotal ?? 0,
+                  quantidade: performance?.qtdItens ?? 0,
+                  filtro: performance ? formatPeriodoBR(performance.periodo) : null,
+                },
+                {
+                  indicador: "Lucro bruto",
+                  valor: performance?.lucroBruto ?? 0,
+                  quantidade: null,
+                  filtro: performance ? formatPeriodoBR(performance.periodo) : null,
+                },
+                {
+                  indicador: `Margem (${(performance?.margemPct ?? 0).toFixed(1)}%)`,
+                  valor: performance?.margemPct ?? 0,
+                  quantidade: null,
+                  filtro: performance ? formatPeriodoBR(performance.periodo) : null,
+                },
+              ]}
+              disabled={!performance}
+            />
           </div>
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -451,13 +510,63 @@ function FinanceContent() {
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             A receber por origem e operacional
           </p>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {receberOrigem && (
               <span className="hidden text-[11px] text-muted-foreground sm:inline">
                 {formatPeriodoBR(receberOrigem.periodo)}
               </span>
             )}
             <SecaoFiltro value={filtroReceber} onChange={setFiltroReceber} showForma />
+            {(() => {
+              const periodoLabel = receberOrigem
+                ? formatPeriodoBR(receberOrigem.periodo)
+                : null;
+              const formaLabel =
+                filtroReceber.forma && filtroReceber.forma !== "todos"
+                  ? `Forma: ${filtroReceber.forma}`
+                  : "Todas as formas";
+              const filtroTxt = periodoLabel
+                ? `${periodoLabel} · ${formaLabel}`
+                : formaLabel;
+              const labelRecebido =
+                filtroReceber.preset === "hoje"
+                  ? "Recebido hoje"
+                  : "Recebido no período";
+              return (
+                <SecaoExport
+                  prefix="financeiro_receber_origem"
+                  titulo="A receber por origem e operacional"
+                  periodo={periodoLabel}
+                  rows={[
+                    {
+                      indicador: "Fiado em aberto",
+                      valor: receberOrigem?.fiadoEmAberto ?? 0,
+                      quantidade: receberOrigem?.qtdFiado ?? 0,
+                      filtro: filtroTxt,
+                    },
+                    {
+                      indicador: "iFood a repassar",
+                      valor: receberOrigem?.ifoodAReceber ?? 0,
+                      quantidade: receberOrigem?.qtdIfood ?? 0,
+                      filtro: filtroTxt,
+                    },
+                    {
+                      indicador: labelRecebido,
+                      valor: receberOrigem?.recebidoPeriodo ?? 0,
+                      quantidade: receberOrigem?.qtdRecebimentos ?? 0,
+                      filtro: filtroTxt,
+                    },
+                    {
+                      indicador: "Vencidos",
+                      valor: receberOrigem?.vencidosTotal ?? 0,
+                      quantidade: receberOrigem?.qtdVencidos ?? 0,
+                      filtro: filtroTxt,
+                    },
+                  ]}
+                  disabled={!receberOrigem}
+                />
+              );
+            })()}
           </div>
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
