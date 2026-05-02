@@ -1192,7 +1192,7 @@ async fn outbox_flush_handler(
     State(ctx): State<AppCtx>,
     headers: HeaderMap,
 ) -> Result<Json<FlushResponse>, (StatusCode, String)> {
-    let pending = db::outbox_pending_batch(100)
+    let pending = db::outbox_pending_batch_all(100)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let mut sent = 0usize;
     let mut failed = 0usize;
