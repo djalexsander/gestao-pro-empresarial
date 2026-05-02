@@ -431,13 +431,45 @@ function FinanceContent() {
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Performance do período
           </p>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {performance && (
               <span className="hidden text-[11px] text-muted-foreground sm:inline">
                 {formatPeriodoBR(performance.periodo)}
               </span>
             )}
             <SecaoFiltro value={filtroPerformance} onChange={setFiltroPerformance} />
+            <SecaoExport
+              prefix="financeiro_performance"
+              titulo="Performance do período"
+              periodo={performance ? formatPeriodoBR(performance.periodo) : null}
+              rows={[
+                {
+                  indicador: "Total vendido",
+                  valor: performance?.totalVendido ?? 0,
+                  quantidade: performance?.qtdVendas ?? 0,
+                  filtro: performance ? formatPeriodoBR(performance.periodo) : null,
+                },
+                {
+                  indicador: "Custo dos produtos vendidos",
+                  valor: performance?.custoTotal ?? 0,
+                  quantidade: performance?.qtdItens ?? 0,
+                  filtro: performance ? formatPeriodoBR(performance.periodo) : null,
+                },
+                {
+                  indicador: "Lucro bruto",
+                  valor: performance?.lucroBruto ?? 0,
+                  quantidade: null,
+                  filtro: performance ? formatPeriodoBR(performance.periodo) : null,
+                },
+                {
+                  indicador: `Margem (${(performance?.margemPct ?? 0).toFixed(1)}%)`,
+                  valor: performance?.margemPct ?? 0,
+                  quantidade: null,
+                  filtro: performance ? formatPeriodoBR(performance.periodo) : null,
+                },
+              ]}
+              disabled={!performance}
+            />
           </div>
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
