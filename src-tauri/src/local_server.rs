@@ -2351,7 +2351,7 @@ pub fn start(
 }
 
 pub fn stop() -> Result<LocalServerStatus, String> {
-    let (tx_opt, sched_opt, vendas_sched_opt, caixa_sched_opt, cancel_sched_opt) = {
+    let (tx_opt, sched_opt, vendas_sched_opt, caixa_sched_opt, cancel_sched_opt, fin_sched_opt) = {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = false;
         s.port = None;
@@ -2364,6 +2364,7 @@ pub fn stop() -> Result<LocalServerStatus, String> {
             s.vendas_scheduler_shutdown_tx.take(),
             s.caixa_scheduler_shutdown_tx.take(),
             s.cancel_scheduler_shutdown_tx.take(),
+            s.fin_scheduler_shutdown_tx.take(),
         )
     };
     if let Some(tx) = tx_opt { let _ = tx.send(()); }
@@ -2371,6 +2372,7 @@ pub fn stop() -> Result<LocalServerStatus, String> {
     if let Some(tx) = vendas_sched_opt { let _ = tx.send(()); }
     if let Some(tx) = caixa_sched_opt { let _ = tx.send(()); }
     if let Some(tx) = cancel_sched_opt { let _ = tx.send(()); }
+    if let Some(tx) = fin_sched_opt { let _ = tx.send(()); }
     Ok(current_status())
 }
 
