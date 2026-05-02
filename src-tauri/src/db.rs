@@ -193,6 +193,41 @@ pub fn init() -> DbResult<()> {
             last_source     TEXT,
             last_error      TEXT
         );
+
+        -- ====================================================================
+        -- v4: Estoque normalizado real
+        --
+        -- `estoque_movimentacoes_local` é APPEND-ONLY: o cursor avança por
+        -- `data_movimentacao` (timestamp da movimentação na nuvem). Saldo
+        -- local passa a ser DERIVADO incrementalmente a partir do delta —
+        -- nunca mais um snapshot bruto de quantidades.
+        --
+        -- `estoque_saldos_local` é mantida (mesmo PK) mas agora é uma
+        -- tabela MATERIALIZADA: cada ingestão de movimentações soma/subtrai
+        -- a quantidade na linha (produto_id, variacao_id) correspondente.
+        -- ====================================================================
+
+        CREATE TABLE IF NOT EXISTS estoque_movimentacoes_local (
+            id                   TEXT PRIMARY KEY,
+            produto_id           TEXT NOT NULL,
+            variacao_id          TEXT,
+            tipo                 TEXT NOT NULL,
+            quantidade           REAL NOT NULL,
+            saldo_anterior       REAL,
+            saldo_posterior      REAL,
+            custo_unitario       REAL,
+            origem               TEXT,
+            observacoes          TEXT,
+            data_movimentacao_ms INTEGER NOT NULL,
+            payload              TEXT NOT NULL,
+            synced_at_ms         INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_movs_produto
+            ON estoque_movimentacoes_local(produto_id);
+        CREATE INDEX IF NOT EXISTS idx_movs_data
+            ON estoque_movimentacoes_local(data_movimentacao_ms DESC);
+        CREATE INDEX IF NOT EXISTS idx_movs_produto_data
+            ON estoque_movimentacoes_local(produto_id, data_movimentacao_ms DESC);
         "#,
     )?;
 
