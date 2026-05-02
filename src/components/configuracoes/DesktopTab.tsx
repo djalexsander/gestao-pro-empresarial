@@ -704,6 +704,90 @@ export function DesktopTab() {
           </Card>
         )}
 
+        {role !== "unset" &&
+          (outbox || outboxVendas || outboxCaixa || outboxCancel || outboxFin) && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Database className="h-5 w-5" />
+                  Visão geral — filas offline
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-hidden rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/40">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-medium">Domínio</th>
+                        <th className="px-3 py-2 text-right font-medium">Pendentes</th>
+                        <th className="px-3 py-2 text-right font-medium">Prontas</th>
+                        <th className="px-3 py-2 text-right font-medium">Enviadas</th>
+                        <th className="px-3 py-2 text-right font-medium">Erros</th>
+                        <th className="px-3 py-2 text-left font-medium">Próx. auto</th>
+                        <th className="px-3 py-2 text-left font-medium">Saúde</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(
+                        [
+                          ["Estoque", outbox],
+                          ["Vendas", outboxVendas],
+                          ["Caixa", outboxCaixa],
+                          ["Cancelamentos", outboxCancel],
+                          ["Financeiro", outboxFin],
+                        ] as const
+                      ).map(([nome, st]) => {
+                        if (!st) return null;
+                        const variant: "default" | "secondary" | "destructive" =
+                          st.error > 0
+                            ? "destructive"
+                            : st.pending > 0
+                              ? "secondary"
+                              : "default";
+                        const label =
+                          st.error > 0
+                            ? "erro"
+                            : st.pending > 0
+                              ? "drenando"
+                              : "ok";
+                        return (
+                          <tr key={nome} className="border-t">
+                            <td className="px-3 py-2 font-medium">{nome}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{st.pending}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{st.due_now}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{st.sent}</td>
+                            <td
+                              className={`px-3 py-2 text-right tabular-nums ${st.error > 0 ? "text-destructive" : ""}`}
+                            >
+                              {st.error}
+                            </td>
+                            <td className="px-3 py-2 text-xs text-muted-foreground">
+                              {st.next_attempt_at_ms
+                                ? new Date(st.next_attempt_at_ms).toLocaleTimeString("pt-BR")
+                                : "—"}
+                            </td>
+                            <td className="px-3 py-2">
+                              <Badge variant={variant} className="text-[10px]">
+                                {label}
+                              </Badge>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Resumo unificado das outboxes locais. Cada domínio mantém sua
+                  própria fila idempotente (<code>client_uuid</code>) com
+                  scheduler dedicado, retry exponencial e ordem causal preservada
+                  (cancelamentos só sobem após a venda original sincronizar).
+                  Detalhes por fila nos cards abaixo.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
         {role !== "unset" && outbox && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-4">
