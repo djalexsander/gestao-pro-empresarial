@@ -488,6 +488,10 @@ pub fn init() -> DbResult<()> {
         // `next_attempt_at_ms` controla quando o item está elegível para
         // reenvio automático. NULL = elegível imediatamente (= now).
         "ALTER TABLE outbox_estoque_movs ADD COLUMN next_attempt_at_ms INTEGER",
+        // v9: vínculo opcional venda → caixa local aberto no momento da venda.
+        // Permite calcular o resumo local do caixa (totais por forma de
+        // pagamento) de forma determinística, sem depender de timestamp.
+        "ALTER TABLE vendas_local ADD COLUMN caixa_local_uuid TEXT",
     ];
     for sql in alters {
         // Erro só ocorre quando a coluna já existe — seguro ignorar.
@@ -499,6 +503,51 @@ pub fn init() -> DbResult<()> {
             ON outbox_estoque_movs(status, next_attempt_at_ms)",
         [],
     );
+    // v9: índice para varrer rapidamente vendas vinculadas a um caixa local.
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_vendas_local_caixa
+            ON vendas_local(caixa_local_uuid) WHERE caixa_local_uuid IS NOT NULL",
+        [],
+    );
+
+    // ------------------------------------------------------------------
+    // v9 — Lançamentos financeiros locais derivados do fechamento do caixa.
+    //
+    // Esta tabela é puramente DERIVADA: gerada pelo `fechar_caixa_local` a
+    // partir das vendas locais associadas + suprimentos/sangrias. Serve como
+    // base inicial para um futuro financeiro local mais completo, e como
+    // fonte de observabilidade do que aquele caixa "produziu" do ponto de
+    // vista financeiro.
+    //
+    // Não enfileira em outbox nesta etapa — o financeiro real continua sendo
+    // gerado no upstream via `fechar_caixa` na nuvem. Aqui é só leitura local.
+    //
+    // categoria:
+    //   'venda_<forma>'  → entrada de venda por forma de pagamento
+    //   'suprimento'     → entrada manual de dinheiro no caixa
+    //   'sangria'        → saída manual de dinheiro do caixa
+    // tipo: 'entrada' | 'saida'
+    // ------------------------------------------------------------------
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS lancamentos_financeiros_local (
+            local_uuid       TEXT PRIMARY KEY,
+            caixa_local_uuid TEXT NOT NULL,
+            tipo             TEXT NOT NULL,
+            categoria        TEXT NOT NULL,
+            forma_pagamento  TEXT,
+            valor            REAL NOT NULL DEFAULT 0,
+            descricao        TEXT,
+            origem           TEXT NOT NULL DEFAULT 'fechamento_caixa',
+            payload          TEXT,
+            created_at_ms    INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_lanc_local_caixa
+            ON lancamentos_financeiros_local(caixa_local_uuid, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_lanc_local_categoria
+            ON lancamentos_financeiros_local(caixa_local_uuid, categoria);
+        "#,
+    )?;
 
     // schema_version
     conn.execute(
