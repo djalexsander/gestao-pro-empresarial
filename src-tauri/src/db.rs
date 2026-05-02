@@ -3517,12 +3517,11 @@ pub fn caixa_resumo_local(caixa_local_uuid: &str) -> DbResult<Option<CaixaResumo
             })
             .map(|f| f.total)
             .sum();
-        let valor_esperado_dinheiro =
-            (valor_inicial + total_dinheiro + total_sup - total_san * 1.0).max(0.0_f64.min(0.0)
-                + (valor_inicial + total_dinheiro + total_sup - total_san));
-        // Simplifica: cálculo direto.
         let valor_esperado_dinheiro = valor_inicial + total_dinheiro + total_sup - total_san;
-        let diferenca = valor_informado.map(|v| (v - valor_esperado_dinheiro * 100.0).round() / 100.0);
+        let diferenca = valor_informado.map(|v| {
+            let d = v - valor_esperado_dinheiro;
+            (d * 100.0).round() / 100.0
+        });
 
         Ok(Some(CaixaResumoLocal {
             caixa_local_uuid: clu,
