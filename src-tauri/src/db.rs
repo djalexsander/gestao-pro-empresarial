@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i64 = 10;
+const SCHEMA_VERSION: i64 = 11;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -501,6 +501,20 @@ pub fn init() -> DbResult<()> {
         "ALTER TABLE vendas_local ADD COLUMN cancelado_operador_id TEXT",
         "ALTER TABLE vendas_local ADD COLUMN cancelado_client_uuid TEXT",
         "ALTER TABLE vendas_local ADD COLUMN cancelamento_local_uuid TEXT",
+        // v11: financeiro local mais completo. Estende lancamentos_financeiros_local
+        // com metadados de ciclo de vida, vínculos opcionais (venda/cliente/fornecedor),
+        // datas de competência/vencimento/pagamento e idempotência para inserções manuais.
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmado'",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN venda_local_uuid TEXT",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN cliente_id TEXT",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN fornecedor_id TEXT",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN data_competencia_ms INTEGER",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN data_vencimento_ms INTEGER",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN data_pagamento_ms INTEGER",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN client_uuid TEXT",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN operador_id TEXT",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN cancelado_em_ms INTEGER",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN cancelado_motivo TEXT",
     ];
     for sql in alters {
         // Erro só ocorre quando a coluna já existe — seguro ignorar.
