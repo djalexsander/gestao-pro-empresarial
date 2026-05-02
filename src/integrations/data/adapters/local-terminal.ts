@@ -241,6 +241,80 @@ export const localTerminalAdapter: DataAdapter = {
     },
   },
 
+  vendas: {
+    ...cloudAdapter.vendas,
+    /**
+     * WRITE LOCAL: a venda vai PRIMEIRO ao servidor local (que grava em
+     * SQLite, baixa o estoque local na mesma transação e enfileira na
+     * outbox para push posterior à RPC `finalizar_venda_pdv` na nuvem).
+     *
+     * Idempotência:
+     *  - `client_uuid` (1 por carrinho) impede duplicar entre cliques.
+     *  - O servidor local gera um `local_uuid` estável que vira o
+     *    `_client_uuid` da RPC upstream — retries cross-runs também não
+     *    duplicam venda, itens, estoque, financeiro nem caixa.
+     *
+     * Comportamento:
+     *  - online + upstream ok → `outbox_status: "sent"` (entrega imediata);
+     *  - upstream caiu / sem rede → `outbox_status: "pending"`, scheduler
+     *    de background tenta sozinho com backoff exponencial.
+     *
+     * Em ambos os casos, esta função retorna o `venda_id` (que é o
+     * `local_uuid` quando a entrega ainda está pendente, ou o id da nuvem
+     * quando já foi entregue). O PDV trata os dois casos da mesma forma
+     * — a venda é válida localmente desde o momento do registro.
+     */
+    finalizar: async (input: FinalizarVendaInput): Promise<string> => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const local = await registrarVendaLocal(
+          cfg,
+          {
+            cliente_id: input.cliente_id,
+            subtotal: input.subtotal,
+            desconto: input.desconto,
+            total: input.total,
+            forma_pagamento: input.forma_pagamento,
+            status_pagamento: input.status_pagamento,
+            valor_recebido: input.valor_recebido,
+            troco: input.troco,
+            observacao: input.observacao,
+            itens: input.itens as unknown[],
+            pagamentos: (input.pagamentos ?? []) as unknown[],
+            gerar_financeiro: input.gerar_financeiro ?? true,
+            operador_id: input.operador_id ?? null,
+            terminal_id: input.terminal_id ?? null,
+            client_uuid: input.client_uuid ?? null,
+          },
+          token,
+        );
+        if (local) {
+          reportDataSource({
+            source: "local-server",
+            domain: "vendas",
+            method: "finalizar",
+            fallback: false,
+          });
+          // Quando upstream entregou, preferimos o id remoto (consistência
+          // com o que o cloud devolveria). Em pendente, devolvemos o
+          // local_uuid — o PDV consegue exibir cupom mesmo offline.
+          return local.remote_id ?? local.venda_id;
+        }
+      }
+      // Fallback cloud — mantém o app funcional sem servidor local.
+      const result = await cloudAdapter.vendas.finalizar(input);
+      reportDataSource({
+        source: "cloud",
+        domain: "vendas",
+        method: "finalizar",
+        fallback: true,
+      });
+      return result;
+    },
+  },
+
   clientes: {
     ...cloudAdapter.clientes,
     listLite: (input) =>
