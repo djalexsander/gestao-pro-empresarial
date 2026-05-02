@@ -798,6 +798,88 @@ async fn db_domains_handler() -> Result<Json<DomainStatsResponse>, (StatusCode, 
     }))
 }
 
+// ---------- Sync manual ----------
+//
+// `POST /db/sync?domain=produtos` força um pull incremental (ignora o
+// freshness gate do cache_kv). Útil para o botão "Sincronizar agora" da UI.
+
+#[derive(Serialize)]
+struct SyncResponse {
+    ok: bool,
+    domain: String,
+    strategy: String,
+    delta: i64,
+    source: String,
+}
+
+async fn db_sync_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<SyncResponse>, (StatusCode, String)> {
+    let domain = q
+        .get("domain")
+        .cloned()
+        .ok_or((StatusCode::BAD_REQUEST, "domain obrigatório".into()))?;
+
+    // Reaproveita os mesmos params base que cada handler monta.
+    let resp = match domain.as_str() {
+        "produtos" => {
+            let params: Vec<(&str, String)> = vec![
+                ("select", "*,categoria:categorias_produto(id,nome)".into()),
+                ("order", "nome.asc".into()),
+            ];
+            proxy_with_incremental_sync(
+                &ctx, &headers, "produtos", "/rest/v1/produtos", &params, true,
+            )
+            .await
+        }
+        "clientes_lite" => {
+            let params: Vec<(&str, String)> = vec![
+                ("select", "id,nome,nome_fantasia,documento,status,updated_at".into()),
+                ("order", "nome.asc".into()),
+            ];
+            proxy_with_incremental_sync(
+                &ctx, &headers, "clientes_lite", "/rest/v1/clientes", &params, true,
+            )
+            .await
+        }
+        other => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("domínio '{other}' não suporta sync incremental ainda"),
+            ))
+        }
+    }
+    .map_err(|(s, m)| (s, m))?;
+
+    // Extrai metadados que o próprio proxy escreveu nos headers.
+    let h = resp.headers();
+    let strategy = h
+        .get("x-gp-strategy")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("snapshot")
+        .to_string();
+    let delta = h
+        .get("x-gp-delta")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(0);
+    let source = h
+        .get("x-gp-source")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("local-table")
+        .to_string();
+
+    Ok(Json(SyncResponse {
+        ok: true,
+        domain,
+        strategy,
+        delta,
+        source,
+    }))
+}
+
 // ---------- Router ----------
 
 fn build_router(ctx: AppCtx) -> Router {
@@ -815,6 +897,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/events", get(events_handler))
         .route("/db/info", get(db_info_handler))
         .route("/db/domains", get(db_domains_handler))
+        .route("/db/sync", post(db_sync_handler))
         .route("/api/produtos/list", get(produtos_list_handler))
         .route("/api/estoque/saldos", get(estoque_saldos_handler))
         .route("/api/estoque/movimentacoes", get(estoque_movimentacoes_handler))
