@@ -162,6 +162,22 @@ export function DesktopTab() {
     setOutboxCaixa(await fetchOutboxCaixaStats(localCfg));
   };
 
+  const handleRegenerarLancamentos = async () => {
+    if (!localCfg || !caixaAberto?.local_uuid) return;
+    setRegenerandoLanc(true);
+    try {
+      await regenerarLancamentosCaixaLocal(localCfg, caixaAberto.local_uuid);
+      const [resumo, lancs] = await Promise.all([
+        fetchCaixaResumoLocal(localCfg, { caixaId: caixaAberto.local_uuid }),
+        fetchCaixaLancamentosLocal(localCfg, { caixaId: caixaAberto.local_uuid }),
+      ]);
+      setCaixaResumo(resumo);
+      setCaixaLancamentos(lancs);
+    } finally {
+      setRegenerandoLanc(false);
+    }
+  };
+
   useEffect(() => {
     if (!isDesktop || role === "unset") return;
     const cfg =
