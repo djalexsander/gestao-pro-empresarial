@@ -671,6 +671,18 @@ fn read_typed(domain: &str, query: &[(&str, String)]) -> Result<String, db::DbEr
         }
         "clientes_lite" => db::read_clientes(None),
         "estoque_saldos" => db::read_saldos(),
+        "estoque_movimentacoes" => {
+            let produto_id = query
+                .iter()
+                .find(|(k, _)| *k == "__filter_produto_id")
+                .map(|(_, v)| v.clone());
+            let limit = query
+                .iter()
+                .find(|(k, _)| *k == "__filter_limit")
+                .and_then(|(_, v)| v.parse::<i64>().ok())
+                .unwrap_or(500);
+            db::read_movimentacoes(produto_id.as_deref(), limit)
+        }
         _ => Err(db::DbError("domínio sem leitura tipada".into())),
     }
 }
@@ -699,47 +711,84 @@ async fn produtos_list_handler(
 }
 
 // ---------- /api/estoque/saldos ----------
+//
+// Saldos passam a ser DERIVADOS do sync incremental de movimentações.
+// O handler dispara o pipeline de `estoque_movimentacoes` (que ingere o
+// delta append-only e atualiza a materialização de `estoque_saldos_local`)
+// e responde com o estado consolidado lido por `read_saldos()`.
+
+fn estoque_movs_base_params() -> Vec<(&'static str, String)> {
+    // Snapshot inicial e deltas SEMPRE em ordem ascendente por data_movimentacao
+    // — assim o cursor avança monotonicamente desde a primeira página.
+    vec![
+        (
+            "select",
+            "id,produto_id,variacao_id,tipo,quantidade,saldo_anterior,saldo_posterior,custo_unitario,origem,observacoes,data_movimentacao,created_at"
+                .into(),
+        ),
+        ("order", "data_movimentacao.asc".into()),
+        ("limit", INCREMENTAL_PAGE_LIMIT.to_string()),
+    ]
+}
 
 async fn estoque_saldos_handler(
     State(ctx): State<AppCtx>,
     headers: HeaderMap,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
-    let params = vec![("select", "produto_id,variacao_id,tipo,quantidade".to_string())];
-    let q_owned: Vec<(&str, String)> = params.iter().map(|(k, v)| (*k, v.clone())).collect();
-    proxy_with_cache(
+    let params = estoque_movs_base_params();
+    // Roda o pipeline incremental de movimentações; a leitura final
+    // entregue ao terminal vem do `read_typed("estoque_saldos")` =
+    // `db::read_saldos()` (saldo materializado).
+    let resp = proxy_with_incremental_sync(
         &ctx,
         &headers,
-        "estoque_saldos",
+        "estoque_movimentacoes",
         "/rest/v1/estoque_movimentacoes",
-        &q_owned,
+        &params,
+        false,
     )
-    .await
+    .await?;
+    // Substitui o body pelo saldo materializado (mantendo headers de
+    // strategy/source/delta vindos do sync).
+    let (mut parts, _body) = resp.into_parts();
+    let saldos = db::read_saldos().unwrap_or_else(|_| "[]".to_string());
+    parts.headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    Ok((parts, saldos).into_response())
 }
 
 // ---------- /api/estoque/movimentacoes ----------
+//
+// Lista o histórico (com filtro opcional por produto/limit) lendo da
+// tabela local após disparar o mesmo sync incremental. Os filtros são
+// passados como pseudo-keys no base_query (`__filter_*`) para que
+// `read_typed` os pegue na hora de ler localmente, sem virar query do
+// upstream (a busca no upstream é sempre paginada por cursor).
 
 async fn estoque_movimentacoes_handler(
     State(ctx): State<AppCtx>,
     headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
-    let limit = q
-        .get("limit")
-        .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or(200);
-    let mut params: Vec<(&str, String)> = vec![
-        ("select", "*,produto:produtos(id,sku,nome)".into()),
-        ("order", "data_movimentacao.desc".into()),
-        ("limit", limit.to_string()),
-    ];
+    let mut params = estoque_movs_base_params();
+    // Pseudo-filtros — não vão ao upstream (proxy_get só usa as chaves
+    // conhecidas do PostgREST). Usados por `read_typed` para filtrar a
+    // resposta local.
     if let Some(p) = q.get("produto_id").filter(|s| !s.is_empty()) {
-        params.push(("produto_id", format!("eq.{p}")));
+        params.push(("__filter_produto_id", p.clone()));
     }
-    proxy_get(
+    if let Some(l) = q.get("limit").filter(|s| !s.is_empty()) {
+        params.push(("__filter_limit", l.clone()));
+    }
+    proxy_with_incremental_sync(
         &ctx,
         &headers,
+        "estoque_movimentacoes",
         "/rest/v1/estoque_movimentacoes",
-        &params.iter().map(|(k, v)| (*k, v.clone())).collect::<Vec<_>>(),
+        &params,
+        false,
     )
     .await
 }
