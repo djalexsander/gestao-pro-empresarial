@@ -179,6 +179,79 @@ export async function fetchServerInfo(
 }
 
 // ----------------------------------------------------------------------------
+// Banco local — leitura via servidor (terminal e o próprio server)
+// ----------------------------------------------------------------------------
+
+export interface PersistedTerminal {
+  terminal_id: string;
+  machine_id: string | null;
+  server_id: string | null;
+  terminal_nome: string | null;
+  role: string | null;
+  app_version: string | null;
+  host: string | null;
+  first_seen_ms: number;
+  last_seen_ms: number;
+  status: string;
+  heartbeats: number;
+}
+
+export interface DbInfoPayload {
+  path: string;
+  schema_version: number;
+  terminals_total: number;
+  terminals_online: number;
+  events_total: number;
+  cache_entries: number;
+  created_at_ms: number | null;
+}
+
+export async function fetchKnownTerminals(
+  cfg?: TerminalConexaoConfig,
+): Promise<PersistedTerminal[]> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return [];
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(`${baseUrl}/terminals/known`, {
+      headers: { Accept: "application/json" },
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (!res.ok) return [];
+    const json = (await res.json()) as { terminals?: PersistedTerminal[] };
+    return json.terminals ?? [];
+  } catch {
+    clearTimeout(timer);
+    return [];
+  }
+}
+
+export async function fetchDbInfo(
+  cfg?: TerminalConexaoConfig,
+): Promise<DbInfoPayload | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(`${baseUrl}/db/info`, {
+      headers: { Accept: "application/json" },
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    return (await res.json()) as DbInfoPayload;
+  } catch {
+    clearTimeout(timer);
+    return null;
+  }
+}
+
+// ----------------------------------------------------------------------------
 // Heartbeat — terminal informa identidade ao servidor local
 // ----------------------------------------------------------------------------
 
