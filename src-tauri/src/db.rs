@@ -492,6 +492,15 @@ pub fn init() -> DbResult<()> {
         // Permite calcular o resumo local do caixa (totais por forma de
         // pagamento) de forma determinística, sem depender de timestamp.
         "ALTER TABLE vendas_local ADD COLUMN caixa_local_uuid TEXT",
+        // v10: cancelamento local de venda. `status` controla o ciclo de vida
+        // local da venda ('ativa' | 'cancelada'). Os demais campos guardam
+        // contexto do cancelamento (motivo, momento, operador, idempotência).
+        "ALTER TABLE vendas_local ADD COLUMN status TEXT NOT NULL DEFAULT 'ativa'",
+        "ALTER TABLE vendas_local ADD COLUMN cancelado_em_ms INTEGER",
+        "ALTER TABLE vendas_local ADD COLUMN cancelado_motivo TEXT",
+        "ALTER TABLE vendas_local ADD COLUMN cancelado_operador_id TEXT",
+        "ALTER TABLE vendas_local ADD COLUMN cancelado_client_uuid TEXT",
+        "ALTER TABLE vendas_local ADD COLUMN cancelamento_local_uuid TEXT",
     ];
     for sql in alters {
         // Erro só ocorre quando a coluna já existe — seguro ignorar.
