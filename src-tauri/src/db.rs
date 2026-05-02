@@ -3402,8 +3402,10 @@ fn gerar_lancamentos_locais_para_caixa(
         tx.execute(
             "INSERT INTO lancamentos_financeiros_local(
                 local_uuid, caixa_local_uuid, tipo, categoria, forma_pagamento,
-                valor, descricao, origem, payload, created_at_ms
-             ) VALUES (?1,?2,'entrada',?3,?4,?5,?6,'fechamento_caixa',NULL,?7)",
+                valor, descricao, origem, payload, created_at_ms,
+                status, data_competencia_ms, data_pagamento_ms
+             ) VALUES (?1,?2,'entrada',?3,?4,?5,?6,'fechamento_caixa',NULL,?7,
+                       'confirmado',?7,?7)",
             params![lid, caixa_local_uuid, categoria, forma, valor, descricao, now_ms],
         )?;
     }
@@ -3423,8 +3425,10 @@ fn gerar_lancamentos_locais_para_caixa(
         tx.execute(
             "INSERT INTO lancamentos_financeiros_local(
                 local_uuid, caixa_local_uuid, tipo, categoria, forma_pagamento,
-                valor, descricao, origem, payload, created_at_ms
-             ) VALUES (?1,?2,'entrada','suprimento',NULL,?3,'Suprimentos do caixa','fechamento_caixa',NULL,?4)",
+                valor, descricao, origem, payload, created_at_ms,
+                status, data_competencia_ms, data_pagamento_ms
+             ) VALUES (?1,?2,'entrada','suprimento',NULL,?3,'Suprimentos do caixa','fechamento_caixa',NULL,?4,
+                       'confirmado',?4,?4)",
             params![lid, caixa_local_uuid, total_sup, now_ms],
         )?;
     }
@@ -3433,8 +3437,10 @@ fn gerar_lancamentos_locais_para_caixa(
         tx.execute(
             "INSERT INTO lancamentos_financeiros_local(
                 local_uuid, caixa_local_uuid, tipo, categoria, forma_pagamento,
-                valor, descricao, origem, payload, created_at_ms
-             ) VALUES (?1,?2,'saida','sangria',NULL,?3,'Sangrias do caixa','fechamento_caixa',NULL,?4)",
+                valor, descricao, origem, payload, created_at_ms,
+                status, data_competencia_ms, data_pagamento_ms
+             ) VALUES (?1,?2,'saida','sangria',NULL,?3,'Sangrias do caixa','fechamento_caixa',NULL,?4,
+                       'confirmado',?4,?4)",
             params![lid, caixa_local_uuid, total_san, now_ms],
         )?;
     }
