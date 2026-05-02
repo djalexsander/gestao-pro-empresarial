@@ -2259,6 +2259,7 @@ pub fn start(
         s.scheduler_shutdown_tx = Some(scheduler_tx);
         s.vendas_scheduler_shutdown_tx = Some(vendas_scheduler_tx);
         s.caixa_scheduler_shutdown_tx = Some(caixa_scheduler_tx);
+        s.cancel_scheduler_shutdown_tx = Some(cancel_scheduler_tx);
         s.upstream = upstream;
         s.terminals.clear();
     }
