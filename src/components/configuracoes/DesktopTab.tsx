@@ -943,6 +943,96 @@ export function DesktopTab() {
           </Card>
         )}
 
+        {role !== "unset" && outboxCancel && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Fila offline — cancelamentos de venda
+              </CardTitle>
+              <div className="flex gap-2">
+                {outboxCancel.error > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void handleRetryErrorsCancel()}
+                  >
+                    Reenfileirar erros
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={flushingCancel || outboxCancel.pending === 0}
+                  onClick={() => void handleFlushCancel()}
+                >
+                  {flushingCancel ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                  )}
+                  Sincronizar agora
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 text-sm sm:grid-cols-4">
+                <Field label="Pendentes" value={String(outboxCancel.pending)} />
+                <Field label="Enviando" value={String(outboxCancel.sending)} />
+                <Field label="Enviadas" value={String(outboxCancel.sent)} />
+                <Field label="Com erro" value={String(outboxCancel.error)} />
+                <Field
+                  label="Aguardando venda sync"
+                  value={String(outboxCancel.waiting_venda_sync)}
+                />
+                <Field
+                  label="Próx. tentativa auto"
+                  value={
+                    outboxCancel.next_attempt_at_ms
+                      ? new Date(outboxCancel.next_attempt_at_ms).toLocaleString("pt-BR")
+                      : "—"
+                  }
+                />
+                <Field
+                  label="Último auto-flush"
+                  value={
+                    outboxCancel.last_auto_flush_ms
+                      ? `${new Date(outboxCancel.last_auto_flush_ms).toLocaleTimeString("pt-BR")}` +
+                        (outboxCancel.last_auto_attempted != null
+                          ? ` · ${outboxCancel.last_auto_sent ?? 0}/${outboxCancel.last_auto_attempted} ok`
+                          : "")
+                      : "—"
+                  }
+                />
+                <Field
+                  label="Último envio"
+                  value={
+                    outboxCancel.last_sent_at_ms
+                      ? new Date(outboxCancel.last_sent_at_ms).toLocaleString("pt-BR")
+                      : "—"
+                  }
+                />
+                {outboxCancel.last_error && (
+                  <div className="sm:col-span-4">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                      Último erro
+                    </div>
+                    <div className="mt-0.5 break-all text-xs text-destructive">
+                      {outboxCancel.last_error}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Cancelamentos estornam estoque local, regeneram os lançamentos
+                derivados do caixa e respeitam ordem causal: só vão ao upstream
+                depois que a venda original estiver sincronizada. Idempotência
+                garantida pelo <code>local_uuid</code>.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         {role !== "unset" && caixaResumo && (
           <Card>
             <CardHeader>
