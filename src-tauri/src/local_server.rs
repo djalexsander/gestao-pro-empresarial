@@ -2440,13 +2440,20 @@ async fn outbox_cancel_stats_handler() -> Result<Json<db::OutboxCancelStats>, (S
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
+#[derive(Serialize)]
+struct OutboxCancelListResponse {
+    total: usize,
+    items: Vec<db::OutboxCancelItem>,
+}
+
 async fn outbox_cancel_list_handler(
     Query(q): Query<HashMap<String, String>>,
-) -> Result<Json<Vec<db::OutboxCancelItem>>, (StatusCode, String)> {
+) -> Result<Json<OutboxCancelListResponse>, (StatusCode, String)> {
     let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(200);
     let status = q.get("status").map(|s| s.as_str());
-    db::outbox_cancel_list(limit, status).map(Json)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    let items = db::outbox_cancel_list(limit, status)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(OutboxCancelListResponse { total: items.len(), items }))
 }
 
 async fn outbox_cancel_flush_handler(
