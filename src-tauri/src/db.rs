@@ -538,6 +538,27 @@ pub fn init() -> DbResult<()> {
             ON vendas_local(status, created_at_ms DESC)",
         [],
     );
+    // v11: índices/uniqueness do financeiro local estendido.
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_lanc_local_status
+            ON lancamentos_financeiros_local(status, created_at_ms DESC)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_lanc_local_venda
+            ON lancamentos_financeiros_local(venda_local_uuid) WHERE venda_local_uuid IS NOT NULL",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_lanc_local_competencia
+            ON lancamentos_financeiros_local(data_competencia_ms)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_lanc_local_client_uuid
+            ON lancamentos_financeiros_local(client_uuid) WHERE client_uuid IS NOT NULL",
+        [],
+    );
 
     // ------------------------------------------------------------------
     // v10 — Outbox de cancelamentos de venda.
