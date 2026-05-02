@@ -1236,6 +1236,84 @@ export function DesktopTab() {
           </Card>
         )}
 
+        {role !== "unset" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Financeiro local</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
+              {finResumo ? (
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs uppercase text-muted-foreground">Entradas</div>
+                    <div className="text-lg font-semibold tabular-nums">
+                      {finResumo.total_entradas.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                    </div>
+                    <div className="text-xs text-muted-foreground">{finResumo.qtd_entradas} lanç.</div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs uppercase text-muted-foreground">Saídas</div>
+                    <div className="text-lg font-semibold tabular-nums">
+                      {finResumo.total_saidas.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                    </div>
+                    <div className="text-xs text-muted-foreground">{finResumo.qtd_saidas} lanç.</div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs uppercase text-muted-foreground">Saldo</div>
+                    <div className="text-lg font-semibold tabular-nums">
+                      {finResumo.saldo.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                    </div>
+                    <div className="text-xs text-muted-foreground">{finResumo.qtd_lancamentos} no total</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground">
+                  Sem dados financeiros locais ainda.
+                </div>
+              )}
+
+              {finRecentes.length > 0 && (
+                <div className="overflow-hidden rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/40">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-medium">Tipo</th>
+                        <th className="px-3 py-2 text-left font-medium">Categoria</th>
+                        <th className="px-3 py-2 text-left font-medium">Origem</th>
+                        <th className="px-3 py-2 text-left font-medium">Status</th>
+                        <th className="px-3 py-2 text-right font-medium">Valor</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {finRecentes.map((l) => (
+                        <tr key={l.local_uuid} className="border-t">
+                          <td className="px-3 py-2">
+                            <Badge variant={l.tipo === "entrada" ? "default" : "secondary"}>{l.tipo}</Badge>
+                          </td>
+                          <td className="px-3 py-2 font-mono text-xs">{l.categoria}</td>
+                          <td className="px-3 py-2 text-xs text-muted-foreground">{l.origem}</td>
+                          <td className="px-3 py-2 text-xs">{l.status ?? "confirmado"}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">
+                            {l.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <p className="text-xs text-muted-foreground">
+                Visão consolidada local (<code>lancamentos_financeiros_local</code>):
+                inclui derivados de fechamento de caixa e lançamentos manuais.
+                Endpoints: <code>/api/financeiro/lancamentos</code>,{" "}
+                <code>/api/financeiro/resumo</code>, <code>/api/financeiro/manual</code>,{" "}
+                <code>/api/financeiro/cancelar</code>.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         <Card>
           <CardHeader>
             <CardTitle>Backend de dados</CardTitle>
