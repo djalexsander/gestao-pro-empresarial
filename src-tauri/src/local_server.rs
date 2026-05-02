@@ -19,7 +19,7 @@
 // a função `proxy_get` por uma consulta SQL local.
 
 use axum::{
-    extract::{Query, State},
+    extract::{ConnectInfo, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{get, post},
@@ -32,6 +32,8 @@ use std::net::SocketAddr;
 use std::sync::Mutex;
 use tokio::sync::oneshot;
 use tower_http::cors::{Any, CorsLayer};
+
+use crate::db;
 
 // ---------- Estado global ----------
 
@@ -221,6 +223,7 @@ async fn server_info_handler() -> Json<ServerInfoResponse> {
 // ---------- Heartbeat ----------
 
 async fn heartbeat_handler(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(req): Json<HeartbeatRequest>,
 ) -> Result<Json<HeartbeatResponse>, (StatusCode, String)> {
     if req.terminal_id.trim().is_empty() {
@@ -238,15 +241,51 @@ async fn heartbeat_handler(
         last_seen_iso: now_iso(),
     };
 
-    let (server_id, server_name, server_match) = {
+    let (server_id, server_name, server_match, was_new) = {
         let mut s = STATE.lock().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let was_new = !s.terminals.contains_key(&req.terminal_id);
         s.terminals.insert(req.terminal_id.clone(), hb);
         let m = req
             .expected_server_id
             .as_ref()
             .map(|exp| s.server_id.as_deref() == Some(exp.as_str()));
-        (s.server_id.clone(), s.server_name.clone(), m)
+        (s.server_id.clone(), s.server_name.clone(), m, was_new)
     };
+
+    // Persistência local — falha silenciosa (não atrapalha operação).
+    let host_str = addr.ip().to_string();
+    let _ = db::upsert_terminal(db::UpsertHeartbeat {
+        terminal_id: &req.terminal_id,
+        machine_id: req.machine_id.as_deref(),
+        server_id: server_id.as_deref(),
+        terminal_nome: req.terminal_nome.as_deref(),
+        role: req.role.as_deref(),
+        app_version: req.app_version.as_deref(),
+        host: Some(&host_str),
+        now_ms: now,
+    });
+
+    // Auditoria: só registra o primeiro heartbeat e desvios de identidade
+    // (evita inflar a tabela com 1 evento por ping).
+    if was_new {
+        let _ = db::log_event(db::LogEvent {
+            terminal_id: &req.terminal_id,
+            event_type: "first_seen",
+            ts_ms: now,
+            server_match,
+            expected_server_id: req.expected_server_id.as_deref(),
+            details: Some(&host_str),
+        });
+    } else if matches!(server_match, Some(false)) {
+        let _ = db::log_event(db::LogEvent {
+            terminal_id: &req.terminal_id,
+            event_type: "server_mismatch",
+            ts_ms: now,
+            server_match,
+            expected_server_id: req.expected_server_id.as_deref(),
+            details: None,
+        });
+    }
 
     Ok(Json(HeartbeatResponse {
         ok: true,
@@ -319,7 +358,72 @@ async fn proxy_get(
         .into_response())
 }
 
-// ---------- /api/produtos/list ----------
+// ---------- Cache read-through (TTL curto) ----------
+//
+// Estratégia: para os endpoints "provados" (produtos.list, estoque.saldos,
+// clientes.lite) o servidor consulta o SQLite local primeiro. Se houver
+// payload válido (não expirado), serve dele e marca header
+// `x-gp-source: local-db`. Caso contrário, busca no upstream (cloud),
+// armazena o JSON cru no cache e retorna marcado como `x-gp-source: upstream`.
+//
+// Não é "banco local de verdade" para escrita ainda — é o primeiro passo
+// real de leitura local. Próxima etapa substitui o cache por tabelas
+// normalizadas (produtos, estoque_movimentacoes, clientes) com sync.
+
+const CACHE_TTL_MS: i64 = 60_000;
+
+fn build_cache_key(path: &str, query: &[(&str, String)]) -> String {
+    let mut parts: Vec<String> = query.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    parts.sort();
+    format!("{path}?{}", parts.join("&"))
+}
+
+async fn proxy_with_cache(
+    ctx: &AppCtx,
+    headers: &HeaderMap,
+    domain: &str,
+    path: &str,
+    query: &[(&str, String)],
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let key = build_cache_key(path, query);
+    let now = now_ms();
+
+    // 1) HIT?
+    if let Ok(Some(payload)) = db::cache_get(domain, &key, now) {
+        return Ok((
+            StatusCode::OK,
+            [
+                (axum::http::header::CONTENT_TYPE, "application/json"),
+                (axum::http::HeaderName::from_static("x-gp-source"), "local-db"),
+            ],
+            payload,
+        )
+            .into_response());
+    }
+
+    // 2) MISS → busca no upstream e popula cache.
+    let upstream_resp = proxy_get(ctx, headers, path, query).await?;
+    let (parts, body) = upstream_resp.into_parts();
+    let bytes = axum::body::to_bytes(body, 1024 * 1024 * 8)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Falha lendo body: {e}")))?;
+
+    if parts.status.is_success() {
+        if let Ok(text) = std::str::from_utf8(&bytes) {
+            let _ = db::cache_put(domain, &key, text, now, CACHE_TTL_MS);
+        }
+    }
+
+    Ok((
+        parts.status,
+        [
+            (axum::http::header::CONTENT_TYPE, "application/json"),
+            (axum::http::HeaderName::from_static("x-gp-source"), "upstream"),
+        ],
+        bytes,
+    )
+        .into_response())
+}
 
 async fn produtos_list_handler(
     State(ctx): State<AppCtx>,
@@ -340,7 +444,8 @@ async fn produtos_list_handler(
         let pattern = format!("*{b}*");
         params.push(("or", format!("(nome.ilike.{pattern},sku.ilike.{pattern})")));
     }
-    proxy_get(&ctx, &headers, "/rest/v1/produtos", &params.iter().map(|(k, v)| (*k, v.clone())).collect::<Vec<_>>()).await
+    let q_owned: Vec<(&str, String)> = params.iter().map(|(k, v)| (*k, v.clone())).collect();
+    proxy_with_cache(&ctx, &headers, "produtos", "/rest/v1/produtos", &q_owned).await
 }
 
 // ---------- /api/estoque/saldos ----------
@@ -350,11 +455,13 @@ async fn estoque_saldos_handler(
     headers: HeaderMap,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
     let params = vec![("select", "produto_id,variacao_id,tipo,quantidade".to_string())];
-    proxy_get(
+    let q_owned: Vec<(&str, String)> = params.iter().map(|(k, v)| (*k, v.clone())).collect();
+    proxy_with_cache(
         &ctx,
         &headers,
+        "estoque_saldos",
         "/rest/v1/estoque_movimentacoes",
-        &params.iter().map(|(k, v)| (*k, v.clone())).collect::<Vec<_>>(),
+        &q_owned,
     )
     .await
 }
@@ -408,13 +515,53 @@ async fn clientes_lite_handler(
     if let Some(s) = status_val {
         params.push(("status", format!("eq.{s}")));
     }
-    proxy_get(
-        &ctx,
-        &headers,
-        "/rest/v1/clientes",
-        &params.iter().map(|(k, v)| (*k, v.clone())).collect::<Vec<_>>(),
-    )
-    .await
+    let q_owned: Vec<(&str, String)> = params.iter().map(|(k, v)| (*k, v.clone())).collect();
+    proxy_with_cache(&ctx, &headers, "clientes_lite", "/rest/v1/clientes", &q_owned).await
+}
+
+// ---------- Endpoints de banco local ----------
+
+#[derive(Serialize)]
+struct KnownTerminalsResponse {
+    total: usize,
+    terminals: Vec<db::PersistedTerminal>,
+}
+
+async fn known_terminals_handler() -> Result<Json<KnownTerminalsResponse>, (StatusCode, String)> {
+    let terminals = db::list_terminals(200)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(KnownTerminalsResponse {
+        total: terminals.len(),
+        terminals,
+    }))
+}
+
+#[derive(Serialize)]
+struct EventsResponse {
+    total: usize,
+    events: Vec<db::PersistedEvent>,
+}
+
+async fn events_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<EventsResponse>, (StatusCode, String)> {
+    let limit = q
+        .get("limit")
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(100)
+        .clamp(1, 500);
+    let events = db::list_events(limit)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(EventsResponse {
+        total: events.len(),
+        events,
+    }))
+}
+
+async fn db_info_handler() -> Result<Json<db::DbInfo>, (StatusCode, String)> {
+    db::db_info()
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 // ---------- Router ----------
@@ -430,6 +577,9 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/server-info", get(server_info_handler))
         .route("/heartbeat", post(heartbeat_handler))
         .route("/terminals", get(terminals_handler))
+        .route("/terminals/known", get(known_terminals_handler))
+        .route("/events", get(events_handler))
+        .route("/db/info", get(db_info_handler))
         .route("/api/produtos/list", get(produtos_list_handler))
         .route("/api/estoque/saldos", get(estoque_saldos_handler))
         .route("/api/estoque/movimentacoes", get(estoque_movimentacoes_handler))
@@ -526,7 +676,10 @@ pub fn start(
     let (tx, rx) = oneshot::channel::<()>();
 
     handle.spawn(async move {
-        let _ = axum::serve(listener, app)
+        let _ = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
             .with_graceful_shutdown(async {
                 let _ = rx.await;
             })
