@@ -81,6 +81,15 @@ export function DesktopTab() {
   const [caixaResumo, setCaixaResumo] = useState<CaixaResumoLocal | null>(null);
   const [caixaLancamentos, setCaixaLancamentos] = useState<LancamentoLocalRow[]>([]);
   const [regenerandoLanc, setRegenerandoLanc] = useState(false);
+  const [finResumo, setFinResumo] = useState<{
+    total_entradas: number;
+    total_saidas: number;
+    saldo: number;
+    qtd_lancamentos: number;
+    qtd_entradas: number;
+    qtd_saidas: number;
+  } | null>(null);
+  const [finRecentes, setFinRecentes] = useState<LancamentoLocalRow[]>([]);
 
   // cfg derivado para chamadas ao backend local (terminal usa o config; servidor
   // bate em si mesmo via 127.0.0.1).
