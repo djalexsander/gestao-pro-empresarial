@@ -204,6 +204,24 @@ export function DesktopTab() {
     setOutboxCancel(await fetchOutboxCancelamentosStats(localCfg));
   };
 
+  const handleFlushFin = async () => {
+    if (!localCfg) return;
+    setFlushingFin(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      await flushOutboxFinanceiro(localCfg, data.session?.access_token ?? null);
+      setOutboxFin(await fetchOutboxFinanceiroStats(localCfg));
+    } finally {
+      setFlushingFin(false);
+    }
+  };
+
+  const handleRetryErrorsFin = async () => {
+    if (!localCfg) return;
+    await retryOutboxFinanceiroErrors(localCfg);
+    setOutboxFin(await fetchOutboxFinanceiroStats(localCfg));
+  };
+
   const handleRegenerarLancamentos = async () => {
     if (!localCfg || !caixaAberto?.local_uuid) return;
     setRegenerandoLanc(true);
@@ -237,7 +255,7 @@ export function DesktopTab() {
 
     let alive = true;
     const carregar = async () => {
-      const [info, terms, stats, ob, obv, obc, occ, ca] = await Promise.all([
+      const [info, terms, stats, ob, obv, obc, occ, obf, ca] = await Promise.all([
         fetchDbInfo(cfg),
         fetchKnownTerminals(cfg),
         fetchDomainStats(cfg),
@@ -245,6 +263,7 @@ export function DesktopTab() {
         fetchOutboxVendasStats(cfg),
         fetchOutboxCaixaStats(cfg),
         fetchOutboxCancelamentosStats(cfg),
+        fetchOutboxFinanceiroStats(cfg),
         fetchCaixaLocalAberto(cfg),
       ]);
       if (!alive) return;
@@ -255,6 +274,8 @@ export function DesktopTab() {
       setOutboxVendas(obv);
       setOutboxCaixa(obc);
       setOutboxCancel(occ);
+      setOutboxFin(obf);
+      setCaixaAberto(ca);
       setCaixaAberto(ca);
 
       // Resumo + lançamentos: prioriza caixa aberto, senão omite (último
@@ -284,17 +305,19 @@ export function DesktopTab() {
     void carregar();
     const tFull = setInterval(() => void carregar(), 30_000);
     const tOutbox = setInterval(async () => {
-      const [ob, obv, obc, occ] = await Promise.all([
+      const [ob, obv, obc, occ, obf] = await Promise.all([
         fetchOutboxStats(cfg),
         fetchOutboxVendasStats(cfg),
         fetchOutboxCaixaStats(cfg),
         fetchOutboxCancelamentosStats(cfg),
+        fetchOutboxFinanceiroStats(cfg),
       ]);
       if (!alive) return;
       setOutbox(ob);
       setOutboxVendas(obv);
       setOutboxCaixa(obc);
       setOutboxCancel(occ);
+      setOutboxFin(obf);
     }, 5_000);
     return () => {
       alive = false;
@@ -1059,6 +1082,96 @@ export function DesktopTab() {
           </Card>
         )}
 
+        {role !== "unset" && outboxFin && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Fila offline — financeiro
+              </CardTitle>
+              <div className="flex gap-2">
+                {outboxFin.error > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void handleRetryErrorsFin()}
+                  >
+                    Reenfileirar erros
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={flushingFin || outboxFin.pending === 0}
+                  onClick={() => void handleFlushFin()}
+                >
+                  {flushingFin ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                  )}
+                  Sincronizar agora
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 text-sm sm:grid-cols-4">
+                <Field label="Pendentes" value={String(outboxFin.pending)} />
+                <Field label="Enviando" value={String(outboxFin.sending)} />
+                <Field
+                  label="Prontas / Pendentes"
+                  value={`${outboxFin.due_now} / ${outboxFin.pending}`}
+                />
+                <Field label="Enviadas" value={String(outboxFin.sent)} />
+                <Field label="Com erro" value={String(outboxFin.error)} />
+                <Field
+                  label="Próx. tentativa auto"
+                  value={
+                    outboxFin.next_attempt_at_ms
+                      ? new Date(outboxFin.next_attempt_at_ms).toLocaleString("pt-BR")
+                      : "—"
+                  }
+                />
+                <Field
+                  label="Último auto-flush"
+                  value={
+                    outboxFin.last_auto_flush_ms
+                      ? `${new Date(outboxFin.last_auto_flush_ms).toLocaleTimeString("pt-BR")}` +
+                        (outboxFin.last_auto_attempted != null
+                          ? ` · ${outboxFin.last_auto_sent ?? 0}/${outboxFin.last_auto_attempted} ok`
+                          : "")
+                      : "—"
+                  }
+                />
+                <Field
+                  label="Último envio"
+                  value={
+                    outboxFin.last_sent_at_ms
+                      ? new Date(outboxFin.last_sent_at_ms).toLocaleString("pt-BR")
+                      : "—"
+                  }
+                />
+                {outboxFin.last_error && (
+                  <div className="sm:col-span-4">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                      Último erro
+                    </div>
+                    <div className="mt-0.5 break-all text-xs text-destructive">
+                      {outboxFin.last_error}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Lançamentos financeiros manuais são empurrados para o upstream
+                via <code>rpc/criar_lancamento_avulso</code>. Idempotência
+                garantida pelo <code>client_uuid</code> (= <code>local_uuid</code>):
+                reenvios nunca duplicam o lançamento na nuvem.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         {role !== "unset" && caixaResumo && (
           <Card>
             <CardHeader>
@@ -1287,23 +1400,50 @@ export function DesktopTab() {
                         <th className="px-3 py-2 text-left font-medium">Categoria</th>
                         <th className="px-3 py-2 text-left font-medium">Origem</th>
                         <th className="px-3 py-2 text-left font-medium">Status</th>
+                        <th className="px-3 py-2 text-left font-medium">Sync</th>
                         <th className="px-3 py-2 text-right font-medium">Valor</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {finRecentes.map((l) => (
-                        <tr key={l.local_uuid} className="border-t">
-                          <td className="px-3 py-2">
-                            <Badge variant={l.tipo === "entrada" ? "default" : "secondary"}>{l.tipo}</Badge>
-                          </td>
-                          <td className="px-3 py-2 font-mono text-xs">{l.categoria}</td>
-                          <td className="px-3 py-2 text-xs text-muted-foreground">{l.origem}</td>
-                          <td className="px-3 py-2 text-xs">{l.status ?? "confirmado"}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">
-                            {l.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                          </td>
-                        </tr>
-                      ))}
+                      {finRecentes.map((l) => {
+                        const sync = l.sync_status ?? "local_only";
+                        const syncVariant: "default" | "secondary" | "outline" | "destructive" =
+                          sync === "synced"
+                            ? "default"
+                            : sync === "error"
+                              ? "destructive"
+                              : sync === "pending"
+                                ? "outline"
+                                : "secondary";
+                        return (
+                          <tr key={l.local_uuid} className="border-t">
+                            <td className="px-3 py-2">
+                              <Badge variant={l.tipo === "entrada" ? "default" : "secondary"}>{l.tipo}</Badge>
+                            </td>
+                            <td className="px-3 py-2 font-mono text-xs">{l.categoria}</td>
+                            <td className="px-3 py-2 text-xs text-muted-foreground">{l.origem}</td>
+                            <td className="px-3 py-2 text-xs">{l.status ?? "confirmado"}</td>
+                            <td className="px-3 py-2 text-xs">
+                              <div className="flex flex-col gap-0.5">
+                                <Badge variant={syncVariant} className="w-fit text-[10px]">
+                                  {sync}
+                                </Badge>
+                                {l.remote_id && (
+                                  <span
+                                    className="font-mono text-[10px] text-muted-foreground"
+                                    title={l.remote_id}
+                                  >
+                                    {l.remote_id.slice(0, 8)}…
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums">
+                              {l.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
