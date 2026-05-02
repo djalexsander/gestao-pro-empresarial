@@ -325,6 +325,76 @@ export const localTerminalAdapter: DataAdapter = {
       });
       return result;
     },
+
+    /**
+     * CANCELAMENTO LOCAL: tenta primeiro o servidor local (estorna estoque
+     * local + regenera lançamentos do caixa local + enfileira para upstream).
+     * Em qualquer falha (sem servidor, venda só na nuvem, erro de validação),
+     * delega ao cloudAdapter — comportamento legado preservado.
+     *
+     * Idempotência: o backend local detecta venda já cancelada e devolve
+     * `idempotente=true` sem refazer o estorno.
+     */
+    cancelar: async (input: CancelarVendaInput): Promise<CancelarVendaResumo> => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        try {
+          const { data } = await supabase.auth.getSession();
+          const token = data.session?.access_token ?? null;
+          const local = await cancelarVendaLocal(
+            cfg,
+            {
+              venda_local_uuid: input.venda_id,
+              motivo: input.motivo ?? null,
+              client_uuid: input.venda_id,
+            },
+            token,
+          );
+          if (local) {
+            reportDataSource({
+              source: "local-server",
+              domain: "vendas",
+              method: "cancelar",
+              fallback: false,
+            });
+            // Backend local devolve apenas os agregados — para o resumo
+            // detalhado (itens estornados, lançamentos cancelados), buscamos
+            // do cloud quando já estiver sincronizado. Caso contrário,
+            // entregamos um resumo mínimo válido para a UI.
+            if (local.outbox_status === "sent") {
+              try {
+                return await cloudAdapter.vendas.cancelar(input);
+              } catch {
+                /* fallback ao resumo mínimo abaixo */
+              }
+            }
+            return {
+              venda_id: input.venda_id,
+              numero: "",
+              total: local.qtd_total_estornada,
+              motivo: input.motivo ?? null,
+              cancelado_em: new Date().toISOString(),
+              qtd_itens_estornados: local.qtd_itens_estornados,
+              qtd_total_estornada: local.qtd_total_estornada,
+              itens_estornados: [],
+              qtd_lancamentos_cancelados: 0,
+              total_lancamentos_cancelados: 0,
+              lancamentos_cancelados: [],
+            };
+          }
+        } catch {
+          /* cai no fallback cloud abaixo */
+        }
+      }
+      const result = await cloudAdapter.vendas.cancelar(input);
+      reportDataSource({
+        source: "cloud",
+        domain: "vendas",
+        method: "cancelar",
+        fallback: true,
+      });
+      return result;
+    },
   },
 
   clientes: {
