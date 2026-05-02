@@ -444,7 +444,8 @@ async fn produtos_list_handler(
         let pattern = format!("*{b}*");
         params.push(("or", format!("(nome.ilike.{pattern},sku.ilike.{pattern})")));
     }
-    proxy_get(&ctx, &headers, "/rest/v1/produtos", &params.iter().map(|(k, v)| (*k, v.clone())).collect::<Vec<_>>()).await
+    let q_owned: Vec<(&str, String)> = params.iter().map(|(k, v)| (*k, v.clone())).collect();
+    proxy_with_cache(&ctx, &headers, "produtos", "/rest/v1/produtos", &q_owned).await
 }
 
 // ---------- /api/estoque/saldos ----------
@@ -454,11 +455,13 @@ async fn estoque_saldos_handler(
     headers: HeaderMap,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
     let params = vec![("select", "produto_id,variacao_id,tipo,quantidade".to_string())];
-    proxy_get(
+    let q_owned: Vec<(&str, String)> = params.iter().map(|(k, v)| (*k, v.clone())).collect();
+    proxy_with_cache(
         &ctx,
         &headers,
+        "estoque_saldos",
         "/rest/v1/estoque_movimentacoes",
-        &params.iter().map(|(k, v)| (*k, v.clone())).collect::<Vec<_>>(),
+        &q_owned,
     )
     .await
 }
