@@ -50,6 +50,8 @@ export function DesktopTab() {
   const [knownTerminals, setKnownTerminals] = useState<PersistedTerminal[]>([]);
   const [domainStats, setDomainStats] = useState<DomainStat[]>([]);
   const [syncingDomain, setSyncingDomain] = useState<string | null>(null);
+  const [outbox, setOutbox] = useState<OutboxStats | null>(null);
+  const [flushing, setFlushing] = useState(false);
 
   // cfg derivado para chamadas ao backend local (terminal usa o config; servidor
   // bate em si mesmo via 127.0.0.1).
