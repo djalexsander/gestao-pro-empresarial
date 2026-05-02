@@ -23,12 +23,17 @@ import {
   fetchDbInfo,
   fetchDomainStats,
   fetchKnownTerminals,
+  fetchOutboxStats,
+  flushOutbox,
+  retryOutboxErrors,
   runDbSync,
   type DbInfoPayload,
   type DomainStat,
+  type OutboxStats,
   type PersistedTerminal,
   type ServerConnStatus,
 } from "@/integrations/desktop/serverConnection";
+import { supabase } from "@/integrations/supabase/client";
 
 /**
  * Aba "Desktop" em Configurações — só faz sentido quando a app está rodando
@@ -45,6 +50,8 @@ export function DesktopTab() {
   const [knownTerminals, setKnownTerminals] = useState<PersistedTerminal[]>([]);
   const [domainStats, setDomainStats] = useState<DomainStat[]>([]);
   const [syncingDomain, setSyncingDomain] = useState<string | null>(null);
+  const [outbox, setOutbox] = useState<OutboxStats | null>(null);
+  const [flushing, setFlushing] = useState(false);
 
   // cfg derivado para chamadas ao backend local (terminal usa o config; servidor
   // bate em si mesmo via 127.0.0.1).
@@ -79,6 +86,24 @@ export function DesktopTab() {
     }
   };
 
+  const handleFlush = async () => {
+    if (!localCfg) return;
+    setFlushing(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      await flushOutbox(localCfg, data.session?.access_token ?? null);
+      setOutbox(await fetchOutboxStats(localCfg));
+    } finally {
+      setFlushing(false);
+    }
+  };
+
+  const handleRetryErrors = async () => {
+    if (!localCfg) return;
+    await retryOutboxErrors(localCfg);
+    setOutbox(await fetchOutboxStats(localCfg));
+  };
+
   useEffect(() => {
     if (!isDesktop || role === "unset") return;
     const cfg =
@@ -96,15 +121,17 @@ export function DesktopTab() {
 
     let alive = true;
     const carregar = async () => {
-      const [info, terms, stats] = await Promise.all([
+      const [info, terms, stats, ob] = await Promise.all([
         fetchDbInfo(cfg),
         fetchKnownTerminals(cfg),
         fetchDomainStats(cfg),
+        fetchOutboxStats(cfg),
       ]);
       if (!alive) return;
       setDbInfo(info);
       setKnownTerminals(terms);
       setDomainStats(stats);
+      setOutbox(ob);
     };
     void carregar();
     const t = setInterval(() => void carregar(), 30_000);
@@ -487,6 +514,69 @@ export function DesktopTab() {
                 ingeridas. Tombstones automáticos para registros marcados
                 como inativos no upstream e fallback resiliente
                 (<code>local-table-stale</code>) quando a nuvem cai.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {role !== "unset" && outbox && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Fila offline — estoque
+              </CardTitle>
+              <div className="flex gap-2">
+                {outbox.error > 0 && (
+                  <Button size="sm" variant="outline" onClick={() => void handleRetryErrors()}>
+                    Reenfileirar erros
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={flushing || outbox.pending === 0}
+                  onClick={() => void handleFlush()}
+                >
+                  {flushing ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                  )}
+                  Sincronizar agora
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 text-sm sm:grid-cols-4">
+                <Field label="Pendentes" value={String(outbox.pending)} />
+                <Field label="Enviando" value={String(outbox.sending)} />
+                <Field label="Enviadas" value={String(outbox.sent)} />
+                <Field label="Com erro" value={String(outbox.error)} />
+                <Field
+                  label="Último envio"
+                  value={
+                    outbox.last_sent_at_ms
+                      ? new Date(outbox.last_sent_at_ms).toLocaleString("pt-BR")
+                      : "—"
+                  }
+                />
+                {outbox.last_error && (
+                  <div className="sm:col-span-3">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                      Último erro
+                    </div>
+                    <div className="mt-0.5 break-all text-xs text-destructive">
+                      {outbox.last_error}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Movimentações de estoque são gravadas localmente no servidor
+                (saldo refletido na hora) e enviadas à nuvem em background.
+                Idempotência garantida por <code>local_uuid</code> — retries
+                não duplicam.
               </p>
             </CardContent>
           </Card>

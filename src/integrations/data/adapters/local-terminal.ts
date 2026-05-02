@@ -22,10 +22,17 @@
 
 import { supabase } from "@/integrations/supabase/client";
 import type { DataAdapter } from "../adapter";
+import type {
+  RegistrarMovimentoEstoqueInput,
+  RegistrarMovimentoEstoqueResult,
+} from "../types";
 import { cloudAdapter } from "./cloud";
 import { reportDataSource } from "../source-telemetry";
 import { getDesktopConfig } from "@/integrations/desktop/configStore";
-import { getBaseUrl } from "@/integrations/desktop/serverConnection";
+import {
+  getBaseUrl,
+  registrarMovimentoLocal,
+} from "@/integrations/desktop/serverConnection";
 
 const HTTP_TIMEOUT_MS = 4000;
 
@@ -170,6 +177,66 @@ export const localTerminalAdapter: DataAdapter = {
           ),
         () => cloudAdapter.estoque.movimentacoes(input),
       ),
+
+    /**
+     * WRITE LOCAL: a movimentação vai PRIMEIRO ao servidor local (que grava
+     * em SQLite, atualiza o saldo materializado e enfileira na outbox para
+     * o push posterior à nuvem). Se o servidor local não responde (offline,
+     * sem config, etc.), caímos no cloudAdapter — comportamento legado.
+     *
+     * Idempotência:
+     *  - `client_uuid` (1 por modal) impede duplicar via duplo clique antes
+     *    do servidor responder.
+     *  - O servidor local gera um `local_uuid` estável que vira o
+     *    `_client_uuid` da RPC upstream — retries cross-runs também não
+     *    duplicam.
+     */
+    registrarMovimento: async (
+      input: RegistrarMovimentoEstoqueInput,
+    ): Promise<RegistrarMovimentoEstoqueResult> => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const local = await registrarMovimentoLocal(
+          cfg,
+          {
+            produto_id: input.produto_id,
+            variacao_id: input.variacao_id ?? null,
+            tipo: input.tipo,
+            quantidade: input.quantidade,
+            custo_unitario: input.custo_unitario ?? null,
+            observacoes: input.observacoes ?? null,
+            origem: input.origem ?? null,
+            client_uuid: input.client_uuid ?? null,
+          },
+          token,
+        );
+        if (local) {
+          reportDataSource({
+            source: "local-server",
+            domain: "estoque",
+            method: "registrarMovimento",
+            fallback: false,
+          });
+          return {
+            movimento_id: local.movimento_id,
+            idempotente: local.idempotente,
+            saldo_anterior: local.saldo_anterior,
+            saldo_posterior: local.saldo_posterior,
+          };
+        }
+      }
+      // Fallback cloud — o app continua funcionando mesmo sem servidor local.
+      const result = await cloudAdapter.estoque.registrarMovimento(input);
+      reportDataSource({
+        source: "cloud",
+        domain: "estoque",
+        method: "registrarMovimento",
+        fallback: true,
+      });
+      return result;
+    },
   },
 
   clientes: {
