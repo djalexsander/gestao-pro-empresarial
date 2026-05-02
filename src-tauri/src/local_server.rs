@@ -980,6 +980,249 @@ async fn db_sync_handler(
     }))
 }
 
+// ---------- Writes locais de estoque + outbox ----------
+//
+// `POST /api/estoque/movimentacoes` é o ponto de entrada do TERMINAL para
+// gravar uma movimentação. O servidor:
+//   1. Grava localmente (saldo materializado refletido NA HORA).
+//   2. Enfileira na outbox.
+//   3. Tenta um push imediato ao upstream (best-effort). Se falhar, fica
+//      pendente para retry posterior — terminal não trava.
+//
+// `GET  /db/outbox/estoque`        → listagem para a UI.
+// `GET  /db/outbox/estoque/stats`  → contadores (pending/sent/error/...).
+// `POST /db/outbox/flush`          → tenta enviar o lote pendente agora.
+// `POST /db/outbox/retry-errors`   → move erros de volta para pending.
+
+#[derive(Deserialize, Debug)]
+struct RegistrarMovLocalRequest {
+    produto_id: String,
+    variacao_id: Option<String>,
+    tipo: String,
+    quantidade: f64,
+    custo_unitario: Option<f64>,
+    observacoes: Option<String>,
+    origem: Option<String>,
+    client_uuid: Option<String>,
+}
+
+#[derive(Serialize)]
+struct RegistrarMovLocalResponse {
+    movimento_id: String,
+    idempotente: bool,
+    saldo_anterior: f64,
+    saldo_posterior: f64,
+    /// "pending" se ainda não foi para o upstream, "sent" se já foi.
+    outbox_status: String,
+    /// id no upstream quando o push imediato funcionou.
+    remote_id: Option<String>,
+}
+
+async fn registrar_mov_local_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<RegistrarMovLocalRequest>,
+) -> Result<Json<RegistrarMovLocalResponse>, (StatusCode, String)> {
+    let now = now_ms();
+    let result = db::registrar_movimento_local(
+        db::LocalMovimentacaoInput {
+            produto_id: req.produto_id.clone(),
+            variacao_id: req.variacao_id.clone(),
+            tipo: req.tipo.clone(),
+            quantidade: req.quantidade,
+            custo_unitario: req.custo_unitario,
+            observacoes: req.observacoes.clone(),
+            origem: req.origem.clone(),
+            client_uuid: req.client_uuid.clone(),
+        },
+        now,
+    )
+    .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+
+    // Best-effort: tenta empurrar agora se temos upstream e auth do terminal.
+    let mut outbox_status = "pending".to_string();
+    let mut remote_id: Option<String> = None;
+    if !result.idempotente && ctx.upstream.is_some() {
+        match push_one_outbox(&ctx, &headers, &result.local_uuid).await {
+            Ok(rid) => {
+                outbox_status = "sent".into();
+                remote_id = Some(rid);
+            }
+            Err(_) => {
+                // Falha silenciosa: já está enfileirado, será reenviado.
+            }
+        }
+    }
+
+    Ok(Json(RegistrarMovLocalResponse {
+        movimento_id: result.local_uuid,
+        idempotente: result.idempotente,
+        saldo_anterior: result.saldo_anterior,
+        saldo_posterior: result.saldo_posterior,
+        outbox_status,
+        remote_id,
+    }))
+}
+
+/// Empurra UM item da outbox para o upstream via RPC `registrar_movimento_estoque`.
+/// Idempotência cross-runs garantida pelo `_client_uuid = local_uuid` — se o
+/// servidor cair entre o INSERT e o UPDATE de status, na próxima rodada o
+/// upstream identifica e devolve o mesmo movimento.
+async fn push_one_outbox(
+    ctx: &AppCtx,
+    headers: &HeaderMap,
+    local_uuid: &str,
+) -> Result<String, String> {
+    let upstream = ctx.upstream.as_ref().ok_or("upstream não configurado")?;
+    let now = now_ms();
+
+    // Carrega payload da outbox.
+    let items = db::outbox_list(1000, None).map_err(|e| e.to_string())?;
+    let item = items
+        .into_iter()
+        .find(|i| i.local_uuid == local_uuid)
+        .ok_or("item não encontrado na outbox")?;
+    if item.status == "sent" {
+        return Ok(item.remote_id.unwrap_or_default());
+    }
+
+    let payload: serde_json::Value =
+        serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
+
+    db::outbox_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
+
+    let auth = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+
+    let body = serde_json::json!({
+        "_produto_id":     payload.get("produto_id"),
+        "_variacao_id":    payload.get("variacao_id"),
+        "_tipo":           payload.get("tipo"),
+        "_quantidade":     payload.get("quantidade"),
+        "_custo_unitario": payload.get("custo_unitario"),
+        "_observacoes":    payload.get("observacoes"),
+        "_origem":         payload.get("origem"),
+        // Idempotency real no upstream: usa SEMPRE o local_uuid — assim
+        // retries (mesmo após reboot) NUNCA duplicam.
+        "_client_uuid":    local_uuid,
+    });
+
+    let url = format!(
+        "{}/rest/v1/rpc/registrar_movimento_estoque",
+        upstream.base_url.trim_end_matches('/')
+    );
+    let resp = ctx
+        .http
+        .post(&url)
+        .header("apikey", &upstream.anon_key)
+        .header(axum::http::header::AUTHORIZATION, auth)
+        .header(axum::http::header::CONTENT_TYPE, "application/json")
+        .header(axum::http::header::ACCEPT, "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| {
+            let msg = format!("rede: {e}");
+            let _ = db::outbox_mark_error(local_uuid, &msg, now);
+            msg
+        })?;
+
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        let msg = format!("HTTP {}: {}", status.as_u16(), text);
+        let _ = db::outbox_mark_error(local_uuid, &msg, now);
+        return Err(msg);
+    }
+
+    // RPC devolve `{ movimento_id, idempotente, saldo_anterior, saldo_posterior }`.
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+    let remote_id = parsed
+        .get("movimento_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or(local_uuid)
+        .to_string();
+
+    db::outbox_mark_sent(local_uuid, &remote_id, now).map_err(|e| e.to_string())?;
+    Ok(remote_id)
+}
+
+#[derive(Serialize)]
+struct OutboxListResponse {
+    total: usize,
+    items: Vec<db::OutboxItem>,
+}
+
+async fn outbox_list_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<OutboxListResponse>, (StatusCode, String)> {
+    let limit = q
+        .get("limit")
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(200);
+    let status = q.get("status").map(|s| s.as_str());
+    let items = db::outbox_list(limit, status)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(OutboxListResponse {
+        total: items.len(),
+        items,
+    }))
+}
+
+async fn outbox_stats_handler() -> Result<Json<db::OutboxStats>, (StatusCode, String)> {
+    db::outbox_stats()
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+#[derive(Serialize)]
+struct FlushResponse {
+    attempted: usize,
+    sent: usize,
+    failed: usize,
+    errors: Vec<String>,
+}
+
+async fn outbox_flush_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<Json<FlushResponse>, (StatusCode, String)> {
+    let pending = db::outbox_pending_batch(100)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let mut sent = 0usize;
+    let mut failed = 0usize;
+    let mut errors: Vec<String> = Vec::new();
+    for it in &pending {
+        match push_one_outbox(&ctx, &headers, &it.local_uuid).await {
+            Ok(_) => sent += 1,
+            Err(e) => {
+                failed += 1;
+                errors.push(format!("{}: {}", it.local_uuid, e));
+            }
+        }
+    }
+    Ok(Json(FlushResponse {
+        attempted: pending.len(),
+        sent,
+        failed,
+        errors,
+    }))
+}
+
+#[derive(Serialize)]
+struct RetryErrorsResponse {
+    requeued: i64,
+}
+
+async fn outbox_retry_errors_handler() -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
+    let n = db::outbox_reset_errors(now_ms())
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(RetryErrorsResponse { requeued: n }))
+}
+
 // ---------- Router ----------
 
 fn build_router(ctx: AppCtx) -> Router {
@@ -998,9 +1241,17 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/db/info", get(db_info_handler))
         .route("/db/domains", get(db_domains_handler))
         .route("/db/sync", post(db_sync_handler))
+        .route("/db/outbox/estoque", get(outbox_list_handler))
+        .route("/db/outbox/estoque/stats", get(outbox_stats_handler))
+        .route("/db/outbox/flush", post(outbox_flush_handler))
+        .route("/db/outbox/retry-errors", post(outbox_retry_errors_handler))
         .route("/api/produtos/list", get(produtos_list_handler))
         .route("/api/estoque/saldos", get(estoque_saldos_handler))
         .route("/api/estoque/movimentacoes", get(estoque_movimentacoes_handler))
+        .route(
+            "/api/estoque/movimentacoes/registrar",
+            post(registrar_mov_local_handler),
+        )
         .route("/api/clientes/lite", get(clientes_lite_handler))
         .with_state(ctx)
         .layer(cors)
