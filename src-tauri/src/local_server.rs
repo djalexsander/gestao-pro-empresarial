@@ -616,6 +616,21 @@ async fn db_info_handler() -> Result<Json<db::DbInfo>, (StatusCode, String)> {
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
+#[derive(Serialize)]
+struct DomainStatsResponse {
+    total: usize,
+    domains: Vec<db::DomainStat>,
+}
+
+async fn db_domains_handler() -> Result<Json<DomainStatsResponse>, (StatusCode, String)> {
+    let domains = db::list_domain_stats()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(DomainStatsResponse {
+        total: domains.len(),
+        domains,
+    }))
+}
+
 // ---------- Router ----------
 
 fn build_router(ctx: AppCtx) -> Router {
@@ -632,6 +647,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/terminals/known", get(known_terminals_handler))
         .route("/events", get(events_handler))
         .route("/db/info", get(db_info_handler))
+        .route("/db/domains", get(db_domains_handler))
         .route("/api/produtos/list", get(produtos_list_handler))
         .route("/api/estoque/saldos", get(estoque_saldos_handler))
         .route("/api/estoque/movimentacoes", get(estoque_movimentacoes_handler))
