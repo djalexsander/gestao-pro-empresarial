@@ -510,13 +510,63 @@ function FinanceContent() {
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             A receber por origem e operacional
           </p>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {receberOrigem && (
               <span className="hidden text-[11px] text-muted-foreground sm:inline">
                 {formatPeriodoBR(receberOrigem.periodo)}
               </span>
             )}
             <SecaoFiltro value={filtroReceber} onChange={setFiltroReceber} showForma />
+            {(() => {
+              const periodoLabel = receberOrigem
+                ? formatPeriodoBR(receberOrigem.periodo)
+                : null;
+              const formaLabel =
+                filtroReceber.forma && filtroReceber.forma !== "todos"
+                  ? `Forma: ${filtroReceber.forma}`
+                  : "Todas as formas";
+              const filtroTxt = periodoLabel
+                ? `${periodoLabel} · ${formaLabel}`
+                : formaLabel;
+              const labelRecebido =
+                filtroReceber.preset === "hoje"
+                  ? "Recebido hoje"
+                  : "Recebido no período";
+              return (
+                <SecaoExport
+                  prefix="financeiro_receber_origem"
+                  titulo="A receber por origem e operacional"
+                  periodo={periodoLabel}
+                  rows={[
+                    {
+                      indicador: "Fiado em aberto",
+                      valor: receberOrigem?.fiadoEmAberto ?? 0,
+                      quantidade: receberOrigem?.qtdFiado ?? 0,
+                      filtro: filtroTxt,
+                    },
+                    {
+                      indicador: "iFood a repassar",
+                      valor: receberOrigem?.ifoodAReceber ?? 0,
+                      quantidade: receberOrigem?.qtdIfood ?? 0,
+                      filtro: filtroTxt,
+                    },
+                    {
+                      indicador: labelRecebido,
+                      valor: receberOrigem?.recebidoPeriodo ?? 0,
+                      quantidade: receberOrigem?.qtdRecebimentos ?? 0,
+                      filtro: filtroTxt,
+                    },
+                    {
+                      indicador: "Vencidos",
+                      valor: receberOrigem?.vencidosTotal ?? 0,
+                      quantidade: receberOrigem?.qtdVencidos ?? 0,
+                      filtro: filtroTxt,
+                    },
+                  ]}
+                  disabled={!receberOrigem}
+                />
+              );
+            })()}
           </div>
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
