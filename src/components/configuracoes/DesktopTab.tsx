@@ -255,7 +255,7 @@ export function DesktopTab() {
 
     let alive = true;
     const carregar = async () => {
-      const [info, terms, stats, ob, obv, obc, occ, ca] = await Promise.all([
+      const [info, terms, stats, ob, obv, obc, occ, obf, ca] = await Promise.all([
         fetchDbInfo(cfg),
         fetchKnownTerminals(cfg),
         fetchDomainStats(cfg),
@@ -263,6 +263,7 @@ export function DesktopTab() {
         fetchOutboxVendasStats(cfg),
         fetchOutboxCaixaStats(cfg),
         fetchOutboxCancelamentosStats(cfg),
+        fetchOutboxFinanceiroStats(cfg),
         fetchCaixaLocalAberto(cfg),
       ]);
       if (!alive) return;
@@ -273,6 +274,8 @@ export function DesktopTab() {
       setOutboxVendas(obv);
       setOutboxCaixa(obc);
       setOutboxCancel(occ);
+      setOutboxFin(obf);
+      setCaixaAberto(ca);
       setCaixaAberto(ca);
 
       // Resumo + lançamentos: prioriza caixa aberto, senão omite (último
