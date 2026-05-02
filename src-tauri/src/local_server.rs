@@ -223,6 +223,7 @@ async fn server_info_handler() -> Json<ServerInfoResponse> {
 // ---------- Heartbeat ----------
 
 async fn heartbeat_handler(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(req): Json<HeartbeatRequest>,
 ) -> Result<Json<HeartbeatResponse>, (StatusCode, String)> {
     if req.terminal_id.trim().is_empty() {
@@ -240,15 +241,51 @@ async fn heartbeat_handler(
         last_seen_iso: now_iso(),
     };
 
-    let (server_id, server_name, server_match) = {
+    let (server_id, server_name, server_match, was_new) = {
         let mut s = STATE.lock().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let was_new = !s.terminals.contains_key(&req.terminal_id);
         s.terminals.insert(req.terminal_id.clone(), hb);
         let m = req
             .expected_server_id
             .as_ref()
             .map(|exp| s.server_id.as_deref() == Some(exp.as_str()));
-        (s.server_id.clone(), s.server_name.clone(), m)
+        (s.server_id.clone(), s.server_name.clone(), m, was_new)
     };
+
+    // Persistência local — falha silenciosa (não atrapalha operação).
+    let host_str = addr.ip().to_string();
+    let _ = db::upsert_terminal(db::UpsertHeartbeat {
+        terminal_id: &req.terminal_id,
+        machine_id: req.machine_id.as_deref(),
+        server_id: server_id.as_deref(),
+        terminal_nome: req.terminal_nome.as_deref(),
+        role: req.role.as_deref(),
+        app_version: req.app_version.as_deref(),
+        host: Some(&host_str),
+        now_ms: now,
+    });
+
+    // Auditoria: só registra o primeiro heartbeat e desvios de identidade
+    // (evita inflar a tabela com 1 evento por ping).
+    if was_new {
+        let _ = db::log_event(db::LogEvent {
+            terminal_id: &req.terminal_id,
+            event_type: "first_seen",
+            ts_ms: now,
+            server_match,
+            expected_server_id: req.expected_server_id.as_deref(),
+            details: Some(&host_str),
+        });
+    } else if matches!(server_match, Some(false)) {
+        let _ = db::log_event(db::LogEvent {
+            terminal_id: &req.terminal_id,
+            event_type: "server_mismatch",
+            ts_ms: now,
+            server_match,
+            expected_server_id: req.expected_server_id.as_deref(),
+            details: None,
+        });
+    }
 
     Ok(Json(HeartbeatResponse {
         ok: true,
