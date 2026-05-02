@@ -54,6 +54,8 @@ struct ServerState {
     caixa_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     /// Sinaliza o scheduler de background (outbox de cancelamentos) para parar.
     cancel_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
+    /// Sinaliza o scheduler de background (outbox financeira) para parar.
+    fin_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     upstream: Option<UpstreamConfig>,
     /// Últimos heartbeats por terminalId (em memória; banco local virá depois).
     terminals: HashMap<String, TerminalHeartbeat>,
