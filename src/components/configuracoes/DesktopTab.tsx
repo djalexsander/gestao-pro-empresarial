@@ -55,6 +55,8 @@ export function DesktopTab() {
   const [syncingDomain, setSyncingDomain] = useState<string | null>(null);
   const [outbox, setOutbox] = useState<OutboxStats | null>(null);
   const [flushing, setFlushing] = useState(false);
+  const [outboxVendas, setOutboxVendas] = useState<OutboxStats | null>(null);
+  const [flushingVendas, setFlushingVendas] = useState(false);
 
   // cfg derivado para chamadas ao backend local (terminal usa o config; servidor
   // bate em si mesmo via 127.0.0.1).
