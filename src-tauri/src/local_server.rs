@@ -441,12 +441,12 @@ async fn proxy_with_incremental_sync(
     // 3) Monta query upstream — incremental quando há cursor.
     let mut q: Vec<(&str, String)> = base_query.to_vec();
     if let Some(cursor) = state.last_remote_cursor_ms {
+        // Em modo incremental queremos ver TODAS as transições, inclusive
+        // status=inativo (para virar tombstone local). Portanto removemos
+        // qualquer filtro de status do base_query — o filtro continua valendo
+        // para a primeira ingestão (snapshot).
+        q.retain(|(k, _)| *k != "order" && *k != "status");
         q.push(("updated_at", format!("gte.{}", iso_from_ms_z(cursor))));
-        // Garantir ordenação por updated_at.asc para avançar cursor de forma
-        // consistente. Sobrescreve qualquer `order` anterior anexando — o
-        // PostgREST aceita múltiplos `order`, mas para clareza deixamos só este
-        // quando estamos em modo incremental.
-        q.retain(|(k, _)| *k != "order");
         q.push(("order", "updated_at.asc".into()));
         q.push(("limit", INCREMENTAL_PAGE_LIMIT.to_string()));
     }
