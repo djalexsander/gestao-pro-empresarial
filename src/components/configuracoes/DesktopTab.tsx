@@ -66,7 +66,9 @@ export function DesktopTab() {
     setDomainStats(stats);
   };
 
-  const handleSync = async (domain: "produtos" | "clientes_lite") => {
+  const handleSync = async (
+    domain: "produtos" | "clientes_lite" | "estoque_movimentacoes" | "estoque_saldos",
+  ) => {
     if (!localCfg) return;
     setSyncingDomain(domain);
     try {
