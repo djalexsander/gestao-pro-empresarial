@@ -360,15 +360,26 @@ async fn proxy_get(
 
 // ---------- Cache read-through (TTL curto) ----------
 //
-// Estratégia: para os endpoints "provados" (produtos.list, estoque.saldos,
-// clientes.lite) o servidor consulta o SQLite local primeiro. Se houver
-// payload válido (não expirado), serve dele e marca header
-// `x-gp-source: local-db`. Caso contrário, busca no upstream (cloud),
-// armazena o JSON cru no cache e retorna marcado como `x-gp-source: upstream`.
+// Estratégia atual:
 //
-// Não é "banco local de verdade" para escrita ainda — é o primeiro passo
-// real de leitura local. Próxima etapa substitui o cache por tabelas
-// normalizadas (produtos, estoque_movimentacoes, clientes) com sync.
+//   * `proxy_with_incremental_sync` (produtos, clientes_lite):
+//       1. Lê o cursor `last_remote_cursor_ms` do `domain_sync_meta`.
+//       2. Se há cursor → pede só `updated_at>=cursor` ao upstream
+//          (modo INCREMENTAL); se não → snapshot inicial.
+//       3. Ingere via `db::ingest_*` que mantém o cursor monotonicamente,
+//          marca tombstones de soft-delete (`status` inativo/arquivado)
+//          e atualiza `domain_sync_meta`.
+//       4. Devolve a leitura COMPLETA da tabela local
+//          (`x-gp-source: local-table`) — terminais sempre veem o estado
+//          consolidado, independente do tamanho do delta. Cabeçalhos extras:
+//             x-gp-strategy: snapshot | incremental
+//             x-gp-delta:    <linhas no lote>
+//       5. Se o upstream cair, cai para `local-table-stale`.
+//
+//   * `proxy_with_cache` (estoque_saldos): mantém snapshot+TTL desta etapa.
+//     Saldo vem agregado de movimentações; sync incremental virá quando
+//     derivarmos o agregado a partir de `estoque_movimentacoes` por
+//     `created_at` (próxima etapa).
 
 const CACHE_TTL_MS: i64 = 60_000;
 
@@ -376,6 +387,146 @@ fn build_cache_key(path: &str, query: &[(&str, String)]) -> String {
     let mut parts: Vec<String> = query.iter().map(|(k, v)| format!("{k}={v}")).collect();
     parts.sort();
     format!("{path}?{}", parts.join("&"))
+}
+
+fn iso_from_ms_z(ms: i64) -> String {
+    chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms)
+        .map(|d| d.to_rfc3339())
+        .unwrap_or_default()
+}
+
+/// Limites de segurança para o lote incremental — evita arrastar a base
+/// inteira em uma única chamada caso o cursor ainda esteja em zero.
+const INCREMENTAL_PAGE_LIMIT: u32 = 1000;
+
+async fn proxy_with_incremental_sync(
+    ctx: &AppCtx,
+    headers: &HeaderMap,
+    domain: &str,
+    path: &str,
+    base_query: &[(&str, String)],
+    force: bool,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let now = now_ms();
+
+    // 1) Lê estado de sync e decide estratégia.
+    let state = db::get_domain_sync_state(domain).unwrap_or(db::DomainSyncState {
+        last_remote_cursor_ms: None,
+        last_strategy: None,
+    });
+    let strategy = match state.last_remote_cursor_ms {
+        Some(_) => db::IngestStrategy::Incremental,
+        None => db::IngestStrategy::Snapshot,
+    };
+
+    // 2) Sem `force`, podemos servir do local se ainda dentro do TTL — usamos
+    //    o cache_kv como "freshness gate" sem reconsultar upstream.
+    let key = build_cache_key(path, base_query);
+    if !force {
+        if let Ok(Some(_)) = db::cache_get(domain, &key, now) {
+            // Cache marcador presente → serve direto da tabela local
+            // (estado consolidado), sem chamar upstream.
+            if let Ok(payload) = read_typed(domain, base_query) {
+                return Ok(typed_response_full(
+                    StatusCode::OK,
+                    "local-table",
+                    strategy.as_str(),
+                    0,
+                    payload.into_bytes(),
+                ));
+            }
+        }
+    }
+
+    // 3) Monta query upstream — incremental quando há cursor.
+    let mut q: Vec<(&str, String)> = base_query.to_vec();
+    if let Some(cursor) = state.last_remote_cursor_ms {
+        q.push(("updated_at", format!("gte.{}", iso_from_ms_z(cursor))));
+        // Garantir ordenação por updated_at.asc para avançar cursor de forma
+        // consistente. Sobrescreve qualquer `order` anterior anexando — o
+        // PostgREST aceita múltiplos `order`, mas para clareza deixamos só este
+        // quando estamos em modo incremental.
+        q.retain(|(k, _)| *k != "order");
+        q.push(("order", "updated_at.asc".into()));
+        q.push(("limit", INCREMENTAL_PAGE_LIMIT.to_string()));
+    }
+
+    // 4) Vai ao upstream.
+    let upstream_result = proxy_get(ctx, headers, path, &q).await;
+
+    match upstream_result {
+        Ok(upstream_resp) => {
+            let (parts, body) = upstream_resp.into_parts();
+            let bytes = axum::body::to_bytes(body, 1024 * 1024 * 8)
+                .await
+                .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Falha lendo body: {e}")))?;
+
+            if !parts.status.is_success() {
+                let _ = db::record_sync_error(
+                    domain,
+                    now,
+                    &format!("upstream HTTP {}", parts.status.as_u16()),
+                );
+                return Ok(typed_response(parts.status, "upstream", bytes.to_vec()));
+            }
+
+            // Ingestão tipada cursor-aware.
+            let mut delta = 0i64;
+            if let Ok(text) = std::str::from_utf8(&bytes) {
+                match domain {
+                    "produtos" => {
+                        match db::ingest_produtos(text, now, strategy) {
+                            Ok((n, _)) => delta = n as i64,
+                            Err(e) => {
+                                let _ = db::record_sync_error(domain, now, &e.to_string());
+                                eprintln!("[gestao-pro] ingest produtos falhou: {e}");
+                            }
+                        }
+                    }
+                    "clientes_lite" => {
+                        match db::ingest_clientes(text, now, strategy) {
+                            Ok((n, _)) => delta = n as i64,
+                            Err(e) => {
+                                let _ = db::record_sync_error(domain, now, &e.to_string());
+                                eprintln!("[gestao-pro] ingest clientes falhou: {e}");
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                // Marca freshness no cache_kv (apenas para gating; não é a
+                // fonte de leitura).
+                let _ = db::cache_put(domain, &key, "{\"_marker\":1}", now, CACHE_TTL_MS);
+            }
+
+            // Devolve estado consolidado da tabela local — sempre.
+            let payload = read_typed(domain, base_query)
+                .unwrap_or_else(|_| std::str::from_utf8(&bytes).unwrap_or("[]").to_string());
+            Ok(typed_response_full(
+                StatusCode::OK,
+                "local-table",
+                strategy.as_str(),
+                delta,
+                payload.into_bytes(),
+            ))
+        }
+        Err(err) => {
+            let _ = db::record_sync_error(domain, now, &format!("{:?}", err));
+            // Fallback: tabela local mesmo "stale".
+            if let Ok(true) = db::domain_has_rows(domain) {
+                if let Ok(payload) = read_typed(domain, base_query) {
+                    return Ok(typed_response_full(
+                        StatusCode::OK,
+                        "local-table-stale",
+                        strategy.as_str(),
+                        0,
+                        payload.into_bytes(),
+                    ));
+                }
+            }
+            Err(err)
+        }
+    }
 }
 
 async fn proxy_with_cache(
@@ -388,12 +539,10 @@ async fn proxy_with_cache(
     let key = build_cache_key(path, query);
     let now = now_ms();
 
-    // 1) HIT no cache_kv (TTL curto) → serve direto.
     if let Ok(Some(payload)) = db::cache_get(domain, &key, now) {
         return Ok(typed_response(StatusCode::OK, "local-db", payload.into_bytes()));
     }
 
-    // 2) MISS → tenta upstream.
     let upstream_result = proxy_get(ctx, headers, path, query).await;
 
     match upstream_result {
@@ -405,16 +554,14 @@ async fn proxy_with_cache(
 
             if parts.status.is_success() {
                 if let Ok(text) = std::str::from_utf8(&bytes) {
-                    // a) cache cru (compatibilidade)
                     let _ = db::cache_put(domain, &key, text, now, CACHE_TTL_MS);
-                    // b) ingestão TIPADA (best-effort, não bloqueia resposta)
                     ingest_typed(domain, text, now);
                 }
             }
             Ok(typed_response(parts.status, "upstream", bytes.to_vec()))
         }
         Err(err) => {
-            // 3) Upstream falhou → tenta servir da TABELA TIPADA local (stale ok).
+            let _ = db::record_sync_error(domain, now, &format!("{:?}", err));
             if let Ok(true) = db::domain_has_rows(domain) {
                 if let Ok(payload) = read_typed(domain, query) {
                     return Ok(typed_response(
@@ -441,10 +588,34 @@ fn typed_response(status: StatusCode, source: &'static str, body: Vec<u8>) -> ax
         .into_response()
 }
 
+fn typed_response_full(
+    status: StatusCode,
+    source: &'static str,
+    strategy: &str,
+    delta: i64,
+    body: Vec<u8>,
+) -> axum::response::Response {
+    use axum::http::{HeaderName, HeaderValue};
+    let mut resp = (
+        status,
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        body,
+    )
+        .into_response();
+    let h = resp.headers_mut();
+    h.insert(HeaderName::from_static("x-gp-source"), HeaderValue::from_static(source));
+    if let Ok(v) = HeaderValue::from_str(strategy) {
+        h.insert(HeaderName::from_static("x-gp-strategy"), v);
+    }
+    if let Ok(v) = HeaderValue::from_str(&delta.to_string()) {
+        h.insert(HeaderName::from_static("x-gp-delta"), v);
+    }
+    resp
+}
+
 fn ingest_typed(domain: &str, text: &str, now: i64) {
+    // Apenas saldos seguem em modo snapshot legado pela função antiga.
     let r = match domain {
-        "produtos" => db::ingest_produtos_snapshot(text, now).map(|_| ()),
-        "clientes_lite" => db::ingest_clientes_snapshot(text, now).map(|_| ()),
         "estoque_saldos" => db::ingest_saldos_snapshot(text, now).map(|_| ()),
         _ => Ok(()),
     };
@@ -459,10 +630,6 @@ fn read_typed(domain: &str, query: &[(&str, String)]) -> Result<String, db::DbEr
     };
     match domain {
         "produtos" => {
-            // Os filtros chegam aqui já no formato Supabase REST ("eq.X", "(or)..").
-            // Para a leitura local nesta etapa devolvemos o snapshot completo
-            // — o adapter cliente filtra/ordena se necessário. (Próxima etapa
-            // pode mapear filtros 1:1.)
             let _ = get("status");
             let _ = get("categoria_id");
             db::read_produtos(db::ProdutosFilter {
