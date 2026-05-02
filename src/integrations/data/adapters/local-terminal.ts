@@ -22,10 +22,17 @@
 
 import { supabase } from "@/integrations/supabase/client";
 import type { DataAdapter } from "../adapter";
+import type {
+  RegistrarMovimentoEstoqueInput,
+  RegistrarMovimentoEstoqueResult,
+} from "../types";
 import { cloudAdapter } from "./cloud";
 import { reportDataSource } from "../source-telemetry";
 import { getDesktopConfig } from "@/integrations/desktop/configStore";
-import { getBaseUrl } from "@/integrations/desktop/serverConnection";
+import {
+  getBaseUrl,
+  registrarMovimentoLocal,
+} from "@/integrations/desktop/serverConnection";
 
 const HTTP_TIMEOUT_MS = 4000;
 
