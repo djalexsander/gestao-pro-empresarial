@@ -3555,18 +3555,30 @@ pub fn lancamentos_local_listar(filtro: &FinanceiroFiltro) -> DbResult<Vec<Lanca
             cols = LANC_SELECT_COLS
         );
         let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-        let mut push = |sql: &mut String, frag: &str, val: Box<dyn rusqlite::ToSql>| {
-            args.push(val);
-            sql.push_str(frag);
-        };
-        if let Some(v) = &filtro.tipo { push(&mut sql, &format!(" AND tipo=?{}", args.len()+1), Box::new(v.clone())); }
-        if let Some(v) = &filtro.categoria { push(&mut sql, &format!(" AND categoria=?{}", args.len()+1), Box::new(v.clone())); }
-        if let Some(v) = &filtro.origem { push(&mut sql, &format!(" AND origem=?{}", args.len()+1), Box::new(v.clone())); }
-        if let Some(v) = &filtro.status { push(&mut sql, &format!(" AND COALESCE(status,'confirmado')=?{}", args.len()+1), Box::new(v.clone())); }
-        if let Some(v) = &filtro.caixa_local_uuid { push(&mut sql, &format!(" AND caixa_local_uuid=?{}", args.len()+1), Box::new(v.clone())); }
-        if let Some(v) = &filtro.venda_local_uuid { push(&mut sql, &format!(" AND venda_local_uuid=?{}", args.len()+1), Box::new(v.clone())); }
-        if let Some(v) = filtro.desde_ms { push(&mut sql, &format!(" AND COALESCE(data_competencia_ms,created_at_ms)>=?{}", args.len()+1), Box::new(v)); }
-        if let Some(v) = filtro.ate_ms { push(&mut sql, &format!(" AND COALESCE(data_competencia_ms,created_at_ms)<=?{}", args.len()+1), Box::new(v)); }
+        macro_rules! push_str_filter {
+            ($sql:ident, $args:ident, $val:expr, $tpl:expr) => {{
+                if let Some(v) = $val {
+                    $args.push(Box::new(v.clone()));
+                    $sql.push_str(&format!($tpl, $args.len()));
+                }
+            }};
+        }
+        macro_rules! push_i64_filter {
+            ($sql:ident, $args:ident, $val:expr, $tpl:expr) => {{
+                if let Some(v) = $val {
+                    $args.push(Box::new(v));
+                    $sql.push_str(&format!($tpl, $args.len()));
+                }
+            }};
+        }
+        push_str_filter!(sql, args, &filtro.tipo, " AND tipo=?{}");
+        push_str_filter!(sql, args, &filtro.categoria, " AND categoria=?{}");
+        push_str_filter!(sql, args, &filtro.origem, " AND origem=?{}");
+        push_str_filter!(sql, args, &filtro.status, " AND COALESCE(status,'confirmado')=?{}");
+        push_str_filter!(sql, args, &filtro.caixa_local_uuid, " AND caixa_local_uuid=?{}");
+        push_str_filter!(sql, args, &filtro.venda_local_uuid, " AND venda_local_uuid=?{}");
+        push_i64_filter!(sql, args, filtro.desde_ms, " AND COALESCE(data_competencia_ms,created_at_ms)>=?{}");
+        push_i64_filter!(sql, args, filtro.ate_ms, " AND COALESCE(data_competencia_ms,created_at_ms)<=?{}");
         sql.push_str(" ORDER BY COALESCE(data_competencia_ms,created_at_ms) DESC, created_at_ms DESC");
         let limit = filtro.limit.unwrap_or(500).clamp(1, 5000);
         sql.push_str(&format!(" LIMIT {}", limit));
