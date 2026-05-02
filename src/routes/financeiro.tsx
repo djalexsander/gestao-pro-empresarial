@@ -363,13 +363,39 @@ function FinanceContent() {
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Posição financeira
           </p>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {posicao && (
               <span className="hidden text-[11px] text-muted-foreground sm:inline">
                 {formatPeriodoBR(posicao.periodo)}
               </span>
             )}
             <SecaoFiltro value={filtroPosicao} onChange={setFiltroPosicao} />
+            <SecaoExport
+              prefix="financeiro_posicao"
+              titulo="Posição financeira"
+              periodo={posicao ? formatPeriodoBR(posicao.periodo) : null}
+              rows={[
+                {
+                  indicador: "Total a receber",
+                  valor: posicao?.totalReceber ?? 0,
+                  quantidade: posicao?.qtdReceber ?? 0,
+                  filtro: posicao ? formatPeriodoBR(posicao.periodo) : null,
+                },
+                {
+                  indicador: "Total a pagar",
+                  valor: posicao?.totalPagar ?? 0,
+                  quantidade: posicao?.qtdPagar ?? 0,
+                  filtro: posicao ? formatPeriodoBR(posicao.periodo) : null,
+                },
+                {
+                  indicador: "Saldo previsto",
+                  valor: posicao?.saldo ?? 0,
+                  quantidade: null,
+                  filtro: posicao ? formatPeriodoBR(posicao.periodo) : null,
+                },
+              ]}
+              disabled={!posicao}
+            />
           </div>
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
