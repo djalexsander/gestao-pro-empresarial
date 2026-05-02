@@ -281,11 +281,21 @@ pub fn init() -> DbResult<()> {
         "ALTER TABLE domain_sync_meta ADD COLUMN last_delta_count INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE domain_sync_meta ADD COLUMN last_attempt_ms INTEGER",
         "ALTER TABLE domain_sync_meta ADD COLUMN last_synced_ok INTEGER NOT NULL DEFAULT 1",
+        // v6: backoff scheduling para a outbox de estoque.
+        // `next_attempt_at_ms` controla quando o item está elegível para
+        // reenvio automático. NULL = elegível imediatamente (= now).
+        "ALTER TABLE outbox_estoque_movs ADD COLUMN next_attempt_at_ms INTEGER",
     ];
     for sql in alters {
         // Erro só ocorre quando a coluna já existe — seguro ignorar.
         let _ = conn.execute(sql, []);
     }
+    // Índice para o scheduler escolher rapidamente o próximo lote elegível.
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_outbox_status_next
+            ON outbox_estoque_movs(status, next_attempt_at_ms)",
+        [],
+    );
 
     // schema_version
     conn.execute(
