@@ -852,8 +852,7 @@ async fn db_sync_handler(
                 format!("domínio '{other}' não suporta sync incremental ainda"),
             ))
         }
-    }
-    .map_err(|(s, m)| (s, m))?;
+    }?;
 
     // Extrai metadados que o próprio proxy escreveu nos headers.
     let h = resp.headers();
