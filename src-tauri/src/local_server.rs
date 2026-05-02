@@ -664,7 +664,7 @@ async fn produtos_list_handler(
         params.push(("or", format!("(nome.ilike.{pattern},sku.ilike.{pattern})")));
     }
     let q_owned: Vec<(&str, String)> = params.iter().map(|(k, v)| (*k, v.clone())).collect();
-    proxy_with_cache(&ctx, &headers, "produtos", "/rest/v1/produtos", &q_owned).await
+    proxy_with_incremental_sync(&ctx, &headers, "produtos", "/rest/v1/produtos", &q_owned, false).await
 }
 
 // ---------- /api/estoque/saldos ----------
@@ -735,7 +735,7 @@ async fn clientes_lite_handler(
         params.push(("status", format!("eq.{s}")));
     }
     let q_owned: Vec<(&str, String)> = params.iter().map(|(k, v)| (*k, v.clone())).collect();
-    proxy_with_cache(&ctx, &headers, "clientes_lite", "/rest/v1/clientes", &q_owned).await
+    proxy_with_incremental_sync(&ctx, &headers, "clientes_lite", "/rest/v1/clientes", &q_owned, false).await
 }
 
 // ---------- Endpoints de banco local ----------
