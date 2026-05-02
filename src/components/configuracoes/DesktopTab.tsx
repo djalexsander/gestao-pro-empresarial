@@ -305,17 +305,19 @@ export function DesktopTab() {
     void carregar();
     const tFull = setInterval(() => void carregar(), 30_000);
     const tOutbox = setInterval(async () => {
-      const [ob, obv, obc, occ] = await Promise.all([
+      const [ob, obv, obc, occ, obf] = await Promise.all([
         fetchOutboxStats(cfg),
         fetchOutboxVendasStats(cfg),
         fetchOutboxCaixaStats(cfg),
         fetchOutboxCancelamentosStats(cfg),
+        fetchOutboxFinanceiroStats(cfg),
       ]);
       if (!alive) return;
       setOutbox(ob);
       setOutboxVendas(obv);
       setOutboxCaixa(obc);
       setOutboxCancel(occ);
+      setOutboxFin(obf);
     }, 5_000);
     return () => {
       alive = false;
