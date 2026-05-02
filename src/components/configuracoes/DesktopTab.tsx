@@ -23,12 +23,17 @@ import {
   fetchDbInfo,
   fetchDomainStats,
   fetchKnownTerminals,
+  fetchOutboxStats,
+  flushOutbox,
+  retryOutboxErrors,
   runDbSync,
   type DbInfoPayload,
   type DomainStat,
+  type OutboxStats,
   type PersistedTerminal,
   type ServerConnStatus,
 } from "@/integrations/desktop/serverConnection";
+import { supabase } from "@/integrations/supabase/client";
 
 /**
  * Aba "Desktop" em Configurações — só faz sentido quando a app está rodando
