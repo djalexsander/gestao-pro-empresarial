@@ -86,6 +86,24 @@ export function DesktopTab() {
     }
   };
 
+  const handleFlush = async () => {
+    if (!localCfg) return;
+    setFlushing(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      await flushOutbox(localCfg, data.session?.access_token ?? null);
+      setOutbox(await fetchOutboxStats(localCfg));
+    } finally {
+      setFlushing(false);
+    }
+  };
+
+  const handleRetryErrors = async () => {
+    if (!localCfg) return;
+    await retryOutboxErrors(localCfg);
+    setOutbox(await fetchOutboxStats(localCfg));
+  };
+
   useEffect(() => {
     if (!isDesktop || role === "unset") return;
     const cfg =
