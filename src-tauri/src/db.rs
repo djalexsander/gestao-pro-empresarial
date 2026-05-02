@@ -518,6 +518,60 @@ pub fn init() -> DbResult<()> {
             ON vendas_local(caixa_local_uuid) WHERE caixa_local_uuid IS NOT NULL",
         [],
     );
+    // v10: índice para filtrar rapidamente vendas ativas vs canceladas.
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_vendas_local_status
+            ON vendas_local(status, created_at_ms DESC)",
+        [],
+    );
+
+    // ------------------------------------------------------------------
+    // v10 — Outbox de cancelamentos de venda.
+    //
+    // Mesmo padrão das outboxes de estoque/vendas/caixa. Cada item carrega
+    // o `venda_local_uuid` (FK lógica para vendas_local) e o `remote_id` da
+    // venda na nuvem (quando já sincronizada). O scheduler resolve o
+    // `_venda_id` upstream em tempo de envio:
+    //   * se a venda já tinha `remote_id` quando cancelada → usa direto;
+    //   * caso contrário → consulta a outbox de vendas para obter o
+    //     remote_id quando ela for sincronizada (ordem causal: venda
+    //     primeiro, cancelamento depois).
+    //
+    // Idempotência:
+    //   * `client_uuid` (vinda do PDV/UI) deduplica reenvios do terminal.
+    //   * `local_uuid` é estável e vira `_client_uuid` da RPC `cancelar_venda`.
+    // ------------------------------------------------------------------
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS outbox_cancelamentos_venda (
+            local_uuid          TEXT PRIMARY KEY,
+            client_uuid         TEXT,
+            venda_local_uuid    TEXT NOT NULL,
+            venda_remote_id     TEXT,
+            motivo              TEXT,
+            operador_id         TEXT,
+            payload             TEXT NOT NULL,
+            status              TEXT NOT NULL DEFAULT 'pending',
+            attempts            INTEGER NOT NULL DEFAULT 0,
+            last_error          TEXT,
+            remote_response     TEXT,
+            created_at_ms       INTEGER NOT NULL,
+            updated_at_ms       INTEGER NOT NULL,
+            sent_at_ms          INTEGER,
+            next_attempt_at_ms  INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_outbox_canc_status
+            ON outbox_cancelamentos_venda(status, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_canc_status_next
+            ON outbox_cancelamentos_venda(status, next_attempt_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_canc_venda
+            ON outbox_cancelamentos_venda(venda_local_uuid);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_canc_client_uuid
+            ON outbox_cancelamentos_venda(client_uuid) WHERE client_uuid IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_canc_venda
+            ON outbox_cancelamentos_venda(venda_local_uuid);
+        "#,
+    )?;
 
     // ------------------------------------------------------------------
     // v9 — Lançamentos financeiros locais derivados do fechamento do caixa.
