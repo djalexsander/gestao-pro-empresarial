@@ -1458,6 +1458,21 @@ pub fn start(
             .await;
     });
 
+    // Background scheduler para a outbox de estoque — cancelável via
+    // `scheduler_tx` em `stop()`. Roda em paralelo ao servidor HTTP, sem
+    // travar requests do terminal.
+    let (scheduler_tx, scheduler_rx) = oneshot::channel::<()>();
+    let scheduler_ctx = AppCtx {
+        upstream: upstream.clone(),
+        http: reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .map_err(|e| format!("Falha ao criar HTTP client (scheduler): {e}"))?,
+    };
+    handle.spawn(async move {
+        run_outbox_scheduler(scheduler_ctx, scheduler_rx).await;
+    });
+
     {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = true;
@@ -1467,6 +1482,7 @@ pub fn start(
         s.server_id = server_id;
         s.hostname = host;
         s.shutdown_tx = Some(tx);
+        s.scheduler_shutdown_tx = Some(scheduler_tx);
         s.upstream = upstream;
         s.terminals.clear();
     }
@@ -1475,16 +1491,19 @@ pub fn start(
 }
 
 pub fn stop() -> Result<LocalServerStatus, String> {
-    let tx_opt = {
+    let (tx_opt, sched_opt) = {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = false;
         s.port = None;
         s.started_at_ms = None;
         s.upstream = None;
         s.terminals.clear();
-        s.shutdown_tx.take()
+        (s.shutdown_tx.take(), s.scheduler_shutdown_tx.take())
     };
     if let Some(tx) = tx_opt {
+        let _ = tx.send(());
+    }
+    if let Some(tx) = sched_opt {
         let _ = tx.send(());
     }
     Ok(current_status())
