@@ -171,12 +171,14 @@ export function DesktopTab() {
 
     let alive = true;
     const carregar = async () => {
-      const [info, terms, stats, ob, obv] = await Promise.all([
+      const [info, terms, stats, ob, obv, obc, ca] = await Promise.all([
         fetchDbInfo(cfg),
         fetchKnownTerminals(cfg),
         fetchDomainStats(cfg),
         fetchOutboxStats(cfg),
         fetchOutboxVendasStats(cfg),
+        fetchOutboxCaixaStats(cfg),
+        fetchCaixaLocalAberto(cfg),
       ]);
       if (!alive) return;
       setDbInfo(info);
@@ -184,20 +186,21 @@ export function DesktopTab() {
       setDomainStats(stats);
       setOutbox(ob);
       setOutboxVendas(obv);
+      setOutboxCaixa(obc);
+      setCaixaAberto(ca);
     };
     void carregar();
-    // Polling padrão (info / domínios / terminais) a cada 30s.
     const tFull = setInterval(() => void carregar(), 30_000);
-    // Polling RÁPIDO das outboxes (stats) a cada 5s — assim a UI reflete
-    // o background sync quase em tempo real sem custo perceptível.
     const tOutbox = setInterval(async () => {
-      const [ob, obv] = await Promise.all([
+      const [ob, obv, obc] = await Promise.all([
         fetchOutboxStats(cfg),
         fetchOutboxVendasStats(cfg),
+        fetchOutboxCaixaStats(cfg),
       ]);
       if (!alive) return;
       setOutbox(ob);
       setOutboxVendas(obv);
+      setOutboxCaixa(obc);
     }, 5_000);
     return () => {
       alive = false;
