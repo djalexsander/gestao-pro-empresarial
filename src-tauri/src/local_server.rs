@@ -399,6 +399,36 @@ fn iso_from_ms_z(ms: i64) -> String {
 /// inteira em uma única chamada caso o cursor ainda esteja em zero.
 const INCREMENTAL_PAGE_LIMIT: u32 = 1000;
 
+/// Configuração da estratégia incremental por domínio.
+struct IncrementalSpec {
+    /// Campo do upstream usado como cursor (ex.: "updated_at" ou
+    /// "data_movimentacao").
+    cursor_field: &'static str,
+    /// Estratégia em modo "tem cursor" (Incremental p/ produtos/clientes,
+    /// Append p/ movimentações de estoque).
+    incremental_strategy: db::IngestStrategy,
+    /// Em modo incremental, se devemos retirar o filtro de `status` do
+    /// base_query (necessário para capturar tombstones de soft-delete).
+    strip_status_in_incremental: bool,
+}
+
+fn incremental_spec(domain: &str) -> IncrementalSpec {
+    match domain {
+        "estoque_movimentacoes" => IncrementalSpec {
+            cursor_field: "data_movimentacao",
+            incremental_strategy: db::IngestStrategy::Append,
+            strip_status_in_incremental: false,
+        },
+        // produtos / clientes_lite — comportamento já validado nas etapas
+        // anteriores (incremental por updated_at + tombstone por status).
+        _ => IncrementalSpec {
+            cursor_field: "updated_at",
+            incremental_strategy: db::IngestStrategy::Incremental,
+            strip_status_in_incremental: true,
+        },
+    }
+}
+
 async fn proxy_with_incremental_sync(
     ctx: &AppCtx,
     headers: &HeaderMap,
@@ -408,6 +438,7 @@ async fn proxy_with_incremental_sync(
     force: bool,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
     let now = now_ms();
+    let spec = incremental_spec(domain);
 
     // 1) Lê estado de sync e decide estratégia.
     let state = db::get_domain_sync_state(domain).unwrap_or(db::DomainSyncState {
@@ -415,7 +446,7 @@ async fn proxy_with_incremental_sync(
         last_strategy: None,
     });
     let strategy = match state.last_remote_cursor_ms {
-        Some(_) => db::IngestStrategy::Incremental,
+        Some(_) => spec.incremental_strategy,
         None => db::IngestStrategy::Snapshot,
     };
 
@@ -424,8 +455,6 @@ async fn proxy_with_incremental_sync(
     let key = build_cache_key(path, base_query);
     if !force {
         if let Ok(Some(_)) = db::cache_get(domain, &key, now) {
-            // Cache marcador presente → serve direto da tabela local
-            // (estado consolidado), sem chamar upstream.
             if let Ok(payload) = read_typed(domain, base_query) {
                 return Ok(typed_response_full(
                     StatusCode::OK,
@@ -441,13 +470,13 @@ async fn proxy_with_incremental_sync(
     // 3) Monta query upstream — incremental quando há cursor.
     let mut q: Vec<(&str, String)> = base_query.to_vec();
     if let Some(cursor) = state.last_remote_cursor_ms {
-        // Em modo incremental queremos ver TODAS as transições, inclusive
-        // status=inativo (para virar tombstone local). Portanto removemos
-        // qualquer filtro de status do base_query — o filtro continua valendo
-        // para a primeira ingestão (snapshot).
-        q.retain(|(k, _)| *k != "order" && *k != "status");
-        q.push(("updated_at", format!("gte.{}", iso_from_ms_z(cursor))));
-        q.push(("order", "updated_at.asc".into()));
+        if spec.strip_status_in_incremental {
+            q.retain(|(k, _)| *k != "order" && *k != "status");
+        } else {
+            q.retain(|(k, _)| *k != "order");
+        }
+        q.push((spec.cursor_field, format!("gte.{}", iso_from_ms_z(cursor))));
+        q.push(("order", format!("{}.asc", spec.cursor_field)));
         q.push(("limit", INCREMENTAL_PAGE_LIMIT.to_string()));
     }
 
@@ -474,28 +503,31 @@ async fn proxy_with_incremental_sync(
             let mut delta = 0i64;
             if let Ok(text) = std::str::from_utf8(&bytes) {
                 match domain {
-                    "produtos" => {
-                        match db::ingest_produtos(text, now, strategy) {
-                            Ok((n, _)) => delta = n as i64,
-                            Err(e) => {
-                                let _ = db::record_sync_error(domain, now, &e.to_string());
-                                eprintln!("[gestao-pro] ingest produtos falhou: {e}");
-                            }
+                    "produtos" => match db::ingest_produtos(text, now, strategy) {
+                        Ok((n, _)) => delta = n as i64,
+                        Err(e) => {
+                            let _ = db::record_sync_error(domain, now, &e.to_string());
+                            eprintln!("[gestao-pro] ingest produtos falhou: {e}");
                         }
-                    }
-                    "clientes_lite" => {
-                        match db::ingest_clientes(text, now, strategy) {
+                    },
+                    "clientes_lite" => match db::ingest_clientes(text, now, strategy) {
+                        Ok((n, _)) => delta = n as i64,
+                        Err(e) => {
+                            let _ = db::record_sync_error(domain, now, &e.to_string());
+                            eprintln!("[gestao-pro] ingest clientes falhou: {e}");
+                        }
+                    },
+                    "estoque_movimentacoes" => {
+                        match db::ingest_movimentacoes(text, now, strategy) {
                             Ok((n, _)) => delta = n as i64,
                             Err(e) => {
                                 let _ = db::record_sync_error(domain, now, &e.to_string());
-                                eprintln!("[gestao-pro] ingest clientes falhou: {e}");
+                                eprintln!("[gestao-pro] ingest movimentacoes falhou: {e}");
                             }
                         }
                     }
                     _ => {}
                 }
-                // Marca freshness no cache_kv (apenas para gating; não é a
-                // fonte de leitura).
                 let _ = db::cache_put(domain, &key, "{\"_marker\":1}", now, CACHE_TTL_MS);
             }
 
@@ -512,7 +544,6 @@ async fn proxy_with_incremental_sync(
         }
         Err(err) => {
             let _ = db::record_sync_error(domain, now, &format!("{:?}", err));
-            // Fallback: tabela local mesmo "stale".
             if let Ok(true) = db::domain_has_rows(domain) {
                 if let Ok(payload) = read_typed(domain, base_query) {
                     return Ok(typed_response_full(
