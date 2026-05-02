@@ -978,7 +978,19 @@ pub fn ingest_saldos_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize> {
         }
         let total: i64 =
             tx.query_row("SELECT COUNT(*) FROM estoque_saldos_local", [], |r| r.get(0))?;
-        upsert_domain_meta(&tx, "estoque_saldos", total, now_ms, "upstream")?;
+        // Saldos seguem em SNAPSHOT nesta etapa (movimentações são append-only,
+        // mas o agregado depende do conjunto inteiro — sync incremental real
+        // exigirá derivar de `estoque_movimentacoes` com cursor por
+        // `created_at`. Fica para a próxima etapa.)
+        upsert_domain_meta(&tx, DomainMetaUpdate {
+            domain: "estoque_saldos",
+            row_count: total,
+            now_ms,
+            source: "upstream",
+            strategy: "snapshot",
+            delta_count: count as i64,
+            max_remote_updated_ms: None,
+        })?;
         tx.commit()?;
         Ok(count)
     })
