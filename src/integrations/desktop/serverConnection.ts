@@ -1355,3 +1355,97 @@ export async function cancelarLancamentoLocal(
     return false;
   }
 }
+
+// =============================================================================
+// v12 — Outbox financeira (lançamentos manuais → upstream)
+// =============================================================================
+
+export interface OutboxFinanceiroStats extends OutboxStats {}
+
+export interface OutboxFinanceiroItem extends OutboxItem {
+  lanc_local_uuid: string;
+}
+
+export async function fetchOutboxFinanceiroStats(
+  cfg?: TerminalConexaoConfig,
+): Promise<OutboxFinanceiroStats | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  try {
+    const res = await fetch(`${baseUrl}/db/outbox/financeiro/stats`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as OutboxFinanceiroStats;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchOutboxFinanceiroList(
+  cfg: TerminalConexaoConfig | undefined,
+  opts?: { status?: OutboxItem["status"]; limit?: number },
+): Promise<OutboxFinanceiroItem[]> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return [];
+  const url = new URL(`${baseUrl}/db/outbox/financeiro`);
+  if (opts?.status) url.searchParams.set("status", opts.status);
+  if (opts?.limit) url.searchParams.set("limit", String(opts.limit));
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const json = (await res.json()) as { items?: OutboxFinanceiroItem[] };
+    return json.items ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function flushOutboxFinanceiro(
+  cfg: TerminalConexaoConfig | undefined,
+  authToken?: string | null,
+): Promise<OutboxFlushResult | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30_000);
+  try {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    const res = await fetch(`${baseUrl}/db/outbox/financeiro/flush`, {
+      method: "POST",
+      headers,
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    return (await res.json()) as OutboxFlushResult;
+  } catch {
+    clearTimeout(timer);
+    return null;
+  }
+}
+
+export async function retryOutboxFinanceiroErrors(
+  cfg: TerminalConexaoConfig | undefined,
+): Promise<number> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return 0;
+  try {
+    const res = await fetch(`${baseUrl}/db/outbox/financeiro/retry-errors`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return 0;
+    const json = (await res.json()) as { requeued?: number };
+    return json.requeued ?? 0;
+  } catch {
+    return 0;
+  }
+}
