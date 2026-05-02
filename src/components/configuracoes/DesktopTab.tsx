@@ -387,7 +387,10 @@ export function DesktopTab() {
                   <tbody>
                     {domainStats.map((d) => {
                       const canForce =
-                        d.domain === "produtos" || d.domain === "clientes_lite";
+                        d.domain === "produtos" ||
+                        d.domain === "clientes_lite" ||
+                        d.domain === "estoque_movimentacoes" ||
+                        d.domain === "estoque_saldos";
                       const isSyncing = syncingDomain === d.domain;
                       return (
                         <tr key={d.domain} className="border-t border-border">
