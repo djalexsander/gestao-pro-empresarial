@@ -63,6 +63,13 @@ import {
   type DetalheRow,
 } from "@/components/financeiro/BlocoDetalheDialog";
 import { useFinanceiroIndicadores } from "@/hooks/useFinanceiroIndicadores";
+import {
+  usePosicaoFinanceira,
+  usePerformancePeriodo,
+  useReceberOrigem,
+} from "@/hooks/useFinanceiroSecoes";
+import { SecaoFiltro, type SecaoFiltroValue } from "@/components/financeiro/SecaoFiltro";
+import { formatPeriodoBR } from "@/lib/dateRange";
 import { exportarBlocoCSV, exportarBlocoPDF } from "@/lib/export-bloco";
 import { ExportFormatDialog } from "@/components/shared/ExportFormatDialog";
 import { exportarRelatorioCard, type ExportFormato } from "@/lib/export-relatorio-card";
