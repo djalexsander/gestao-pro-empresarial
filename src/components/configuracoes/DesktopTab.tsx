@@ -169,6 +169,24 @@ export function DesktopTab() {
     setOutboxCaixa(await fetchOutboxCaixaStats(localCfg));
   };
 
+  const handleFlushCancel = async () => {
+    if (!localCfg) return;
+    setFlushingCancel(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      await flushOutboxCancelamentos(localCfg, data.session?.access_token ?? null);
+      setOutboxCancel(await fetchOutboxCancelamentosStats(localCfg));
+    } finally {
+      setFlushingCancel(false);
+    }
+  };
+
+  const handleRetryErrorsCancel = async () => {
+    if (!localCfg) return;
+    await retryOutboxCancelamentosErrors(localCfg);
+    setOutboxCancel(await fetchOutboxCancelamentosStats(localCfg));
+  };
+
   const handleRegenerarLancamentos = async () => {
     if (!localCfg || !caixaAberto?.local_uuid) return;
     setRegenerandoLanc(true);
