@@ -479,13 +479,14 @@ export function DesktopTab() {
                 </table>
               </div>
               <p className="mt-3 text-xs text-muted-foreground">
-                Sync incremental por <code>updated_at</code> com cursor
-                monotônico, tombstones automáticos para registros marcados como
-                inativos no upstream e fallback resiliente
+                Sync incremental por <code>updated_at</code> (produtos,
+                clientes) e <code>data_movimentacao</code>{" "}
+                (<code>estoque_movimentacoes</code>, append-only). Saldos
+                (<code>estoque_saldos</code>) são <strong>derivados</strong>{" "}
+                — materializados localmente a partir das movimentações
+                ingeridas. Tombstones automáticos para registros marcados
+                como inativos no upstream e fallback resiliente
                 (<code>local-table-stale</code>) quando a nuvem cai.
-                <code> estoque_saldos</code> ainda usa snapshot — migração para
-                delta a partir de <code>estoque_movimentacoes</code> fica para
-                a próxima etapa.
               </p>
             </CardContent>
           </Card>
