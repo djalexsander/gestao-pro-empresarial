@@ -2232,6 +2232,21 @@ pub fn start(
         run_outbox_caixa_scheduler(caixa_ctx, caixa_scheduler_rx).await;
     });
 
+    // Scheduler paralelo para a outbox de CANCELAMENTOS — depende causalmente
+    // do remote_id da venda original; o push interno re-agenda enquanto a
+    // venda não estiver sincronizada.
+    let (cancel_scheduler_tx, cancel_scheduler_rx) = oneshot::channel::<()>();
+    let cancel_ctx = AppCtx {
+        upstream: upstream.clone(),
+        http: reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .map_err(|e| format!("Falha ao criar HTTP client (cancel scheduler): {e}"))?,
+    };
+    handle.spawn(async move {
+        run_outbox_cancel_scheduler(cancel_ctx, cancel_scheduler_rx).await;
+    });
+
     {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = true;
