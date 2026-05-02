@@ -24,8 +24,11 @@ import {
   fetchDomainStats,
   fetchKnownTerminals,
   fetchOutboxStats,
+  fetchOutboxVendasStats,
   flushOutbox,
+  flushOutboxVendas,
   retryOutboxErrors,
+  retryOutboxVendasErrors,
   runDbSync,
   type DbInfoPayload,
   type DomainStat,
@@ -52,6 +55,8 @@ export function DesktopTab() {
   const [syncingDomain, setSyncingDomain] = useState<string | null>(null);
   const [outbox, setOutbox] = useState<OutboxStats | null>(null);
   const [flushing, setFlushing] = useState(false);
+  const [outboxVendas, setOutboxVendas] = useState<OutboxStats | null>(null);
+  const [flushingVendas, setFlushingVendas] = useState(false);
 
   // cfg derivado para chamadas ao backend local (terminal usa o config; servidor
   // bate em si mesmo via 127.0.0.1).
@@ -104,6 +109,24 @@ export function DesktopTab() {
     setOutbox(await fetchOutboxStats(localCfg));
   };
 
+  const handleFlushVendas = async () => {
+    if (!localCfg) return;
+    setFlushingVendas(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      await flushOutboxVendas(localCfg, data.session?.access_token ?? null);
+      setOutboxVendas(await fetchOutboxVendasStats(localCfg));
+    } finally {
+      setFlushingVendas(false);
+    }
+  };
+
+  const handleRetryErrorsVendas = async () => {
+    if (!localCfg) return;
+    await retryOutboxVendasErrors(localCfg);
+    setOutboxVendas(await fetchOutboxVendasStats(localCfg));
+  };
+
   useEffect(() => {
     if (!isDesktop || role === "unset") return;
     const cfg =
@@ -121,26 +144,33 @@ export function DesktopTab() {
 
     let alive = true;
     const carregar = async () => {
-      const [info, terms, stats, ob] = await Promise.all([
+      const [info, terms, stats, ob, obv] = await Promise.all([
         fetchDbInfo(cfg),
         fetchKnownTerminals(cfg),
         fetchDomainStats(cfg),
         fetchOutboxStats(cfg),
+        fetchOutboxVendasStats(cfg),
       ]);
       if (!alive) return;
       setDbInfo(info);
       setKnownTerminals(terms);
       setDomainStats(stats);
       setOutbox(ob);
+      setOutboxVendas(obv);
     };
     void carregar();
     // Polling padrão (info / domínios / terminais) a cada 30s.
     const tFull = setInterval(() => void carregar(), 30_000);
-    // Polling RÁPIDO só do outbox (stats) a cada 5s — assim a UI reflete
+    // Polling RÁPIDO das outboxes (stats) a cada 5s — assim a UI reflete
     // o background sync quase em tempo real sem custo perceptível.
     const tOutbox = setInterval(async () => {
-      const ob = await fetchOutboxStats(cfg);
-      if (alive) setOutbox(ob);
+      const [ob, obv] = await Promise.all([
+        fetchOutboxStats(cfg),
+        fetchOutboxVendasStats(cfg),
+      ]);
+      if (!alive) return;
+      setOutbox(ob);
+      setOutboxVendas(obv);
     }, 5_000);
     return () => {
       alive = false;
@@ -618,6 +648,106 @@ export function DesktopTab() {
                 <strong>erro</strong> e exige <em>Reenfileirar erros</em>.
                 Idempotência garantida por <code>local_uuid</code> — retries
                 nunca duplicam.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {role !== "unset" && outboxVendas && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Fila offline — vendas (PDV)
+              </CardTitle>
+              <div className="flex gap-2">
+                {outboxVendas.error > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void handleRetryErrorsVendas()}
+                  >
+                    Reenfileirar erros
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={flushingVendas || outboxVendas.pending === 0}
+                  onClick={() => void handleFlushVendas()}
+                >
+                  {flushingVendas ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                  )}
+                  Sincronizar agora
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 text-sm sm:grid-cols-4">
+                <Field label="Pendentes" value={String(outboxVendas.pending)} />
+                <Field label="Enviando" value={String(outboxVendas.sending)} />
+                <Field
+                  label="Prontos agora"
+                  value={`${outboxVendas.due_now} / ${outboxVendas.pending}`}
+                />
+                <Field label="Enviadas" value={String(outboxVendas.sent)} />
+                <Field label="Com erro" value={String(outboxVendas.error)} />
+                <Field
+                  label="Último envio"
+                  value={
+                    outboxVendas.last_sent_at_ms
+                      ? new Date(outboxVendas.last_sent_at_ms).toLocaleString("pt-BR")
+                      : "—"
+                  }
+                />
+                <Field
+                  label="Próx. tentativa auto"
+                  value={
+                    outboxVendas.next_attempt_at_ms
+                      ? new Date(outboxVendas.next_attempt_at_ms).toLocaleString("pt-BR")
+                      : "—"
+                  }
+                />
+                <Field
+                  label="Último auto-flush"
+                  value={
+                    outboxVendas.last_auto_flush_ms
+                      ? `${new Date(outboxVendas.last_auto_flush_ms).toLocaleTimeString("pt-BR")}` +
+                        (outboxVendas.last_auto_attempted != null
+                          ? ` · ${outboxVendas.last_auto_sent ?? 0}/${outboxVendas.last_auto_attempted} ok`
+                          : "")
+                      : "—"
+                  }
+                />
+                <Field
+                  label="Último flush manual"
+                  value={
+                    outboxVendas.last_manual_flush_ms
+                      ? new Date(outboxVendas.last_manual_flush_ms).toLocaleString("pt-BR")
+                      : "—"
+                  }
+                />
+                {outboxVendas.last_error && (
+                  <div className="sm:col-span-4">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                      Último erro
+                    </div>
+                    <div className="mt-0.5 break-all text-xs text-destructive">
+                      {outboxVendas.last_error}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Vendas finalizadas no PDV são gravadas localmente (com baixa
+                imediata de estoque na mesma transação) e enviadas à RPC{" "}
+                <code>finalizar_venda_pdv</code> em background. Mesmo backoff
+                exponencial das movimentações de estoque (5s → 15s → 1m → 5m
+                → 15m). Idempotência ponta-a-ponta via <code>local_uuid</code>{" "}
+                — reenvios nunca duplicam venda, itens, financeiro ou caixa.
               </p>
             </CardContent>
           </Card>
