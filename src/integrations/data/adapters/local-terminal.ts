@@ -31,10 +31,19 @@ import { cloudAdapter } from "./cloud";
 import { reportDataSource } from "../source-telemetry";
 import { getDesktopConfig } from "@/integrations/desktop/configStore";
 import {
+  abrirCaixaLocal,
+  fecharCaixaLocal,
   getBaseUrl,
+  registrarMovCaixaLocal,
   registrarMovimentoLocal,
   registrarVendaLocal,
 } from "@/integrations/desktop/serverConnection";
+import type {
+  AbrirCaixaInput,
+  FecharCaixaInput,
+  FecharCaixaResult,
+  RegistrarMovimentoCaixaInput,
+} from "../types";
 
 const HTTP_TIMEOUT_MS = 4000;
 
