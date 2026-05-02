@@ -26,7 +26,7 @@ use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -120,6 +120,79 @@ pub fn init() -> DbResult<()> {
 
         CREATE INDEX IF NOT EXISTS idx_cache_expires
             ON cache_kv(expires_at_ms);
+
+        -- ====================================================================
+        -- v2: Tabelas locais NORMALIZADAS para os primeiros domínios provados.
+        -- Substituem o cache JSON cru. Mantemos `cache_kv` em paralelo para
+        -- domínios ainda não migrados e como rede de segurança.
+        --
+        -- Convenções:
+        --   * `id` é sempre o UUID/identificador da nuvem (fonte da verdade).
+        --   * `payload` mantém o JSON original do upstream — útil enquanto o
+        --     adapter ainda lê o objeto inteiro; nas próximas etapas podemos
+        --     descartar quando todas as projeções estiverem mapeadas.
+        --   * `updated_at_remote_ms` espelha o `updated_at` da nuvem (quando
+        --     disponível) — base para sync incremental futuro.
+        --   * `synced_at_ms` é quando este servidor local viu o registro.
+        --   * `deleted_at_ms` reservado para tombstones futuros.
+        -- ====================================================================
+
+        CREATE TABLE IF NOT EXISTS produtos_local (
+            id                   TEXT PRIMARY KEY,
+            sku                  TEXT,
+            nome                 TEXT,
+            status               TEXT,
+            categoria_id         TEXT,
+            categoria_nome       TEXT,
+            preco_venda          REAL,
+            estoque_atual        REAL,
+            payload              TEXT NOT NULL,
+            updated_at_remote_ms INTEGER,
+            synced_at_ms         INTEGER NOT NULL,
+            deleted_at_ms        INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_produtos_status ON produtos_local(status);
+        CREATE INDEX IF NOT EXISTS idx_produtos_categoria ON produtos_local(categoria_id);
+        CREATE INDEX IF NOT EXISTS idx_produtos_nome ON produtos_local(nome);
+        CREATE INDEX IF NOT EXISTS idx_produtos_sku ON produtos_local(sku);
+
+        CREATE TABLE IF NOT EXISTS clientes_local (
+            id                   TEXT PRIMARY KEY,
+            nome                 TEXT,
+            nome_fantasia        TEXT,
+            documento            TEXT,
+            status               TEXT,
+            payload              TEXT NOT NULL,
+            updated_at_remote_ms INTEGER,
+            synced_at_ms         INTEGER NOT NULL,
+            deleted_at_ms        INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_clientes_status ON clientes_local(status);
+        CREATE INDEX IF NOT EXISTS idx_clientes_nome ON clientes_local(nome);
+        CREATE INDEX IF NOT EXISTS idx_clientes_doc ON clientes_local(documento);
+
+        -- Saldos: agregados por (produto_id, variacao_id). A chave única
+        -- evita duplicatas quando o snapshot é re-ingerido.
+        CREATE TABLE IF NOT EXISTS estoque_saldos_local (
+            produto_id     TEXT NOT NULL,
+            variacao_id    TEXT NOT NULL DEFAULT '',
+            tipo           TEXT,
+            quantidade     REAL NOT NULL DEFAULT 0,
+            payload        TEXT NOT NULL,
+            synced_at_ms   INTEGER NOT NULL,
+            PRIMARY KEY (produto_id, variacao_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_saldos_produto ON estoque_saldos_local(produto_id);
+
+        -- Metadados de sync por domínio (último refresh, contagem ingerida,
+        -- origem). Base para o sync incremental futuro.
+        CREATE TABLE IF NOT EXISTS domain_sync_meta (
+            domain          TEXT PRIMARY KEY,
+            last_synced_ms  INTEGER NOT NULL,
+            row_count       INTEGER NOT NULL DEFAULT 0,
+            last_source     TEXT,
+            last_error      TEXT
+        );
         "#,
     )?;
 
