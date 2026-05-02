@@ -176,6 +176,18 @@ function FinanceContent() {
   const [exporting, setExporting] = useState(false);
   const [novoOpen, setNovoOpen] = useState(false);
 
+  // Filtros independentes por seção
+  const [filtroPosicao, setFiltroPosicao] = useState<SecaoFiltroValue>({ preset: "mes" });
+  const [filtroPerformance, setFiltroPerformance] = useState<SecaoFiltroValue>({ preset: "mes" });
+  const [filtroReceber, setFiltroReceber] = useState<SecaoFiltroValue>({
+    preset: "hoje",
+    forma: "todos",
+  });
+
+  const posicao = usePosicaoFinanceira(filtroPosicao).data;
+  const performance = usePerformancePeriodo(filtroPerformance).data;
+  const receberOrigem = useReceberOrigem(filtroReceber).data;
+
   const indicadores = useFinanceiroIndicadores();
   const ind = indicadores.data;
 
