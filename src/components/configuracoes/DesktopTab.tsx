@@ -196,6 +196,21 @@ export function DesktopTab() {
       setOutboxVendas(obv);
       setOutboxCaixa(obc);
       setCaixaAberto(ca);
+
+      // Resumo + lançamentos: prioriza caixa aberto, senão omite (último
+      // fechado pode ser carregado on-demand pelo operador via UI).
+      if (ca?.local_uuid) {
+        const [resumo, lancs] = await Promise.all([
+          fetchCaixaResumoLocal(cfg, { caixaId: ca.local_uuid }),
+          fetchCaixaLancamentosLocal(cfg, { caixaId: ca.local_uuid }),
+        ]);
+        if (!alive) return;
+        setCaixaResumo(resumo);
+        setCaixaLancamentos(lancs);
+      } else {
+        setCaixaResumo(null);
+        setCaixaLancamentos([]);
+      }
     };
     void carregar();
     const tFull = setInterval(() => void carregar(), 30_000);
