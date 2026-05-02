@@ -83,6 +83,8 @@ export function DesktopTab() {
   const [outboxCancel, setOutboxCancel] =
     useState<OutboxCancelamentosStats | null>(null);
   const [flushingCancel, setFlushingCancel] = useState(false);
+  const [outboxFin, setOutboxFin] = useState<OutboxFinanceiroStats | null>(null);
+  const [flushingFin, setFlushingFin] = useState(false);
   const [caixaAberto, setCaixaAberto] = useState<CaixaLocalAbertoRow | null>(null);
   const [caixaResumo, setCaixaResumo] = useState<CaixaResumoLocal | null>(null);
   const [caixaLancamentos, setCaixaLancamentos] = useState<LancamentoLocalRow[]>([]);
