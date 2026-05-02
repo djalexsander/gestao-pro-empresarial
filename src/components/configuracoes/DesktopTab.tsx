@@ -71,6 +71,9 @@ export function DesktopTab() {
   const [outboxCaixa, setOutboxCaixa] = useState<OutboxCaixaStats | null>(null);
   const [flushingCaixa, setFlushingCaixa] = useState(false);
   const [caixaAberto, setCaixaAberto] = useState<CaixaLocalAbertoRow | null>(null);
+  const [caixaResumo, setCaixaResumo] = useState<CaixaResumoLocal | null>(null);
+  const [caixaLancamentos, setCaixaLancamentos] = useState<LancamentoLocalRow[]>([]);
+  const [regenerandoLanc, setRegenerandoLanc] = useState(false);
 
   // cfg derivado para chamadas ao backend local (terminal usa o config; servidor
   // bate em si mesmo via 127.0.0.1).
