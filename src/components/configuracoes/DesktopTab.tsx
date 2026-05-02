@@ -20,7 +20,9 @@ import { useDesktopRole } from "@/components/desktop/DesktopRoleProvider";
 import { DesktopSetupWizard } from "@/components/desktop/DesktopSetupWizard";
 import { useServerConnection } from "@/components/desktop/useServerConnection";
 import {
+  fetchCaixaLancamentosLocal,
   fetchCaixaLocalAberto,
+  fetchCaixaResumoLocal,
   fetchDbInfo,
   fetchDomainStats,
   fetchKnownTerminals,
@@ -30,13 +32,16 @@ import {
   flushOutbox,
   flushOutboxCaixa,
   flushOutboxVendas,
+  regenerarLancamentosCaixaLocal,
   retryOutboxCaixaErrors,
   retryOutboxErrors,
   retryOutboxVendasErrors,
   runDbSync,
   type CaixaLocalAbertoRow,
+  type CaixaResumoLocal,
   type DbInfoPayload,
   type DomainStat,
+  type LancamentoLocalRow,
   type OutboxCaixaStats,
   type OutboxStats,
   type PersistedTerminal,
