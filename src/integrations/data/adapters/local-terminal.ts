@@ -77,11 +77,15 @@ async function tryLocal<T>(
       ? (json as any).data
       : json) as T;
     // Origem real do dado conforme o servidor:
-    //   "local-db"          → cache_kv (TTL curto)
-    //   "local-table-stale" → tabela tipada local (upstream caiu)
-    //   "upstream"          → o servidor foi à nuvem buscar agora
+    //   "local-db"           → cache_kv (TTL curto, payload cru)
+    //   "local-table"        → tabela tipada local (sync incremental aplicado)
+    //   "local-table-stale"  → tabela tipada local (upstream caiu)
+    //   "upstream"           → o servidor foi à nuvem buscar agora
     const sourceHdr = res.headers.get("x-gp-source");
-    const isLocalData = sourceHdr === "local-db" || sourceHdr === "local-table-stale";
+    const isLocalData =
+      sourceHdr === "local-db" ||
+      sourceHdr === "local-table" ||
+      sourceHdr === "local-table-stale";
     reportDataSource({
       source: isLocalData ? "local-server" : "local-terminal",
       domain,
