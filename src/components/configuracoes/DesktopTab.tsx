@@ -134,10 +134,18 @@ export function DesktopTab() {
       setOutbox(ob);
     };
     void carregar();
-    const t = setInterval(() => void carregar(), 30_000);
+    // Polling padrão (info / domínios / terminais) a cada 30s.
+    const tFull = setInterval(() => void carregar(), 30_000);
+    // Polling RÁPIDO só do outbox (stats) a cada 5s — assim a UI reflete
+    // o background sync quase em tempo real sem custo perceptível.
+    const tOutbox = setInterval(async () => {
+      const ob = await fetchOutboxStats(cfg);
+      if (alive) setOutbox(ob);
+    }, 5_000);
     return () => {
       alive = false;
-      clearInterval(t);
+      clearInterval(tFull);
+      clearInterval(tOutbox);
     };
   }, [isDesktop, role, config.terminal, daemon?.running, daemon?.port]);
 
