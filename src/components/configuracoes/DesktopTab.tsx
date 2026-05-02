@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Server,
   Monitor,
@@ -11,6 +11,7 @@ import {
   Loader2,
   CheckCircle2,
   XCircle,
+  Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,7 +19,13 @@ import { Badge } from "@/components/ui/badge";
 import { useDesktopRole } from "@/components/desktop/DesktopRoleProvider";
 import { DesktopSetupWizard } from "@/components/desktop/DesktopSetupWizard";
 import { useServerConnection } from "@/components/desktop/useServerConnection";
-import type { ServerConnStatus } from "@/integrations/desktop/serverConnection";
+import {
+  fetchDbInfo,
+  fetchKnownTerminals,
+  type DbInfoPayload,
+  type PersistedTerminal,
+  type ServerConnStatus,
+} from "@/integrations/desktop/serverConnection";
 
 /**
  * Aba "Desktop" em Configurações — só faz sentido quando a app está rodando
