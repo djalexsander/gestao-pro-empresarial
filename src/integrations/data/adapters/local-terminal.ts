@@ -23,6 +23,8 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { DataAdapter } from "../adapter";
 import type {
+  CancelarVendaInput,
+  CancelarVendaResumo,
   FinalizarVendaInput,
   RegistrarMovimentoEstoqueInput,
   RegistrarMovimentoEstoqueResult,
