@@ -2705,3 +2705,838 @@ pub fn outbox_vendas_reset_errors(now_ms: i64) -> DbResult<i64> {
     })
 }
 
+
+// ============================================================================
+// CAIXA LOCAL (offline-first) — abertura, suprimento/sangria e fechamento
+// ============================================================================
+//
+// Mesmo padrão das outboxes de estoque (v5/v6) e vendas (v7), em tabelas
+// próprias (`caixa_local`, `caixa_movs_local`, `outbox_caixa`). Cada item
+// da outbox carrega `action` ∈ {abrir, movimento, fechar} + payload, e o
+// scheduler reenvia para a RPC correspondente no upstream.
+//
+// Idempotência:
+//   * `client_uuid` (terminal) deduplica reenvios do próprio terminal antes
+//     de enfileirar.
+//   * `local_uuid` (servidor local) é estável e vira `_client_uuid` da RPC
+//     upstream → retries cross-runs nunca duplicam.
+//
+// IMPORTANTE: NÃO recalculamos resumo financeiro completo localmente. O
+// upstream continua sendo a fonte da verdade quando online — o caixa local
+// existe primariamente para permitir operação offline.
+
+#[derive(Debug, Deserialize)]
+pub struct LocalAbrirCaixaInput {
+    pub valor_inicial: f64,
+    #[serde(default)]
+    pub observacao: Option<String>,
+    #[serde(default)]
+    pub operador_id: Option<String>,
+    #[serde(default)]
+    pub terminal_id: Option<String>,
+    #[serde(default)]
+    pub client_uuid: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LocalAbrirCaixaResult {
+    pub local_uuid: String,
+    pub idempotente: bool,
+    pub valor_inicial: f64,
+}
+
+pub fn abrir_caixa_local(
+    input: LocalAbrirCaixaInput,
+    now_ms: i64,
+) -> DbResult<LocalAbrirCaixaResult> {
+    if input.valor_inicial < 0.0 {
+        return Err(DbError("valor_inicial não pode ser negativo".into()));
+    }
+
+    // Idempotência por client_uuid.
+    if let Some(cu) = input.client_uuid.as_deref() {
+        if !cu.is_empty() {
+            if let Some((local_uuid, vi)) = with_conn(|conn| {
+                let row = conn
+                    .query_row(
+                        "SELECT local_uuid, valor_inicial
+                           FROM caixa_local WHERE client_uuid = ?1",
+                        params![cu],
+                        |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?)),
+                    )
+                    .optional()?;
+                Ok(row)
+            })? {
+                return Ok(LocalAbrirCaixaResult {
+                    local_uuid,
+                    idempotente: true,
+                    valor_inicial: vi,
+                });
+            }
+        }
+    }
+
+    // Já existe caixa aberto neste contexto? (mesmo operador / sem operador).
+    // Se sim, devolvemos como idempotente — o front vai reusar o mesmo caixa.
+    let existente = with_conn(|conn| {
+        let oper = input.operador_id.as_deref();
+        let row = if let Some(op) = oper {
+            conn.query_row(
+                "SELECT local_uuid, valor_inicial FROM caixa_local
+                  WHERE status='aberto' AND operador_id = ?1
+               ORDER BY data_abertura_ms DESC LIMIT 1",
+                params![op],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?)),
+            )
+        } else {
+            conn.query_row(
+                "SELECT local_uuid, valor_inicial FROM caixa_local
+                  WHERE status='aberto' AND operador_id IS NULL
+               ORDER BY data_abertura_ms DESC LIMIT 1",
+                [],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?)),
+            )
+        }
+        .optional()?;
+        Ok(row)
+    })?;
+    if let Some((local_uuid, vi)) = existente {
+        return Ok(LocalAbrirCaixaResult {
+            local_uuid,
+            idempotente: true,
+            valor_inicial: vi,
+        });
+    }
+
+    let local_uuid = random_uuid_v4();
+    let payload_json = serde_json::json!({
+        "local_uuid":    local_uuid,
+        "valor_inicial": input.valor_inicial,
+        "observacao":    input.observacao,
+        "operador_id":   input.operador_id,
+        "terminal_id":   input.terminal_id,
+        "client_uuid":   input.client_uuid,
+    })
+    .to_string();
+
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO caixa_local(
+                local_uuid, client_uuid, remote_id, status, valor_inicial,
+                observacao_abertura, operador_id, terminal_id,
+                data_abertura_ms, created_at_ms, updated_at_ms
+             ) VALUES (?1,?2,NULL,'aberto',?3,?4,?5,?6,?7,?7,?7)",
+            params![
+                local_uuid,
+                input.client_uuid,
+                input.valor_inicial,
+                input.observacao,
+                input.operador_id,
+                input.terminal_id,
+                now_ms,
+            ],
+        )?;
+        tx.execute(
+            "INSERT INTO outbox_caixa(
+                local_uuid, client_uuid, action, caixa_local_uuid, payload,
+                status, attempts, last_error, remote_id,
+                created_at_ms, updated_at_ms, sent_at_ms, next_attempt_at_ms
+             ) VALUES (?1,?2,'abrir',?3,?4,'pending',0,NULL,NULL,?5,?5,NULL,NULL)",
+            params![local_uuid, input.client_uuid, local_uuid, payload_json, now_ms],
+        )?;
+        tx.commit()?;
+        Ok(LocalAbrirCaixaResult {
+            local_uuid,
+            idempotente: false,
+            valor_inicial: input.valor_inicial,
+        })
+    })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LocalMovimentoCaixaInput {
+    /// Pode ser o local_uuid ou o remote_id do caixa. Resolvemos para o
+    /// caixa_local correspondente; se o front mandou um remote_id que ainda
+    /// não foi enxergado localmente, recusamos com erro claro.
+    pub caixa_id: String,
+    pub tipo: String, // "sangria" | "suprimento"
+    pub valor: f64,
+    #[serde(default)]
+    pub motivo: Option<String>,
+    #[serde(default)]
+    pub operador_id: Option<String>,
+    #[serde(default)]
+    pub client_uuid: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LocalMovimentoCaixaResult {
+    pub local_uuid: String,
+    pub idempotente: bool,
+    pub caixa_local_uuid: String,
+    pub tipo: String,
+    pub valor: f64,
+}
+
+fn resolve_caixa_local_uuid(conn: &Connection, caixa_id: &str) -> DbResult<Option<String>> {
+    // Tenta direto pelo local_uuid.
+    let by_local: Option<String> = conn
+        .query_row(
+            "SELECT local_uuid FROM caixa_local WHERE local_uuid = ?1",
+            params![caixa_id],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()?;
+    if by_local.is_some() {
+        return Ok(by_local);
+    }
+    // Tenta por remote_id (caixa que veio do upstream em alguma sincronização
+    // futura — não usado nesta etapa, mas deixa o caminho preparado).
+    let by_remote: Option<String> = conn
+        .query_row(
+            "SELECT local_uuid FROM caixa_local WHERE remote_id = ?1",
+            params![caixa_id],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()?;
+    Ok(by_remote)
+}
+
+pub fn registrar_mov_caixa_local(
+    input: LocalMovimentoCaixaInput,
+    now_ms: i64,
+) -> DbResult<LocalMovimentoCaixaResult> {
+    if input.tipo != "sangria" && input.tipo != "suprimento" {
+        return Err(DbError(format!(
+            "tipo inválido: {} (use 'sangria' ou 'suprimento')",
+            input.tipo
+        )));
+    }
+    if input.valor <= 0.0 {
+        return Err(DbError("valor deve ser maior que zero".into()));
+    }
+
+    // Idempotência por client_uuid.
+    if let Some(cu) = input.client_uuid.as_deref() {
+        if !cu.is_empty() {
+            if let Some(row) = with_conn(|conn| {
+                let r = conn
+                    .query_row(
+                        "SELECT local_uuid, caixa_local_uuid, tipo, valor
+                           FROM caixa_movs_local WHERE client_uuid = ?1",
+                        params![cu],
+                        |r| {
+                            Ok((
+                                r.get::<_, String>(0)?,
+                                r.get::<_, String>(1)?,
+                                r.get::<_, String>(2)?,
+                                r.get::<_, f64>(3)?,
+                            ))
+                        },
+                    )
+                    .optional()?;
+                Ok(r)
+            })? {
+                let (local_uuid, caixa_local_uuid, tipo, valor) = row;
+                return Ok(LocalMovimentoCaixaResult {
+                    local_uuid,
+                    idempotente: true,
+                    caixa_local_uuid,
+                    tipo,
+                    valor,
+                });
+            }
+        }
+    }
+
+    let caixa_local_uuid = with_conn(|conn| resolve_caixa_local_uuid(conn, &input.caixa_id))?
+        .ok_or_else(|| DbError(format!("caixa não encontrado localmente: {}", input.caixa_id)))?;
+
+    // Verifica que o caixa ainda está aberto.
+    let status: Option<String> = with_conn(|conn| {
+        let s = conn
+            .query_row(
+                "SELECT status FROM caixa_local WHERE local_uuid = ?1",
+                params![caixa_local_uuid],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?;
+        Ok(s)
+    })?;
+    if status.as_deref() != Some("aberto") {
+        return Err(DbError("caixa não está aberto localmente".into()));
+    }
+
+    let local_uuid = random_uuid_v4();
+    let payload_json = serde_json::json!({
+        "local_uuid":       local_uuid,
+        "caixa_local_uuid": caixa_local_uuid,
+        "caixa_id":         input.caixa_id,
+        "tipo":             input.tipo,
+        "valor":            input.valor,
+        "motivo":           input.motivo,
+        "operador_id":      input.operador_id,
+        "client_uuid":      input.client_uuid,
+    })
+    .to_string();
+
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO caixa_movs_local(
+                local_uuid, client_uuid, caixa_local_uuid, tipo, valor,
+                motivo, operador_id, remote_id, created_at_ms
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,NULL,?8)",
+            params![
+                local_uuid,
+                input.client_uuid,
+                caixa_local_uuid,
+                input.tipo,
+                input.valor,
+                input.motivo,
+                input.operador_id,
+                now_ms,
+            ],
+        )?;
+        tx.execute(
+            "INSERT INTO outbox_caixa(
+                local_uuid, client_uuid, action, caixa_local_uuid, payload,
+                status, attempts, last_error, remote_id,
+                created_at_ms, updated_at_ms, sent_at_ms, next_attempt_at_ms
+             ) VALUES (?1,?2,'movimento',?3,?4,'pending',0,NULL,NULL,?5,?5,NULL,NULL)",
+            params![
+                local_uuid,
+                input.client_uuid,
+                caixa_local_uuid,
+                payload_json,
+                now_ms,
+            ],
+        )?;
+        tx.execute(
+            "UPDATE caixa_local SET updated_at_ms=?1 WHERE local_uuid=?2",
+            params![now_ms, caixa_local_uuid],
+        )?;
+        tx.commit()?;
+        Ok(LocalMovimentoCaixaResult {
+            local_uuid,
+            idempotente: false,
+            caixa_local_uuid,
+            tipo: input.tipo,
+            valor: input.valor,
+        })
+    })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LocalFecharCaixaInput {
+    pub caixa_id: String,
+    pub valor_informado: f64,
+    #[serde(default)]
+    pub observacao: Option<String>,
+    #[serde(default)]
+    pub client_uuid: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LocalFecharCaixaResult {
+    pub local_uuid: String,
+    pub idempotente: bool,
+    pub valor_informado: f64,
+}
+
+pub fn fechar_caixa_local(
+    input: LocalFecharCaixaInput,
+    now_ms: i64,
+) -> DbResult<LocalFecharCaixaResult> {
+    if input.valor_informado < 0.0 {
+        return Err(DbError("valor_informado não pode ser negativo".into()));
+    }
+
+    let caixa_local_uuid = with_conn(|conn| resolve_caixa_local_uuid(conn, &input.caixa_id))?
+        .ok_or_else(|| DbError(format!("caixa não encontrado localmente: {}", input.caixa_id)))?;
+
+    // Idempotência por client_uuid (no nível da outbox de fechamento).
+    if let Some(cu) = input.client_uuid.as_deref() {
+        if !cu.is_empty() {
+            if let Some(local_uuid) = with_conn(|conn| {
+                let r = conn
+                    .query_row(
+                        "SELECT local_uuid FROM outbox_caixa
+                          WHERE client_uuid=?1 AND action='fechar'",
+                        params![cu],
+                        |r| r.get::<_, String>(0),
+                    )
+                    .optional()?;
+                Ok(r)
+            })? {
+                return Ok(LocalFecharCaixaResult {
+                    local_uuid,
+                    idempotente: true,
+                    valor_informado: input.valor_informado,
+                });
+            }
+        }
+    }
+
+    // Caixa precisa estar aberto.
+    let status: Option<String> = with_conn(|conn| {
+        let s = conn
+            .query_row(
+                "SELECT status FROM caixa_local WHERE local_uuid = ?1",
+                params![caixa_local_uuid],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?;
+        Ok(s)
+    })?;
+    if status.as_deref() != Some("aberto") {
+        return Err(DbError("caixa já está fechado localmente".into()));
+    }
+
+    let local_uuid = random_uuid_v4();
+    let payload_json = serde_json::json!({
+        "local_uuid":       local_uuid,
+        "caixa_local_uuid": caixa_local_uuid,
+        "caixa_id":         input.caixa_id,
+        "valor_informado":  input.valor_informado,
+        "observacao":       input.observacao,
+        "client_uuid":      input.client_uuid,
+    })
+    .to_string();
+
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            "UPDATE caixa_local
+                SET status='fechado',
+                    valor_informado=?1,
+                    observacao_fechamento=?2,
+                    data_fechamento_ms=?3,
+                    updated_at_ms=?3
+              WHERE local_uuid=?4",
+            params![
+                input.valor_informado,
+                input.observacao,
+                now_ms,
+                caixa_local_uuid,
+            ],
+        )?;
+        tx.execute(
+            "INSERT INTO outbox_caixa(
+                local_uuid, client_uuid, action, caixa_local_uuid, payload,
+                status, attempts, last_error, remote_id,
+                created_at_ms, updated_at_ms, sent_at_ms, next_attempt_at_ms
+             ) VALUES (?1,?2,'fechar',?3,?4,'pending',0,NULL,NULL,?5,?5,NULL,NULL)",
+            params![
+                local_uuid,
+                input.client_uuid,
+                caixa_local_uuid,
+                payload_json,
+                now_ms,
+            ],
+        )?;
+        tx.commit()?;
+        Ok(LocalFecharCaixaResult {
+            local_uuid,
+            idempotente: false,
+            valor_informado: input.valor_informado,
+        })
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Estado local do caixa — leitura simples para a UI / handlers
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+pub struct CaixaLocalRow {
+    pub local_uuid: String,
+    pub remote_id: Option<String>,
+    pub client_uuid: Option<String>,
+    pub status: String,
+    pub valor_inicial: f64,
+    pub valor_informado: Option<f64>,
+    pub valor_esperado: Option<f64>,
+    pub diferenca: Option<f64>,
+    pub observacao_abertura: Option<String>,
+    pub observacao_fechamento: Option<String>,
+    pub operador_id: Option<String>,
+    pub terminal_id: Option<String>,
+    pub data_abertura_ms: i64,
+    pub data_fechamento_ms: Option<i64>,
+    pub qtd_movimentos: i64,
+    pub total_suprimentos: f64,
+    pub total_sangrias: f64,
+}
+
+pub fn caixa_local_aberto(operador_id: Option<&str>) -> DbResult<Option<CaixaLocalRow>> {
+    with_conn(|conn| {
+        let row_opt: Option<(String, Option<String>, Option<String>, String, f64,
+            Option<f64>, Option<f64>, Option<f64>, Option<String>, Option<String>,
+            Option<String>, Option<String>, i64, Option<i64>)> = if let Some(op) = operador_id {
+            conn.query_row(
+                "SELECT local_uuid, remote_id, client_uuid, status, valor_inicial,
+                        valor_informado, valor_esperado, diferenca,
+                        observacao_abertura, observacao_fechamento,
+                        operador_id, terminal_id,
+                        data_abertura_ms, data_fechamento_ms
+                   FROM caixa_local
+                  WHERE status='aberto' AND operador_id = ?1
+               ORDER BY data_abertura_ms DESC LIMIT 1",
+                params![op],
+                |r| Ok((
+                    r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
+                    r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?,
+                    r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?,
+                )),
+            ).optional()?
+        } else {
+            conn.query_row(
+                "SELECT local_uuid, remote_id, client_uuid, status, valor_inicial,
+                        valor_informado, valor_esperado, diferenca,
+                        observacao_abertura, observacao_fechamento,
+                        operador_id, terminal_id,
+                        data_abertura_ms, data_fechamento_ms
+                   FROM caixa_local
+                  WHERE status='aberto'
+               ORDER BY data_abertura_ms DESC LIMIT 1",
+                [],
+                |r| Ok((
+                    r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
+                    r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?,
+                    r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?,
+                )),
+            ).optional()?
+        };
+        let Some(row) = row_opt else { return Ok(None) };
+        let (local_uuid, remote_id, client_uuid, status, valor_inicial,
+             valor_informado, valor_esperado, diferenca,
+             obs_ab, obs_fc, oper, term, dt_ab, dt_fc) = row;
+        let (qtd, sup, san): (i64, f64, f64) = conn.query_row(
+            "SELECT
+                COUNT(*),
+                COALESCE(SUM(CASE WHEN tipo='suprimento' THEN valor ELSE 0 END),0),
+                COALESCE(SUM(CASE WHEN tipo='sangria' THEN valor ELSE 0 END),0)
+               FROM caixa_movs_local WHERE caixa_local_uuid=?1",
+            params![local_uuid],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).unwrap_or((0, 0.0, 0.0));
+        Ok(Some(CaixaLocalRow {
+            local_uuid, remote_id, client_uuid, status, valor_inicial,
+            valor_informado, valor_esperado, diferenca,
+            observacao_abertura: obs_ab,
+            observacao_fechamento: obs_fc,
+            operador_id: oper, terminal_id: term,
+            data_abertura_ms: dt_ab, data_fechamento_ms: dt_fc,
+            qtd_movimentos: qtd, total_suprimentos: sup, total_sangrias: san,
+        }))
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Outbox de caixa — stats / list / status (espelha vendas/estoque)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Default)]
+pub struct OutboxCaixaStats {
+    pub pending: i64,
+    pub sending: i64,
+    pub sent: i64,
+    pub error: i64,
+    pub last_sent_at_ms: Option<i64>,
+    pub last_error: Option<String>,
+    pub due_now: i64,
+    pub next_attempt_at_ms: Option<i64>,
+    pub last_auto_flush_ms: Option<i64>,
+    pub last_auto_flush_sent_ms: Option<i64>,
+    pub last_auto_attempted: Option<i64>,
+    pub last_auto_sent: Option<i64>,
+    pub last_auto_failed: Option<i64>,
+    pub last_manual_flush_ms: Option<i64>,
+    /// Quebra por action — ajuda a UI mostrar "1 abertura pendente, 2 sangrias".
+    pub pending_abrir: i64,
+    pub pending_movimento: i64,
+    pub pending_fechar: i64,
+}
+
+pub fn outbox_caixa_stats() -> DbResult<OutboxCaixaStats> {
+    with_conn(|conn| {
+        let mut s = OutboxCaixaStats::default();
+        let mut stmt = conn
+            .prepare("SELECT status, COUNT(*) FROM outbox_caixa GROUP BY status")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        for r in rows {
+            let (st, n) = r?;
+            match st.as_str() {
+                "pending" => s.pending = n,
+                "sending" => s.sending = n,
+                "sent" => s.sent = n,
+                "error" => s.error = n,
+                _ => {}
+            }
+        }
+        let mut stmt = conn
+            .prepare("SELECT action, COUNT(*) FROM outbox_caixa
+                       WHERE status='pending' GROUP BY action")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        for r in rows {
+            let (act, n) = r?;
+            match act.as_str() {
+                "abrir" => s.pending_abrir = n,
+                "movimento" => s.pending_movimento = n,
+                "fechar" => s.pending_fechar = n,
+                _ => {}
+            }
+        }
+        s.last_sent_at_ms = conn.query_row(
+            "SELECT MAX(sent_at_ms) FROM outbox_caixa WHERE status='sent'",
+            [], |r| r.get::<_, Option<i64>>(0),
+        ).optional()?.flatten();
+        s.last_error = conn.query_row(
+            "SELECT last_error FROM outbox_caixa
+              WHERE status='error' ORDER BY updated_at_ms DESC LIMIT 1",
+            [], |r| r.get::<_, Option<String>>(0),
+        ).optional()?.flatten();
+        let now = chrono::Utc::now().timestamp_millis();
+        s.due_now = conn.query_row(
+            "SELECT COUNT(*) FROM outbox_caixa
+              WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1",
+            params![now], |r| r.get::<_, i64>(0),
+        ).optional()?.unwrap_or(0);
+        s.next_attempt_at_ms = conn.query_row(
+            "SELECT MIN(COALESCE(next_attempt_at_ms,0))
+               FROM outbox_caixa WHERE status='pending'",
+            [], |r| r.get::<_, Option<i64>>(0),
+        ).optional()?.flatten();
+        s.last_auto_flush_ms = meta_get_i64(conn, "outbox_caixa_last_auto_flush_ms")?;
+        s.last_auto_flush_sent_ms = meta_get_i64(conn, "outbox_caixa_last_auto_flush_sent_ms")?;
+        s.last_auto_attempted = meta_get_i64(conn, "outbox_caixa_last_auto_attempted")?;
+        s.last_auto_sent = meta_get_i64(conn, "outbox_caixa_last_auto_sent")?;
+        s.last_auto_failed = meta_get_i64(conn, "outbox_caixa_last_auto_failed")?;
+        s.last_manual_flush_ms = meta_get_i64(conn, "outbox_caixa_last_manual_flush_ms")?;
+        Ok(s)
+    })
+}
+
+pub fn outbox_caixa_record_flush_round(
+    kind: &str, now_ms: i64, attempted: i64, sent: i64, failed: i64,
+) -> DbResult<()> {
+    with_conn(|conn| {
+        if kind == "auto" {
+            meta_set_i64(conn, "outbox_caixa_last_auto_flush_ms", now_ms)?;
+            meta_set_i64(conn, "outbox_caixa_last_auto_attempted", attempted)?;
+            meta_set_i64(conn, "outbox_caixa_last_auto_sent", sent)?;
+            meta_set_i64(conn, "outbox_caixa_last_auto_failed", failed)?;
+            if sent > 0 {
+                meta_set_i64(conn, "outbox_caixa_last_auto_flush_sent_ms", now_ms)?;
+            }
+        } else {
+            meta_set_i64(conn, "outbox_caixa_last_manual_flush_ms", now_ms)?;
+        }
+        Ok(())
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct OutboxCaixaItem {
+    pub local_uuid: String,
+    pub client_uuid: Option<String>,
+    pub action: String,
+    pub caixa_local_uuid: String,
+    pub payload: String,
+    pub status: String,
+    pub attempts: i64,
+    pub last_error: Option<String>,
+    pub remote_id: Option<String>,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub sent_at_ms: Option<i64>,
+}
+
+fn map_caixa_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<OutboxCaixaItem> {
+    Ok(OutboxCaixaItem {
+        local_uuid: r.get(0)?,
+        client_uuid: r.get(1)?,
+        action: r.get(2)?,
+        caixa_local_uuid: r.get(3)?,
+        payload: r.get(4)?,
+        status: r.get(5)?,
+        attempts: r.get(6)?,
+        last_error: r.get(7)?,
+        remote_id: r.get(8)?,
+        created_at_ms: r.get(9)?,
+        updated_at_ms: r.get(10)?,
+        sent_at_ms: r.get(11)?,
+    })
+}
+
+pub fn outbox_caixa_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxCaixaItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let mut out = Vec::new();
+        if let Some(st) = only_status {
+            let mut stmt = conn.prepare(
+                "SELECT local_uuid, client_uuid, action, caixa_local_uuid, payload,
+                        status, attempts, last_error, remote_id,
+                        created_at_ms, updated_at_ms, sent_at_ms
+                   FROM outbox_caixa WHERE status = ?1
+                  ORDER BY created_at_ms DESC LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(params![st, limit], map_caixa_item)?;
+            for r in rows { out.push(r?); }
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT local_uuid, client_uuid, action, caixa_local_uuid, payload,
+                        status, attempts, last_error, remote_id,
+                        created_at_ms, updated_at_ms, sent_at_ms
+                   FROM outbox_caixa ORDER BY created_at_ms DESC LIMIT ?1",
+            )?;
+            let rows = stmt.query_map(params![limit], map_caixa_item)?;
+            for r in rows { out.push(r?); }
+        }
+        Ok(out)
+    })
+}
+
+/// Próximo lote elegível ao scheduler — ordenado por created_at e respeitando
+/// o backoff. Para preservar a ordem causal (abrir → movimento → fechar) de um
+/// MESMO caixa, o scheduler envia em série e só prossegue para o próximo
+/// item do MESMO caixa quando o anterior terminou.
+pub fn outbox_caixa_pending_batch(limit: i64) -> DbResult<Vec<OutboxCaixaItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut stmt = conn.prepare(
+            "SELECT local_uuid, client_uuid, action, caixa_local_uuid, payload,
+                    status, attempts, last_error, remote_id,
+                    created_at_ms, updated_at_ms, sent_at_ms
+               FROM outbox_caixa
+              WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1
+              ORDER BY created_at_ms ASC LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![now, limit], map_caixa_item)?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    })
+}
+
+pub fn outbox_caixa_pending_batch_all(limit: i64) -> DbResult<Vec<OutboxCaixaItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let mut stmt = conn.prepare(
+            "SELECT local_uuid, client_uuid, action, caixa_local_uuid, payload,
+                    status, attempts, last_error, remote_id,
+                    created_at_ms, updated_at_ms, sent_at_ms
+               FROM outbox_caixa WHERE status='pending'
+              ORDER BY created_at_ms ASC LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit], map_caixa_item)?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    })
+}
+
+pub fn outbox_caixa_get(local_uuid: &str) -> DbResult<Option<OutboxCaixaItem>> {
+    with_conn(|conn| {
+        let r = conn.query_row(
+            "SELECT local_uuid, client_uuid, action, caixa_local_uuid, payload,
+                    status, attempts, last_error, remote_id,
+                    created_at_ms, updated_at_ms, sent_at_ms
+               FROM outbox_caixa WHERE local_uuid=?1",
+            params![local_uuid], map_caixa_item,
+        ).optional()?;
+        Ok(r)
+    })
+}
+
+pub fn outbox_caixa_mark_sending(local_uuid: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        conn.execute(
+            "UPDATE outbox_caixa
+                SET status='sending', updated_at_ms=?2, attempts=attempts+1
+              WHERE local_uuid=?1",
+            params![local_uuid, now_ms],
+        )?;
+        Ok(())
+    })
+}
+
+pub fn outbox_caixa_mark_sent(local_uuid: &str, remote_id: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+        // Marca o item.
+        tx.execute(
+            "UPDATE outbox_caixa
+                SET status='sent', sent_at_ms=?2, updated_at_ms=?2,
+                    remote_id=?3, last_error=NULL, next_attempt_at_ms=NULL
+              WHERE local_uuid=?1",
+            params![local_uuid, now_ms, remote_id],
+        )?;
+        // Propaga o remote_id da abertura para a linha do caixa local — assim
+        // futuras movimentações podem ser referenciadas tanto pelo local_uuid
+        // quanto pelo remote_id que o front conhecer.
+        let action: Option<String> = tx.query_row(
+            "SELECT action FROM outbox_caixa WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get::<_, String>(0),
+        ).optional()?;
+        if action.as_deref() == Some("abrir") {
+            tx.execute(
+                "UPDATE caixa_local SET remote_id=?1, updated_at_ms=?2
+                  WHERE local_uuid=?3 AND (remote_id IS NULL OR remote_id='')",
+                params![remote_id, now_ms, local_uuid],
+            )?;
+        } else if action.as_deref() == Some("movimento") {
+            tx.execute(
+                "UPDATE caixa_movs_local SET remote_id=?1
+                  WHERE local_uuid=?2 AND (remote_id IS NULL OR remote_id='')",
+                params![remote_id, local_uuid],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    })
+}
+
+pub fn outbox_caixa_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        let attempts: i64 = conn.query_row(
+            "SELECT attempts FROM outbox_caixa WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).optional()?.unwrap_or(1);
+        if attempts >= MAX_AUTO_ATTEMPTS {
+            conn.execute(
+                "UPDATE outbox_caixa
+                    SET status='error', last_error=?2, updated_at_ms=?3,
+                        next_attempt_at_ms=NULL
+                  WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms],
+            )?;
+        } else {
+            let next = now_ms + backoff_ms_for_attempts(attempts);
+            conn.execute(
+                "UPDATE outbox_caixa
+                    SET status='pending', last_error=?2, updated_at_ms=?3,
+                        next_attempt_at_ms=?4
+                  WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms, next],
+            )?;
+        }
+        Ok(())
+    })
+}
+
+pub fn outbox_caixa_reset_errors(now_ms: i64) -> DbResult<i64> {
+    with_conn(|conn| {
+        let n = conn.execute(
+            "UPDATE outbox_caixa
+                SET status='pending', updated_at_ms=?1,
+                    next_attempt_at_ms=NULL, last_error=NULL
+              WHERE status IN ('error','pending') AND last_error IS NOT NULL",
+            params![now_ms],
+        )?;
+        Ok(n as i64)
+    })
+}
