@@ -1328,3 +1328,413 @@ pub fn domain_has_rows(domain: &str) -> DbResult<bool> {
         Ok(n > 0)
     })
 }
+
+// ============================================================================
+// v5 — Writes locais de movimentação de estoque + fila offline (outbox)
+// ============================================================================
+//
+// Modelo:
+//   * `local_uuid` é GERADO pelo servidor (UUID v4). É a identidade real
+//     dessa movimentação enquanto ela vive offline e é a chave de
+//     idempotência usada no upstream — assim retries pelo sync nunca
+//     duplicam.
+//   * `client_uuid` é a chave que o terminal já mandava (1 por modal). Se
+//     vier repetida (duplo clique, retry de rede entre terminal e servidor),
+//     o servidor reconhece e devolve a movimentação já enfileirada — sem
+//     gravar de novo, sem duplicar saldo.
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LocalMovimentacaoInput {
+    pub produto_id: String,
+    pub variacao_id: Option<String>,
+    pub tipo: String,
+    pub quantidade: f64,
+    pub custo_unitario: Option<f64>,
+    pub observacoes: Option<String>,
+    pub origem: Option<String>,
+    pub client_uuid: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LocalMovimentacaoResult {
+    pub local_uuid: String,
+    pub idempotente: bool,
+    pub saldo_anterior: f64,
+    pub saldo_posterior: f64,
+}
+
+fn random_uuid_v4() -> String {
+    // UUID v4 simples — evita dependência extra. Usa o RNG do SQLite.
+    let bytes: [u8; 16] = with_conn(|conn| {
+        let blob: Vec<u8> = conn.query_row("SELECT randomblob(16)", [], |r| r.get(0))?;
+        let mut a = [0u8; 16];
+        for (i, b) in blob.iter().take(16).enumerate() {
+            a[i] = *b;
+        }
+        Ok(a)
+    })
+    .unwrap_or([0u8; 16]);
+    let mut b = bytes;
+    b[6] = (b[6] & 0x0f) | 0x40; // version 4
+    b[8] = (b[8] & 0x3f) | 0x80; // variant
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        b[0],b[1],b[2],b[3],b[4],b[5],b[6],b[7],b[8],b[9],b[10],b[11],b[12],b[13],b[14],b[15]
+    )
+}
+
+/// Lê saldo atual (produto, variacao) — 0 se não existe linha.
+fn read_saldo_atual(
+    tx: &rusqlite::Transaction<'_>,
+    produto_id: &str,
+    variacao_id: &str,
+) -> rusqlite::Result<f64> {
+    let v: Option<f64> = tx
+        .query_row(
+            "SELECT quantidade FROM estoque_saldos_local
+              WHERE produto_id = ?1 AND variacao_id = ?2",
+            params![produto_id, variacao_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(v.unwrap_or(0.0))
+}
+
+/// Escreve uma movimentação LOCALMENTE:
+///   1. Idempotência por `client_uuid`: se já existe na outbox, devolve a
+///      movimentação anterior (sem efeito colateral).
+///   2. Calcula saldo_anterior, valida saldo negativo.
+///   3. Insere em `estoque_movimentacoes_local` (com id = local_uuid),
+///      aplica delta no saldo materializado, enfileira na outbox —
+///      tudo em UMA transação.
+pub fn registrar_movimento_local(
+    input: LocalMovimentacaoInput,
+    now_ms: i64,
+) -> DbResult<LocalMovimentacaoResult> {
+    // Validação básica antes de transação.
+    if input.quantidade <= 0.0 {
+        return Err(DbError("quantidade deve ser > 0".into()));
+    }
+    let tipo_norm = input.tipo.trim().to_ascii_lowercase();
+    if !matches!(
+        tipo_norm.as_str(),
+        "entrada" | "saida" | "ajuste" | "devolucao" | "transferencia"
+    ) {
+        return Err(DbError(format!("tipo inválido: {}", input.tipo)));
+    }
+
+    // Idempotência por client_uuid — antes de abrir transação grande.
+    if let Some(cu) = input.client_uuid.as_deref() {
+        if !cu.is_empty() {
+            if let Some(existing) = with_conn(|conn| {
+                let row = conn
+                    .query_row(
+                        "SELECT local_uuid, payload FROM outbox_estoque_movs
+                          WHERE client_uuid = ?1",
+                        params![cu],
+                        |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+                    )
+                    .optional()?;
+                Ok(row)
+            })? {
+                let (local_uuid, _payload) = existing;
+                // Lê saldo atual como saldo_posterior; saldo_anterior é
+                // recomposto a partir do tipo+quantidade já gravados.
+                let posterior = with_conn(|conn| {
+                    let v: Option<f64> = conn
+                        .query_row(
+                            "SELECT quantidade FROM estoque_saldos_local
+                              WHERE produto_id = ?1 AND variacao_id = ?2",
+                            params![input.produto_id, input.variacao_id.clone().unwrap_or_default()],
+                            |r| r.get(0),
+                        )
+                        .optional()?;
+                    Ok(v.unwrap_or(0.0))
+                })?;
+                let delta = signal_for_tipo(Some(&tipo_norm)) * input.quantidade;
+                return Ok(LocalMovimentacaoResult {
+                    local_uuid,
+                    idempotente: true,
+                    saldo_anterior: posterior - delta,
+                    saldo_posterior: posterior,
+                });
+            }
+        }
+    }
+
+    let local_uuid = random_uuid_v4();
+    let variacao_id = input.variacao_id.clone().unwrap_or_default();
+
+    let payload_json = serde_json::json!({
+        "local_uuid": local_uuid,
+        "produto_id": input.produto_id,
+        "variacao_id": input.variacao_id,
+        "tipo": tipo_norm,
+        "quantidade": input.quantidade,
+        "custo_unitario": input.custo_unitario,
+        "observacoes": input.observacoes,
+        "origem": input.origem,
+        "client_uuid": input.client_uuid,
+    })
+    .to_string();
+
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+
+        let saldo_anterior = read_saldo_atual(&tx, &input.produto_id, &variacao_id)?;
+        let delta = signal_for_tipo(Some(&tipo_norm)) * input.quantidade;
+        let saldo_posterior = saldo_anterior + delta;
+
+        // Bloqueia saldo negativo (paridade com a RPC do upstream).
+        if saldo_posterior < 0.0 && (tipo_norm == "saida" || tipo_norm == "transferencia") {
+            return Err(DbError(format!(
+                "saldo insuficiente: atual={saldo_anterior}, tentativa={}",
+                input.quantidade
+            )));
+        }
+
+        // 1) Insere no histórico local com id = local_uuid (estável).
+        let item_payload = serde_json::json!({
+            "id": local_uuid,
+            "produto_id": input.produto_id,
+            "variacao_id": input.variacao_id,
+            "tipo": tipo_norm,
+            "quantidade": input.quantidade,
+            "saldo_anterior": saldo_anterior,
+            "saldo_posterior": saldo_posterior,
+            "custo_unitario": input.custo_unitario,
+            "origem": input.origem,
+            "observacoes": input.observacoes,
+            "data_movimentacao": iso_from_ms_z_pub(now_ms),
+            "_pending": true,
+        })
+        .to_string();
+
+        tx.execute(
+            "INSERT OR IGNORE INTO estoque_movimentacoes_local(
+                id, produto_id, variacao_id, tipo, quantidade,
+                saldo_anterior, saldo_posterior, custo_unitario,
+                origem, observacoes, data_movimentacao_ms,
+                payload, synced_at_ms
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+            params![
+                local_uuid,
+                input.produto_id,
+                variacao_id,
+                tipo_norm,
+                input.quantidade,
+                saldo_anterior,
+                saldo_posterior,
+                input.custo_unitario,
+                input.origem,
+                input.observacoes,
+                now_ms,
+                item_payload,
+                now_ms,
+            ],
+        )?;
+
+        // 2) Materializa saldo (mesmo padrão do ingest do upstream).
+        apply_mov_to_saldo(
+            &tx,
+            &input.produto_id,
+            &variacao_id,
+            Some(tipo_norm.as_str()),
+            input.quantidade,
+            now_ms,
+        )?;
+
+        // 3) Enfileira na outbox.
+        tx.execute(
+            "INSERT INTO outbox_estoque_movs(
+                local_uuid, client_uuid, payload, status,
+                attempts, last_error, remote_id,
+                created_at_ms, updated_at_ms, sent_at_ms
+             ) VALUES (?1, ?2, ?3, 'pending', 0, NULL, NULL, ?4, ?4, NULL)",
+            params![local_uuid, input.client_uuid, payload_json, now_ms],
+        )?;
+
+        tx.commit()?;
+        Ok(LocalMovimentacaoResult {
+            local_uuid,
+            idempotente: false,
+            saldo_anterior,
+            saldo_posterior,
+        })
+    })
+}
+
+fn iso_from_ms_z_pub(ms: i64) -> String {
+    chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms)
+        .map(|d| d.to_rfc3339())
+        .unwrap_or_default()
+}
+
+// ---------- Outbox: leitura, stats e atualização de status ----------
+
+#[derive(Debug, Serialize)]
+pub struct OutboxItem {
+    pub local_uuid: String,
+    pub client_uuid: Option<String>,
+    pub payload: String,
+    pub status: String,
+    pub attempts: i64,
+    pub last_error: Option<String>,
+    pub remote_id: Option<String>,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub sent_at_ms: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Default)]
+pub struct OutboxStats {
+    pub pending: i64,
+    pub sending: i64,
+    pub sent: i64,
+    pub error: i64,
+    pub last_sent_at_ms: Option<i64>,
+    pub last_error: Option<String>,
+}
+
+pub fn outbox_stats() -> DbResult<OutboxStats> {
+    with_conn(|conn| {
+        let mut s = OutboxStats::default();
+        let mut stmt = conn.prepare(
+            "SELECT status, COUNT(*) FROM outbox_estoque_movs GROUP BY status",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        for r in rows {
+            let (st, n) = r?;
+            match st.as_str() {
+                "pending" => s.pending = n,
+                "sending" => s.sending = n,
+                "sent" => s.sent = n,
+                "error" => s.error = n,
+                _ => {}
+            }
+        }
+        s.last_sent_at_ms = conn
+            .query_row(
+                "SELECT MAX(sent_at_ms) FROM outbox_estoque_movs WHERE status='sent'",
+                [],
+                |r| r.get::<_, Option<i64>>(0),
+            )
+            .optional()?
+            .flatten();
+        s.last_error = conn
+            .query_row(
+                "SELECT last_error FROM outbox_estoque_movs
+                  WHERE status='error' ORDER BY updated_at_ms DESC LIMIT 1",
+                [],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten();
+        Ok(s)
+    })
+}
+
+pub fn outbox_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let (sql, has_filter) = match only_status {
+            Some(_) => (
+                "SELECT local_uuid, client_uuid, payload, status, attempts, last_error,
+                        remote_id, created_at_ms, updated_at_ms, sent_at_ms
+                   FROM outbox_estoque_movs
+                  WHERE status = ?1
+                  ORDER BY created_at_ms DESC
+                  LIMIT ?2"
+                    .to_string(),
+                true,
+            ),
+            None => (
+                "SELECT local_uuid, client_uuid, payload, status, attempts, last_error,
+                        remote_id, created_at_ms, updated_at_ms, sent_at_ms
+                   FROM outbox_estoque_movs
+                  ORDER BY created_at_ms DESC
+                  LIMIT ?1"
+                    .to_string(),
+                false,
+            ),
+        };
+        let mut stmt = conn.prepare(&sql)?;
+        let map_row = |r: &rusqlite::Row<'_>| -> rusqlite::Result<OutboxItem> {
+            Ok(OutboxItem {
+                local_uuid: r.get(0)?,
+                client_uuid: r.get(1)?,
+                payload: r.get(2)?,
+                status: r.get(3)?,
+                attempts: r.get(4)?,
+                last_error: r.get(5)?,
+                remote_id: r.get(6)?,
+                created_at_ms: r.get(7)?,
+                updated_at_ms: r.get(8)?,
+                sent_at_ms: r.get(9)?,
+            })
+        };
+        let mut out = Vec::new();
+        if has_filter {
+            let s = only_status.unwrap();
+            let rows = stmt.query_map(params![s, limit], map_row)?;
+            for r in rows { out.push(r?); }
+        } else {
+            let rows = stmt.query_map(params![limit], map_row)?;
+            for r in rows { out.push(r?); }
+        }
+        Ok(out)
+    })
+}
+
+pub fn outbox_pending_batch(limit: i64) -> DbResult<Vec<OutboxItem>> {
+    outbox_list(limit, Some("pending"))
+}
+
+pub fn outbox_mark_sending(local_uuid: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        conn.execute(
+            "UPDATE outbox_estoque_movs
+                SET status='sending', updated_at_ms=?2, attempts=attempts+1
+              WHERE local_uuid=?1",
+            params![local_uuid, now_ms],
+        )?;
+        Ok(())
+    })
+}
+
+pub fn outbox_mark_sent(local_uuid: &str, remote_id: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        conn.execute(
+            "UPDATE outbox_estoque_movs
+                SET status='sent', sent_at_ms=?2, updated_at_ms=?2,
+                    remote_id=?3, last_error=NULL
+              WHERE local_uuid=?1",
+            params![local_uuid, now_ms, remote_id],
+        )?;
+        Ok(())
+    })
+}
+
+pub fn outbox_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        conn.execute(
+            "UPDATE outbox_estoque_movs
+                SET status='error', last_error=?2, updated_at_ms=?3
+              WHERE local_uuid=?1",
+            params![local_uuid, err, now_ms],
+        )?;
+        Ok(())
+    })
+}
+
+pub fn outbox_reset_errors(now_ms: i64) -> DbResult<i64> {
+    with_conn(|conn| {
+        let n = conn.execute(
+            "UPDATE outbox_estoque_movs
+                SET status='pending', updated_at_ms=?1
+              WHERE status='error'",
+            params![now_ms],
+        )?;
+        Ok(n as i64)
+    })
+}
