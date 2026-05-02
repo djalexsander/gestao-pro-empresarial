@@ -974,89 +974,269 @@ pub fn read_clientes(status: Option<&str>) -> DbResult<String> {
     })
 }
 
-// ---------- Estoque saldos ----------
+// ---------- Estoque: movimentações + saldos derivados ----------
+//
+// Modelo desta etapa:
+//
+//   * `estoque_movimentacoes_local` é APPEND-ONLY. Cursor de sync é
+//     `data_movimentacao` (timestamp definitivo na nuvem; mais estável
+//     que `updated_at`, que poderia mudar com edição de observação).
+//     Lote = INSERT OR IGNORE pelo `id` → retries idempotentes.
+//
+//   * `estoque_saldos_local` deixa de ser snapshot bruto e passa a ser
+//     uma MATERIALIZAÇÃO incremental: para cada movimentação NOVA do
+//     lote, ajustamos a quantidade da linha (produto_id, variacao_id)
+//     com o sinal:
+//          entrada / devolucao    → +qtd
+//          saida   / transferencia → -qtd
+//          ajuste                 → +qtd  (ajuste pode vir negativo na nuvem)
+//
+//   * Snapshot inicial (sem cursor): zera os saldos antes do delta —
+//     reconstrução do zero a partir do histórico que está vindo agora.
 
-pub fn ingest_saldos_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize> {
+fn parse_data_mov_ms(item: &serde_json::Value) -> Option<i64> {
+    json_str(item, "data_movimentacao")
+        .and_then(parse_iso_to_ms)
+        .or_else(|| json_str(item, "created_at").and_then(parse_iso_to_ms))
+}
+
+fn signal_for_tipo(tipo: Option<&str>) -> f64 {
+    match tipo.unwrap_or("") {
+        "entrada" | "devolucao" => 1.0,
+        "saida" | "transferencia" => -1.0,
+        _ => 1.0,
+    }
+}
+
+fn apply_mov_to_saldo(
+    tx: &rusqlite::Transaction<'_>,
+    produto_id: &str,
+    variacao_id: &str,
+    tipo: Option<&str>,
+    quantidade: f64,
+    now_ms: i64,
+) -> rusqlite::Result<()> {
+    let delta = signal_for_tipo(tipo) * quantidade;
+    tx.execute(
+        "INSERT INTO estoque_saldos_local(
+            produto_id, variacao_id, tipo, quantidade, payload, synced_at_ms
+         ) VALUES (?1, ?2, NULL, 0, '{}', ?3)
+         ON CONFLICT(produto_id, variacao_id) DO NOTHING",
+        params![produto_id, variacao_id, now_ms],
+    )?;
+    tx.execute(
+        "UPDATE estoque_saldos_local
+            SET quantidade   = quantidade + ?3,
+                synced_at_ms = ?4
+          WHERE produto_id = ?1 AND variacao_id = ?2",
+        params![produto_id, variacao_id, delta, now_ms],
+    )?;
+    Ok(())
+}
+
+pub fn ingest_movimentacoes(
+    json_text: &str,
+    now_ms: i64,
+    strategy: IngestStrategy,
+) -> DbResult<(usize, Option<i64>)> {
     let arr: serde_json::Value = serde_json::from_str(json_text)
-        .map_err(|e| DbError(format!("ingest_saldos: json inválido: {e}")))?;
+        .map_err(|e| DbError(format!("ingest_movimentacoes: json inválido: {e}")))?;
     let items = match arr.as_array() {
         Some(a) => a,
-        None => return Ok(0),
+        None => return Ok((0, None)),
     };
+
     with_conn(|conn| {
         let tx = conn.unchecked_transaction()?;
-        // Snapshot completo: limpa antes para refletir o estado upstream.
-        tx.execute("DELETE FROM estoque_saldos_local", [])?;
-        let mut count = 0usize;
+
+        if strategy == IngestStrategy::Snapshot {
+            tx.execute("DELETE FROM estoque_saldos_local", [])?;
+        }
+
+        let mut inserted = 0usize;
+        let mut max_ms: Option<i64> = None;
+
         {
             let mut stmt = tx.prepare(
-                "INSERT INTO estoque_saldos_local(
-                    produto_id, variacao_id, tipo, quantidade, payload, synced_at_ms
-                 ) VALUES (?1,?2,?3,?4,?5,?6)
-                 ON CONFLICT(produto_id, variacao_id) DO UPDATE SET
-                    tipo         = excluded.tipo,
-                    quantidade   = excluded.quantidade,
-                    payload      = excluded.payload,
-                    synced_at_ms = excluded.synced_at_ms",
+                "INSERT OR IGNORE INTO estoque_movimentacoes_local(
+                    id, produto_id, variacao_id, tipo, quantidade,
+                    saldo_anterior, saldo_posterior, custo_unitario,
+                    origem, observacoes, data_movimentacao_ms,
+                    payload, synced_at_ms
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
             )?;
+
             for item in items {
+                let id = match json_str(item, "id") {
+                    Some(s) => s.to_string(),
+                    None => continue,
+                };
                 let produto_id = match json_str(item, "produto_id") {
                     Some(s) => s.to_string(),
                     None => continue,
                 };
                 let variacao_id = json_str(item, "variacao_id").unwrap_or("").to_string();
+                let tipo = json_str(item, "tipo").unwrap_or("").to_string();
+                let quantidade = json_f64(item, "quantidade").unwrap_or(0.0);
+                let data_ms = match parse_data_mov_ms(item) {
+                    Some(ms) => ms,
+                    None => continue,
+                };
+                max_ms = Some(max_ms.map_or(data_ms, |c| c.max(data_ms)));
                 let payload = serde_json::to_string(item).unwrap_or_else(|_| "{}".into());
-                stmt.execute(params![
+
+                let n = stmt.execute(params![
+                    id,
                     produto_id,
                     variacao_id,
-                    json_str(item, "tipo"),
-                    json_f64(item, "quantidade").unwrap_or(0.0),
+                    tipo,
+                    quantidade,
+                    json_f64(item, "saldo_anterior"),
+                    json_f64(item, "saldo_posterior"),
+                    json_f64(item, "custo_unitario"),
+                    json_str(item, "origem"),
+                    json_str(item, "observacoes"),
+                    data_ms,
                     payload,
                     now_ms,
                 ])?;
-                count += 1;
+
+                if n > 0 {
+                    apply_mov_to_saldo(
+                        &tx,
+                        &produto_id,
+                        &variacao_id,
+                        Some(tipo.as_str()),
+                        quantidade,
+                        now_ms,
+                    )?;
+                    inserted += 1;
+                }
             }
         }
-        let total: i64 =
-            tx.query_row("SELECT COUNT(*) FROM estoque_saldos_local", [], |r| r.get(0))?;
-        // Saldos seguem em SNAPSHOT nesta etapa (movimentações são append-only,
-        // mas o agregado depende do conjunto inteiro — sync incremental real
-        // exigirá derivar de `estoque_movimentacoes` com cursor por
-        // `created_at`. Fica para a próxima etapa.)
-        upsert_domain_meta(&tx, DomainMetaUpdate {
-            domain: "estoque_saldos",
-            row_count: total,
-            now_ms,
-            source: "upstream",
-            strategy: "snapshot",
-            delta_count: count as i64,
-            max_remote_updated_ms: None,
-        })?;
+
+        let total: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM estoque_movimentacoes_local",
+            [],
+            |r| r.get(0),
+        )?;
+        upsert_domain_meta(
+            &tx,
+            DomainMetaUpdate {
+                domain: "estoque_movimentacoes",
+                row_count: total,
+                now_ms,
+                source: "upstream",
+                strategy: strategy.as_str(),
+                delta_count: inserted as i64,
+                max_remote_updated_ms: max_ms,
+            },
+        )?;
+
+        let saldos_total: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM estoque_saldos_local",
+            [],
+            |r| r.get(0),
+        )?;
+        upsert_domain_meta(
+            &tx,
+            DomainMetaUpdate {
+                domain: "estoque_saldos",
+                row_count: saldos_total,
+                now_ms,
+                source: "derived",
+                strategy: "derived",
+                delta_count: inserted as i64,
+                max_remote_updated_ms: max_ms,
+            },
+        )?;
+
         tx.commit()?;
-        Ok(count)
+        Ok((inserted, max_ms))
     })
+}
+
+/// Compat com o caminho legacy de saldos (proxy_with_cache).
+pub fn ingest_saldos_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize> {
+    ingest_movimentacoes(json_text, now_ms, IngestStrategy::Snapshot).map(|(n, _)| n)
 }
 
 pub fn read_saldos() -> DbResult<String> {
     with_conn(|conn| {
         let mut stmt = conn.prepare(
-            "SELECT payload FROM estoque_saldos_local ORDER BY produto_id ASC",
+            "SELECT produto_id, variacao_id, quantidade
+               FROM estoque_saldos_local
+              ORDER BY produto_id ASC",
         )?;
-        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, f64>(2)?,
+            ))
+        })?;
         let mut out = String::from("[");
         let mut first = true;
-        for r in rows {
-            let payload = r?;
+        for row in rows {
+            let (produto_id, variacao_id, qtd) = row?;
             if !first {
                 out.push(',');
             }
-            out.push_str(&payload);
+            let var_field = if variacao_id.is_empty() {
+                "null".to_string()
+            } else {
+                format!(""{variacao_id}"")
+            };
+            out.push_str(&format!(
+                "{{"produto_id":"{produto_id}","variacao_id":{var_field},"tipo":"entrada","quantidade":{qtd}}}"
+            ));
             first = false;
         }
         out.push(']');
         Ok(out)
     })
 }
+
+pub fn read_movimentacoes(produto_id: Option<&str>, limit: i64) -> DbResult<String> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 5000);
+        let mut out = String::from("[");
+        let mut first = true;
+
+        if let Some(pid) = produto_id {
+            let mut stmt = conn.prepare(
+                "SELECT payload FROM estoque_movimentacoes_local
+                  WHERE produto_id = ?1
+                  ORDER BY data_movimentacao_ms DESC
+                  LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(params![pid, limit], |r| r.get::<_, String>(0))?;
+            for r in rows {
+                let p = r?;
+                if !first { out.push(','); }
+                out.push_str(&p);
+                first = false;
+            }
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT payload FROM estoque_movimentacoes_local
+                  ORDER BY data_movimentacao_ms DESC
+                  LIMIT ?1",
+            )?;
+            let rows = stmt.query_map(params![limit], |r| r.get::<_, String>(0))?;
+            for r in rows {
+                let p = r?;
+                if !first { out.push(','); }
+                out.push_str(&p);
+                first = false;
+            }
+        }
+
+        out.push(']');
+        Ok(out)
+    })
+}
+
 
 // ---------- Stats por domínio ----------
 
