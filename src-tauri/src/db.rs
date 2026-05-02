@@ -228,6 +228,46 @@ pub fn init() -> DbResult<()> {
             ON estoque_movimentacoes_local(data_movimentacao_ms DESC);
         CREATE INDEX IF NOT EXISTS idx_movs_produto_data
             ON estoque_movimentacoes_local(produto_id, data_movimentacao_ms DESC);
+
+        -- ====================================================================
+        -- v5: WRITES LOCAIS de movimentação de estoque + fila offline.
+        --
+        -- `outbox_estoque_movs` é a FILA OFFLINE idempotente:
+        --   * `local_uuid`     → identidade local estável (idempotency key real
+        --                        usada no upstream); gerado pelo servidor.
+        --   * `client_uuid`    → idempotency key vinda do terminal (modal /
+        --                        botão); usada para deduplicar reenvios do
+        --                        próprio terminal antes de enfileirar.
+        --   * `status`         → 'pending' | 'sending' | 'sent' | 'error'
+        --   * `attempts`       → contador de tentativas
+        --   * `payload`        → JSON do RegistrarMovimentoEstoqueInput
+        --   * `last_error`     → mensagem da última falha
+        --   * `remote_id`      → id do movimento na nuvem após push OK
+        --
+        -- O write local funciona em DOIS PASSOS atômicos:
+        --   1. INSERT em `estoque_movimentacoes_local` com id = local_uuid
+        --      (já materializa saldo via apply_mov_to_saldo).
+        --   2. INSERT em `outbox_estoque_movs` com status='pending'.
+        -- Tudo na MESMA transação → ou aparece nos dois lados ou em nenhum.
+        -- ====================================================================
+
+        CREATE TABLE IF NOT EXISTS outbox_estoque_movs (
+            local_uuid    TEXT PRIMARY KEY,
+            client_uuid   TEXT,
+            payload       TEXT NOT NULL,
+            status        TEXT NOT NULL DEFAULT 'pending',
+            attempts      INTEGER NOT NULL DEFAULT 0,
+            last_error    TEXT,
+            remote_id     TEXT,
+            created_at_ms INTEGER NOT NULL,
+            updated_at_ms INTEGER NOT NULL,
+            sent_at_ms    INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_outbox_status
+            ON outbox_estoque_movs(status, created_at_ms);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_client_uuid
+            ON outbox_estoque_movs(client_uuid)
+            WHERE client_uuid IS NOT NULL;
         "#,
     )?;
 
