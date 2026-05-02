@@ -880,6 +880,9 @@ export interface LancamentoLocalRow {
   operador_id?: string | null;
   cancelado_em_ms?: number | null;
   cancelado_motivo?: string | null;
+  // v12 — sync com upstream
+  remote_id?: string | null;
+  sync_status?: "local_only" | "pending" | "synced" | "error";
 }
 
 async function getLocalJson<T>(
