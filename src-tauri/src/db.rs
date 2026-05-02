@@ -2377,14 +2377,42 @@ pub fn registrar_venda_local(
     with_conn(|conn| {
         let tx = conn.unchecked_transaction()?;
 
+        // 0) Resolve o caixa local aberto para vincular esta venda.
+        //    Estratégia: prioriza match por operador_id; cai para qualquer
+        //    caixa aberto neste banco (típico em terminais 1-caixa). NULL é
+        //    aceito — venda ainda funciona mesmo sem caixa aberto local.
+        let caixa_local_uuid: Option<String> = {
+            let by_op: Option<String> = match input.operador_id.as_deref() {
+                Some(op) if !op.is_empty() => tx.query_row(
+                    "SELECT local_uuid FROM caixa_local
+                      WHERE status='aberto' AND operador_id = ?1
+                   ORDER BY data_abertura_ms DESC LIMIT 1",
+                    params![op],
+                    |r| r.get::<_, String>(0),
+                ).optional()?,
+                _ => None,
+            };
+            if by_op.is_some() {
+                by_op
+            } else {
+                tx.query_row(
+                    "SELECT local_uuid FROM caixa_local
+                      WHERE status='aberto'
+                   ORDER BY data_abertura_ms DESC LIMIT 1",
+                    [],
+                    |r| r.get::<_, String>(0),
+                ).optional()?
+            }
+        };
+
         // 1) Cabeçalho.
         tx.execute(
             "INSERT INTO vendas_local(
                 local_uuid, client_uuid, cliente_id, subtotal, desconto, total,
                 forma_pagamento, status_pagamento, valor_recebido, troco,
                 observacao, operador_id, terminal_id, gerar_financeiro,
-                qtd_itens, created_at_ms, updated_at_ms
-             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?16)",
+                qtd_itens, caixa_local_uuid, created_at_ms, updated_at_ms
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?17)",
             params![
                 local_uuid,
                 input.client_uuid,
@@ -2401,6 +2429,7 @@ pub fn registrar_venda_local(
                 input.terminal_id,
                 if input.gerar_financeiro { 1i64 } else { 0i64 },
                 qtd_itens,
+                caixa_local_uuid,
                 now_ms,
             ],
         )?;
