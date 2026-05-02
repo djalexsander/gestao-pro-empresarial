@@ -21,8 +21,10 @@ import { DesktopSetupWizard } from "@/components/desktop/DesktopSetupWizard";
 import { useServerConnection } from "@/components/desktop/useServerConnection";
 import {
   fetchDbInfo,
+  fetchDomainStats,
   fetchKnownTerminals,
   type DbInfoPayload,
+  type DomainStat,
   type PersistedTerminal,
   type ServerConnStatus,
 } from "@/integrations/desktop/serverConnection";
@@ -40,6 +42,7 @@ export function DesktopTab() {
   // ---- Banco local: polling leve do /db/info e /terminals/known ----
   const [dbInfo, setDbInfo] = useState<DbInfoPayload | null>(null);
   const [knownTerminals, setKnownTerminals] = useState<PersistedTerminal[]>([]);
+  const [domainStats, setDomainStats] = useState<DomainStat[]>([]);
 
   useEffect(() => {
     if (!isDesktop || role === "unset") return;
@@ -58,13 +61,15 @@ export function DesktopTab() {
 
     let alive = true;
     const carregar = async () => {
-      const [info, terms] = await Promise.all([
+      const [info, terms, stats] = await Promise.all([
         fetchDbInfo(cfg),
         fetchKnownTerminals(cfg),
+        fetchDomainStats(cfg),
       ]);
       if (!alive) return;
       setDbInfo(info);
       setKnownTerminals(terms);
+      setDomainStats(stats);
     };
     void carregar();
     const t = setInterval(() => void carregar(), 30_000);
