@@ -1400,23 +1400,50 @@ export function DesktopTab() {
                         <th className="px-3 py-2 text-left font-medium">Categoria</th>
                         <th className="px-3 py-2 text-left font-medium">Origem</th>
                         <th className="px-3 py-2 text-left font-medium">Status</th>
+                        <th className="px-3 py-2 text-left font-medium">Sync</th>
                         <th className="px-3 py-2 text-right font-medium">Valor</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {finRecentes.map((l) => (
-                        <tr key={l.local_uuid} className="border-t">
-                          <td className="px-3 py-2">
-                            <Badge variant={l.tipo === "entrada" ? "default" : "secondary"}>{l.tipo}</Badge>
-                          </td>
-                          <td className="px-3 py-2 font-mono text-xs">{l.categoria}</td>
-                          <td className="px-3 py-2 text-xs text-muted-foreground">{l.origem}</td>
-                          <td className="px-3 py-2 text-xs">{l.status ?? "confirmado"}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">
-                            {l.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                          </td>
-                        </tr>
-                      ))}
+                      {finRecentes.map((l) => {
+                        const sync = l.sync_status ?? "local_only";
+                        const syncVariant: "default" | "secondary" | "outline" | "destructive" =
+                          sync === "synced"
+                            ? "default"
+                            : sync === "error"
+                              ? "destructive"
+                              : sync === "pending"
+                                ? "outline"
+                                : "secondary";
+                        return (
+                          <tr key={l.local_uuid} className="border-t">
+                            <td className="px-3 py-2">
+                              <Badge variant={l.tipo === "entrada" ? "default" : "secondary"}>{l.tipo}</Badge>
+                            </td>
+                            <td className="px-3 py-2 font-mono text-xs">{l.categoria}</td>
+                            <td className="px-3 py-2 text-xs text-muted-foreground">{l.origem}</td>
+                            <td className="px-3 py-2 text-xs">{l.status ?? "confirmado"}</td>
+                            <td className="px-3 py-2 text-xs">
+                              <div className="flex flex-col gap-0.5">
+                                <Badge variant={syncVariant} className="w-fit text-[10px]">
+                                  {sync}
+                                </Badge>
+                                {l.remote_id && (
+                                  <span
+                                    className="font-mono text-[10px] text-muted-foreground"
+                                    title={l.remote_id}
+                                  >
+                                    {l.remote_id.slice(0, 8)}…
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums">
+                              {l.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
