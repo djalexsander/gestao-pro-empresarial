@@ -468,7 +468,13 @@ async fn proxy_with_incremental_sync(
     }
 
     // 3) Monta query upstream — incremental quando há cursor.
-    let mut q: Vec<(&str, String)> = base_query.to_vec();
+    // Remove pseudo-keys (`__filter_*`) — só servem para `read_typed`,
+    // não devem ir ao upstream PostgREST.
+    let mut q: Vec<(&str, String)> = base_query
+        .iter()
+        .filter(|(k, _)| !k.starts_with("__"))
+        .cloned()
+        .collect();
     if let Some(cursor) = state.last_remote_cursor_ms {
         if spec.strip_status_in_incremental {
             q.retain(|(k, _)| *k != "order" && *k != "status");
