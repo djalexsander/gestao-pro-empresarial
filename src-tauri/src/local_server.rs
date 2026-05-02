@@ -48,6 +48,8 @@ struct ServerState {
     shutdown_tx: Option<oneshot::Sender<()>>,
     /// Sinaliza o scheduler de background (outbox de estoque) para parar.
     scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
+    /// Sinaliza o scheduler de background (outbox de vendas) para parar.
+    vendas_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     upstream: Option<UpstreamConfig>,
     /// Últimos heartbeats por terminalId (em memória; banco local virá depois).
     terminals: HashMap<String, TerminalHeartbeat>,
@@ -1227,10 +1229,235 @@ struct RetryErrorsResponse {
     requeued: i64,
 }
 
-async fn outbox_retry_errors_handler() -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
-    let n = db::outbox_reset_errors(now_ms())
+}
+
+// ============================================================================
+// VENDAS LOCAIS (PDV) — handlers HTTP + push para upstream
+// ============================================================================
+
+#[derive(Deserialize, Debug)]
+struct RegistrarVendaLocalRequest {
+    #[serde(flatten)]
+    raw: serde_json::Value,
+}
+
+#[derive(Serialize)]
+struct RegistrarVendaLocalResponse {
+    venda_id: String,
+    idempotente: bool,
+    qtd_itens: i64,
+    total: f64,
+    outbox_status: String,
+    remote_id: Option<String>,
+}
+
+async fn registrar_venda_local_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<RegistrarVendaLocalRequest>,
+) -> Result<Json<RegistrarVendaLocalResponse>, (StatusCode, String)> {
+    let now = now_ms();
+    let input: db::LocalVendaInput = serde_json::from_value(req.raw)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("payload inválido: {e}")))?;
+
+    let result = db::registrar_venda_local(input, now)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+
+    let mut outbox_status = "pending".to_string();
+    let mut remote_id: Option<String> = None;
+    if !result.idempotente && ctx.upstream.is_some() {
+        if let Ok(rid) = push_one_outbox_venda(&ctx, &headers, &result.local_uuid).await {
+            outbox_status = "sent".into();
+            remote_id = Some(rid);
+        }
+    }
+
+    Ok(Json(RegistrarVendaLocalResponse {
+        venda_id: result.local_uuid,
+        idempotente: result.idempotente,
+        qtd_itens: result.qtd_itens,
+        total: result.total,
+        outbox_status,
+        remote_id,
+    }))
+}
+
+/// Empurra UMA venda da outbox para o upstream via RPC `finalizar_venda_pdv`.
+/// `_client_uuid = local_uuid` garante idempotência cross-runs.
+async fn push_one_outbox_venda(
+    ctx: &AppCtx,
+    headers: &HeaderMap,
+    local_uuid: &str,
+) -> Result<String, String> {
+    let upstream = ctx.upstream.as_ref().ok_or("upstream não configurado")?;
+    let now = now_ms();
+
+    let items = db::outbox_vendas_list(1000, None).map_err(|e| e.to_string())?;
+    let item = items.into_iter()
+        .find(|i| i.local_uuid == local_uuid)
+        .ok_or("venda não encontrada na outbox")?;
+    if item.status == "sent" {
+        return Ok(item.remote_id.unwrap_or_default());
+    }
+
+    let payload: serde_json::Value =
+        serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
+
+    db::outbox_vendas_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
+
+    let auth = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+
+    let pagamentos = payload.get("pagamentos").cloned().unwrap_or(serde_json::Value::Null);
+    let body = serde_json::json!({
+        "_cliente_id":       payload.get("cliente_id"),
+        "_subtotal":         payload.get("subtotal"),
+        "_desconto":         payload.get("desconto"),
+        "_total":            payload.get("total"),
+        "_forma":            payload.get("forma_pagamento"),
+        "_status_pagamento": payload.get("status_pagamento"),
+        "_valor_recebido":   payload.get("valor_recebido"),
+        "_troco":            payload.get("troco"),
+        "_observacao":       payload.get("observacao"),
+        "_itens":            payload.get("itens"),
+        "_pagamentos":       if pagamentos.as_array().map(|a| a.is_empty()).unwrap_or(true) {
+                                serde_json::Value::Null
+                             } else { pagamentos },
+        "_gerar_financeiro": payload.get("gerar_financeiro"),
+        "_operador_id":      payload.get("operador_id"),
+        "_terminal_id":      payload.get("terminal_id"),
+        // Idempotência ponta a ponta — local_uuid estável.
+        "_client_uuid":      local_uuid,
+    });
+
+    let url = format!(
+        "{}/rest/v1/rpc/finalizar_venda_pdv",
+        upstream.base_url.trim_end_matches('/')
+    );
+    let resp = ctx.http.post(&url)
+        .header("apikey", &upstream.anon_key)
+        .header(axum::http::header::AUTHORIZATION, auth)
+        .header(axum::http::header::CONTENT_TYPE, "application/json")
+        .header(axum::http::header::ACCEPT, "application/json")
+        .json(&body)
+        .send().await
+        .map_err(|e| {
+            let msg = format!("rede: {e}");
+            let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
+            msg
+        })?;
+
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        let msg = format!("HTTP {}: {}", status.as_u16(), text);
+        let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
+        return Err(msg);
+    }
+
+    // RPC devolve o venda_id como string (ou JSON com aspas).
+    let parsed: serde_json::Value =
+        serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+    let remote_id = parsed.as_str().map(|s| s.to_string())
+        .unwrap_or_else(|| text.trim().trim_matches('"').to_string());
+
+    db::outbox_vendas_mark_sent(local_uuid, &remote_id, now).map_err(|e| e.to_string())?;
+    Ok(remote_id)
+}
+
+#[derive(Serialize)]
+struct OutboxVendasListResponse {
+    total: usize,
+    items: Vec<db::OutboxItem>,
+}
+
+async fn outbox_vendas_list_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<OutboxVendasListResponse>, (StatusCode, String)> {
+    let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(200);
+    let status = q.get("status").map(|s| s.as_str());
+    let items = db::outbox_vendas_list(limit, status)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(OutboxVendasListResponse { total: items.len(), items }))
+}
+
+async fn outbox_vendas_stats_handler() -> Result<Json<db::OutboxVendasStats>, (StatusCode, String)> {
+    db::outbox_vendas_stats()
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+async fn outbox_vendas_flush_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<Json<FlushResponse>, (StatusCode, String)> {
+    let pending = db::outbox_vendas_pending_batch_all(100)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let mut sent = 0usize;
+    let mut failed = 0usize;
+    let mut errors: Vec<String> = Vec::new();
+    for it in &pending {
+        match push_one_outbox_venda(&ctx, &headers, &it.local_uuid).await {
+            Ok(_) => sent += 1,
+            Err(e) => { failed += 1; errors.push(format!("{}: {}", it.local_uuid, e)); }
+        }
+    }
+    let _ = db::outbox_vendas_record_flush_round(
+        "manual", now_ms(), pending.len() as i64, sent as i64, failed as i64,
+    );
+    Ok(Json(FlushResponse {
+        attempted: pending.len(), sent, failed, errors,
+    }))
+}
+
+async fn outbox_vendas_retry_errors_handler() -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
+    let n = db::outbox_vendas_reset_errors(now_ms())
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(RetryErrorsResponse { requeued: n }))
+}
+
+/// Scheduler de background da outbox de vendas — espelha o de estoque.
+async fn run_outbox_vendas_scheduler(
+    ctx: AppCtx,
+    mut shutdown_rx: oneshot::Receiver<()>,
+) {
+    eprintln!("[gestao-pro] outbox vendas scheduler: iniciado");
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_millis(SCHEDULER_TICK_MS)) => {}
+            _ = &mut shutdown_rx => {
+                eprintln!("[gestao-pro] outbox vendas scheduler: parado");
+                break;
+            }
+        }
+        if ctx.upstream.is_none() {
+            let _ = db::outbox_vendas_record_flush_round("auto", now_ms(), 0, 0, 0);
+            continue;
+        }
+        let pending = match db::outbox_vendas_pending_batch(SCHEDULER_BATCH) {
+            Ok(p) => p,
+            Err(e) => { eprintln!("[gestao-pro] outbox vendas: batch err: {e}"); continue; }
+        };
+        if pending.is_empty() {
+            let _ = db::outbox_vendas_record_flush_round("auto", now_ms(), 0, 0, 0);
+            continue;
+        }
+        let empty = HeaderMap::new();
+        let mut sent = 0i64;
+        let mut failed = 0i64;
+        for it in &pending {
+            match push_one_outbox_venda(&ctx, &empty, &it.local_uuid).await {
+                Ok(_) => sent += 1,
+                Err(_) => failed += 1,
+            }
+        }
+        let _ = db::outbox_vendas_record_flush_round(
+            "auto", now_ms(), pending.len() as i64, sent, failed,
+        );
+    }
 }
 
 // ============================================================================
@@ -1348,6 +1575,10 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/db/outbox/estoque/stats", get(outbox_stats_handler))
         .route("/db/outbox/flush", post(outbox_flush_handler))
         .route("/db/outbox/retry-errors", post(outbox_retry_errors_handler))
+        .route("/db/outbox/vendas", get(outbox_vendas_list_handler))
+        .route("/db/outbox/vendas/stats", get(outbox_vendas_stats_handler))
+        .route("/db/outbox/vendas/flush", post(outbox_vendas_flush_handler))
+        .route("/db/outbox/vendas/retry-errors", post(outbox_vendas_retry_errors_handler))
         .route("/api/produtos/list", get(produtos_list_handler))
         .route("/api/estoque/saldos", get(estoque_saldos_handler))
         .route("/api/estoque/movimentacoes", get(estoque_movimentacoes_handler))
@@ -1355,6 +1586,7 @@ fn build_router(ctx: AppCtx) -> Router {
             "/api/estoque/movimentacoes/registrar",
             post(registrar_mov_local_handler),
         )
+        .route("/api/vendas/registrar", post(registrar_venda_local_handler))
         .route("/api/clientes/lite", get(clientes_lite_handler))
         .with_state(ctx)
         .layer(cors)
@@ -1473,6 +1705,20 @@ pub fn start(
         run_outbox_scheduler(scheduler_ctx, scheduler_rx).await;
     });
 
+    // Scheduler paralelo para a outbox de VENDAS — mesma política de
+    // backoff/retry, fila própria, observabilidade própria.
+    let (vendas_scheduler_tx, vendas_scheduler_rx) = oneshot::channel::<()>();
+    let vendas_ctx = AppCtx {
+        upstream: upstream.clone(),
+        http: reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .map_err(|e| format!("Falha ao criar HTTP client (vendas scheduler): {e}"))?,
+    };
+    handle.spawn(async move {
+        run_outbox_vendas_scheduler(vendas_ctx, vendas_scheduler_rx).await;
+    });
+
     {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = true;
@@ -1483,6 +1729,7 @@ pub fn start(
         s.hostname = host;
         s.shutdown_tx = Some(tx);
         s.scheduler_shutdown_tx = Some(scheduler_tx);
+        s.vendas_scheduler_shutdown_tx = Some(vendas_scheduler_tx);
         s.upstream = upstream;
         s.terminals.clear();
     }
@@ -1491,20 +1738,21 @@ pub fn start(
 }
 
 pub fn stop() -> Result<LocalServerStatus, String> {
-    let (tx_opt, sched_opt) = {
+    let (tx_opt, sched_opt, vendas_sched_opt) = {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = false;
         s.port = None;
         s.started_at_ms = None;
         s.upstream = None;
         s.terminals.clear();
-        (s.shutdown_tx.take(), s.scheduler_shutdown_tx.take())
+        (
+            s.shutdown_tx.take(),
+            s.scheduler_shutdown_tx.take(),
+            s.vendas_scheduler_shutdown_tx.take(),
+        )
     };
-    if let Some(tx) = tx_opt {
-        let _ = tx.send(());
-    }
-    if let Some(tx) = sched_opt {
-        let _ = tx.send(());
-    }
+    if let Some(tx) = tx_opt { let _ = tx.send(()); }
+    if let Some(tx) = sched_opt { let _ = tx.send(()); }
+    if let Some(tx) = vendas_sched_opt { let _ = tx.send(()); }
     Ok(current_status())
 }

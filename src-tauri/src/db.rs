@@ -22,11 +22,11 @@
 
 use once_cell::sync::OnceCell;
 use rusqlite::{params, Connection, OptionalExtension};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -268,6 +268,109 @@ pub fn init() -> DbResult<()> {
         CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_client_uuid
             ON outbox_estoque_movs(client_uuid)
             WHERE client_uuid IS NOT NULL;
+
+        -- ====================================================================
+        -- v7: WRITES LOCAIS de VENDAS/PDV + fila offline.
+        --
+        -- Estrutura espelha o padrão já validado em estoque (v5/v6) mas em
+        -- tabelas próprias para isolar domínios:
+        --
+        --   `vendas_local`           → cabeçalho da venda registrada no PDV
+        --                              local (1 linha por venda).
+        --   `venda_itens_local`      → itens da venda (N por venda).
+        --   `venda_pagamentos_local` → pagamentos da venda (N por venda).
+        --   `outbox_vendas`          → fila offline idempotente para push
+        --                              ao upstream via RPC `finalizar_venda_pdv`.
+        --
+        -- A venda é gravada em UMA transação que persiste cabeçalho+itens+
+        -- pagamentos, aplica baixa de estoque local (reusando
+        -- `apply_mov_to_saldo` + `estoque_movimentacoes_local`) e enfileira
+        -- a outbox. Se algo falhar, NADA fica gravado (atomicidade SQLite).
+        --
+        -- Idempotência:
+        --   * `client_uuid`  → vinda do PDV (1 por carrinho); deduplica
+        --                      reenvios do próprio terminal.
+        --   * `local_uuid`   → identidade local estável do servidor; é
+        --                      ENVIADA como `_client_uuid` na RPC upstream
+        --                      → retries cross-runs nunca duplicam venda
+        --                      no cloud.
+        --
+        -- Ainda nesta etapa NÃO criamos caixa local nem financeiro local;
+        -- o handler de push apenas reenvia o payload para a RPC do upstream
+        -- que já trata caixa+financeiro+estoque cloud lá.
+        -- ====================================================================
+
+        CREATE TABLE IF NOT EXISTS vendas_local (
+            local_uuid       TEXT PRIMARY KEY,
+            client_uuid      TEXT,
+            cliente_id       TEXT,
+            subtotal         REAL NOT NULL DEFAULT 0,
+            desconto         REAL NOT NULL DEFAULT 0,
+            total            REAL NOT NULL DEFAULT 0,
+            forma_pagamento  TEXT,
+            status_pagamento TEXT,
+            valor_recebido   REAL,
+            troco            REAL,
+            observacao       TEXT,
+            operador_id      TEXT,
+            terminal_id      TEXT,
+            gerar_financeiro INTEGER NOT NULL DEFAULT 1,
+            qtd_itens        INTEGER NOT NULL DEFAULT 0,
+            created_at_ms    INTEGER NOT NULL,
+            updated_at_ms    INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_vendas_local_created
+            ON vendas_local(created_at_ms DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_vendas_local_client_uuid
+            ON vendas_local(client_uuid) WHERE client_uuid IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS venda_itens_local (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            venda_local_uuid TEXT NOT NULL,
+            produto_id      TEXT NOT NULL,
+            descricao       TEXT,
+            quantidade      REAL NOT NULL,
+            preco_unitario  REAL NOT NULL DEFAULT 0,
+            desconto        REAL NOT NULL DEFAULT 0,
+            payload         TEXT NOT NULL,
+            created_at_ms   INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_venda_itens_local_venda
+            ON venda_itens_local(venda_local_uuid);
+
+        CREATE TABLE IF NOT EXISTS venda_pagamentos_local (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            venda_local_uuid TEXT NOT NULL,
+            forma_pagamento TEXT NOT NULL,
+            valor           REAL NOT NULL DEFAULT 0,
+            valor_recebido  REAL,
+            troco           REAL,
+            parcelas        INTEGER,
+            observacao      TEXT,
+            created_at_ms   INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_venda_pagtos_local_venda
+            ON venda_pagamentos_local(venda_local_uuid);
+
+        CREATE TABLE IF NOT EXISTS outbox_vendas (
+            local_uuid          TEXT PRIMARY KEY,
+            client_uuid         TEXT,
+            payload             TEXT NOT NULL,
+            status              TEXT NOT NULL DEFAULT 'pending',
+            attempts            INTEGER NOT NULL DEFAULT 0,
+            last_error          TEXT,
+            remote_id           TEXT,
+            created_at_ms       INTEGER NOT NULL,
+            updated_at_ms       INTEGER NOT NULL,
+            sent_at_ms          INTEGER,
+            next_attempt_at_ms  INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_outbox_vendas_status
+            ON outbox_vendas(status, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_vendas_status_next
+            ON outbox_vendas(status, next_attempt_at_ms);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_vendas_client_uuid
+            ON outbox_vendas(client_uuid) WHERE client_uuid IS NOT NULL;
         "#,
     )?;
 
@@ -1942,6 +2045,557 @@ pub fn outbox_reset_errors(now_ms: i64) -> DbResult<i64> {
     with_conn(|conn| {
         let n = conn.execute(
             "UPDATE outbox_estoque_movs
+                SET status='pending', updated_at_ms=?1,
+                    next_attempt_at_ms=NULL, last_error=NULL
+              WHERE status IN ('error','pending') AND last_error IS NOT NULL",
+            params![now_ms],
+        )?;
+        Ok(n as i64)
+    })
+}
+
+// ============================================================================
+// VENDAS LOCAIS (PDV) — write local + outbox de vendas
+// ============================================================================
+//
+// Mesmo padrão da outbox de estoque (v5/v6), porém em tabelas próprias.
+// Em UMA transação:
+//   1. Idempotência por client_uuid (já existe? devolve a mesma venda).
+//   2. INSERT em `vendas_local` com id = local_uuid.
+//   3. INSERT N em `venda_itens_local`.
+//   4. INSERT N em `venda_pagamentos_local`.
+//   5. Para cada item, baixa estoque local (reusa apply_mov_to_saldo +
+//      INSERT em estoque_movimentacoes_local com origem='venda').
+//   6. INSERT em `outbox_vendas` com payload completo p/ enviar à RPC
+//      `finalizar_venda_pdv` no upstream (que cuida de caixa+financeiro+
+//      estoque do lado cloud).
+//
+// O upstream usa `_client_uuid = local_uuid` → idempotência cross-runs.
+
+#[derive(Debug, Deserialize)]
+pub struct LocalVendaItemInput {
+    pub produto_id: String,
+    pub quantidade: f64,
+    pub preco_unitario: f64,
+    #[serde(default)]
+    pub desconto: f64,
+    #[serde(default)]
+    pub descricao: Option<String>,
+    /// Demais campos (peso, plu, etc.) são preservados em `extra` no payload
+    /// que vai à RPC do upstream.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LocalVendaPagamentoInput {
+    pub forma_pagamento: String,
+    pub valor: f64,
+    #[serde(default)]
+    pub valor_recebido: Option<f64>,
+    #[serde(default)]
+    pub troco: Option<f64>,
+    #[serde(default)]
+    pub parcelas: Option<i64>,
+    #[serde(default)]
+    pub observacao: Option<String>,
+}
+
+fn default_true() -> bool { true }
+
+#[derive(Debug, Deserialize)]
+pub struct LocalVendaInput {
+    pub cliente_id: Option<String>,
+    pub subtotal: f64,
+    pub desconto: f64,
+    pub total: f64,
+    pub forma_pagamento: String,
+    pub status_pagamento: String,
+    pub valor_recebido: Option<f64>,
+    pub troco: Option<f64>,
+    pub observacao: Option<String>,
+    pub itens: Vec<LocalVendaItemInput>,
+    #[serde(default)]
+    pub pagamentos: Vec<LocalVendaPagamentoInput>,
+    #[serde(default = "default_true")]
+    pub gerar_financeiro: bool,
+    pub operador_id: Option<String>,
+    pub terminal_id: Option<String>,
+    pub client_uuid: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LocalVendaResult {
+    pub local_uuid: String,
+    pub idempotente: bool,
+    pub qtd_itens: i64,
+    pub total: f64,
+}
+
+pub fn registrar_venda_local(
+    input: LocalVendaInput,
+    now_ms: i64,
+) -> DbResult<LocalVendaResult> {
+    if input.itens.is_empty() {
+        return Err(DbError("venda sem itens".into()));
+    }
+
+    // Idempotência por client_uuid (antes da transação grande).
+    if let Some(cu) = input.client_uuid.as_deref() {
+        if !cu.is_empty() {
+            if let Some((local_uuid, qtd, total)) = with_conn(|conn| {
+                let row = conn
+                    .query_row(
+                        "SELECT local_uuid, qtd_itens, total
+                           FROM vendas_local WHERE client_uuid = ?1",
+                        params![cu],
+                        |r| Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, i64>(1)?,
+                            r.get::<_, f64>(2)?,
+                        )),
+                    )
+                    .optional()?;
+                Ok(row)
+            })? {
+                return Ok(LocalVendaResult {
+                    local_uuid,
+                    idempotente: true,
+                    qtd_itens: qtd,
+                    total,
+                });
+            }
+        }
+    }
+
+    let local_uuid = random_uuid_v4();
+    let qtd_itens = input.itens.len() as i64;
+
+    let itens_json: Vec<serde_json::Value> = input
+        .itens
+        .iter()
+        .map(|i| {
+            let mut obj = serde_json::Map::new();
+            obj.insert("produto_id".into(), serde_json::json!(i.produto_id));
+            obj.insert("quantidade".into(), serde_json::json!(i.quantidade));
+            obj.insert("preco_unitario".into(), serde_json::json!(i.preco_unitario));
+            obj.insert("desconto".into(), serde_json::json!(i.desconto));
+            if let Some(d) = &i.descricao {
+                obj.insert("descricao".into(), serde_json::json!(d));
+            }
+            for (k, v) in &i.extra {
+                obj.insert(k.clone(), v.clone());
+            }
+            serde_json::Value::Object(obj)
+        })
+        .collect();
+
+    let pagtos_json: Vec<serde_json::Value> = input
+        .pagamentos
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "forma_pagamento": p.forma_pagamento,
+                "valor": p.valor,
+                "valor_recebido": p.valor_recebido,
+                "troco": p.troco,
+                "parcelas": p.parcelas,
+                "observacao": p.observacao,
+            })
+        })
+        .collect();
+
+    let payload_json = serde_json::json!({
+        "local_uuid":       local_uuid,
+        "cliente_id":       input.cliente_id,
+        "subtotal":         input.subtotal,
+        "desconto":         input.desconto,
+        "total":            input.total,
+        "forma_pagamento":  input.forma_pagamento,
+        "status_pagamento": input.status_pagamento,
+        "valor_recebido":   input.valor_recebido,
+        "troco":            input.troco,
+        "observacao":       input.observacao,
+        "itens":            itens_json,
+        "pagamentos":       pagtos_json,
+        "gerar_financeiro": input.gerar_financeiro,
+        "operador_id":      input.operador_id,
+        "terminal_id":      input.terminal_id,
+        "client_uuid":      input.client_uuid,
+    })
+    .to_string();
+
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+
+        // 1) Cabeçalho.
+        tx.execute(
+            "INSERT INTO vendas_local(
+                local_uuid, client_uuid, cliente_id, subtotal, desconto, total,
+                forma_pagamento, status_pagamento, valor_recebido, troco,
+                observacao, operador_id, terminal_id, gerar_financeiro,
+                qtd_itens, created_at_ms, updated_at_ms
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?16)",
+            params![
+                local_uuid,
+                input.client_uuid,
+                input.cliente_id,
+                input.subtotal,
+                input.desconto,
+                input.total,
+                input.forma_pagamento,
+                input.status_pagamento,
+                input.valor_recebido,
+                input.troco,
+                input.observacao,
+                input.operador_id,
+                input.terminal_id,
+                if input.gerar_financeiro { 1i64 } else { 0i64 },
+                qtd_itens,
+                now_ms,
+            ],
+        )?;
+
+        // 2) Itens + baixa de estoque local.
+        for (idx, item) in input.itens.iter().enumerate() {
+            let item_payload = serde_json::to_string(&itens_json[idx])
+                .unwrap_or_else(|_| "{}".to_string());
+            tx.execute(
+                "INSERT INTO venda_itens_local(
+                    venda_local_uuid, produto_id, descricao, quantidade,
+                    preco_unitario, desconto, payload, created_at_ms
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                params![
+                    local_uuid,
+                    item.produto_id,
+                    item.descricao,
+                    item.quantidade,
+                    item.preco_unitario,
+                    item.desconto,
+                    item_payload,
+                    now_ms,
+                ],
+            )?;
+
+            // Baixa de estoque local: 1 movimentação 'saida' por item, com
+            // id derivado do (local_uuid, idx). NÃO enfileira na outbox de
+            // estoque — o upstream gera as movimentações automaticamente
+            // quando processa a venda via `finalizar_venda_pdv`.
+            let mov_id = format!("{}-i{}", local_uuid, idx);
+            let variacao_id = String::new();
+            let saldo_anterior = read_saldo_atual(&tx, &item.produto_id, &variacao_id)?;
+            let saldo_posterior = saldo_anterior - item.quantidade;
+            let mov_payload = serde_json::json!({
+                "id": mov_id,
+                "produto_id": item.produto_id,
+                "tipo": "saida",
+                "quantidade": item.quantidade,
+                "saldo_anterior": saldo_anterior,
+                "saldo_posterior": saldo_posterior,
+                "origem": "venda",
+                "venda_local_uuid": local_uuid,
+                "data_movimentacao": iso_from_ms_z_pub(now_ms),
+                "_pending": true,
+            })
+            .to_string();
+            tx.execute(
+                "INSERT OR IGNORE INTO estoque_movimentacoes_local(
+                    id, produto_id, variacao_id, tipo, quantidade,
+                    saldo_anterior, saldo_posterior, custo_unitario,
+                    origem, observacoes, data_movimentacao_ms,
+                    payload, synced_at_ms
+                 ) VALUES (?1,?2,?3,'saida',?4,?5,?6,NULL,'venda',NULL,?7,?8,?7)",
+                params![
+                    mov_id,
+                    item.produto_id,
+                    variacao_id,
+                    item.quantidade,
+                    saldo_anterior,
+                    saldo_posterior,
+                    now_ms,
+                    mov_payload,
+                ],
+            )?;
+            apply_mov_to_saldo(
+                &tx,
+                &item.produto_id,
+                &variacao_id,
+                Some("saida"),
+                item.quantidade,
+                now_ms,
+            )?;
+        }
+
+        // 3) Pagamentos.
+        for p in &input.pagamentos {
+            tx.execute(
+                "INSERT INTO venda_pagamentos_local(
+                    venda_local_uuid, forma_pagamento, valor, valor_recebido,
+                    troco, parcelas, observacao, created_at_ms
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                params![
+                    local_uuid,
+                    p.forma_pagamento,
+                    p.valor,
+                    p.valor_recebido,
+                    p.troco,
+                    p.parcelas,
+                    p.observacao,
+                    now_ms,
+                ],
+            )?;
+        }
+
+        // 4) Outbox.
+        tx.execute(
+            "INSERT INTO outbox_vendas(
+                local_uuid, client_uuid, payload, status,
+                attempts, last_error, remote_id,
+                created_at_ms, updated_at_ms, sent_at_ms, next_attempt_at_ms
+             ) VALUES (?1,?2,?3,'pending',0,NULL,NULL,?4,?4,NULL,NULL)",
+            params![local_uuid, input.client_uuid, payload_json, now_ms],
+        )?;
+
+        tx.commit()?;
+        Ok(LocalVendaResult {
+            local_uuid,
+            idempotente: false,
+            qtd_itens,
+            total: input.total,
+        })
+    })
+}
+
+// ---------- Outbox de vendas: stats / listagem / status ----------
+
+#[derive(Debug, Serialize, Default)]
+pub struct OutboxVendasStats {
+    pub pending: i64,
+    pub sending: i64,
+    pub sent: i64,
+    pub error: i64,
+    pub last_sent_at_ms: Option<i64>,
+    pub last_error: Option<String>,
+    pub due_now: i64,
+    pub next_attempt_at_ms: Option<i64>,
+    pub last_auto_flush_ms: Option<i64>,
+    pub last_auto_flush_sent_ms: Option<i64>,
+    pub last_auto_attempted: Option<i64>,
+    pub last_auto_sent: Option<i64>,
+    pub last_auto_failed: Option<i64>,
+    pub last_manual_flush_ms: Option<i64>,
+}
+
+pub fn outbox_vendas_stats() -> DbResult<OutboxVendasStats> {
+    with_conn(|conn| {
+        let mut s = OutboxVendasStats::default();
+        let mut stmt = conn
+            .prepare("SELECT status, COUNT(*) FROM outbox_vendas GROUP BY status")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        for r in rows {
+            let (st, n) = r?;
+            match st.as_str() {
+                "pending" => s.pending = n,
+                "sending" => s.sending = n,
+                "sent" => s.sent = n,
+                "error" => s.error = n,
+                _ => {}
+            }
+        }
+        s.last_sent_at_ms = conn.query_row(
+            "SELECT MAX(sent_at_ms) FROM outbox_vendas WHERE status='sent'",
+            [], |r| r.get::<_, Option<i64>>(0),
+        ).optional()?.flatten();
+        s.last_error = conn.query_row(
+            "SELECT last_error FROM outbox_vendas
+              WHERE status='error' ORDER BY updated_at_ms DESC LIMIT 1",
+            [], |r| r.get::<_, Option<String>>(0),
+        ).optional()?.flatten();
+        let now = chrono::Utc::now().timestamp_millis();
+        s.due_now = conn.query_row(
+            "SELECT COUNT(*) FROM outbox_vendas
+              WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1",
+            params![now], |r| r.get::<_, i64>(0),
+        ).optional()?.unwrap_or(0);
+        s.next_attempt_at_ms = conn.query_row(
+            "SELECT MIN(COALESCE(next_attempt_at_ms,0))
+               FROM outbox_vendas WHERE status='pending'",
+            [], |r| r.get::<_, Option<i64>>(0),
+        ).optional()?.flatten();
+        s.last_auto_flush_ms = meta_get_i64(conn, "outbox_vendas_last_auto_flush_ms")?;
+        s.last_auto_flush_sent_ms = meta_get_i64(conn, "outbox_vendas_last_auto_flush_sent_ms")?;
+        s.last_auto_attempted = meta_get_i64(conn, "outbox_vendas_last_auto_attempted")?;
+        s.last_auto_sent = meta_get_i64(conn, "outbox_vendas_last_auto_sent")?;
+        s.last_auto_failed = meta_get_i64(conn, "outbox_vendas_last_auto_failed")?;
+        s.last_manual_flush_ms = meta_get_i64(conn, "outbox_vendas_last_manual_flush_ms")?;
+        Ok(s)
+    })
+}
+
+pub fn outbox_vendas_record_flush_round(
+    kind: &str, now_ms: i64, attempted: i64, sent: i64, failed: i64,
+) -> DbResult<()> {
+    with_conn(|conn| {
+        if kind == "auto" {
+            meta_set_i64(conn, "outbox_vendas_last_auto_flush_ms", now_ms)?;
+            meta_set_i64(conn, "outbox_vendas_last_auto_attempted", attempted)?;
+            meta_set_i64(conn, "outbox_vendas_last_auto_sent", sent)?;
+            meta_set_i64(conn, "outbox_vendas_last_auto_failed", failed)?;
+            if sent > 0 {
+                meta_set_i64(conn, "outbox_vendas_last_auto_flush_sent_ms", now_ms)?;
+            }
+        } else {
+            meta_set_i64(conn, "outbox_vendas_last_manual_flush_ms", now_ms)?;
+        }
+        Ok(())
+    })
+}
+
+pub fn outbox_vendas_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let map_row = |r: &rusqlite::Row<'_>| -> rusqlite::Result<OutboxItem> {
+            Ok(OutboxItem {
+                local_uuid: r.get(0)?,
+                client_uuid: r.get(1)?,
+                payload: r.get(2)?,
+                status: r.get(3)?,
+                attempts: r.get(4)?,
+                last_error: r.get(5)?,
+                remote_id: r.get(6)?,
+                created_at_ms: r.get(7)?,
+                updated_at_ms: r.get(8)?,
+                sent_at_ms: r.get(9)?,
+            })
+        };
+        let mut out = Vec::new();
+        if let Some(st) = only_status {
+            let mut stmt = conn.prepare(
+                "SELECT local_uuid, client_uuid, payload, status, attempts, last_error,
+                        remote_id, created_at_ms, updated_at_ms, sent_at_ms
+                   FROM outbox_vendas WHERE status = ?1
+                  ORDER BY created_at_ms DESC LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(params![st, limit], map_row)?;
+            for r in rows { out.push(r?); }
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT local_uuid, client_uuid, payload, status, attempts, last_error,
+                        remote_id, created_at_ms, updated_at_ms, sent_at_ms
+                   FROM outbox_vendas ORDER BY created_at_ms DESC LIMIT ?1",
+            )?;
+            let rows = stmt.query_map(params![limit], map_row)?;
+            for r in rows { out.push(r?); }
+        }
+        Ok(out)
+    })
+}
+
+pub fn outbox_vendas_pending_batch(limit: i64) -> DbResult<Vec<OutboxItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut stmt = conn.prepare(
+            "SELECT local_uuid, client_uuid, payload, status, attempts, last_error,
+                    remote_id, created_at_ms, updated_at_ms, sent_at_ms
+               FROM outbox_vendas
+              WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1
+              ORDER BY created_at_ms ASC LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![now, limit], |r| {
+            Ok(OutboxItem {
+                local_uuid: r.get(0)?, client_uuid: r.get(1)?, payload: r.get(2)?,
+                status: r.get(3)?, attempts: r.get(4)?, last_error: r.get(5)?,
+                remote_id: r.get(6)?, created_at_ms: r.get(7)?,
+                updated_at_ms: r.get(8)?, sent_at_ms: r.get(9)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    })
+}
+
+pub fn outbox_vendas_pending_batch_all(limit: i64) -> DbResult<Vec<OutboxItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let mut stmt = conn.prepare(
+            "SELECT local_uuid, client_uuid, payload, status, attempts, last_error,
+                    remote_id, created_at_ms, updated_at_ms, sent_at_ms
+               FROM outbox_vendas WHERE status='pending'
+              ORDER BY created_at_ms ASC LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit], |r| {
+            Ok(OutboxItem {
+                local_uuid: r.get(0)?, client_uuid: r.get(1)?, payload: r.get(2)?,
+                status: r.get(3)?, attempts: r.get(4)?, last_error: r.get(5)?,
+                remote_id: r.get(6)?, created_at_ms: r.get(7)?,
+                updated_at_ms: r.get(8)?, sent_at_ms: r.get(9)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    })
+}
+
+pub fn outbox_vendas_mark_sending(local_uuid: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        conn.execute(
+            "UPDATE outbox_vendas
+                SET status='sending', updated_at_ms=?2, attempts=attempts+1
+              WHERE local_uuid=?1",
+            params![local_uuid, now_ms],
+        )?;
+        Ok(())
+    })
+}
+
+pub fn outbox_vendas_mark_sent(local_uuid: &str, remote_id: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        conn.execute(
+            "UPDATE outbox_vendas
+                SET status='sent', sent_at_ms=?2, updated_at_ms=?2,
+                    remote_id=?3, last_error=NULL, next_attempt_at_ms=NULL
+              WHERE local_uuid=?1",
+            params![local_uuid, now_ms, remote_id],
+        )?;
+        Ok(())
+    })
+}
+
+pub fn outbox_vendas_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        let attempts: i64 = conn.query_row(
+            "SELECT attempts FROM outbox_vendas WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).optional()?.unwrap_or(1);
+        if attempts >= MAX_AUTO_ATTEMPTS {
+            conn.execute(
+                "UPDATE outbox_vendas
+                    SET status='error', last_error=?2, updated_at_ms=?3,
+                        next_attempt_at_ms=NULL
+                  WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms],
+            )?;
+        } else {
+            let next = now_ms + backoff_ms_for_attempts(attempts);
+            conn.execute(
+                "UPDATE outbox_vendas
+                    SET status='pending', last_error=?2, updated_at_ms=?3,
+                        next_attempt_at_ms=?4
+                  WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms, next],
+            )?;
+        }
+        Ok(())
+    })
+}
+
+pub fn outbox_vendas_reset_errors(now_ms: i64) -> DbResult<i64> {
+    with_conn(|conn| {
+        let n = conn.execute(
+            "UPDATE outbox_vendas
                 SET status='pending', updated_at_ms=?1,
                     next_attempt_at_ms=NULL, last_error=NULL
               WHERE status IN ('error','pending') AND last_error IS NOT NULL",
