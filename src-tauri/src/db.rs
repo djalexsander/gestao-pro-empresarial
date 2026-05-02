@@ -371,6 +371,106 @@ pub fn init() -> DbResult<()> {
             ON outbox_vendas(status, next_attempt_at_ms);
         CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_vendas_client_uuid
             ON outbox_vendas(client_uuid) WHERE client_uuid IS NOT NULL;
+
+        -- ====================================================================
+        -- v8: CAIXA LOCAL (offline-first) + fila offline.
+        --
+        -- Mesmo padrão das outbox de estoque (v5/v6) e vendas (v7), em tabelas
+        -- próprias. Operações suportadas nesta etapa:
+        --
+        --   * abertura       (action='abrir')      → cria caixa_local + outbox
+        --   * suprimento     (action='movimento')  → registra mov + outbox
+        --   * sangria        (action='movimento')  → registra mov + outbox
+        --   * fechamento     (action='fechar')     → marca caixa fechado + outbox
+        --
+        -- `caixa_local` representa o estado local do caixa (1 linha por caixa
+        -- aberto/fechado neste terminal). `caixa_movs_local` é append-only e
+        -- persiste todos os suprimentos/sangrias.
+        --
+        -- `outbox_caixa` é a fila idempotente. Cada item carrega o `action`
+        -- + payload completo. O scheduler reenvia para a RPC correspondente
+        -- no upstream:
+        --   action='abrir'     → RPC `abrir_caixa`
+        --   action='movimento' → RPC `caixa_registrar_movimento`
+        --   action='fechar'    → RPC `fechar_caixa`
+        --
+        -- Idempotência:
+        --   * `client_uuid`  → vinda do terminal (1 por modal/ação); deduplica
+        --                      reenvios do próprio terminal.
+        --   * `local_uuid`   → identidade local estável do servidor; vira o
+        --                      `_client_uuid` da RPC upstream → retries
+        --                      cross-runs nunca duplicam abertura/movimento/
+        --                      fechamento no cloud.
+        --
+        -- IMPORTANTE: nesta etapa NÃO migramos financeiro local nem cancelamento
+        -- local de venda; o upstream continua sendo a fonte da verdade
+        -- consolidada — caixa local é uma camada offline-first sobre ele.
+        -- ====================================================================
+
+        CREATE TABLE IF NOT EXISTS caixa_local (
+            local_uuid       TEXT PRIMARY KEY,
+            client_uuid      TEXT,
+            remote_id        TEXT,
+            status           TEXT NOT NULL DEFAULT 'aberto',
+            valor_inicial    REAL NOT NULL DEFAULT 0,
+            valor_informado  REAL,
+            valor_esperado   REAL,
+            diferenca        REAL,
+            observacao_abertura   TEXT,
+            observacao_fechamento TEXT,
+            operador_id      TEXT,
+            terminal_id      TEXT,
+            data_abertura_ms  INTEGER NOT NULL,
+            data_fechamento_ms INTEGER,
+            created_at_ms    INTEGER NOT NULL,
+            updated_at_ms    INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_caixa_local_status
+            ON caixa_local(status, data_abertura_ms DESC);
+        CREATE INDEX IF NOT EXISTS idx_caixa_local_operador
+            ON caixa_local(operador_id, status);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_caixa_local_client_uuid
+            ON caixa_local(client_uuid) WHERE client_uuid IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS caixa_movs_local (
+            local_uuid       TEXT PRIMARY KEY,
+            client_uuid      TEXT,
+            caixa_local_uuid TEXT NOT NULL,
+            tipo             TEXT NOT NULL,
+            valor            REAL NOT NULL DEFAULT 0,
+            motivo           TEXT,
+            operador_id      TEXT,
+            remote_id        TEXT,
+            created_at_ms    INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_caixa_movs_caixa
+            ON caixa_movs_local(caixa_local_uuid, created_at_ms);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_caixa_movs_client_uuid
+            ON caixa_movs_local(client_uuid) WHERE client_uuid IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS outbox_caixa (
+            local_uuid          TEXT PRIMARY KEY,
+            client_uuid         TEXT,
+            action              TEXT NOT NULL,
+            caixa_local_uuid    TEXT NOT NULL,
+            payload             TEXT NOT NULL,
+            status              TEXT NOT NULL DEFAULT 'pending',
+            attempts            INTEGER NOT NULL DEFAULT 0,
+            last_error          TEXT,
+            remote_id           TEXT,
+            created_at_ms       INTEGER NOT NULL,
+            updated_at_ms       INTEGER NOT NULL,
+            sent_at_ms          INTEGER,
+            next_attempt_at_ms  INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_outbox_caixa_status
+            ON outbox_caixa(status, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_caixa_status_next
+            ON outbox_caixa(status, next_attempt_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_caixa_action
+            ON outbox_caixa(action, status);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_caixa_client_uuid
+            ON outbox_caixa(client_uuid) WHERE client_uuid IS NOT NULL;
         "#,
     )?;
 
