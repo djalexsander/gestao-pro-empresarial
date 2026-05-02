@@ -869,6 +869,17 @@ export interface LancamentoLocalRow {
   descricao: string | null;
   origem: string;
   created_at_ms: number;
+  // v11
+  status?: string;
+  venda_local_uuid?: string | null;
+  cliente_id?: string | null;
+  fornecedor_id?: string | null;
+  data_competencia_ms?: number | null;
+  data_vencimento_ms?: number | null;
+  data_pagamento_ms?: number | null;
+  operador_id?: string | null;
+  cancelado_em_ms?: number | null;
+  cancelado_motivo?: string | null;
 }
 
 async function getLocalJson<T>(
@@ -1206,5 +1217,138 @@ export async function retryOutboxCancelamentosErrors(
     return json.requeued ?? 0;
   } catch {
     return 0;
+  }
+}
+
+// =============================================================================
+// v11 — Financeiro local (lançamentos manuais, listagem, resumo)
+// =============================================================================
+
+export interface FinanceiroFiltro {
+  tipo?: "entrada" | "saida";
+  categoria?: string;
+  origem?: string;
+  status?: string;
+  caixa_local_uuid?: string;
+  venda_local_uuid?: string;
+  desde_ms?: number;
+  ate_ms?: number;
+  limit?: number;
+}
+
+export interface FinanceiroResumoCat {
+  chave: string;
+  tipo: string;
+  valor: number;
+  qtd: number;
+}
+
+export interface FinanceiroResumo {
+  total_entradas: number;
+  total_saidas: number;
+  saldo: number;
+  qtd_lancamentos: number;
+  qtd_entradas: number;
+  qtd_saidas: number;
+  por_categoria: FinanceiroResumoCat[];
+  por_origem: FinanceiroResumoCat[];
+}
+
+export interface LancamentoManualInput {
+  tipo: "entrada" | "saida";
+  categoria: string;
+  valor: number;
+  forma_pagamento?: string | null;
+  descricao?: string | null;
+  status?: string | null;
+  caixa_local_uuid?: string | null;
+  venda_local_uuid?: string | null;
+  cliente_id?: string | null;
+  fornecedor_id?: string | null;
+  data_competencia_ms?: number | null;
+  data_vencimento_ms?: number | null;
+  data_pagamento_ms?: number | null;
+  operador_id?: string | null;
+  client_uuid?: string | null;
+}
+
+export interface LancamentoManualResult {
+  local_uuid: string;
+  idempotente: boolean;
+}
+
+function filtroToQuery(f: FinanceiroFiltro): Record<string, string> {
+  const q: Record<string, string> = {};
+  for (const [k, v] of Object.entries(f)) {
+    if (v === undefined || v === null || v === "") continue;
+    q[k] = String(v);
+  }
+  return q;
+}
+
+export async function fetchFinanceiroLancamentos(
+  cfg: TerminalConexaoConfig | undefined,
+  filtro: FinanceiroFiltro = {},
+): Promise<LancamentoLocalRow[]> {
+  const rows = await getLocalJson<LancamentoLocalRow[]>(
+    cfg,
+    "/api/financeiro/lancamentos",
+    filtroToQuery(filtro),
+  );
+  return rows ?? [];
+}
+
+export async function fetchFinanceiroResumo(
+  cfg: TerminalConexaoConfig | undefined,
+  filtro: FinanceiroFiltro = {},
+): Promise<FinanceiroResumo | null> {
+  return getLocalJson<FinanceiroResumo>(
+    cfg,
+    "/api/financeiro/resumo",
+    filtroToQuery(filtro),
+  );
+}
+
+export async function inserirLancamentoManualLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  input: LancamentoManualInput,
+): Promise<LancamentoManualResult | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  try {
+    const res = await fetch(`${baseUrl}/api/financeiro/manual`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(input),
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as LancamentoManualResult;
+  } catch {
+    return null;
+  }
+}
+
+export async function cancelarLancamentoLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  localUuid: string,
+  motivo?: string,
+): Promise<boolean> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return false;
+  const url = new URL(`${baseUrl}/api/financeiro/cancelar`);
+  url.searchParams.set("local_uuid", localUuid);
+  if (motivo) url.searchParams.set("motivo", motivo);
+  try {
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return false;
+    const json = (await res.json()) as { ok?: boolean };
+    return !!json.ok;
+  } catch {
+    return false;
   }
 }

@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i64 = 10;
+const SCHEMA_VERSION: i64 = 11;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -501,6 +501,20 @@ pub fn init() -> DbResult<()> {
         "ALTER TABLE vendas_local ADD COLUMN cancelado_operador_id TEXT",
         "ALTER TABLE vendas_local ADD COLUMN cancelado_client_uuid TEXT",
         "ALTER TABLE vendas_local ADD COLUMN cancelamento_local_uuid TEXT",
+        // v11: financeiro local mais completo. Estende lancamentos_financeiros_local
+        // com metadados de ciclo de vida, vínculos opcionais (venda/cliente/fornecedor),
+        // datas de competência/vencimento/pagamento e idempotência para inserções manuais.
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmado'",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN venda_local_uuid TEXT",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN cliente_id TEXT",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN fornecedor_id TEXT",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN data_competencia_ms INTEGER",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN data_vencimento_ms INTEGER",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN data_pagamento_ms INTEGER",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN client_uuid TEXT",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN operador_id TEXT",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN cancelado_em_ms INTEGER",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN cancelado_motivo TEXT",
     ];
     for sql in alters {
         // Erro só ocorre quando a coluna já existe — seguro ignorar.
@@ -522,6 +536,27 @@ pub fn init() -> DbResult<()> {
     let _ = conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_vendas_local_status
             ON vendas_local(status, created_at_ms DESC)",
+        [],
+    );
+    // v11: índices/uniqueness do financeiro local estendido.
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_lanc_local_status
+            ON lancamentos_financeiros_local(status, created_at_ms DESC)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_lanc_local_venda
+            ON lancamentos_financeiros_local(venda_local_uuid) WHERE venda_local_uuid IS NOT NULL",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_lanc_local_competencia
+            ON lancamentos_financeiros_local(data_competencia_ms)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_lanc_local_client_uuid
+            ON lancamentos_financeiros_local(client_uuid) WHERE client_uuid IS NOT NULL",
         [],
     );
 
@@ -3367,8 +3402,10 @@ fn gerar_lancamentos_locais_para_caixa(
         tx.execute(
             "INSERT INTO lancamentos_financeiros_local(
                 local_uuid, caixa_local_uuid, tipo, categoria, forma_pagamento,
-                valor, descricao, origem, payload, created_at_ms
-             ) VALUES (?1,?2,'entrada',?3,?4,?5,?6,'fechamento_caixa',NULL,?7)",
+                valor, descricao, origem, payload, created_at_ms,
+                status, data_competencia_ms, data_pagamento_ms
+             ) VALUES (?1,?2,'entrada',?3,?4,?5,?6,'fechamento_caixa',NULL,?7,
+                       'confirmado',?7,?7)",
             params![lid, caixa_local_uuid, categoria, forma, valor, descricao, now_ms],
         )?;
     }
@@ -3388,8 +3425,10 @@ fn gerar_lancamentos_locais_para_caixa(
         tx.execute(
             "INSERT INTO lancamentos_financeiros_local(
                 local_uuid, caixa_local_uuid, tipo, categoria, forma_pagamento,
-                valor, descricao, origem, payload, created_at_ms
-             ) VALUES (?1,?2,'entrada','suprimento',NULL,?3,'Suprimentos do caixa','fechamento_caixa',NULL,?4)",
+                valor, descricao, origem, payload, created_at_ms,
+                status, data_competencia_ms, data_pagamento_ms
+             ) VALUES (?1,?2,'entrada','suprimento',NULL,?3,'Suprimentos do caixa','fechamento_caixa',NULL,?4,
+                       'confirmado',?4,?4)",
             params![lid, caixa_local_uuid, total_sup, now_ms],
         )?;
     }
@@ -3398,8 +3437,10 @@ fn gerar_lancamentos_locais_para_caixa(
         tx.execute(
             "INSERT INTO lancamentos_financeiros_local(
                 local_uuid, caixa_local_uuid, tipo, categoria, forma_pagamento,
-                valor, descricao, origem, payload, created_at_ms
-             ) VALUES (?1,?2,'saida','sangria',NULL,?3,'Sangrias do caixa','fechamento_caixa',NULL,?4)",
+                valor, descricao, origem, payload, created_at_ms,
+                status, data_competencia_ms, data_pagamento_ms
+             ) VALUES (?1,?2,'saida','sangria',NULL,?3,'Sangrias do caixa','fechamento_caixa',NULL,?4,
+                       'confirmado',?4,?4)",
             params![lid, caixa_local_uuid, total_san, now_ms],
         )?;
     }
@@ -3430,33 +3471,273 @@ pub struct LancamentoLocalRow {
     pub descricao: Option<String>,
     pub origem: String,
     pub created_at_ms: i64,
+    // v11
+    pub status: String,
+    pub venda_local_uuid: Option<String>,
+    pub cliente_id: Option<String>,
+    pub fornecedor_id: Option<String>,
+    pub data_competencia_ms: Option<i64>,
+    pub data_vencimento_ms: Option<i64>,
+    pub data_pagamento_ms: Option<i64>,
+    pub operador_id: Option<String>,
+    pub cancelado_em_ms: Option<i64>,
+    pub cancelado_motivo: Option<String>,
+}
+
+const LANC_SELECT_COLS: &str = "local_uuid, caixa_local_uuid, tipo, categoria, forma_pagamento,
+        valor, descricao, origem, created_at_ms,
+        COALESCE(status,'confirmado') AS status,
+        venda_local_uuid, cliente_id, fornecedor_id,
+        data_competencia_ms, data_vencimento_ms, data_pagamento_ms,
+        operador_id, cancelado_em_ms, cancelado_motivo";
+
+fn map_lanc_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<LancamentoLocalRow> {
+    Ok(LancamentoLocalRow {
+        local_uuid: r.get(0)?,
+        caixa_local_uuid: r.get(1)?,
+        tipo: r.get(2)?,
+        categoria: r.get(3)?,
+        forma_pagamento: r.get(4)?,
+        valor: r.get(5)?,
+        descricao: r.get(6)?,
+        origem: r.get(7)?,
+        created_at_ms: r.get(8)?,
+        status: r.get(9)?,
+        venda_local_uuid: r.get(10)?,
+        cliente_id: r.get(11)?,
+        fornecedor_id: r.get(12)?,
+        data_competencia_ms: r.get(13)?,
+        data_vencimento_ms: r.get(14)?,
+        data_pagamento_ms: r.get(15)?,
+        operador_id: r.get(16)?,
+        cancelado_em_ms: r.get(17)?,
+        cancelado_motivo: r.get(18)?,
+    })
 }
 
 pub fn lancamentos_local_por_caixa(caixa_local_uuid: &str) -> DbResult<Vec<LancamentoLocalRow>> {
     with_conn(|conn| {
-        let mut stmt = conn.prepare(
-            "SELECT local_uuid, caixa_local_uuid, tipo, categoria, forma_pagamento,
-                    valor, descricao, origem, created_at_ms
-               FROM lancamentos_financeiros_local
+        let sql = format!(
+            "SELECT {cols} FROM lancamentos_financeiros_local
               WHERE caixa_local_uuid=?1
            ORDER BY tipo DESC, categoria ASC, created_at_ms ASC",
-        )?;
-        let rows = stmt.query_map(params![caixa_local_uuid], |r| {
-            Ok(LancamentoLocalRow {
-                local_uuid: r.get(0)?,
-                caixa_local_uuid: r.get(1)?,
-                tipo: r.get(2)?,
-                categoria: r.get(3)?,
-                forma_pagamento: r.get(4)?,
-                valor: r.get(5)?,
-                descricao: r.get(6)?,
-                origem: r.get(7)?,
-                created_at_ms: r.get(8)?,
-            })
-        })?;
+            cols = LANC_SELECT_COLS
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![caixa_local_uuid], map_lanc_row)?;
         let mut out = Vec::new();
         for r in rows { out.push(r?); }
         Ok(out)
+    })
+}
+
+// ---------------------------------------------------------------------------
+// v11 — Financeiro local: listagem geral com filtros, resumo e CRUD manual
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Default, Deserialize)]
+pub struct FinanceiroFiltro {
+    pub tipo: Option<String>,            // 'entrada' | 'saida'
+    pub categoria: Option<String>,
+    pub origem: Option<String>,          // 'fechamento_caixa' | 'manual' | ...
+    pub status: Option<String>,          // 'confirmado' | 'pendente' | 'cancelado'
+    pub caixa_local_uuid: Option<String>,
+    pub venda_local_uuid: Option<String>,
+    pub desde_ms: Option<i64>,
+    pub ate_ms: Option<i64>,
+    pub limit: Option<i64>,
+}
+
+pub fn lancamentos_local_listar(filtro: &FinanceiroFiltro) -> DbResult<Vec<LancamentoLocalRow>> {
+    with_conn(|conn| {
+        let mut sql = format!(
+            "SELECT {cols} FROM lancamentos_financeiros_local WHERE 1=1",
+            cols = LANC_SELECT_COLS
+        );
+        let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        macro_rules! push_str_filter {
+            ($sql:ident, $args:ident, $val:expr, $tpl:expr) => {{
+                if let Some(v) = $val {
+                    $args.push(Box::new(v.clone()));
+                    $sql.push_str(&format!($tpl, $args.len()));
+                }
+            }};
+        }
+        macro_rules! push_i64_filter {
+            ($sql:ident, $args:ident, $val:expr, $tpl:expr) => {{
+                if let Some(v) = $val {
+                    $args.push(Box::new(v));
+                    $sql.push_str(&format!($tpl, $args.len()));
+                }
+            }};
+        }
+        push_str_filter!(sql, args, &filtro.tipo, " AND tipo=?{}");
+        push_str_filter!(sql, args, &filtro.categoria, " AND categoria=?{}");
+        push_str_filter!(sql, args, &filtro.origem, " AND origem=?{}");
+        push_str_filter!(sql, args, &filtro.status, " AND COALESCE(status,'confirmado')=?{}");
+        push_str_filter!(sql, args, &filtro.caixa_local_uuid, " AND caixa_local_uuid=?{}");
+        push_str_filter!(sql, args, &filtro.venda_local_uuid, " AND venda_local_uuid=?{}");
+        push_i64_filter!(sql, args, filtro.desde_ms, " AND COALESCE(data_competencia_ms,created_at_ms)>=?{}");
+        push_i64_filter!(sql, args, filtro.ate_ms, " AND COALESCE(data_competencia_ms,created_at_ms)<=?{}");
+        sql.push_str(" ORDER BY COALESCE(data_competencia_ms,created_at_ms) DESC, created_at_ms DESC");
+        let limit = filtro.limit.unwrap_or(500).clamp(1, 5000);
+        sql.push_str(&format!(" LIMIT {}", limit));
+
+        let mut stmt = conn.prepare(&sql)?;
+        let params_refs: Vec<&dyn rusqlite::ToSql> = args.iter().map(|b| b.as_ref()).collect();
+        let rows = stmt.query_map(params_refs.as_slice(), map_lanc_row)?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    })
+}
+
+#[derive(Debug, Serialize, Default)]
+pub struct FinanceiroResumo {
+    pub total_entradas: f64,
+    pub total_saidas: f64,
+    pub saldo: f64,
+    pub qtd_lancamentos: i64,
+    pub qtd_entradas: i64,
+    pub qtd_saidas: i64,
+    pub por_categoria: Vec<FinanceiroResumoCat>,
+    pub por_origem: Vec<FinanceiroResumoCat>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FinanceiroResumoCat {
+    pub chave: String,
+    pub tipo: String,
+    pub valor: f64,
+    pub qtd: i64,
+}
+
+pub fn financeiro_resumo_local(filtro: &FinanceiroFiltro) -> DbResult<FinanceiroResumo> {
+    let rows = lancamentos_local_listar(&FinanceiroFiltro { limit: Some(5000), ..clone_filtro(filtro) })?;
+    let mut r = FinanceiroResumo::default();
+    use std::collections::BTreeMap;
+    let mut por_cat: BTreeMap<(String, String), (f64, i64)> = BTreeMap::new();
+    let mut por_ori: BTreeMap<(String, String), (f64, i64)> = BTreeMap::new();
+    for l in rows.iter() {
+        if l.status == "cancelado" { continue; }
+        if l.tipo == "entrada" {
+            r.total_entradas += l.valor;
+            r.qtd_entradas += 1;
+        } else if l.tipo == "saida" {
+            r.total_saidas += l.valor;
+            r.qtd_saidas += 1;
+        }
+        r.qtd_lancamentos += 1;
+        let kc = (l.categoria.clone(), l.tipo.clone());
+        let e = por_cat.entry(kc).or_insert((0.0, 0)); e.0 += l.valor; e.1 += 1;
+        let ko = (l.origem.clone(), l.tipo.clone());
+        let e = por_ori.entry(ko).or_insert((0.0, 0)); e.0 += l.valor; e.1 += 1;
+    }
+    r.saldo = r.total_entradas - r.total_saidas;
+    r.por_categoria = por_cat.into_iter().map(|((chave, tipo), (valor, qtd))| FinanceiroResumoCat { chave, tipo, valor, qtd }).collect();
+    r.por_origem = por_ori.into_iter().map(|((chave, tipo), (valor, qtd))| FinanceiroResumoCat { chave, tipo, valor, qtd }).collect();
+    Ok(r)
+}
+
+fn clone_filtro(f: &FinanceiroFiltro) -> FinanceiroFiltro {
+    FinanceiroFiltro {
+        tipo: f.tipo.clone(),
+        categoria: f.categoria.clone(),
+        origem: f.origem.clone(),
+        status: f.status.clone(),
+        caixa_local_uuid: f.caixa_local_uuid.clone(),
+        venda_local_uuid: f.venda_local_uuid.clone(),
+        desde_ms: f.desde_ms,
+        ate_ms: f.ate_ms,
+        limit: f.limit,
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LancamentoManualInput {
+    pub tipo: String,                       // 'entrada' | 'saida'
+    pub categoria: String,
+    pub valor: f64,
+    pub forma_pagamento: Option<String>,
+    pub descricao: Option<String>,
+    pub status: Option<String>,             // default 'confirmado'
+    pub caixa_local_uuid: Option<String>,
+    pub venda_local_uuid: Option<String>,
+    pub cliente_id: Option<String>,
+    pub fornecedor_id: Option<String>,
+    pub data_competencia_ms: Option<i64>,
+    pub data_vencimento_ms: Option<i64>,
+    pub data_pagamento_ms: Option<i64>,
+    pub operador_id: Option<String>,
+    pub client_uuid: Option<String>,        // idempotência
+}
+
+#[derive(Debug, Serialize)]
+pub struct LancamentoManualResult {
+    pub local_uuid: String,
+    pub idempotente: bool,
+}
+
+pub fn lancamento_manual_inserir(input: &LancamentoManualInput) -> DbResult<LancamentoManualResult> {
+    if input.tipo != "entrada" && input.tipo != "saida" {
+        return Err(DbError("tipo deve ser 'entrada' ou 'saida'".into()));
+    }
+    if input.valor <= 0.0 {
+        return Err(DbError("valor deve ser maior que zero".into()));
+    }
+    if input.categoria.trim().is_empty() {
+        return Err(DbError("categoria é obrigatória".into()));
+    }
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let status = input.status.clone().unwrap_or_else(|| "confirmado".to_string());
+    let competencia = input.data_competencia_ms.unwrap_or(now_ms);
+
+    with_conn(|conn| {
+        // Idempotência via client_uuid (UNIQUE parcial).
+        if let Some(cu) = input.client_uuid.as_deref() {
+            let existing: Option<String> = conn.query_row(
+                "SELECT local_uuid FROM lancamentos_financeiros_local WHERE client_uuid=?1",
+                params![cu], |r| r.get(0),
+            ).optional()?;
+            if let Some(lu) = existing {
+                return Ok(LancamentoManualResult { local_uuid: lu, idempotente: true });
+            }
+        }
+        let lid = random_uuid_v4();
+        // caixa_local_uuid é NOT NULL na tabela original; usamos string vazia
+        // quando não vinculado (lançamento manual fora de caixa).
+        let caixa = input.caixa_local_uuid.clone().unwrap_or_default();
+        conn.execute(
+            "INSERT INTO lancamentos_financeiros_local(
+                local_uuid, caixa_local_uuid, tipo, categoria, forma_pagamento,
+                valor, descricao, origem, payload, created_at_ms,
+                status, venda_local_uuid, cliente_id, fornecedor_id,
+                data_competencia_ms, data_vencimento_ms, data_pagamento_ms,
+                client_uuid, operador_id
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,'manual',NULL,?8,
+                       ?9,?10,?11,?12,?13,?14,?15,?16,?17)",
+            params![
+                lid, caixa, input.tipo, input.categoria, input.forma_pagamento,
+                input.valor, input.descricao, now_ms,
+                status, input.venda_local_uuid, input.cliente_id, input.fornecedor_id,
+                competencia, input.data_vencimento_ms, input.data_pagamento_ms,
+                input.client_uuid, input.operador_id
+            ],
+        )?;
+        Ok(LancamentoManualResult { local_uuid: lid, idempotente: false })
+    })
+}
+
+pub fn lancamento_cancelar(local_uuid: &str, motivo: Option<&str>) -> DbResult<bool> {
+    with_conn(|conn| {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let n = conn.execute(
+            "UPDATE lancamentos_financeiros_local
+                SET status='cancelado', cancelado_em_ms=?1, cancelado_motivo=?2
+              WHERE local_uuid=?3 AND COALESCE(status,'confirmado') <> 'cancelado'",
+            params![now_ms, motivo, local_uuid],
+        )?;
+        Ok(n > 0)
     })
 }
 

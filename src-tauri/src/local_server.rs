@@ -1799,6 +1799,69 @@ async fn caixa_regenerar_lancamentos_handler(
     Ok(Json(serde_json::json!({ "ok": true, "caixa_local_uuid": clu })))
 }
 
+// ============================================================================
+// v11 — Financeiro local (listar / resumo / manual / cancelar)
+// ============================================================================
+
+fn parse_i64(q: &HashMap<String, String>, k: &str) -> Option<i64> {
+    q.get(k).and_then(|v| v.parse::<i64>().ok())
+}
+
+fn build_financeiro_filtro(q: &HashMap<String, String>) -> db::FinanceiroFiltro {
+    db::FinanceiroFiltro {
+        tipo: q.get("tipo").cloned(),
+        categoria: q.get("categoria").cloned(),
+        origem: q.get("origem").cloned(),
+        status: q.get("status").cloned(),
+        caixa_local_uuid: q.get("caixa_local_uuid").cloned(),
+        venda_local_uuid: q.get("venda_local_uuid").cloned(),
+        desde_ms: parse_i64(q, "desde_ms"),
+        ate_ms: parse_i64(q, "ate_ms"),
+        limit: parse_i64(q, "limit"),
+    }
+}
+
+/// GET /api/financeiro/lancamentos?tipo=&categoria=&origem=&status=&caixa_local_uuid=&venda_local_uuid=&desde_ms=&ate_ms=&limit=
+async fn financeiro_listar_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<db::LancamentoLocalRow>>, (StatusCode, String)> {
+    let f = build_financeiro_filtro(&q);
+    let rows = db::lancamentos_local_listar(&f)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(rows))
+}
+
+/// GET /api/financeiro/resumo (mesmos filtros do listar)
+async fn financeiro_resumo_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<db::FinanceiroResumo>, (StatusCode, String)> {
+    let f = build_financeiro_filtro(&q);
+    let r = db::financeiro_resumo_local(&f)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(r))
+}
+
+/// POST /api/financeiro/manual — insere lançamento manual (idempotente via client_uuid)
+async fn financeiro_manual_handler(
+    Json(payload): Json<db::LancamentoManualInput>,
+) -> Result<Json<db::LancamentoManualResult>, (StatusCode, String)> {
+    let r = db::lancamento_manual_inserir(&payload)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    Ok(Json(r))
+}
+
+/// POST /api/financeiro/cancelar?local_uuid=...&motivo=...
+async fn financeiro_cancelar_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let lu = q.get("local_uuid").cloned()
+        .ok_or((StatusCode::BAD_REQUEST, "local_uuid é obrigatório".into()))?;
+    let motivo = q.get("motivo").map(|s| s.as_str());
+    let ok = db::lancamento_cancelar(&lu, motivo)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(serde_json::json!({ "ok": ok, "local_uuid": lu })))
+}
+
 ///
 ///   - `abrir`     → RPC `abrir_caixa`      → devolve UUID do caixa criado
 ///   - `movimento` → RPC `caixa_registrar_movimento` → devolve id do movimento
@@ -2078,6 +2141,10 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/caixa/resumo", get(caixa_resumo_handler))
         .route("/api/caixa/lancamentos", get(caixa_lancamentos_handler))
         .route("/api/caixa/regenerar-lancamentos", post(caixa_regenerar_lancamentos_handler))
+        .route("/api/financeiro/lancamentos", get(financeiro_listar_handler))
+        .route("/api/financeiro/resumo", get(financeiro_resumo_handler))
+        .route("/api/financeiro/manual", post(financeiro_manual_handler))
+        .route("/api/financeiro/cancelar", post(financeiro_cancelar_handler))
         .route("/db/outbox/caixa", get(outbox_caixa_list_handler))
         .route("/db/outbox/caixa/stats", get(outbox_caixa_stats_handler))
         .route("/db/outbox/caixa/flush", post(outbox_caixa_flush_handler))
