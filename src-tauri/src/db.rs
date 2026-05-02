@@ -686,6 +686,7 @@ impl IngestStrategy {
         match self {
             IngestStrategy::Snapshot => "snapshot",
             IngestStrategy::Incremental => "incremental",
+            IngestStrategy::Append => "append",
         }
     }
 }
