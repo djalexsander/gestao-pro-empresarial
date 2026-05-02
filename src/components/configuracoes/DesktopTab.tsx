@@ -109,6 +109,24 @@ export function DesktopTab() {
     setOutbox(await fetchOutboxStats(localCfg));
   };
 
+  const handleFlushVendas = async () => {
+    if (!localCfg) return;
+    setFlushingVendas(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      await flushOutboxVendas(localCfg, data.session?.access_token ?? null);
+      setOutboxVendas(await fetchOutboxVendasStats(localCfg));
+    } finally {
+      setFlushingVendas(false);
+    }
+  };
+
+  const handleRetryErrorsVendas = async () => {
+    if (!localCfg) return;
+    await retryOutboxVendasErrors(localCfg);
+    setOutboxVendas(await fetchOutboxVendasStats(localCfg));
+  };
+
   useEffect(() => {
     if (!isDesktop || role === "unset") return;
     const cfg =
@@ -126,26 +144,33 @@ export function DesktopTab() {
 
     let alive = true;
     const carregar = async () => {
-      const [info, terms, stats, ob] = await Promise.all([
+      const [info, terms, stats, ob, obv] = await Promise.all([
         fetchDbInfo(cfg),
         fetchKnownTerminals(cfg),
         fetchDomainStats(cfg),
         fetchOutboxStats(cfg),
+        fetchOutboxVendasStats(cfg),
       ]);
       if (!alive) return;
       setDbInfo(info);
       setKnownTerminals(terms);
       setDomainStats(stats);
       setOutbox(ob);
+      setOutboxVendas(obv);
     };
     void carregar();
     // Polling padrão (info / domínios / terminais) a cada 30s.
     const tFull = setInterval(() => void carregar(), 30_000);
-    // Polling RÁPIDO só do outbox (stats) a cada 5s — assim a UI reflete
+    // Polling RÁPIDO das outboxes (stats) a cada 5s — assim a UI reflete
     // o background sync quase em tempo real sem custo perceptível.
     const tOutbox = setInterval(async () => {
-      const ob = await fetchOutboxStats(cfg);
-      if (alive) setOutbox(ob);
+      const [ob, obv] = await Promise.all([
+        fetchOutboxStats(cfg),
+        fetchOutboxVendasStats(cfg),
+      ]);
+      if (!alive) return;
+      setOutbox(ob);
+      setOutboxVendas(obv);
     }, 5_000);
     return () => {
       alive = false;
