@@ -1348,6 +1348,10 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/db/outbox/estoque/stats", get(outbox_stats_handler))
         .route("/db/outbox/flush", post(outbox_flush_handler))
         .route("/db/outbox/retry-errors", post(outbox_retry_errors_handler))
+        .route("/db/outbox/vendas", get(outbox_vendas_list_handler))
+        .route("/db/outbox/vendas/stats", get(outbox_vendas_stats_handler))
+        .route("/db/outbox/vendas/flush", post(outbox_vendas_flush_handler))
+        .route("/db/outbox/vendas/retry-errors", post(outbox_vendas_retry_errors_handler))
         .route("/api/produtos/list", get(produtos_list_handler))
         .route("/api/estoque/saldos", get(estoque_saldos_handler))
         .route("/api/estoque/movimentacoes", get(estoque_movimentacoes_handler))
@@ -1355,6 +1359,7 @@ fn build_router(ctx: AppCtx) -> Router {
             "/api/estoque/movimentacoes/registrar",
             post(registrar_mov_local_handler),
         )
+        .route("/api/vendas/registrar", post(registrar_venda_local_handler))
         .route("/api/clientes/lite", get(clientes_lite_handler))
         .with_state(ctx)
         .layer(cors)
