@@ -32,6 +32,7 @@ import { reportDataSource } from "../source-telemetry";
 import { getDesktopConfig } from "@/integrations/desktop/configStore";
 import {
   abrirCaixaLocal,
+  cancelarVendaLocal,
   fecharCaixaLocal,
   getBaseUrl,
   registrarMovCaixaLocal,
