@@ -211,6 +211,55 @@ export interface DomainStat {
   row_count: number;
   last_synced_ms: number | null;
   last_source: string | null;
+  /** "snapshot" | "incremental" | "append" — null se ainda nunca sincronizou. */
+  last_strategy: string | null;
+  /** Quantos registros vieram no último lote. */
+  last_delta_count: number;
+  /** Cursor de sync incremental (max(updated_at) já visto no upstream). */
+  last_remote_cursor_ms: number | null;
+  /** Última tentativa (mesmo se deu erro). */
+  last_attempt_ms: number | null;
+  /** Última tentativa foi bem-sucedida? */
+  last_synced_ok: boolean;
+  /** Mensagem do último erro, se houver. */
+  last_error: string | null;
+}
+
+export interface SyncRunResult {
+  ok: boolean;
+  domain: string;
+  strategy: string;
+  delta: number;
+  source: string;
+}
+
+/** Força uma rodada de sync incremental para o domínio (botão "Sincronizar agora"). */
+export async function runDbSync(
+  cfg: TerminalConexaoConfig | undefined,
+  domain: "produtos" | "clientes_lite",
+): Promise<SyncRunResult | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  const ctrl = new AbortController();
+  // Sync pode demorar mais que um GET normal — damos margem.
+  const timer = setTimeout(() => ctrl.abort(), 15_000);
+  try {
+    const res = await fetch(
+      `${baseUrl}/db/sync?domain=${encodeURIComponent(domain)}`,
+      {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        signal: ctrl.signal,
+        cache: "no-store",
+      },
+    );
+    clearTimeout(timer);
+    if (!res.ok) return { ok: false, domain, strategy: "", delta: 0, source: "" };
+    return (await res.json()) as SyncRunResult;
+  } catch {
+    clearTimeout(timer);
+    return null;
+  }
 }
 
 export async function fetchKnownTerminals(
