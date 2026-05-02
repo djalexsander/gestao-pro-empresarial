@@ -63,6 +63,13 @@ import {
   type DetalheRow,
 } from "@/components/financeiro/BlocoDetalheDialog";
 import { useFinanceiroIndicadores } from "@/hooks/useFinanceiroIndicadores";
+import {
+  usePosicaoFinanceira,
+  usePerformancePeriodo,
+  useReceberOrigem,
+} from "@/hooks/useFinanceiroSecoes";
+import { SecaoFiltro, type SecaoFiltroValue } from "@/components/financeiro/SecaoFiltro";
+import { formatPeriodoBR } from "@/lib/dateRange";
 import { exportarBlocoCSV, exportarBlocoPDF } from "@/lib/export-bloco";
 import { ExportFormatDialog } from "@/components/shared/ExportFormatDialog";
 import { exportarRelatorioCard, type ExportFormato } from "@/lib/export-relatorio-card";
@@ -168,6 +175,18 @@ function FinanceContent() {
   const [exportOpen, setExportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [novoOpen, setNovoOpen] = useState(false);
+
+  // Filtros independentes por seção
+  const [filtroPosicao, setFiltroPosicao] = useState<SecaoFiltroValue>({ preset: "mes" });
+  const [filtroPerformance, setFiltroPerformance] = useState<SecaoFiltroValue>({ preset: "mes" });
+  const [filtroReceber, setFiltroReceber] = useState<SecaoFiltroValue>({
+    preset: "hoje",
+    forma: "todos",
+  });
+
+  const posicao = usePosicaoFinanceira(filtroPosicao).data;
+  const performance = usePerformancePeriodo(filtroPerformance).data;
+  const receberOrigem = useReceberOrigem(filtroReceber).data;
 
   const indicadores = useFinanceiroIndicadores();
   const ind = indicadores.data;
@@ -339,75 +358,88 @@ function FinanceContent() {
 
       {/* Bloco 1: Posição financeira */}
       <div className="space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Posição financeira
-        </p>
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Posição financeira
+          </p>
+          <div className="flex items-center gap-3">
+            {posicao && (
+              <span className="hidden text-[11px] text-muted-foreground sm:inline">
+                {formatPeriodoBR(posicao.periodo)}
+              </span>
+            )}
+            <SecaoFiltro value={filtroPosicao} onChange={setFiltroPosicao} />
+          </div>
+        </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <StatCard
             label="Total a receber"
-            value={formatBRL(totalRec)}
+            value={formatBRL(posicao?.totalReceber ?? 0)}
             icon={ArrowDownToLine}
             iconTone="success"
-            hint={`${receber.length} títulos`}
+            hint={`${posicao?.qtdReceber ?? 0} títulos`}
             onClick={() => setBlocoAberto("receber")}
           />
           <StatCard
             label="Total a pagar"
-            value={formatBRL(totalPay)}
+            value={formatBRL(posicao?.totalPagar ?? 0)}
             icon={ArrowUpFromLine}
             iconTone="warning"
-            hint={`${pagar.length} títulos`}
+            hint={`${posicao?.qtdPagar ?? 0} títulos`}
             onClick={() => setBlocoAberto("pagar")}
           />
           <StatCard
             label="Saldo previsto"
-            value={formatBRL(saldo)}
+            value={formatBRL(posicao?.saldo ?? 0)}
             icon={TrendingUp}
-            iconTone={saldo >= 0 ? "success" : "danger"}
+            iconTone={(posicao?.saldo ?? 0) >= 0 ? "success" : "danger"}
             onClick={() => setBlocoAberto("saldo")}
           />
         </div>
       </div>
 
-      {/* Bloco 2: Performance do mês */}
+      {/* Bloco 2: Performance */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Performance do mês
+            Performance do período
           </p>
-          {ind && (
-            <span className="text-[11px] text-muted-foreground">
-              {formatDate(ind.periodo.inicio)} → {formatDate(ind.periodo.fim)}
-            </span>
-          )}
+          <div className="flex items-center gap-3">
+            {performance && (
+              <span className="hidden text-[11px] text-muted-foreground sm:inline">
+                {formatPeriodoBR(performance.periodo)}
+              </span>
+            )}
+            <SecaoFiltro value={filtroPerformance} onChange={setFiltroPerformance} />
+          </div>
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <StatCard
             label="Total vendido"
-            value={formatBRL(ind?.totalVendido ?? 0)}
+            value={formatBRL(performance?.totalVendido ?? 0)}
             icon={ShoppingCart}
             iconTone="info"
-            hint={`${ind?.qtdVendas ?? 0} vendas`}
+            hint={`${performance?.qtdVendas ?? 0} vendas`}
             onClick={() => setBlocoAberto("vendido")}
           />
           <StatCard
             label="Custo dos produtos vendidos"
-            value={formatBRL(ind?.custoTotal ?? 0)}
+            value={formatBRL(performance?.custoTotal ?? 0)}
             icon={Package}
             iconTone="warning"
             hint={
-              ind && ind.qtdItensSemCusto > 0
-                ? `${ind.qtdItensSemCusto} sem custo`
-                : `${ind?.qtdItens ?? 0} itens`
+              performance && performance.qtdItensSemCusto > 0
+                ? `${performance.qtdItensSemCusto} sem custo`
+                : `${performance?.qtdItens ?? 0} itens`
             }
             onClick={() => setBlocoAberto("custo")}
           />
           <StatCard
             label="Lucro bruto"
-            value={formatBRL(ind?.lucroBruto ?? 0)}
+            value={formatBRL(performance?.lucroBruto ?? 0)}
             icon={TrendingUp}
-            iconTone={(ind?.lucroBruto ?? 0) >= 0 ? "success" : "danger"}
-            hint={`Margem ${(ind?.margemPct ?? 0).toFixed(1)}%`}
+            iconTone={(performance?.lucroBruto ?? 0) >= 0 ? "success" : "danger"}
+            hint={`Margem ${(performance?.margemPct ?? 0).toFixed(1)}%`}
             onClick={() => setBlocoAberto("lucro")}
           />
         </div>
@@ -415,40 +447,50 @@ function FinanceContent() {
 
       {/* Bloco 3: A receber por origem + operacional */}
       <div className="space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          A receber por origem e operacional
-        </p>
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            A receber por origem e operacional
+          </p>
+          <div className="flex items-center gap-3">
+            {receberOrigem && (
+              <span className="hidden text-[11px] text-muted-foreground sm:inline">
+                {formatPeriodoBR(receberOrigem.periodo)}
+              </span>
+            )}
+            <SecaoFiltro value={filtroReceber} onChange={setFiltroReceber} showForma />
+          </div>
+        </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
             label="Fiado em aberto"
-            value={formatBRL(ind?.fiadoEmAberto ?? 0)}
+            value={formatBRL(receberOrigem?.fiadoEmAberto ?? 0)}
             icon={HandCoins}
             iconTone="info"
-            hint={`${ind?.qtdFiado ?? 0} títulos`}
+            hint={`${receberOrigem?.qtdFiado ?? 0} títulos`}
             onClick={() => setBlocoAberto("fiado")}
           />
           <StatCard
             label="iFood a repassar"
-            value={formatBRL(ind?.ifoodAReceber ?? 0)}
+            value={formatBRL(receberOrigem?.ifoodAReceber ?? 0)}
             icon={UtensilsCrossed}
             iconTone="warning"
-            hint={`${ind?.qtdIfood ?? 0} pendentes`}
+            hint={`${receberOrigem?.qtdIfood ?? 0} pendentes`}
             onClick={() => setBlocoAberto("ifood")}
           />
           <StatCard
-            label="Recebido hoje"
-            value={formatBRL(ind?.recebidoHoje ?? 0)}
+            label={filtroReceber.preset === "hoje" ? "Recebido hoje" : "Recebido no período"}
+            value={formatBRL(receberOrigem?.recebidoPeriodo ?? 0)}
             icon={Wallet}
             iconTone="success"
-            hint={`${ind?.qtdRecebimentosHoje ?? 0} recebimentos`}
+            hint={`${receberOrigem?.qtdRecebimentos ?? 0} recebimentos`}
             onClick={() => setBlocoAberto("recebidoHoje")}
           />
           <StatCard
             label="Vencidos"
-            value={formatBRL(ind?.vencidosTotal ?? 0)}
+            value={formatBRL(receberOrigem?.vencidosTotal ?? 0)}
             icon={AlertTriangle}
             iconTone="danger"
-            hint={`${ind?.qtdVencidos ?? 0} títulos`}
+            hint={`${receberOrigem?.qtdVencidos ?? 0} títulos`}
             onClick={() => setBlocoAberto("vencidos")}
           />
         </div>
