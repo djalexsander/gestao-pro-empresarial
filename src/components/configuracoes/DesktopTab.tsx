@@ -453,7 +453,11 @@ export function DesktopTab() {
                                 disabled={isSyncing}
                                 onClick={() =>
                                   void handleSync(
-                                    d.domain as "produtos" | "clientes_lite",
+                                    d.domain as
+                                      | "produtos"
+                                      | "clientes_lite"
+                                      | "estoque_movimentacoes"
+                                      | "estoque_saldos",
                                   )
                                 }
                               >
