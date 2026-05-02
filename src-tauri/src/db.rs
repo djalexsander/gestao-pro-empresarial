@@ -650,7 +650,50 @@ pub fn init() -> DbResult<()> {
         "#,
     )?;
 
-    // schema_version
+    // ------------------------------------------------------------------
+    // v12 — Outbox de lançamentos financeiros manuais.
+    //
+    // Mesma arquitetura das outras outboxes (estoque/vendas/caixa/cancel):
+    //   * `local_uuid`         → PK estável; também serve de _client_uuid
+    //                            ponta-a-ponta para a RPC upstream.
+    //   * `client_uuid`        → idempotência ao nível do produtor (UI/PDV).
+    //   * `lanc_local_uuid`    → FK lógica para lancamentos_financeiros_local.
+    //   * `payload`            → JSON do request enviado à RPC
+    //                            `criar_lancamento_avulso`.
+    //   * `status`             → pending | sending | sent | error
+    //   * `next_attempt_at_ms` → backoff exponencial.
+    //   * `remote_id`          → id devolvido pela RPC após sucesso.
+    // ------------------------------------------------------------------
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS outbox_financeiro (
+            local_uuid          TEXT PRIMARY KEY,
+            client_uuid         TEXT,
+            lanc_local_uuid     TEXT NOT NULL,
+            payload             TEXT NOT NULL,
+            status              TEXT NOT NULL DEFAULT 'pending',
+            attempts            INTEGER NOT NULL DEFAULT 0,
+            last_error          TEXT,
+            remote_id           TEXT,
+            remote_response     TEXT,
+            created_at_ms       INTEGER NOT NULL,
+            updated_at_ms       INTEGER NOT NULL,
+            sent_at_ms          INTEGER,
+            next_attempt_at_ms  INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_outbox_fin_status
+            ON outbox_financeiro(status, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_fin_status_next
+            ON outbox_financeiro(status, next_attempt_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_fin_lanc
+            ON outbox_financeiro(lanc_local_uuid);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_fin_client_uuid
+            ON outbox_financeiro(client_uuid) WHERE client_uuid IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_fin_lanc
+            ON outbox_financeiro(lanc_local_uuid);
+        "#,
+    )?;
+
     conn.execute(
         "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
