@@ -26,7 +26,7 @@ use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -120,6 +120,79 @@ pub fn init() -> DbResult<()> {
 
         CREATE INDEX IF NOT EXISTS idx_cache_expires
             ON cache_kv(expires_at_ms);
+
+        -- ====================================================================
+        -- v2: Tabelas locais NORMALIZADAS para os primeiros domínios provados.
+        -- Substituem o cache JSON cru. Mantemos `cache_kv` em paralelo para
+        -- domínios ainda não migrados e como rede de segurança.
+        --
+        -- Convenções:
+        --   * `id` é sempre o UUID/identificador da nuvem (fonte da verdade).
+        --   * `payload` mantém o JSON original do upstream — útil enquanto o
+        --     adapter ainda lê o objeto inteiro; nas próximas etapas podemos
+        --     descartar quando todas as projeções estiverem mapeadas.
+        --   * `updated_at_remote_ms` espelha o `updated_at` da nuvem (quando
+        --     disponível) — base para sync incremental futuro.
+        --   * `synced_at_ms` é quando este servidor local viu o registro.
+        --   * `deleted_at_ms` reservado para tombstones futuros.
+        -- ====================================================================
+
+        CREATE TABLE IF NOT EXISTS produtos_local (
+            id                   TEXT PRIMARY KEY,
+            sku                  TEXT,
+            nome                 TEXT,
+            status               TEXT,
+            categoria_id         TEXT,
+            categoria_nome       TEXT,
+            preco_venda          REAL,
+            estoque_atual        REAL,
+            payload              TEXT NOT NULL,
+            updated_at_remote_ms INTEGER,
+            synced_at_ms         INTEGER NOT NULL,
+            deleted_at_ms        INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_produtos_status ON produtos_local(status);
+        CREATE INDEX IF NOT EXISTS idx_produtos_categoria ON produtos_local(categoria_id);
+        CREATE INDEX IF NOT EXISTS idx_produtos_nome ON produtos_local(nome);
+        CREATE INDEX IF NOT EXISTS idx_produtos_sku ON produtos_local(sku);
+
+        CREATE TABLE IF NOT EXISTS clientes_local (
+            id                   TEXT PRIMARY KEY,
+            nome                 TEXT,
+            nome_fantasia        TEXT,
+            documento            TEXT,
+            status               TEXT,
+            payload              TEXT NOT NULL,
+            updated_at_remote_ms INTEGER,
+            synced_at_ms         INTEGER NOT NULL,
+            deleted_at_ms        INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_clientes_status ON clientes_local(status);
+        CREATE INDEX IF NOT EXISTS idx_clientes_nome ON clientes_local(nome);
+        CREATE INDEX IF NOT EXISTS idx_clientes_doc ON clientes_local(documento);
+
+        -- Saldos: agregados por (produto_id, variacao_id). A chave única
+        -- evita duplicatas quando o snapshot é re-ingerido.
+        CREATE TABLE IF NOT EXISTS estoque_saldos_local (
+            produto_id     TEXT NOT NULL,
+            variacao_id    TEXT NOT NULL DEFAULT '',
+            tipo           TEXT,
+            quantidade     REAL NOT NULL DEFAULT 0,
+            payload        TEXT NOT NULL,
+            synced_at_ms   INTEGER NOT NULL,
+            PRIMARY KEY (produto_id, variacao_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_saldos_produto ON estoque_saldos_local(produto_id);
+
+        -- Metadados de sync por domínio (último refresh, contagem ingerida,
+        -- origem). Base para o sync incremental futuro.
+        CREATE TABLE IF NOT EXISTS domain_sync_meta (
+            domain          TEXT PRIMARY KEY,
+            last_synced_ms  INTEGER NOT NULL,
+            row_count       INTEGER NOT NULL DEFAULT 0,
+            last_source     TEXT,
+            last_error      TEXT
+        );
         "#,
     )?;
 
@@ -414,5 +487,377 @@ pub fn db_info() -> DbResult<DbInfo> {
             cache_entries,
             created_at_ms,
         })
+    })
+}
+
+// ============================================================================
+// v2 — Tabelas tipadas para os primeiros domínios provados
+// ============================================================================
+//
+// Estratégia: o servidor local continua buscando o JSON cru no upstream
+// (Supabase REST) e, em paralelo ao cache_kv, INGERE em tabelas tipadas com
+// índices. Próximas etapas farão writes locais e sync incremental real.
+//
+// `payload` mantém o JSON completo do registro para que o adapter possa
+// devolver o objeto inteiro sem mapear todas as colunas ainda.
+
+fn parse_iso_to_ms(s: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(s)
+        .ok()
+        .map(|d| d.timestamp_millis())
+}
+
+fn json_str<'a>(v: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    v.get(key).and_then(|x| x.as_str())
+}
+
+fn json_f64(v: &serde_json::Value, key: &str) -> Option<f64> {
+    v.get(key).and_then(|x| x.as_f64())
+}
+
+#[derive(Debug, Serialize)]
+pub struct DomainStat {
+    pub domain: String,
+    pub row_count: i64,
+    pub last_synced_ms: Option<i64>,
+    pub last_source: Option<String>,
+}
+
+fn upsert_domain_meta(
+    conn: &Connection,
+    domain: &str,
+    row_count: i64,
+    now_ms: i64,
+    source: &str,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO domain_sync_meta(domain, last_synced_ms, row_count, last_source, last_error)
+         VALUES (?1, ?2, ?3, ?4, NULL)
+         ON CONFLICT(domain) DO UPDATE SET
+            last_synced_ms = excluded.last_synced_ms,
+            row_count      = excluded.row_count,
+            last_source    = excluded.last_source,
+            last_error     = NULL",
+        params![domain, now_ms, row_count, source],
+    )?;
+    Ok(())
+}
+
+// ---------- Produtos ----------
+
+/// Ingere um snapshot do upstream (`[{...produto...}]`) na tabela tipada.
+/// Faz upsert por id; não apaga produtos ausentes (tombstones virão com
+/// sync incremental). Retorna a quantidade de registros aplicados.
+pub fn ingest_produtos_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize> {
+    let arr: serde_json::Value = serde_json::from_str(json_text)
+        .map_err(|e| DbError(format!("ingest_produtos: json inválido: {e}")))?;
+    let items = match arr.as_array() {
+        Some(a) => a,
+        None => return Ok(0),
+    };
+
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+        let mut count = 0usize;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO produtos_local(
+                    id, sku, nome, status, categoria_id, categoria_nome,
+                    preco_venda, estoque_atual, payload,
+                    updated_at_remote_ms, synced_at_ms, deleted_at_ms
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,NULL)
+                 ON CONFLICT(id) DO UPDATE SET
+                    sku                  = excluded.sku,
+                    nome                 = excluded.nome,
+                    status               = excluded.status,
+                    categoria_id         = excluded.categoria_id,
+                    categoria_nome       = excluded.categoria_nome,
+                    preco_venda          = excluded.preco_venda,
+                    estoque_atual        = excluded.estoque_atual,
+                    payload              = excluded.payload,
+                    updated_at_remote_ms = COALESCE(excluded.updated_at_remote_ms, produtos_local.updated_at_remote_ms),
+                    synced_at_ms         = excluded.synced_at_ms,
+                    deleted_at_ms        = NULL",
+            )?;
+            for item in items {
+                let id = match json_str(item, "id") {
+                    Some(s) => s.to_string(),
+                    None => continue,
+                };
+                let categoria_nome = item
+                    .get("categoria")
+                    .and_then(|c| c.get("nome"))
+                    .and_then(|n| n.as_str())
+                    .map(|s| s.to_string());
+                let updated_ms = json_str(item, "updated_at").and_then(parse_iso_to_ms);
+                let payload = serde_json::to_string(item).unwrap_or_else(|_| "{}".into());
+                stmt.execute(params![
+                    id,
+                    json_str(item, "sku"),
+                    json_str(item, "nome"),
+                    json_str(item, "status"),
+                    json_str(item, "categoria_id"),
+                    categoria_nome,
+                    json_f64(item, "preco_venda"),
+                    json_f64(item, "estoque_atual"),
+                    payload,
+                    updated_ms,
+                    now_ms,
+                ])?;
+                count += 1;
+            }
+        }
+        let total: i64 =
+            tx.query_row("SELECT COUNT(*) FROM produtos_local WHERE deleted_at_ms IS NULL", [], |r| r.get(0))?;
+        upsert_domain_meta(&tx, "produtos", total, now_ms, "upstream")?;
+        tx.commit()?;
+        Ok(count)
+    })
+}
+
+pub struct ProdutosFilter<'a> {
+    pub status: Option<&'a str>,
+    pub categoria_id: Option<&'a str>,
+    pub busca: Option<&'a str>,
+}
+
+/// Lê produtos da tabela local. Retorna o JSON-array (string) compatível
+/// com o que o upstream entregaria — assim o adapter atual nem percebe
+/// que veio de tabela tipada.
+pub fn read_produtos(filter: ProdutosFilter<'_>) -> DbResult<String> {
+    with_conn(|conn| {
+        let mut sql = String::from(
+            "SELECT payload FROM produtos_local WHERE deleted_at_ms IS NULL",
+        );
+        let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        if let Some(s) = filter.status {
+            sql.push_str(" AND status = ?");
+            args.push(Box::new(s.to_string()));
+        }
+        if let Some(c) = filter.categoria_id {
+            sql.push_str(" AND categoria_id = ?");
+            args.push(Box::new(c.to_string()));
+        }
+        if let Some(b) = filter.busca {
+            let pat = format!("%{}%", b.to_lowercase());
+            sql.push_str(" AND (LOWER(nome) LIKE ? OR LOWER(IFNULL(sku,'')) LIKE ?)");
+            args.push(Box::new(pat.clone()));
+            args.push(Box::new(pat));
+        }
+        sql.push_str(" ORDER BY nome ASC");
+
+        let params_dyn: Vec<&dyn rusqlite::ToSql> = args.iter().map(|b| &**b).collect();
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_dyn.as_slice(), |r| r.get::<_, String>(0))?;
+        let mut out = String::from("[");
+        let mut first = true;
+        for r in rows {
+            let payload = r?;
+            if !first {
+                out.push(',');
+            }
+            out.push_str(&payload);
+            first = false;
+        }
+        out.push(']');
+        Ok(out)
+    })
+}
+
+// ---------- Clientes lite ----------
+
+pub fn ingest_clientes_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize> {
+    let arr: serde_json::Value = serde_json::from_str(json_text)
+        .map_err(|e| DbError(format!("ingest_clientes: json inválido: {e}")))?;
+    let items = match arr.as_array() {
+        Some(a) => a,
+        None => return Ok(0),
+    };
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+        let mut count = 0usize;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO clientes_local(
+                    id, nome, nome_fantasia, documento, status, payload,
+                    updated_at_remote_ms, synced_at_ms, deleted_at_ms
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,NULL)
+                 ON CONFLICT(id) DO UPDATE SET
+                    nome                 = excluded.nome,
+                    nome_fantasia        = excluded.nome_fantasia,
+                    documento            = excluded.documento,
+                    status               = excluded.status,
+                    payload              = excluded.payload,
+                    updated_at_remote_ms = COALESCE(excluded.updated_at_remote_ms, clientes_local.updated_at_remote_ms),
+                    synced_at_ms         = excluded.synced_at_ms,
+                    deleted_at_ms        = NULL",
+            )?;
+            for item in items {
+                let id = match json_str(item, "id") {
+                    Some(s) => s.to_string(),
+                    None => continue,
+                };
+                let updated_ms = json_str(item, "updated_at").and_then(parse_iso_to_ms);
+                let payload = serde_json::to_string(item).unwrap_or_else(|_| "{}".into());
+                stmt.execute(params![
+                    id,
+                    json_str(item, "nome"),
+                    json_str(item, "nome_fantasia"),
+                    json_str(item, "documento"),
+                    json_str(item, "status"),
+                    payload,
+                    updated_ms,
+                    now_ms,
+                ])?;
+                count += 1;
+            }
+        }
+        let total: i64 =
+            tx.query_row("SELECT COUNT(*) FROM clientes_local WHERE deleted_at_ms IS NULL", [], |r| r.get(0))?;
+        upsert_domain_meta(&tx, "clientes_lite", total, now_ms, "upstream")?;
+        tx.commit()?;
+        Ok(count)
+    })
+}
+
+pub fn read_clientes(status: Option<&str>) -> DbResult<String> {
+    with_conn(|conn| {
+        let mut sql = String::from(
+            "SELECT payload FROM clientes_local WHERE deleted_at_ms IS NULL",
+        );
+        let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        if let Some(s) = status {
+            sql.push_str(" AND status = ?");
+            args.push(Box::new(s.to_string()));
+        }
+        sql.push_str(" ORDER BY nome ASC");
+        let params_dyn: Vec<&dyn rusqlite::ToSql> = args.iter().map(|b| &**b).collect();
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_dyn.as_slice(), |r| r.get::<_, String>(0))?;
+        let mut out = String::from("[");
+        let mut first = true;
+        for r in rows {
+            let payload = r?;
+            if !first {
+                out.push(',');
+            }
+            out.push_str(&payload);
+            first = false;
+        }
+        out.push(']');
+        Ok(out)
+    })
+}
+
+// ---------- Estoque saldos ----------
+
+pub fn ingest_saldos_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize> {
+    let arr: serde_json::Value = serde_json::from_str(json_text)
+        .map_err(|e| DbError(format!("ingest_saldos: json inválido: {e}")))?;
+    let items = match arr.as_array() {
+        Some(a) => a,
+        None => return Ok(0),
+    };
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+        // Snapshot completo: limpa antes para refletir o estado upstream.
+        tx.execute("DELETE FROM estoque_saldos_local", [])?;
+        let mut count = 0usize;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO estoque_saldos_local(
+                    produto_id, variacao_id, tipo, quantidade, payload, synced_at_ms
+                 ) VALUES (?1,?2,?3,?4,?5,?6)
+                 ON CONFLICT(produto_id, variacao_id) DO UPDATE SET
+                    tipo         = excluded.tipo,
+                    quantidade   = excluded.quantidade,
+                    payload      = excluded.payload,
+                    synced_at_ms = excluded.synced_at_ms",
+            )?;
+            for item in items {
+                let produto_id = match json_str(item, "produto_id") {
+                    Some(s) => s.to_string(),
+                    None => continue,
+                };
+                let variacao_id = json_str(item, "variacao_id").unwrap_or("").to_string();
+                let payload = serde_json::to_string(item).unwrap_or_else(|_| "{}".into());
+                stmt.execute(params![
+                    produto_id,
+                    variacao_id,
+                    json_str(item, "tipo"),
+                    json_f64(item, "quantidade").unwrap_or(0.0),
+                    payload,
+                    now_ms,
+                ])?;
+                count += 1;
+            }
+        }
+        let total: i64 =
+            tx.query_row("SELECT COUNT(*) FROM estoque_saldos_local", [], |r| r.get(0))?;
+        upsert_domain_meta(&tx, "estoque_saldos", total, now_ms, "upstream")?;
+        tx.commit()?;
+        Ok(count)
+    })
+}
+
+pub fn read_saldos() -> DbResult<String> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT payload FROM estoque_saldos_local ORDER BY produto_id ASC",
+        )?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        let mut out = String::from("[");
+        let mut first = true;
+        for r in rows {
+            let payload = r?;
+            if !first {
+                out.push(',');
+            }
+            out.push_str(&payload);
+            first = false;
+        }
+        out.push(']');
+        Ok(out)
+    })
+}
+
+// ---------- Stats por domínio ----------
+
+pub fn list_domain_stats() -> DbResult<Vec<DomainStat>> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT domain, row_count, last_synced_ms, last_source
+             FROM domain_sync_meta
+             ORDER BY domain ASC",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(DomainStat {
+                domain: r.get(0)?,
+                row_count: r.get(1)?,
+                last_synced_ms: r.get::<_, Option<i64>>(2)?,
+                last_source: r.get::<_, Option<String>>(3)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    })
+}
+
+/// True quando temos pelo menos uma linha tipada para o domínio (utilizado
+/// para servir `local-table` mesmo após o cache_kv expirar).
+pub fn domain_has_rows(domain: &str) -> DbResult<bool> {
+    with_conn(|conn| {
+        let table = match domain {
+            "produtos" => "produtos_local",
+            "clientes_lite" => "clientes_local",
+            "estoque_saldos" => "estoque_saldos_local",
+            _ => return Ok(false),
+        };
+        let sql = format!("SELECT COUNT(*) FROM {table}");
+        let n: i64 = conn.query_row(&sql, [], |r| r.get(0))?;
+        Ok(n > 0)
     })
 }

@@ -21,8 +21,10 @@ import { DesktopSetupWizard } from "@/components/desktop/DesktopSetupWizard";
 import { useServerConnection } from "@/components/desktop/useServerConnection";
 import {
   fetchDbInfo,
+  fetchDomainStats,
   fetchKnownTerminals,
   type DbInfoPayload,
+  type DomainStat,
   type PersistedTerminal,
   type ServerConnStatus,
 } from "@/integrations/desktop/serverConnection";
@@ -40,6 +42,7 @@ export function DesktopTab() {
   // ---- Banco local: polling leve do /db/info e /terminals/known ----
   const [dbInfo, setDbInfo] = useState<DbInfoPayload | null>(null);
   const [knownTerminals, setKnownTerminals] = useState<PersistedTerminal[]>([]);
+  const [domainStats, setDomainStats] = useState<DomainStat[]>([]);
 
   useEffect(() => {
     if (!isDesktop || role === "unset") return;
@@ -58,13 +61,15 @@ export function DesktopTab() {
 
     let alive = true;
     const carregar = async () => {
-      const [info, terms] = await Promise.all([
+      const [info, terms, stats] = await Promise.all([
         fetchDbInfo(cfg),
         fetchKnownTerminals(cfg),
+        fetchDomainStats(cfg),
       ]);
       if (!alive) return;
       setDbInfo(info);
       setKnownTerminals(terms);
+      setDomainStats(stats);
     };
     void carregar();
     const t = setInterval(() => void carregar(), 30_000);
@@ -321,6 +326,52 @@ export function DesktopTab() {
           </Card>
         )}
 
+        {role !== "unset" && domainStats.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Domínios locais (tabelas tipadas)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-hidden rounded-lg border border-border">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/40 text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium">Domínio</th>
+                      <th className="px-3 py-2 text-right font-medium">Registros</th>
+                      <th className="px-3 py-2 text-left font-medium">Origem</th>
+                      <th className="px-3 py-2 text-left font-medium">Último refresh</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {domainStats.map((d) => (
+                      <tr key={d.domain} className="border-t border-border">
+                        <td className="px-3 py-2 font-mono text-foreground">{d.domain}</td>
+                        <td className="px-3 py-2 text-right text-foreground">{d.row_count}</td>
+                        <td className="px-3 py-2 text-muted-foreground">
+                          {d.last_source ?? "—"}
+                        </td>
+                        <td className="px-3 py-2 text-muted-foreground">
+                          {d.last_synced_ms
+                            ? new Date(d.last_synced_ms).toLocaleString("pt-BR")
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Snapshots ingeridos em tabelas SQLite locais com colunas tipadas
+                e índices. Servem como fallback resiliente quando a nuvem cai e
+                como base para o sync incremental da próxima etapa.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         <Card>
           <CardHeader>
             <CardTitle>Backend de dados</CardTitle>
@@ -335,10 +386,13 @@ export function DesktopTab() {
             <p className="text-muted-foreground">
               Os domínios <strong>produtos.list</strong>,{" "}
               <strong>estoque.saldosLinhas</strong> e{" "}
-              <strong>clientes.listLite</strong> agora passam pelo banco local
-              do servidor (cache read-through, TTL 60s) com fallback automático
-              para a nuvem em caso de miss ou erro. Demais domínios continuam
-              proxy direto para o Lovable Cloud nesta etapa.
+              <strong>clientes.listLite</strong> são servidos pelo banco local
+              do servidor: cache read-through (TTL 60s) com ingestão paralela
+              em <strong>tabelas tipadas</strong> (produtos_local, clientes_local,
+              estoque_saldos_local). Se a nuvem falhar e existirem dados
+              locais, o servidor responde a partir das tabelas tipadas
+              (origem <code>local-table-stale</code>). Demais domínios
+              continuam proxy direto para o Lovable Cloud nesta etapa.
             </p>
           </CardContent>
         </Card>

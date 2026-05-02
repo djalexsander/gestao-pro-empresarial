@@ -206,6 +206,13 @@ export interface DbInfoPayload {
   created_at_ms: number | null;
 }
 
+export interface DomainStat {
+  domain: string;
+  row_count: number;
+  last_synced_ms: number | null;
+  last_source: string | null;
+}
+
 export async function fetchKnownTerminals(
   cfg?: TerminalConexaoConfig,
 ): Promise<PersistedTerminal[]> {
@@ -248,6 +255,29 @@ export async function fetchDbInfo(
   } catch {
     clearTimeout(timer);
     return null;
+  }
+}
+
+export async function fetchDomainStats(
+  cfg?: TerminalConexaoConfig,
+): Promise<DomainStat[]> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return [];
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(`${baseUrl}/db/domains`, {
+      headers: { Accept: "application/json" },
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (!res.ok) return [];
+    const json = (await res.json()) as { domains?: DomainStat[] };
+    return json.domains ?? [];
+  } catch {
+    clearTimeout(timer);
+    return [];
   }
 }
 
