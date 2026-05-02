@@ -388,41 +388,93 @@ async fn proxy_with_cache(
     let key = build_cache_key(path, query);
     let now = now_ms();
 
-    // 1) HIT?
+    // 1) HIT no cache_kv (TTL curto) → serve direto.
     if let Ok(Some(payload)) = db::cache_get(domain, &key, now) {
-        return Ok((
-            StatusCode::OK,
-            [
-                (axum::http::header::CONTENT_TYPE, "application/json"),
-                (axum::http::HeaderName::from_static("x-gp-source"), "local-db"),
-            ],
-            payload,
-        )
-            .into_response());
+        return Ok(typed_response(StatusCode::OK, "local-db", payload.into_bytes()));
     }
 
-    // 2) MISS → busca no upstream e popula cache.
-    let upstream_resp = proxy_get(ctx, headers, path, query).await?;
-    let (parts, body) = upstream_resp.into_parts();
-    let bytes = axum::body::to_bytes(body, 1024 * 1024 * 8)
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Falha lendo body: {e}")))?;
+    // 2) MISS → tenta upstream.
+    let upstream_result = proxy_get(ctx, headers, path, query).await;
 
-    if parts.status.is_success() {
-        if let Ok(text) = std::str::from_utf8(&bytes) {
-            let _ = db::cache_put(domain, &key, text, now, CACHE_TTL_MS);
+    match upstream_result {
+        Ok(upstream_resp) => {
+            let (parts, body) = upstream_resp.into_parts();
+            let bytes = axum::body::to_bytes(body, 1024 * 1024 * 8)
+                .await
+                .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Falha lendo body: {e}")))?;
+
+            if parts.status.is_success() {
+                if let Ok(text) = std::str::from_utf8(&bytes) {
+                    // a) cache cru (compatibilidade)
+                    let _ = db::cache_put(domain, &key, text, now, CACHE_TTL_MS);
+                    // b) ingestão TIPADA (best-effort, não bloqueia resposta)
+                    ingest_typed(domain, text, now);
+                }
+            }
+            Ok(typed_response(parts.status, "upstream", bytes.to_vec()))
+        }
+        Err(err) => {
+            // 3) Upstream falhou → tenta servir da TABELA TIPADA local (stale ok).
+            if let Ok(true) = db::domain_has_rows(domain) {
+                if let Ok(payload) = read_typed(domain, query) {
+                    return Ok(typed_response(
+                        StatusCode::OK,
+                        "local-table-stale",
+                        payload.into_bytes(),
+                    ));
+                }
+            }
+            Err(err)
         }
     }
+}
 
-    Ok((
-        parts.status,
+fn typed_response(status: StatusCode, source: &'static str, body: Vec<u8>) -> axum::response::Response {
+    (
+        status,
         [
             (axum::http::header::CONTENT_TYPE, "application/json"),
-            (axum::http::HeaderName::from_static("x-gp-source"), "upstream"),
+            (axum::http::HeaderName::from_static("x-gp-source"), source),
         ],
-        bytes,
+        body,
     )
-        .into_response())
+        .into_response()
+}
+
+fn ingest_typed(domain: &str, text: &str, now: i64) {
+    let r = match domain {
+        "produtos" => db::ingest_produtos_snapshot(text, now).map(|_| ()),
+        "clientes_lite" => db::ingest_clientes_snapshot(text, now).map(|_| ()),
+        "estoque_saldos" => db::ingest_saldos_snapshot(text, now).map(|_| ()),
+        _ => Ok(()),
+    };
+    if let Err(e) = r {
+        eprintln!("[gestao-pro] ingest tipado falhou domain={domain}: {e}");
+    }
+}
+
+fn read_typed(domain: &str, query: &[(&str, String)]) -> Result<String, db::DbError> {
+    let get = |k: &str| -> Option<String> {
+        query.iter().find(|(qk, _)| *qk == k).map(|(_, v)| v.clone())
+    };
+    match domain {
+        "produtos" => {
+            // Os filtros chegam aqui já no formato Supabase REST ("eq.X", "(or)..").
+            // Para a leitura local nesta etapa devolvemos o snapshot completo
+            // — o adapter cliente filtra/ordena se necessário. (Próxima etapa
+            // pode mapear filtros 1:1.)
+            let _ = get("status");
+            let _ = get("categoria_id");
+            db::read_produtos(db::ProdutosFilter {
+                status: None,
+                categoria_id: None,
+                busca: None,
+            })
+        }
+        "clientes_lite" => db::read_clientes(None),
+        "estoque_saldos" => db::read_saldos(),
+        _ => Err(db::DbError("domínio sem leitura tipada".into())),
+    }
 }
 
 async fn produtos_list_handler(
