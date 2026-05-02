@@ -1078,6 +1078,95 @@ export function DesktopTab() {
                 depois que a venda original estiver sincronizada. Idempotência
                 garantida pelo <code>local_uuid</code>.
               </p>
+          </Card>
+        )}
+
+        {role !== "unset" && outboxFin && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Fila offline — financeiro
+              </CardTitle>
+              <div className="flex gap-2">
+                {outboxFin.error > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void handleRetryErrorsFin()}
+                  >
+                    Reenfileirar erros
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={flushingFin || outboxFin.pending === 0}
+                  onClick={() => void handleFlushFin()}
+                >
+                  {flushingFin ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                  )}
+                  Sincronizar agora
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 text-sm sm:grid-cols-4">
+                <Field label="Pendentes" value={String(outboxFin.pending)} />
+                <Field label="Enviando" value={String(outboxFin.sending)} />
+                <Field
+                  label="Prontas / Pendentes"
+                  value={`${outboxFin.due_now} / ${outboxFin.pending}`}
+                />
+                <Field label="Enviadas" value={String(outboxFin.sent)} />
+                <Field label="Com erro" value={String(outboxFin.error)} />
+                <Field
+                  label="Próx. tentativa auto"
+                  value={
+                    outboxFin.next_attempt_at_ms
+                      ? new Date(outboxFin.next_attempt_at_ms).toLocaleString("pt-BR")
+                      : "—"
+                  }
+                />
+                <Field
+                  label="Último auto-flush"
+                  value={
+                    outboxFin.last_auto_flush_ms
+                      ? `${new Date(outboxFin.last_auto_flush_ms).toLocaleTimeString("pt-BR")}` +
+                        (outboxFin.last_auto_attempted != null
+                          ? ` · ${outboxFin.last_auto_sent ?? 0}/${outboxFin.last_auto_attempted} ok`
+                          : "")
+                      : "—"
+                  }
+                />
+                <Field
+                  label="Último envio"
+                  value={
+                    outboxFin.last_sent_at_ms
+                      ? new Date(outboxFin.last_sent_at_ms).toLocaleString("pt-BR")
+                      : "—"
+                  }
+                />
+                {outboxFin.last_error && (
+                  <div className="sm:col-span-4">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                      Último erro
+                    </div>
+                    <div className="mt-0.5 break-all text-xs text-destructive">
+                      {outboxFin.last_error}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Lançamentos financeiros manuais são empurrados para o upstream
+                via <code>rpc/criar_lancamento_avulso</code>. Idempotência
+                garantida pelo <code>client_uuid</code> (= <code>local_uuid</code>):
+                reenvios nunca duplicam o lançamento na nuvem.
+              </p>
             </CardContent>
           </Card>
         )}
