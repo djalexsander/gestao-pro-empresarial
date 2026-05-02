@@ -3528,6 +3528,9 @@ pub struct LancamentoLocalRow {
     pub operador_id: Option<String>,
     pub cancelado_em_ms: Option<i64>,
     pub cancelado_motivo: Option<String>,
+    // v12 — sync com upstream
+    pub remote_id: Option<String>,
+    pub sync_status: String,
 }
 
 const LANC_SELECT_COLS: &str = "local_uuid, caixa_local_uuid, tipo, categoria, forma_pagamento,
@@ -3535,7 +3538,8 @@ const LANC_SELECT_COLS: &str = "local_uuid, caixa_local_uuid, tipo, categoria, f
         COALESCE(status,'confirmado') AS status,
         venda_local_uuid, cliente_id, fornecedor_id,
         data_competencia_ms, data_vencimento_ms, data_pagamento_ms,
-        operador_id, cancelado_em_ms, cancelado_motivo";
+        operador_id, cancelado_em_ms, cancelado_motivo,
+        remote_id, COALESCE(sync_status,'local_only') AS sync_status";
 
 fn map_lanc_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<LancamentoLocalRow> {
     Ok(LancamentoLocalRow {
@@ -3558,6 +3562,8 @@ fn map_lanc_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<LancamentoLocalRow> {
         operador_id: r.get(16)?,
         cancelado_em_ms: r.get(17)?,
         cancelado_motivo: r.get(18)?,
+        remote_id: r.get(19)?,
+        sync_status: r.get(20)?,
     })
 }
 
