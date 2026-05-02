@@ -331,8 +331,177 @@ export async function fetchDomainStats(
 }
 
 // ----------------------------------------------------------------------------
-// Heartbeat — terminal informa identidade ao servidor local
+// Outbox de estoque — writes locais com fila offline
 // ----------------------------------------------------------------------------
+
+export interface OutboxStats {
+  pending: number;
+  sending: number;
+  sent: number;
+  error: number;
+  last_sent_at_ms: number | null;
+  last_error: string | null;
+}
+
+export interface OutboxItem {
+  local_uuid: string;
+  client_uuid: string | null;
+  payload: string;
+  status: "pending" | "sending" | "sent" | "error";
+  attempts: number;
+  last_error: string | null;
+  remote_id: string | null;
+  created_at_ms: number;
+  updated_at_ms: number;
+  sent_at_ms: number | null;
+}
+
+export interface RegistrarMovLocalRequest {
+  produto_id: string;
+  variacao_id?: string | null;
+  tipo: string;
+  quantidade: number;
+  custo_unitario?: number | null;
+  observacoes?: string | null;
+  origem?: string | null;
+  client_uuid?: string | null;
+}
+
+export interface RegistrarMovLocalResponse {
+  movimento_id: string;
+  idempotente: boolean;
+  saldo_anterior: number;
+  saldo_posterior: number;
+  outbox_status: "pending" | "sent";
+  remote_id: string | null;
+}
+
+export interface OutboxFlushResult {
+  attempted: number;
+  sent: number;
+  failed: number;
+  errors: string[];
+}
+
+export async function fetchOutboxStats(
+  cfg?: TerminalConexaoConfig,
+): Promise<OutboxStats | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(`${baseUrl}/db/outbox/estoque/stats`, {
+      headers: { Accept: "application/json" },
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    return (await res.json()) as OutboxStats;
+  } catch {
+    clearTimeout(timer);
+    return null;
+  }
+}
+
+export async function fetchOutboxList(
+  cfg: TerminalConexaoConfig | undefined,
+  opts?: { status?: OutboxItem["status"]; limit?: number },
+): Promise<OutboxItem[]> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return [];
+  const url = new URL(`${baseUrl}/db/outbox/estoque`);
+  if (opts?.status) url.searchParams.set("status", opts.status);
+  if (opts?.limit) url.searchParams.set("limit", String(opts.limit));
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const json = (await res.json()) as { items?: OutboxItem[] };
+    return json.items ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function flushOutbox(
+  cfg: TerminalConexaoConfig | undefined,
+  authToken?: string | null,
+): Promise<OutboxFlushResult | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30_000);
+  try {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    const res = await fetch(`${baseUrl}/db/outbox/flush`, {
+      method: "POST",
+      headers,
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    return (await res.json()) as OutboxFlushResult;
+  } catch {
+    clearTimeout(timer);
+    return null;
+  }
+}
+
+export async function retryOutboxErrors(
+  cfg: TerminalConexaoConfig | undefined,
+): Promise<number> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return 0;
+  try {
+    const res = await fetch(`${baseUrl}/db/outbox/retry-errors`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return 0;
+    const json = (await res.json()) as { requeued?: number };
+    return json.requeued ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+export async function registrarMovimentoLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: RegistrarMovLocalRequest,
+  authToken?: string | null,
+): Promise<RegistrarMovLocalResponse | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8_000);
+  try {
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    };
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    const res = await fetch(`${baseUrl}/api/estoque/movimentacoes/registrar`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    return (await res.json()) as RegistrarMovLocalResponse;
+  } catch {
+    clearTimeout(timer);
+    return null;
+  }
+}
 
 export interface HeartbeatPayload {
   terminal_id: string;
