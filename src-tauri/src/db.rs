@@ -196,6 +196,22 @@ pub fn init() -> DbResult<()> {
         "#,
     )?;
 
+    // ------------------------------------------------------------------
+    // v3 — Sync incremental: estende `domain_sync_meta` com cursor/estado.
+    // Usa ADD COLUMN idempotente (ignora "duplicate column" do SQLite).
+    // ------------------------------------------------------------------
+    let alters = [
+        "ALTER TABLE domain_sync_meta ADD COLUMN last_remote_cursor_ms INTEGER",
+        "ALTER TABLE domain_sync_meta ADD COLUMN last_strategy TEXT",
+        "ALTER TABLE domain_sync_meta ADD COLUMN last_delta_count INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE domain_sync_meta ADD COLUMN last_attempt_ms INTEGER",
+        "ALTER TABLE domain_sync_meta ADD COLUMN last_synced_ok INTEGER NOT NULL DEFAULT 1",
+    ];
+    for sql in alters {
+        // Erro só ocorre quando a coluna já existe — seguro ignorar.
+        let _ = conn.execute(sql, []);
+    }
+
     // schema_version
     conn.execute(
         "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
