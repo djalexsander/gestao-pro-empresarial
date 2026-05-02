@@ -4013,3 +4013,556 @@ pub fn outbox_caixa_reset_errors(now_ms: i64) -> DbResult<i64> {
         Ok(n as i64)
     })
 }
+
+// ============================================================================
+// CANCELAMENTO LOCAL DE VENDA — v10
+// ============================================================================
+//
+// Política:
+//   * Idempotente: se a venda já está 'cancelada' localmente, devolve o
+//     resultado anterior (idempotente=true) — duplo clique não cria estorno
+//     duplo, nem enfileira segundo cancelamento.
+//   * Recusa: vendas com status diferente de 'ativa' (i.e. já canceladas)
+//     são rejeitadas explicitamente fora do caminho idempotente.
+//   * Transacional: numa única transação SQLite:
+//       1. UPDATE vendas_local SET status='cancelada' + metadados.
+//       2. Para cada item da venda → INSERT em estoque_movimentacoes_local
+//          como 'devolucao' + apply_mov_to_saldo (estorno do saldo materializado).
+//       3. Regenera lancamentos_financeiros_local do caixa associado (se
+//          houver), refletindo a remoção da venda dos totais.
+//       4. Enfileira em outbox_cancelamentos_venda (cliente da RPC
+//          `cancelar_venda` na nuvem).
+//   * Sync:
+//       - Se a venda original ainda NÃO foi sincronizada (sem remote_id),
+//         o item de cancelamento fica pending até o `push_one_outbox_venda`
+//         marcar a venda como `sent` — a partir daí o scheduler de
+//         cancelamentos consegue resolver o `_venda_id` upstream.
+//       - O `local_uuid` do cancelamento vira o `_client_uuid` da RPC
+//         `cancelar_venda` no upstream → idempotência cross-runs.
+//   * Estoque: cada item gera UMA movimentação de devolução com id
+//     determinístico `<venda_local_uuid>-c<idx>` para evitar duplicidade
+//     em retries (INSERT OR IGNORE).
+
+#[derive(Debug, Deserialize)]
+pub struct LocalCancelarVendaInput {
+    pub venda_local_uuid: String,
+    #[serde(default)]
+    pub motivo: Option<String>,
+    #[serde(default)]
+    pub operador_id: Option<String>,
+    #[serde(default)]
+    pub client_uuid: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LocalCancelarVendaResult {
+    pub venda_local_uuid: String,
+    pub cancelamento_local_uuid: String,
+    pub idempotente: bool,
+    pub qtd_itens_estornados: i64,
+    pub qtd_total_estornada: f64,
+    pub caixa_local_uuid: Option<String>,
+    pub outbox_status: String,
+}
+
+pub fn cancelar_venda_local(
+    input: LocalCancelarVendaInput,
+    now_ms: i64,
+) -> DbResult<LocalCancelarVendaResult> {
+    if input.venda_local_uuid.is_empty() {
+        return Err(DbError("venda_local_uuid obrigatório".into()));
+    }
+
+    // Resolve venda. Aceita tanto local_uuid quanto client_uuid (sincronizado
+    // ou não) — facilita o frontend que pode ter qualquer um dos dois.
+    let venda_row: Option<(String, String, Option<String>, Option<String>)> = with_conn(|conn| {
+        let r = conn.query_row(
+            "SELECT local_uuid, COALESCE(status,'ativa'), caixa_local_uuid,
+                    cancelamento_local_uuid
+               FROM vendas_local
+              WHERE local_uuid = ?1 OR client_uuid = ?1
+              LIMIT 1",
+            params![input.venda_local_uuid],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        ).optional()?;
+        Ok(r)
+    })?;
+    let (venda_uuid, status_atual, caixa_local_uuid, prev_canc) = venda_row
+        .ok_or_else(|| DbError(format!("venda local não encontrada: {}", input.venda_local_uuid)))?;
+
+    // Idempotente: já cancelada → devolve resumo anterior.
+    if status_atual == "cancelada" {
+        let canc_uuid = prev_canc.unwrap_or_default();
+        let (qtd_itens, qtd_total) = with_conn(|conn| {
+            let r = conn.query_row(
+                "SELECT COUNT(*), COALESCE(SUM(quantidade),0)
+                   FROM venda_itens_local WHERE venda_local_uuid = ?1",
+                params![venda_uuid],
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?)),
+            ).optional()?;
+            Ok(r.unwrap_or((0, 0.0)))
+        })?;
+        return Ok(LocalCancelarVendaResult {
+            venda_local_uuid: venda_uuid,
+            cancelamento_local_uuid: canc_uuid,
+            idempotente: true,
+            qtd_itens_estornados: qtd_itens,
+            qtd_total_estornada: qtd_total,
+            caixa_local_uuid,
+            outbox_status: "already".into(),
+        });
+    }
+
+    // Idempotência por client_uuid (mesmo cancelamento reentregue).
+    if let Some(cu) = input.client_uuid.as_deref() {
+        if !cu.is_empty() {
+            if let Some(local_uuid) = with_conn(|conn| {
+                let r = conn.query_row(
+                    "SELECT local_uuid FROM outbox_cancelamentos_venda
+                       WHERE client_uuid = ?1",
+                    params![cu],
+                    |r| r.get::<_, String>(0),
+                ).optional()?;
+                Ok(r)
+            })? {
+                let (qtd_itens, qtd_total) = with_conn(|conn| {
+                    let r = conn.query_row(
+                        "SELECT COUNT(*), COALESCE(SUM(quantidade),0)
+                           FROM venda_itens_local WHERE venda_local_uuid = ?1",
+                        params![venda_uuid],
+                        |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?)),
+                    ).optional()?;
+                    Ok(r.unwrap_or((0, 0.0)))
+                })?;
+                return Ok(LocalCancelarVendaResult {
+                    venda_local_uuid: venda_uuid,
+                    cancelamento_local_uuid: local_uuid,
+                    idempotente: true,
+                    qtd_itens_estornados: qtd_itens,
+                    qtd_total_estornada: qtd_total,
+                    caixa_local_uuid,
+                    outbox_status: "already".into(),
+                });
+            }
+        }
+    }
+
+    // Lê venda_remote_id (se já sincronizada) — vai no payload de outbox.
+    let venda_remote_id: Option<String> = with_conn(|conn| {
+        let r = conn.query_row(
+            "SELECT remote_id FROM outbox_vendas WHERE local_uuid = ?1",
+            params![venda_uuid],
+            |r| r.get::<_, Option<String>>(0),
+        ).optional()?;
+        Ok(r.flatten())
+    })?;
+
+    let cancelamento_local_uuid = random_uuid_v4();
+
+    let payload_json = serde_json::json!({
+        "local_uuid":        cancelamento_local_uuid,
+        "venda_local_uuid":  venda_uuid,
+        "venda_remote_id":   venda_remote_id,
+        "motivo":            input.motivo,
+        "operador_id":       input.operador_id,
+        "client_uuid":       input.client_uuid,
+    }).to_string();
+
+    let res = with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+
+        // 1) Marca venda como cancelada localmente.
+        tx.execute(
+            "UPDATE vendas_local
+                SET status='cancelada',
+                    cancelado_em_ms=?1,
+                    cancelado_motivo=?2,
+                    cancelado_operador_id=?3,
+                    cancelado_client_uuid=?4,
+                    cancelamento_local_uuid=?5,
+                    updated_at_ms=?1
+              WHERE local_uuid=?6",
+            params![
+                now_ms,
+                input.motivo,
+                input.operador_id,
+                input.client_uuid,
+                cancelamento_local_uuid,
+                venda_uuid,
+            ],
+        )?;
+
+        // 2) Estorno de estoque — 1 movimentação 'devolucao' por item.
+        let mut stmt = tx.prepare(
+            "SELECT produto_id, quantidade
+               FROM venda_itens_local
+              WHERE venda_local_uuid = ?1
+              ORDER BY id ASC",
+        )?;
+        let itens: Vec<(String, f64)> = stmt
+            .query_map(params![venda_uuid], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        drop(stmt);
+
+        let mut qtd_itens: i64 = 0;
+        let mut qtd_total: f64 = 0.0;
+        for (idx, (produto_id, quantidade)) in itens.iter().enumerate() {
+            let mov_id = format!("{}-c{}", venda_uuid, idx);
+            let variacao_id = String::new();
+            let saldo_anterior = read_saldo_atual(&tx, produto_id, &variacao_id)?;
+            let saldo_posterior = saldo_anterior + *quantidade;
+            let mov_payload = serde_json::json!({
+                "id": mov_id,
+                "produto_id": produto_id,
+                "tipo": "devolucao",
+                "quantidade": quantidade,
+                "saldo_anterior": saldo_anterior,
+                "saldo_posterior": saldo_posterior,
+                "origem": "cancelamento_venda",
+                "venda_local_uuid": venda_uuid,
+                "data_movimentacao": iso_from_ms_z_pub(now_ms),
+                "_pending": true,
+            }).to_string();
+            tx.execute(
+                "INSERT OR IGNORE INTO estoque_movimentacoes_local(
+                    id, produto_id, variacao_id, tipo, quantidade,
+                    saldo_anterior, saldo_posterior, custo_unitario,
+                    origem, observacoes, data_movimentacao_ms,
+                    payload, synced_at_ms
+                 ) VALUES (?1,?2,?3,'devolucao',?4,?5,?6,NULL,'cancelamento_venda',
+                           NULL,?7,?8,?7)",
+                params![
+                    mov_id,
+                    produto_id,
+                    variacao_id,
+                    quantidade,
+                    saldo_anterior,
+                    saldo_posterior,
+                    now_ms,
+                    mov_payload,
+                ],
+            )?;
+            apply_mov_to_saldo(
+                &tx, produto_id, &variacao_id,
+                Some("devolucao"), *quantidade, now_ms,
+            )?;
+            qtd_itens += 1;
+            qtd_total += *quantidade;
+        }
+
+        // 3) Regenera lançamentos derivados do caixa associado (se houver).
+        //    A query já filtra vendas canceladas — basta reexecutar.
+        if let Some(clu) = caixa_local_uuid.as_deref() {
+            gerar_lancamentos_locais_para_caixa(&tx, clu, now_ms)?;
+        }
+
+        // 4) Enfileira na outbox de cancelamentos.
+        tx.execute(
+            "INSERT INTO outbox_cancelamentos_venda(
+                local_uuid, client_uuid, venda_local_uuid, venda_remote_id,
+                motivo, operador_id, payload, status, attempts,
+                last_error, remote_response,
+                created_at_ms, updated_at_ms, sent_at_ms, next_attempt_at_ms
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,'pending',0,NULL,NULL,?8,?8,NULL,NULL)",
+            params![
+                cancelamento_local_uuid,
+                input.client_uuid,
+                venda_uuid,
+                venda_remote_id,
+                input.motivo,
+                input.operador_id,
+                payload_json,
+                now_ms,
+            ],
+        )?;
+
+        tx.commit()?;
+        Ok((qtd_itens, qtd_total))
+    })?;
+
+    Ok(LocalCancelarVendaResult {
+        venda_local_uuid: venda_uuid,
+        cancelamento_local_uuid,
+        idempotente: false,
+        qtd_itens_estornados: res.0,
+        qtd_total_estornada: res.1,
+        caixa_local_uuid,
+        outbox_status: "pending".into(),
+    })
+}
+
+// ----------------- Outbox de cancelamentos: stats / list / status -----------------
+
+#[derive(Debug, Serialize, Default)]
+pub struct OutboxCancelStats {
+    pub pending: i64,
+    pub sending: i64,
+    pub sent: i64,
+    pub error: i64,
+    pub last_sent_at_ms: Option<i64>,
+    pub last_error: Option<String>,
+    pub due_now: i64,
+    pub next_attempt_at_ms: Option<i64>,
+    /// Cancelamentos esperando a venda original ser sincronizada antes de poder
+    /// ir ao upstream (depende da ordem causal venda → cancelamento).
+    pub waiting_venda_sync: i64,
+}
+
+pub fn outbox_cancel_stats() -> DbResult<OutboxCancelStats> {
+    with_conn(|conn| {
+        let mut s = OutboxCancelStats::default();
+        let mut stmt = conn.prepare(
+            "SELECT status, COUNT(*) FROM outbox_cancelamentos_venda GROUP BY status",
+        )?;
+        for r in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
+            let (st, n) = r?;
+            match st.as_str() {
+                "pending" => s.pending = n,
+                "sending" => s.sending = n,
+                "sent" => s.sent = n,
+                "error" => s.error = n,
+                _ => {}
+            }
+        }
+        s.last_sent_at_ms = conn.query_row(
+            "SELECT MAX(sent_at_ms) FROM outbox_cancelamentos_venda WHERE status='sent'",
+            [], |r| r.get::<_, Option<i64>>(0),
+        ).unwrap_or(None);
+        s.last_error = conn.query_row(
+            "SELECT last_error FROM outbox_cancelamentos_venda
+              WHERE status='error' ORDER BY updated_at_ms DESC LIMIT 1",
+            [], |r| r.get::<_, Option<String>>(0),
+        ).unwrap_or(None);
+        s.due_now = conn.query_row(
+            "SELECT COUNT(*) FROM outbox_cancelamentos_venda
+              WHERE status='pending'
+                AND (next_attempt_at_ms IS NULL OR next_attempt_at_ms <= ?1)",
+            params![chrono::Utc::now().timestamp_millis()], |r| r.get::<_, i64>(0),
+        ).unwrap_or(0);
+        s.next_attempt_at_ms = conn.query_row(
+            "SELECT MIN(next_attempt_at_ms) FROM outbox_cancelamentos_venda
+              WHERE status='pending'",
+            [], |r| r.get::<_, Option<i64>>(0),
+        ).unwrap_or(None);
+        // Cancelamentos pendentes cuja venda ainda não foi sincronizada.
+        s.waiting_venda_sync = conn.query_row(
+            "SELECT COUNT(*)
+               FROM outbox_cancelamentos_venda c
+              WHERE c.status='pending'
+                AND (c.venda_remote_id IS NULL OR c.venda_remote_id = '')
+                AND NOT EXISTS (
+                    SELECT 1 FROM outbox_vendas v
+                     WHERE v.local_uuid = c.venda_local_uuid
+                       AND v.status='sent'
+                       AND v.remote_id IS NOT NULL
+                )",
+            [], |r| r.get::<_, i64>(0),
+        ).unwrap_or(0);
+        Ok(s)
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct OutboxCancelItem {
+    pub local_uuid: String,
+    pub client_uuid: Option<String>,
+    pub venda_local_uuid: String,
+    pub venda_remote_id: Option<String>,
+    pub motivo: Option<String>,
+    pub status: String,
+    pub attempts: i64,
+    pub last_error: Option<String>,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub sent_at_ms: Option<i64>,
+    pub next_attempt_at_ms: Option<i64>,
+}
+
+fn map_cancel_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<OutboxCancelItem> {
+    Ok(OutboxCancelItem {
+        local_uuid: r.get(0)?,
+        client_uuid: r.get(1)?,
+        venda_local_uuid: r.get(2)?,
+        venda_remote_id: r.get(3)?,
+        motivo: r.get(4)?,
+        status: r.get(5)?,
+        attempts: r.get(6)?,
+        last_error: r.get(7)?,
+        created_at_ms: r.get(8)?,
+        updated_at_ms: r.get(9)?,
+        sent_at_ms: r.get(10)?,
+        next_attempt_at_ms: r.get(11)?,
+    })
+}
+
+pub fn outbox_cancel_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxCancelItem>> {
+    with_conn(|conn| {
+        let (sql, has_status) = match only_status {
+            Some(_) => (
+                "SELECT local_uuid, client_uuid, venda_local_uuid, venda_remote_id,
+                        motivo, status, attempts, last_error,
+                        created_at_ms, updated_at_ms, sent_at_ms, next_attempt_at_ms
+                   FROM outbox_cancelamentos_venda
+                  WHERE status = ?1
+               ORDER BY created_at_ms DESC LIMIT ?2",
+                true,
+            ),
+            None => (
+                "SELECT local_uuid, client_uuid, venda_local_uuid, venda_remote_id,
+                        motivo, status, attempts, last_error,
+                        created_at_ms, updated_at_ms, sent_at_ms, next_attempt_at_ms
+                   FROM outbox_cancelamentos_venda
+               ORDER BY created_at_ms DESC LIMIT ?1",
+                false,
+            ),
+        };
+        let mut stmt = conn.prepare(sql)?;
+        let mut out = Vec::new();
+        if has_status {
+            let st = only_status.unwrap();
+            for r in stmt.query_map(params![st, limit], map_cancel_item)? {
+                out.push(r?);
+            }
+        } else {
+            for r in stmt.query_map(params![limit], map_cancel_item)? {
+                out.push(r?);
+            }
+        }
+        Ok(out)
+    })
+}
+
+pub fn outbox_cancel_pending_batch(limit: i64) -> DbResult<Vec<OutboxCancelItem>> {
+    with_conn(|conn| {
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut stmt = conn.prepare(
+            "SELECT local_uuid, client_uuid, venda_local_uuid, venda_remote_id,
+                    motivo, status, attempts, last_error,
+                    created_at_ms, updated_at_ms, sent_at_ms, next_attempt_at_ms
+               FROM outbox_cancelamentos_venda
+              WHERE status='pending'
+                AND (next_attempt_at_ms IS NULL OR next_attempt_at_ms <= ?1)
+           ORDER BY created_at_ms ASC LIMIT ?2",
+        )?;
+        let mut out = Vec::new();
+        for r in stmt.query_map(params![now, limit], map_cancel_item)? {
+            out.push(r?);
+        }
+        Ok(out)
+    })
+}
+
+pub fn outbox_cancel_pending_batch_all(limit: i64) -> DbResult<Vec<OutboxCancelItem>> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT local_uuid, client_uuid, venda_local_uuid, venda_remote_id,
+                    motivo, status, attempts, last_error,
+                    created_at_ms, updated_at_ms, sent_at_ms, next_attempt_at_ms
+               FROM outbox_cancelamentos_venda
+              WHERE status='pending'
+           ORDER BY created_at_ms ASC LIMIT ?1",
+        )?;
+        let mut out = Vec::new();
+        for r in stmt.query_map(params![limit], map_cancel_item)? {
+            out.push(r?);
+        }
+        Ok(out)
+    })
+}
+
+/// Resolve o `venda_remote_id` para um item de cancelamento.
+/// Usa o `venda_remote_id` salvo no item; cai para o remote_id corrente da
+/// outbox de vendas se a venda foi sincronizada depois do enfileiramento.
+/// Retorna None se a venda ainda não foi sincronizada — chamador deve
+/// re-agendar o cancelamento.
+pub fn cancel_resolve_venda_remote(local_uuid: &str) -> DbResult<Option<String>> {
+    with_conn(|conn| {
+        let stored: Option<String> = conn.query_row(
+            "SELECT venda_remote_id FROM outbox_cancelamentos_venda WHERE local_uuid=?1",
+            params![local_uuid],
+            |r| r.get::<_, Option<String>>(0),
+        ).optional()?.flatten();
+        if let Some(s) = stored {
+            if !s.is_empty() { return Ok(Some(s)); }
+        }
+        let venda_local: Option<String> = conn.query_row(
+            "SELECT venda_local_uuid FROM outbox_cancelamentos_venda WHERE local_uuid=?1",
+            params![local_uuid],
+            |r| r.get::<_, String>(0),
+        ).optional()?;
+        let Some(vl) = venda_local else { return Ok(None) };
+        let remote: Option<String> = conn.query_row(
+            "SELECT remote_id FROM outbox_vendas
+              WHERE local_uuid=?1 AND status='sent'",
+            params![vl],
+            |r| r.get::<_, Option<String>>(0),
+        ).optional()?.flatten();
+        // Persiste para próximas tentativas.
+        if let Some(ref r) = remote {
+            let _ = conn.execute(
+                "UPDATE outbox_cancelamentos_venda
+                    SET venda_remote_id=?1, updated_at_ms=?2
+                  WHERE local_uuid=?3",
+                params![r, chrono::Utc::now().timestamp_millis(), local_uuid],
+            );
+        }
+        Ok(remote)
+    })
+}
+
+pub fn outbox_cancel_mark_sending(local_uuid: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        conn.execute(
+            "UPDATE outbox_cancelamentos_venda
+                SET status='sending', attempts=attempts+1, updated_at_ms=?1
+              WHERE local_uuid=?2",
+            params![now_ms, local_uuid],
+        )?;
+        Ok(())
+    })
+}
+
+pub fn outbox_cancel_mark_sent(local_uuid: &str, response_text: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        conn.execute(
+            "UPDATE outbox_cancelamentos_venda
+                SET status='sent', remote_response=?1, sent_at_ms=?2, updated_at_ms=?2,
+                    last_error=NULL, next_attempt_at_ms=NULL
+              WHERE local_uuid=?3",
+            params![response_text, now_ms, local_uuid],
+        )?;
+        Ok(())
+    })
+}
+
+pub fn outbox_cancel_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        let attempts: i64 = conn.query_row(
+            "SELECT attempts FROM outbox_cancelamentos_venda WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).unwrap_or(0);
+        let backoff = backoff_ms_for_attempts(attempts);
+        // Mantém status='pending' para retry com backoff.
+        conn.execute(
+            "UPDATE outbox_cancelamentos_venda
+                SET status='pending', last_error=?1, updated_at_ms=?2,
+                    next_attempt_at_ms=?3
+              WHERE local_uuid=?4",
+            params![err, now_ms, now_ms + backoff, local_uuid],
+        )?;
+        Ok(())
+    })
+}
+
+pub fn outbox_cancel_reset_errors(now_ms: i64) -> DbResult<i64> {
+    with_conn(|conn| {
+        let n = conn.execute(
+            "UPDATE outbox_cancelamentos_venda
+                SET status='pending', updated_at_ms=?1,
+                    next_attempt_at_ms=NULL, last_error=NULL
+              WHERE status IN ('error','pending') AND last_error IS NOT NULL",
+            params![now_ms],
+        )?;
+        Ok(n as i64)
+    })
+}
