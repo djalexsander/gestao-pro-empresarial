@@ -386,10 +386,13 @@ export function DesktopTab() {
             <p className="text-muted-foreground">
               Os domínios <strong>produtos.list</strong>,{" "}
               <strong>estoque.saldosLinhas</strong> e{" "}
-              <strong>clientes.listLite</strong> agora passam pelo banco local
-              do servidor (cache read-through, TTL 60s) com fallback automático
-              para a nuvem em caso de miss ou erro. Demais domínios continuam
-              proxy direto para o Lovable Cloud nesta etapa.
+              <strong>clientes.listLite</strong> são servidos pelo banco local
+              do servidor: cache read-through (TTL 60s) com ingestão paralela
+              em <strong>tabelas tipadas</strong> (produtos_local, clientes_local,
+              estoque_saldos_local). Se a nuvem falhar e existirem dados
+              locais, o servidor responde a partir das tabelas tipadas
+              (origem <code>local-table-stale</code>). Demais domínios
+              continuam proxy direto para o Lovable Cloud nesta etapa.
             </p>
           </CardContent>
         </Card>
