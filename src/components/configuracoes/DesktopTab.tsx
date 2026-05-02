@@ -245,21 +245,100 @@ export function DesktopTab() {
           </Card>
         )}
 
+        {role !== "unset" && dbInfo && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Banco local
+              </CardTitle>
+              <Badge variant="outline">SQLite v{dbInfo.schema_version}</Badge>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
+              <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 sm:grid-cols-2">
+                <Field
+                  label="Terminais conhecidos"
+                  value={String(dbInfo.terminals_total)}
+                />
+                <Field
+                  label="Terminais online (2 min)"
+                  value={String(dbInfo.terminals_online)}
+                />
+                <Field
+                  label="Eventos de auditoria"
+                  value={String(dbInfo.events_total)}
+                />
+                <Field
+                  label="Entradas em cache"
+                  value={String(dbInfo.cache_entries)}
+                />
+                <Field label="Arquivo" value={dbInfo.path} mono />
+              </div>
+
+              {knownTerminals.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Últimos terminais vistos
+                  </div>
+                  <div className="overflow-hidden rounded-lg border border-border">
+                    <table className="w-full text-xs">
+                      <thead className="bg-muted/40 text-muted-foreground">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium">Terminal</th>
+                          <th className="px-3 py-2 text-left font-medium">Host</th>
+                          <th className="px-3 py-2 text-left font-medium">Último heartbeat</th>
+                          <th className="px-3 py-2 text-right font-medium">HBs</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {knownTerminals.slice(0, 8).map((t) => (
+                          <tr key={t.terminal_id} className="border-t border-border">
+                            <td className="px-3 py-2">
+                              <div className="font-medium text-foreground">
+                                {t.terminal_nome ?? t.terminal_id}
+                              </div>
+                              <div className="font-mono text-[10px] text-muted-foreground">
+                                {t.terminal_id}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground">
+                              {t.host ?? "—"}
+                            </td>
+                            <td className="px-3 py-2 text-muted-foreground">
+                              {new Date(t.last_seen_ms).toLocaleString("pt-BR")}
+                            </td>
+                            <td className="px-3 py-2 text-right text-muted-foreground">
+                              {t.heartbeats}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         <Card>
           <CardHeader>
             <CardTitle>Backend de dados</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <div className="flex items-center gap-2">
-              <Badge variant="secondary">Lovable Cloud</Badge>
+              <Badge variant="secondary">Lovable Cloud + SQLite local</Badge>
               <span className="text-muted-foreground">
-                Fonte de dados ativa nesta etapa.
+                Híbrido com cache local de leitura.
               </span>
             </div>
             <p className="text-muted-foreground">
-              Mesmo com o backend local rodando, a leitura/escrita de dados
-              ainda passa pela nuvem. A migração dos adapters para o backend
-              local virá na próxima etapa, sem precisar reconfigurar nada aqui.
+              Os domínios <strong>produtos.list</strong>,{" "}
+              <strong>estoque.saldosLinhas</strong> e{" "}
+              <strong>clientes.listLite</strong> agora passam pelo banco local
+              do servidor (cache read-through, TTL 60s) com fallback automático
+              para a nuvem em caso de miss ou erro. Demais domínios continuam
+              proxy direto para o Lovable Cloud nesta etapa.
             </p>
           </CardContent>
         </Card>
