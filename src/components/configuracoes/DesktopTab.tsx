@@ -103,15 +103,17 @@ export function DesktopTab() {
 
     let alive = true;
     const carregar = async () => {
-      const [info, terms, stats] = await Promise.all([
+      const [info, terms, stats, ob] = await Promise.all([
         fetchDbInfo(cfg),
         fetchKnownTerminals(cfg),
         fetchDomainStats(cfg),
+        fetchOutboxStats(cfg),
       ]);
       if (!alive) return;
       setDbInfo(info);
       setKnownTerminals(terms);
       setDomainStats(stats);
+      setOutbox(ob);
     };
     void carregar();
     const t = setInterval(() => void carregar(), 30_000);
