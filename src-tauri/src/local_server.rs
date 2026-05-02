@@ -2149,6 +2149,19 @@ pub fn start(
         run_outbox_vendas_scheduler(vendas_ctx, vendas_scheduler_rx).await;
     });
 
+    // Scheduler paralelo para a outbox de CAIXA — mesma política.
+    let (caixa_scheduler_tx, caixa_scheduler_rx) = oneshot::channel::<()>();
+    let caixa_ctx = AppCtx {
+        upstream: upstream.clone(),
+        http: reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .map_err(|e| format!("Falha ao criar HTTP client (caixa scheduler): {e}"))?,
+    };
+    handle.spawn(async move {
+        run_outbox_caixa_scheduler(caixa_ctx, caixa_scheduler_rx).await;
+    });
+
     {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = true;
@@ -2160,6 +2173,7 @@ pub fn start(
         s.shutdown_tx = Some(tx);
         s.scheduler_shutdown_tx = Some(scheduler_tx);
         s.vendas_scheduler_shutdown_tx = Some(vendas_scheduler_tx);
+        s.caixa_scheduler_shutdown_tx = Some(caixa_scheduler_tx);
         s.upstream = upstream;
         s.terminals.clear();
     }
@@ -2168,7 +2182,7 @@ pub fn start(
 }
 
 pub fn stop() -> Result<LocalServerStatus, String> {
-    let (tx_opt, sched_opt, vendas_sched_opt) = {
+    let (tx_opt, sched_opt, vendas_sched_opt, caixa_sched_opt) = {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = false;
         s.port = None;
@@ -2179,10 +2193,12 @@ pub fn stop() -> Result<LocalServerStatus, String> {
             s.shutdown_tx.take(),
             s.scheduler_shutdown_tx.take(),
             s.vendas_scheduler_shutdown_tx.take(),
+            s.caixa_scheduler_shutdown_tx.take(),
         )
     };
     if let Some(tx) = tx_opt { let _ = tx.send(()); }
     if let Some(tx) = sched_opt { let _ = tx.send(()); }
     if let Some(tx) = vendas_sched_opt { let _ = tx.send(()); }
+    if let Some(tx) = caixa_sched_opt { let _ = tx.send(()); }
     Ok(current_status())
 }
