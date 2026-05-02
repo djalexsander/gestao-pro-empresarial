@@ -358,7 +358,72 @@ async fn proxy_get(
         .into_response())
 }
 
-// ---------- /api/produtos/list ----------
+// ---------- Cache read-through (TTL curto) ----------
+//
+// Estratégia: para os endpoints "provados" (produtos.list, estoque.saldos,
+// clientes.lite) o servidor consulta o SQLite local primeiro. Se houver
+// payload válido (não expirado), serve dele e marca header
+// `x-gp-source: local-db`. Caso contrário, busca no upstream (cloud),
+// armazena o JSON cru no cache e retorna marcado como `x-gp-source: upstream`.
+//
+// Não é "banco local de verdade" para escrita ainda — é o primeiro passo
+// real de leitura local. Próxima etapa substitui o cache por tabelas
+// normalizadas (produtos, estoque_movimentacoes, clientes) com sync.
+
+const CACHE_TTL_MS: i64 = 60_000;
+
+fn build_cache_key(path: &str, query: &[(&str, String)]) -> String {
+    let mut parts: Vec<String> = query.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    parts.sort();
+    format!("{path}?{}", parts.join("&"))
+}
+
+async fn proxy_with_cache(
+    ctx: &AppCtx,
+    headers: &HeaderMap,
+    domain: &str,
+    path: &str,
+    query: &[(&str, String)],
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let key = build_cache_key(path, query);
+    let now = now_ms();
+
+    // 1) HIT?
+    if let Ok(Some(payload)) = db::cache_get(domain, &key, now) {
+        return Ok((
+            StatusCode::OK,
+            [
+                (axum::http::header::CONTENT_TYPE, "application/json"),
+                (axum::http::HeaderName::from_static("x-gp-source"), "local-db"),
+            ],
+            payload,
+        )
+            .into_response());
+    }
+
+    // 2) MISS → busca no upstream e popula cache.
+    let upstream_resp = proxy_get(ctx, headers, path, query).await?;
+    let (parts, body) = upstream_resp.into_parts();
+    let bytes = axum::body::to_bytes(body, 1024 * 1024 * 8)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Falha lendo body: {e}")))?;
+
+    if parts.status.is_success() {
+        if let Ok(text) = std::str::from_utf8(&bytes) {
+            let _ = db::cache_put(domain, &key, text, now, CACHE_TTL_MS);
+        }
+    }
+
+    Ok((
+        parts.status,
+        [
+            (axum::http::header::CONTENT_TYPE, "application/json"),
+            (axum::http::HeaderName::from_static("x-gp-source"), "upstream"),
+        ],
+        bytes,
+    )
+        .into_response())
+}
 
 async fn produtos_list_handler(
     State(ctx): State<AppCtx>,
