@@ -869,6 +869,17 @@ export interface LancamentoLocalRow {
   descricao: string | null;
   origem: string;
   created_at_ms: number;
+  // v11
+  status?: string;
+  venda_local_uuid?: string | null;
+  cliente_id?: string | null;
+  fornecedor_id?: string | null;
+  data_competencia_ms?: number | null;
+  data_vencimento_ms?: number | null;
+  data_pagamento_ms?: number | null;
+  operador_id?: string | null;
+  cancelado_em_ms?: number | null;
+  cancelado_motivo?: string | null;
 }
 
 async function getLocalJson<T>(
