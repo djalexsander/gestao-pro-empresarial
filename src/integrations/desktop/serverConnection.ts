@@ -236,7 +236,7 @@ export interface SyncRunResult {
 /** Força uma rodada de sync incremental para o domínio (botão "Sincronizar agora"). */
 export async function runDbSync(
   cfg: TerminalConexaoConfig | undefined,
-  domain: "produtos" | "clientes_lite",
+  domain: "produtos" | "clientes_lite" | "estoque_movimentacoes" | "estoque_saldos",
 ): Promise<SyncRunResult | null> {
   const baseUrl = getBaseUrl(cfg);
   if (!baseUrl) return null;

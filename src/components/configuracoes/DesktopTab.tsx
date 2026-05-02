@@ -66,7 +66,9 @@ export function DesktopTab() {
     setDomainStats(stats);
   };
 
-  const handleSync = async (domain: "produtos" | "clientes_lite") => {
+  const handleSync = async (
+    domain: "produtos" | "clientes_lite" | "estoque_movimentacoes" | "estoque_saldos",
+  ) => {
     if (!localCfg) return;
     setSyncingDomain(domain);
     try {
@@ -385,7 +387,10 @@ export function DesktopTab() {
                   <tbody>
                     {domainStats.map((d) => {
                       const canForce =
-                        d.domain === "produtos" || d.domain === "clientes_lite";
+                        d.domain === "produtos" ||
+                        d.domain === "clientes_lite" ||
+                        d.domain === "estoque_movimentacoes" ||
+                        d.domain === "estoque_saldos";
                       const isSyncing = syncingDomain === d.domain;
                       return (
                         <tr key={d.domain} className="border-t border-border">
@@ -448,7 +453,11 @@ export function DesktopTab() {
                                 disabled={isSyncing}
                                 onClick={() =>
                                   void handleSync(
-                                    d.domain as "produtos" | "clientes_lite",
+                                    d.domain as
+                                      | "produtos"
+                                      | "clientes_lite"
+                                      | "estoque_movimentacoes"
+                                      | "estoque_saldos",
                                   )
                                 }
                               >
@@ -470,13 +479,14 @@ export function DesktopTab() {
                 </table>
               </div>
               <p className="mt-3 text-xs text-muted-foreground">
-                Sync incremental por <code>updated_at</code> com cursor
-                monotônico, tombstones automáticos para registros marcados como
-                inativos no upstream e fallback resiliente
+                Sync incremental por <code>updated_at</code> (produtos,
+                clientes) e <code>data_movimentacao</code>{" "}
+                (<code>estoque_movimentacoes</code>, append-only). Saldos
+                (<code>estoque_saldos</code>) são <strong>derivados</strong>{" "}
+                — materializados localmente a partir das movimentações
+                ingeridas. Tombstones automáticos para registros marcados
+                como inativos no upstream e fallback resiliente
                 (<code>local-table-stale</code>) quando a nuvem cai.
-                <code> estoque_saldos</code> ainda usa snapshot — migração para
-                delta a partir de <code>estoque_movimentacoes</code> fica para
-                a próxima etapa.
               </p>
             </CardContent>
           </Card>
