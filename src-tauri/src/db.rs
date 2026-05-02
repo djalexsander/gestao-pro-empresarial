@@ -268,6 +268,109 @@ pub fn init() -> DbResult<()> {
         CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_client_uuid
             ON outbox_estoque_movs(client_uuid)
             WHERE client_uuid IS NOT NULL;
+
+        -- ====================================================================
+        -- v7: WRITES LOCAIS de VENDAS/PDV + fila offline.
+        --
+        -- Estrutura espelha o padrão já validado em estoque (v5/v6) mas em
+        -- tabelas próprias para isolar domínios:
+        --
+        --   `vendas_local`           → cabeçalho da venda registrada no PDV
+        --                              local (1 linha por venda).
+        --   `venda_itens_local`      → itens da venda (N por venda).
+        --   `venda_pagamentos_local` → pagamentos da venda (N por venda).
+        --   `outbox_vendas`          → fila offline idempotente para push
+        --                              ao upstream via RPC `finalizar_venda_pdv`.
+        --
+        -- A venda é gravada em UMA transação que persiste cabeçalho+itens+
+        -- pagamentos, aplica baixa de estoque local (reusando
+        -- `apply_mov_to_saldo` + `estoque_movimentacoes_local`) e enfileira
+        -- a outbox. Se algo falhar, NADA fica gravado (atomicidade SQLite).
+        --
+        -- Idempotência:
+        --   * `client_uuid`  → vinda do PDV (1 por carrinho); deduplica
+        --                      reenvios do próprio terminal.
+        --   * `local_uuid`   → identidade local estável do servidor; é
+        --                      ENVIADA como `_client_uuid` na RPC upstream
+        --                      → retries cross-runs nunca duplicam venda
+        --                      no cloud.
+        --
+        -- Ainda nesta etapa NÃO criamos caixa local nem financeiro local;
+        -- o handler de push apenas reenvia o payload para a RPC do upstream
+        -- que já trata caixa+financeiro+estoque cloud lá.
+        -- ====================================================================
+
+        CREATE TABLE IF NOT EXISTS vendas_local (
+            local_uuid       TEXT PRIMARY KEY,
+            client_uuid      TEXT,
+            cliente_id       TEXT,
+            subtotal         REAL NOT NULL DEFAULT 0,
+            desconto         REAL NOT NULL DEFAULT 0,
+            total            REAL NOT NULL DEFAULT 0,
+            forma_pagamento  TEXT,
+            status_pagamento TEXT,
+            valor_recebido   REAL,
+            troco            REAL,
+            observacao       TEXT,
+            operador_id      TEXT,
+            terminal_id      TEXT,
+            gerar_financeiro INTEGER NOT NULL DEFAULT 1,
+            qtd_itens        INTEGER NOT NULL DEFAULT 0,
+            created_at_ms    INTEGER NOT NULL,
+            updated_at_ms    INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_vendas_local_created
+            ON vendas_local(created_at_ms DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_vendas_local_client_uuid
+            ON vendas_local(client_uuid) WHERE client_uuid IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS venda_itens_local (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            venda_local_uuid TEXT NOT NULL,
+            produto_id      TEXT NOT NULL,
+            descricao       TEXT,
+            quantidade      REAL NOT NULL,
+            preco_unitario  REAL NOT NULL DEFAULT 0,
+            desconto        REAL NOT NULL DEFAULT 0,
+            payload         TEXT NOT NULL,
+            created_at_ms   INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_venda_itens_local_venda
+            ON venda_itens_local(venda_local_uuid);
+
+        CREATE TABLE IF NOT EXISTS venda_pagamentos_local (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            venda_local_uuid TEXT NOT NULL,
+            forma_pagamento TEXT NOT NULL,
+            valor           REAL NOT NULL DEFAULT 0,
+            valor_recebido  REAL,
+            troco           REAL,
+            parcelas        INTEGER,
+            observacao      TEXT,
+            created_at_ms   INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_venda_pagtos_local_venda
+            ON venda_pagamentos_local(venda_local_uuid);
+
+        CREATE TABLE IF NOT EXISTS outbox_vendas (
+            local_uuid          TEXT PRIMARY KEY,
+            client_uuid         TEXT,
+            payload             TEXT NOT NULL,
+            status              TEXT NOT NULL DEFAULT 'pending',
+            attempts            INTEGER NOT NULL DEFAULT 0,
+            last_error          TEXT,
+            remote_id           TEXT,
+            created_at_ms       INTEGER NOT NULL,
+            updated_at_ms       INTEGER NOT NULL,
+            sent_at_ms          INTEGER,
+            next_attempt_at_ms  INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_outbox_vendas_status
+            ON outbox_vendas(status, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_vendas_status_next
+            ON outbox_vendas(status, next_attempt_at_ms);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_vendas_client_uuid
+            ON outbox_vendas(client_uuid) WHERE client_uuid IS NOT NULL;
         "#,
     )?;
 
