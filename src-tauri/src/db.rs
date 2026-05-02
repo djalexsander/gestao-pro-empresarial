@@ -515,6 +515,9 @@ pub fn init() -> DbResult<()> {
         "ALTER TABLE lancamentos_financeiros_local ADD COLUMN operador_id TEXT",
         "ALTER TABLE lancamentos_financeiros_local ADD COLUMN cancelado_em_ms INTEGER",
         "ALTER TABLE lancamentos_financeiros_local ADD COLUMN cancelado_motivo TEXT",
+        // v12: vínculo com upstream + sync state
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN remote_id TEXT",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'local_only'",
     ];
     for sql in alters {
         // Erro só ocorre quando a coluna já existe — seguro ignorar.
