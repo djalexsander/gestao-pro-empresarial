@@ -1312,6 +1312,12 @@ export async function fetchFinanceiroResumo(
   );
 }
 
+// Nota: o enfileiramento na outbox_financeiro acontece de forma transacional
+// dentro de `lancamento_manual_inserir` (Rust) e o scheduler local
+// (`run_outbox_financeiro_scheduler`) já cuida do push periódico com backoff.
+// Por isso NÃO disparamos um flush automático aqui — evitar duplicar a
+// concorrência com o scheduler e manter consistência. Quem quiser forçar pode
+// chamar `flushOutboxFinanceiro` explicitamente.
 export async function inserirLancamentoManualLocal(
   cfg: TerminalConexaoConfig | undefined,
   input: LancamentoManualInput,
