@@ -326,6 +326,52 @@ export function DesktopTab() {
           </Card>
         )}
 
+        {role !== "unset" && domainStats.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Domínios locais (tabelas tipadas)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-hidden rounded-lg border border-border">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/40 text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium">Domínio</th>
+                      <th className="px-3 py-2 text-right font-medium">Registros</th>
+                      <th className="px-3 py-2 text-left font-medium">Origem</th>
+                      <th className="px-3 py-2 text-left font-medium">Último refresh</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {domainStats.map((d) => (
+                      <tr key={d.domain} className="border-t border-border">
+                        <td className="px-3 py-2 font-mono text-foreground">{d.domain}</td>
+                        <td className="px-3 py-2 text-right text-foreground">{d.row_count}</td>
+                        <td className="px-3 py-2 text-muted-foreground">
+                          {d.last_source ?? "—"}
+                        </td>
+                        <td className="px-3 py-2 text-muted-foreground">
+                          {d.last_synced_ms
+                            ? new Date(d.last_synced_ms).toLocaleString("pt-BR")
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Snapshots ingeridos em tabelas SQLite locais com colunas tipadas
+                e índices. Servem como fallback resiliente quando a nuvem cai e
+                como base para o sync incremental da próxima etapa.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         <Card>
           <CardHeader>
             <CardTitle>Backend de dados</CardTitle>
