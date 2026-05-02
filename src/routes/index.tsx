@@ -345,7 +345,7 @@ function DashboardPage() {
       ) : null}
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Vendas do mês"
           value={formatBRL(data.vendasMes)}
@@ -410,7 +410,7 @@ function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="h-72">
+            <div className="h-[220px]">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={data.vendasPorMes}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
@@ -441,7 +441,7 @@ function DashboardPage() {
             <p className="text-sm text-muted-foreground">Últimos 6 meses</p>
           </CardHeader>
           <CardContent>
-            <div className="h-72">
+            <div className="h-[220px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={data.vendasPorMes}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
@@ -466,7 +466,7 @@ function DashboardPage() {
           <p className="text-sm text-muted-foreground">Entradas vs. saídas — mês atual</p>
         </CardHeader>
         <CardContent>
-          <div className="h-80">
+          <div className="h-[220px]">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={data.fluxoCaixa}>
                 <defs>

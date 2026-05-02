@@ -40,7 +40,7 @@ export function StatCard({
   return (
     <Card
       className={cn(
-        "group overflow-hidden transition-all hover:shadow-md",
+        "group min-h-[120px] overflow-hidden rounded-2xl shadow-sm transition-all hover:shadow-md",
         clickable && "cursor-pointer hover:border-primary/40 hover:bg-card/80",
         className,
       )}
@@ -48,9 +48,12 @@ export function StatCard({
       <Wrapper
         type={clickable ? "button" : undefined}
         onClick={onClick}
-        className={cn("block w-full text-left", clickable && "focus-visible:outline-none")}
+        className={cn(
+          "flex h-full w-full flex-col justify-between text-left",
+          clickable && "focus-visible:outline-none",
+        )}
       >
-        <CardContent className="p-5">
+        <CardContent className="flex flex-1 flex-col justify-between p-6">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
