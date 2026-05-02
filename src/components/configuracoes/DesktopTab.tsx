@@ -20,18 +20,24 @@ import { useDesktopRole } from "@/components/desktop/DesktopRoleProvider";
 import { DesktopSetupWizard } from "@/components/desktop/DesktopSetupWizard";
 import { useServerConnection } from "@/components/desktop/useServerConnection";
 import {
+  fetchCaixaLocalAberto,
   fetchDbInfo,
   fetchDomainStats,
   fetchKnownTerminals,
+  fetchOutboxCaixaStats,
   fetchOutboxStats,
   fetchOutboxVendasStats,
   flushOutbox,
+  flushOutboxCaixa,
   flushOutboxVendas,
+  retryOutboxCaixaErrors,
   retryOutboxErrors,
   retryOutboxVendasErrors,
   runDbSync,
+  type CaixaLocalAbertoRow,
   type DbInfoPayload,
   type DomainStat,
+  type OutboxCaixaStats,
   type OutboxStats,
   type PersistedTerminal,
   type ServerConnStatus,
@@ -57,6 +63,9 @@ export function DesktopTab() {
   const [flushing, setFlushing] = useState(false);
   const [outboxVendas, setOutboxVendas] = useState<OutboxStats | null>(null);
   const [flushingVendas, setFlushingVendas] = useState(false);
+  const [outboxCaixa, setOutboxCaixa] = useState<OutboxCaixaStats | null>(null);
+  const [flushingCaixa, setFlushingCaixa] = useState(false);
+  const [caixaAberto, setCaixaAberto] = useState<CaixaLocalAbertoRow | null>(null);
 
   // cfg derivado para chamadas ao backend local (terminal usa o config; servidor
   // bate em si mesmo via 127.0.0.1).
@@ -127,6 +136,24 @@ export function DesktopTab() {
     setOutboxVendas(await fetchOutboxVendasStats(localCfg));
   };
 
+  const handleFlushCaixa = async () => {
+    if (!localCfg) return;
+    setFlushingCaixa(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      await flushOutboxCaixa(localCfg, data.session?.access_token ?? null);
+      setOutboxCaixa(await fetchOutboxCaixaStats(localCfg));
+    } finally {
+      setFlushingCaixa(false);
+    }
+  };
+
+  const handleRetryErrorsCaixa = async () => {
+    if (!localCfg) return;
+    await retryOutboxCaixaErrors(localCfg);
+    setOutboxCaixa(await fetchOutboxCaixaStats(localCfg));
+  };
+
   useEffect(() => {
     if (!isDesktop || role === "unset") return;
     const cfg =
@@ -144,12 +171,14 @@ export function DesktopTab() {
 
     let alive = true;
     const carregar = async () => {
-      const [info, terms, stats, ob, obv] = await Promise.all([
+      const [info, terms, stats, ob, obv, obc, ca] = await Promise.all([
         fetchDbInfo(cfg),
         fetchKnownTerminals(cfg),
         fetchDomainStats(cfg),
         fetchOutboxStats(cfg),
         fetchOutboxVendasStats(cfg),
+        fetchOutboxCaixaStats(cfg),
+        fetchCaixaLocalAberto(cfg),
       ]);
       if (!alive) return;
       setDbInfo(info);
@@ -157,20 +186,21 @@ export function DesktopTab() {
       setDomainStats(stats);
       setOutbox(ob);
       setOutboxVendas(obv);
+      setOutboxCaixa(obc);
+      setCaixaAberto(ca);
     };
     void carregar();
-    // Polling padrão (info / domínios / terminais) a cada 30s.
     const tFull = setInterval(() => void carregar(), 30_000);
-    // Polling RÁPIDO das outboxes (stats) a cada 5s — assim a UI reflete
-    // o background sync quase em tempo real sem custo perceptível.
     const tOutbox = setInterval(async () => {
-      const [ob, obv] = await Promise.all([
+      const [ob, obv, obc] = await Promise.all([
         fetchOutboxStats(cfg),
         fetchOutboxVendasStats(cfg),
+        fetchOutboxCaixaStats(cfg),
       ]);
       if (!alive) return;
       setOutbox(ob);
       setOutboxVendas(obv);
+      setOutboxCaixa(obc);
     }, 5_000);
     return () => {
       alive = false;
@@ -748,6 +778,98 @@ export function DesktopTab() {
                 exponencial das movimentações de estoque (5s → 15s → 1m → 5m
                 → 15m). Idempotência ponta-a-ponta via <code>local_uuid</code>{" "}
                 — reenvios nunca duplicam venda, itens, financeiro ou caixa.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {role !== "unset" && outboxCaixa && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Fila offline — caixa
+              </CardTitle>
+              <div className="flex gap-2">
+                {outboxCaixa.error > 0 && (
+                  <Button size="sm" variant="outline" onClick={() => void handleRetryErrorsCaixa()}>
+                    Reenfileirar erros
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={flushingCaixa || outboxCaixa.pending === 0}
+                  onClick={() => void handleFlushCaixa()}
+                >
+                  {flushingCaixa ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                  )}
+                  Sincronizar agora
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 text-sm sm:grid-cols-4">
+                <Field label="Pendentes" value={String(outboxCaixa.pending)} />
+                <Field label="Aberturas" value={String(outboxCaixa.pending_abrir)} />
+                <Field label="Movimentos" value={String(outboxCaixa.pending_movimento)} />
+                <Field label="Fechamentos" value={String(outboxCaixa.pending_fechar)} />
+                <Field label="Enviadas" value={String(outboxCaixa.sent)} />
+                <Field label="Com erro" value={String(outboxCaixa.error)} />
+                <Field
+                  label="Próx. tentativa auto"
+                  value={
+                    outboxCaixa.next_attempt_at_ms
+                      ? new Date(outboxCaixa.next_attempt_at_ms).toLocaleString("pt-BR")
+                      : "—"
+                  }
+                />
+                <Field
+                  label="Último auto-flush"
+                  value={
+                    outboxCaixa.last_auto_flush_ms
+                      ? `${new Date(outboxCaixa.last_auto_flush_ms).toLocaleTimeString("pt-BR")}` +
+                        (outboxCaixa.last_auto_attempted != null
+                          ? ` · ${outboxCaixa.last_auto_sent ?? 0}/${outboxCaixa.last_auto_attempted} ok`
+                          : "")
+                      : "—"
+                  }
+                />
+                {outboxCaixa.last_error && (
+                  <div className="sm:col-span-4">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                      Último erro
+                    </div>
+                    <div className="mt-0.5 break-all text-xs text-destructive">
+                      {outboxCaixa.last_error}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {caixaAberto && (
+                <div className="mt-4 grid gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4 text-sm sm:grid-cols-4">
+                  <Field label="Caixa local" value={caixaAberto.status} />
+                  <Field label="Terminal" value={caixaAberto.terminal_id ?? "—"} mono />
+                  <Field label="Operador" value={caixaAberto.operador_id ?? "—"} mono />
+                  <Field
+                    label="Valor inicial"
+                    value={caixaAberto.valor_inicial.toLocaleString("pt-BR", {
+                      style: "currency",
+                      currency: "BRL",
+                    })}
+                  />
+                </div>
+              )}
+
+              <p className="mt-3 text-xs text-muted-foreground">
+                Aberturas, sangrias/suprimentos e fechamentos são gravados
+                localmente e despachados em ordem causal (abrir → movimento →
+                fechar) por <code>local_uuid</code>. Mesmo backoff exponencial
+                de estoque/vendas. Idempotência ponta-a-ponta.
               </p>
             </CardContent>
           </Card>

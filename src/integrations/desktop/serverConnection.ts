@@ -671,6 +671,249 @@ export async function retryOutboxVendasErrors(
   }
 }
 
+// ----------------------------------------------------------------------------
+// Outbox de caixa — abrir / movimento / fechar com fila offline
+// ----------------------------------------------------------------------------
+
+export interface OutboxCaixaStats extends OutboxStats {
+  pending_abrir: number;
+  pending_movimento: number;
+  pending_fechar: number;
+}
+
+export interface OutboxCaixaItem extends OutboxItem {
+  action: "abrir" | "movimento" | "fechar";
+  caixa_local_uuid: string;
+}
+
+export interface CaixaLocalAbertoRow {
+  local_uuid: string;
+  remote_id: string | null;
+  client_uuid: string | null;
+  status: "aberto" | "fechado";
+  valor_inicial: number;
+  valor_informado: number | null;
+  valor_esperado: number | null;
+  diferenca: number | null;
+  observacao_abertura: string | null;
+  observacao_fechamento: string | null;
+  operador_id: string | null;
+  terminal_id: string | null;
+  data_abertura_ms: number;
+  data_fechamento_ms: number | null;
+  qtd_movimentos: number;
+  total_suprimentos: number;
+  total_sangrias: number;
+}
+
+export interface AbrirCaixaLocalRequest {
+  valor_inicial: number;
+  observacao?: string | null;
+  operador_id?: string | null;
+  terminal_id?: string | null;
+  client_uuid?: string | null;
+}
+export interface AbrirCaixaLocalResponse {
+  caixa_id: string;
+  idempotente: boolean;
+  valor_inicial: number;
+  outbox_status: "pending" | "sending" | "sent" | "error";
+  remote_id: string | null;
+}
+
+export interface MovCaixaLocalRequest {
+  caixa_id: string;
+  tipo: "sangria" | "suprimento";
+  valor: number;
+  motivo?: string | null;
+  operador_id?: string | null;
+  client_uuid?: string | null;
+}
+export interface MovCaixaLocalResponse {
+  movimento_id: string;
+  idempotente: boolean;
+  caixa_local_uuid: string;
+  tipo: string;
+  valor: number;
+  outbox_status: "pending" | "sending" | "sent" | "error";
+  remote_id: string | null;
+}
+
+export interface FecharCaixaLocalRequest {
+  caixa_id: string;
+  valor_informado: number;
+  observacao?: string | null;
+  client_uuid?: string | null;
+}
+export interface FecharCaixaLocalResponse {
+  fechamento_id: string;
+  idempotente: boolean;
+  valor_informado: number;
+  outbox_status: "pending" | "sending" | "sent" | "error";
+  remote_id: string | null;
+}
+
+async function postLocalJson<TReq, TRes>(
+  cfg: TerminalConexaoConfig | undefined,
+  path: string,
+  body: TReq,
+  authToken?: string | null,
+  timeoutMs = 12_000,
+): Promise<TRes | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    };
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    const res = await fetch(`${baseUrl}${path}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    return (await res.json()) as TRes;
+  } catch {
+    clearTimeout(timer);
+    return null;
+  }
+}
+
+export function abrirCaixaLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: AbrirCaixaLocalRequest,
+  authToken?: string | null,
+): Promise<AbrirCaixaLocalResponse | null> {
+  return postLocalJson(cfg, "/api/caixa/abrir", payload, authToken);
+}
+
+export function registrarMovCaixaLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: MovCaixaLocalRequest,
+  authToken?: string | null,
+): Promise<MovCaixaLocalResponse | null> {
+  return postLocalJson(cfg, "/api/caixa/movimento", payload, authToken);
+}
+
+export function fecharCaixaLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: FecharCaixaLocalRequest,
+  authToken?: string | null,
+): Promise<FecharCaixaLocalResponse | null> {
+  return postLocalJson(cfg, "/api/caixa/fechar", payload, authToken);
+}
+
+export async function fetchCaixaLocalAberto(
+  cfg: TerminalConexaoConfig | undefined,
+  operadorId?: string | null,
+): Promise<CaixaLocalAbertoRow | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  const url = new URL(`${baseUrl}/api/caixa/aberto`);
+  if (operadorId) url.searchParams.set("operador_id", operadorId);
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as CaixaLocalAbertoRow | null;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchOutboxCaixaStats(
+  cfg?: TerminalConexaoConfig,
+): Promise<OutboxCaixaStats | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  try {
+    const res = await fetch(`${baseUrl}/db/outbox/caixa/stats`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as OutboxCaixaStats;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchOutboxCaixaList(
+  cfg: TerminalConexaoConfig | undefined,
+  opts?: { status?: OutboxItem["status"]; limit?: number },
+): Promise<OutboxCaixaItem[]> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return [];
+  const url = new URL(`${baseUrl}/db/outbox/caixa`);
+  if (opts?.status) url.searchParams.set("status", opts.status);
+  if (opts?.limit) url.searchParams.set("limit", String(opts.limit));
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const json = (await res.json()) as { items?: OutboxCaixaItem[] };
+    return json.items ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function flushOutboxCaixa(
+  cfg: TerminalConexaoConfig | undefined,
+  authToken?: string | null,
+): Promise<OutboxFlushResult | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30_000);
+  try {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    const res = await fetch(`${baseUrl}/db/outbox/caixa/flush`, {
+      method: "POST",
+      headers,
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    return (await res.json()) as OutboxFlushResult;
+  } catch {
+    clearTimeout(timer);
+    return null;
+  }
+}
+
+export async function retryOutboxCaixaErrors(
+  cfg: TerminalConexaoConfig | undefined,
+): Promise<number> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return 0;
+  try {
+    const res = await fetch(`${baseUrl}/db/outbox/caixa/retry-errors`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return 0;
+    const json = (await res.json()) as { requeued?: number };
+    return json.requeued ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
 export interface HeartbeatPayload {
   terminal_id: string;
   terminal_nome?: string | null;
