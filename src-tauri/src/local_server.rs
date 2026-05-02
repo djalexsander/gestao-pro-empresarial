@@ -1229,6 +1229,10 @@ struct RetryErrorsResponse {
     requeued: i64,
 }
 
+async fn outbox_retry_errors_handler() -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
+    let n = db::outbox_reset_errors(now_ms())
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(RetryErrorsResponse { requeued: n }))
 }
 
 // ============================================================================
