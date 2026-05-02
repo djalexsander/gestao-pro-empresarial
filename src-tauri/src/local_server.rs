@@ -515,13 +515,8 @@ async fn clientes_lite_handler(
     if let Some(s) = status_val {
         params.push(("status", format!("eq.{s}")));
     }
-    proxy_get(
-        &ctx,
-        &headers,
-        "/rest/v1/clientes",
-        &params.iter().map(|(k, v)| (*k, v.clone())).collect::<Vec<_>>(),
-    )
-    .await
+    let q_owned: Vec<(&str, String)> = params.iter().map(|(k, v)| (*k, v.clone())).collect();
+    proxy_with_cache(&ctx, &headers, "clientes_lite", "/rest/v1/clientes", &q_owned).await
 }
 
 // ---------- Router ----------
