@@ -23,6 +23,7 @@ import {
   fetchDbInfo,
   fetchDomainStats,
   fetchKnownTerminals,
+  runDbSync,
   type DbInfoPayload,
   type DomainStat,
   type PersistedTerminal,
@@ -43,6 +44,38 @@ export function DesktopTab() {
   const [dbInfo, setDbInfo] = useState<DbInfoPayload | null>(null);
   const [knownTerminals, setKnownTerminals] = useState<PersistedTerminal[]>([]);
   const [domainStats, setDomainStats] = useState<DomainStat[]>([]);
+  const [syncingDomain, setSyncingDomain] = useState<string | null>(null);
+
+  // cfg derivado para chamadas ao backend local (terminal usa o config; servidor
+  // bate em si mesmo via 127.0.0.1).
+  const localCfg =
+    role === "terminal"
+      ? config.terminal
+      : daemon?.running && daemon.port
+        ? {
+            host: "127.0.0.1",
+            porta: daemon.port,
+            terminalId: "self",
+            terminalNome: "self",
+          }
+        : undefined;
+
+  const recarregarDomainStats = async () => {
+    if (!localCfg) return;
+    const stats = await fetchDomainStats(localCfg);
+    setDomainStats(stats);
+  };
+
+  const handleSync = async (domain: "produtos" | "clientes_lite") => {
+    if (!localCfg) return;
+    setSyncingDomain(domain);
+    try {
+      await runDbSync(localCfg, domain);
+      await recarregarDomainStats();
+    } finally {
+      setSyncingDomain(null);
+    }
+  };
 
   useEffect(() => {
     if (!isDesktop || role === "unset") return;
@@ -335,38 +368,115 @@ export function DesktopTab() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="overflow-hidden rounded-lg border border-border">
+              <div className="overflow-x-auto rounded-lg border border-border">
                 <table className="w-full text-xs">
                   <thead className="bg-muted/40 text-muted-foreground">
                     <tr>
                       <th className="px-3 py-2 text-left font-medium">Domínio</th>
                       <th className="px-3 py-2 text-right font-medium">Registros</th>
-                      <th className="px-3 py-2 text-left font-medium">Origem</th>
+                      <th className="px-3 py-2 text-left font-medium">Estratégia</th>
+                      <th className="px-3 py-2 text-right font-medium">Δ último</th>
+                      <th className="px-3 py-2 text-left font-medium">Cursor remoto</th>
                       <th className="px-3 py-2 text-left font-medium">Último refresh</th>
+                      <th className="px-3 py-2 text-left font-medium">Status</th>
+                      <th className="px-3 py-2 text-right font-medium">Ação</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {domainStats.map((d) => (
-                      <tr key={d.domain} className="border-t border-border">
-                        <td className="px-3 py-2 font-mono text-foreground">{d.domain}</td>
-                        <td className="px-3 py-2 text-right text-foreground">{d.row_count}</td>
-                        <td className="px-3 py-2 text-muted-foreground">
-                          {d.last_source ?? "—"}
-                        </td>
-                        <td className="px-3 py-2 text-muted-foreground">
-                          {d.last_synced_ms
-                            ? new Date(d.last_synced_ms).toLocaleString("pt-BR")
-                            : "—"}
-                        </td>
-                      </tr>
-                    ))}
+                    {domainStats.map((d) => {
+                      const canForce =
+                        d.domain === "produtos" || d.domain === "clientes_lite";
+                      const isSyncing = syncingDomain === d.domain;
+                      return (
+                        <tr key={d.domain} className="border-t border-border">
+                          <td className="px-3 py-2 font-mono text-foreground">{d.domain}</td>
+                          <td className="px-3 py-2 text-right text-foreground">{d.row_count}</td>
+                          <td className="px-3 py-2 text-muted-foreground">
+                            {d.last_strategy ? (
+                              <Badge
+                                variant={
+                                  d.last_strategy === "incremental"
+                                    ? "default"
+                                    : "secondary"
+                                }
+                                className="font-mono text-[10px]"
+                              >
+                                {d.last_strategy}
+                              </Badge>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right text-foreground">
+                            {d.last_delta_count}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground">
+                            {d.last_remote_cursor_ms
+                              ? new Date(d.last_remote_cursor_ms)
+                                  .toISOString()
+                                  .replace("T", " ")
+                                  .slice(0, 19)
+                              : "—"}
+                          </td>
+                          <td className="px-3 py-2 text-muted-foreground">
+                            {d.last_synced_ms
+                              ? new Date(d.last_synced_ms).toLocaleString("pt-BR")
+                              : "—"}
+                          </td>
+                          <td className="px-3 py-2">
+                            {d.last_synced_ok ? (
+                              <span
+                                className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"
+                                title={d.last_source ?? ""}
+                              >
+                                <CheckCircle2 className="h-3.5 w-3.5" /> ok
+                              </span>
+                            ) : (
+                              <span
+                                className="inline-flex items-center gap-1 text-destructive"
+                                title={d.last_error ?? "erro"}
+                              >
+                                <XCircle className="h-3.5 w-3.5" /> erro
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            {canForce && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={isSyncing}
+                                onClick={() =>
+                                  void handleSync(
+                                    d.domain as "produtos" | "clientes_lite",
+                                  )
+                                }
+                              >
+                                {isSyncing ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <>
+                                    <RotateCcw className="mr-1 h-3.5 w-3.5" />
+                                    Sincronizar
+                                  </>
+                                )}
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
               <p className="mt-3 text-xs text-muted-foreground">
-                Snapshots ingeridos em tabelas SQLite locais com colunas tipadas
-                e índices. Servem como fallback resiliente quando a nuvem cai e
-                como base para o sync incremental da próxima etapa.
+                Sync incremental por <code>updated_at</code> com cursor
+                monotônico, tombstones automáticos para registros marcados como
+                inativos no upstream e fallback resiliente
+                (<code>local-table-stale</code>) quando a nuvem cai.
+                <code> estoque_saldos</code> ainda usa snapshot — migração para
+                delta a partir de <code>estoque_movimentacoes</code> fica para
+                a próxima etapa.
               </p>
             </CardContent>
           </Card>

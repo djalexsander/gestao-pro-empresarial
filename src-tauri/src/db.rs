@@ -26,7 +26,7 @@ use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -195,6 +195,22 @@ pub fn init() -> DbResult<()> {
         );
         "#,
     )?;
+
+    // ------------------------------------------------------------------
+    // v3 — Sync incremental: estende `domain_sync_meta` com cursor/estado.
+    // Usa ADD COLUMN idempotente (ignora "duplicate column" do SQLite).
+    // ------------------------------------------------------------------
+    let alters = [
+        "ALTER TABLE domain_sync_meta ADD COLUMN last_remote_cursor_ms INTEGER",
+        "ALTER TABLE domain_sync_meta ADD COLUMN last_strategy TEXT",
+        "ALTER TABLE domain_sync_meta ADD COLUMN last_delta_count INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE domain_sync_meta ADD COLUMN last_attempt_ms INTEGER",
+        "ALTER TABLE domain_sync_meta ADD COLUMN last_synced_ok INTEGER NOT NULL DEFAULT 1",
+    ];
+    for sql in alters {
+        // Erro só ocorre quando a coluna já existe — seguro ignorar.
+        let _ = conn.execute(sql, []);
+    }
 
     // schema_version
     conn.execute(
@@ -521,51 +537,162 @@ pub struct DomainStat {
     pub row_count: i64,
     pub last_synced_ms: Option<i64>,
     pub last_source: Option<String>,
+    pub last_strategy: Option<String>,
+    pub last_delta_count: i64,
+    pub last_remote_cursor_ms: Option<i64>,
+    pub last_attempt_ms: Option<i64>,
+    pub last_synced_ok: bool,
+    pub last_error: Option<String>,
+}
+
+/// Estado de sync por domínio (lido pela camada de proxy).
+#[derive(Debug, Clone)]
+pub struct DomainSyncState {
+    pub last_remote_cursor_ms: Option<i64>,
+    pub last_strategy: Option<String>,
+}
+
+pub fn get_domain_sync_state(domain: &str) -> DbResult<DomainSyncState> {
+    with_conn(|conn| {
+        let row = conn
+            .query_row(
+                "SELECT last_remote_cursor_ms, last_strategy
+                 FROM domain_sync_meta WHERE domain = ?1",
+                params![domain],
+                |r| Ok((r.get::<_, Option<i64>>(0)?, r.get::<_, Option<String>>(1)?)),
+            )
+            .optional()?;
+        Ok(match row {
+            Some((c, s)) => DomainSyncState { last_remote_cursor_ms: c, last_strategy: s },
+            None => DomainSyncState { last_remote_cursor_ms: None, last_strategy: None },
+        })
+    })
+}
+
+pub fn record_sync_error(domain: &str, now_ms: i64, err: &str) -> DbResult<()> {
+    with_conn(|conn| {
+        conn.execute(
+            "INSERT INTO domain_sync_meta(domain, last_synced_ms, row_count, last_source,
+                last_error, last_strategy, last_delta_count, last_attempt_ms, last_synced_ok)
+             VALUES (?1, 0, 0, NULL, ?2, NULL, 0, ?3, 0)
+             ON CONFLICT(domain) DO UPDATE SET
+                last_error      = excluded.last_error,
+                last_attempt_ms = excluded.last_attempt_ms,
+                last_synced_ok  = 0",
+            params![domain, err, now_ms],
+        )?;
+        Ok(())
+    })
+}
+
+/// Argumentos consolidados para gravar metadata após uma ingestão bem-sucedida.
+pub struct DomainMetaUpdate<'a> {
+    pub domain: &'a str,
+    pub row_count: i64,
+    pub now_ms: i64,
+    pub source: &'a str,        // "upstream" | "manual"
+    pub strategy: &'a str,      // "snapshot" | "incremental" | "append"
+    pub delta_count: i64,
+    pub max_remote_updated_ms: Option<i64>,
 }
 
 fn upsert_domain_meta(
     conn: &Connection,
-    domain: &str,
-    row_count: i64,
-    now_ms: i64,
-    source: &str,
+    upd: DomainMetaUpdate<'_>,
 ) -> rusqlite::Result<()> {
+    // Avança o cursor monotonicamente — nunca retrocede.
     conn.execute(
-        "INSERT INTO domain_sync_meta(domain, last_synced_ms, row_count, last_source, last_error)
-         VALUES (?1, ?2, ?3, ?4, NULL)
+        "INSERT INTO domain_sync_meta(domain, last_synced_ms, row_count, last_source,
+            last_error, last_strategy, last_delta_count, last_attempt_ms, last_synced_ok,
+            last_remote_cursor_ms)
+         VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?2, 1, ?7)
          ON CONFLICT(domain) DO UPDATE SET
-            last_synced_ms = excluded.last_synced_ms,
-            row_count      = excluded.row_count,
-            last_source    = excluded.last_source,
-            last_error     = NULL",
-        params![domain, now_ms, row_count, source],
+            last_synced_ms        = excluded.last_synced_ms,
+            row_count             = excluded.row_count,
+            last_source           = excluded.last_source,
+            last_error            = NULL,
+            last_strategy         = excluded.last_strategy,
+            last_delta_count      = excluded.last_delta_count,
+            last_attempt_ms       = excluded.last_attempt_ms,
+            last_synced_ok        = 1,
+            last_remote_cursor_ms = MAX(
+                COALESCE(domain_sync_meta.last_remote_cursor_ms, 0),
+                COALESCE(excluded.last_remote_cursor_ms, 0)
+            )",
+        params![
+            upd.domain,
+            upd.now_ms,
+            upd.row_count,
+            upd.source,
+            upd.strategy,
+            upd.delta_count,
+            upd.max_remote_updated_ms,
+        ],
     )?;
     Ok(())
 }
 
 // ---------- Produtos ----------
 
-/// Ingere um snapshot do upstream (`[{...produto...}]`) na tabela tipada.
-/// Faz upsert por id; não apaga produtos ausentes (tombstones virão com
-/// sync incremental). Retorna a quantidade de registros aplicados.
-pub fn ingest_produtos_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize> {
+/// Estratégia da ingestão (afeta como o servidor trata "ausentes").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IngestStrategy {
+    /// Snapshot completo do upstream — base inicial; não sabemos se algo foi
+    /// removido fora deste lote, então NÃO marcamos tombstones por ausência.
+    Snapshot,
+    /// Lote incremental por `updated_at` — só vieram registros alterados.
+    /// Tombstone "soft" é aplicado para qualquer linha cujo `status` no
+    /// upstream tenha mudado para algo diferente de "ativo".
+    Incremental,
+}
+
+impl IngestStrategy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            IngestStrategy::Snapshot => "snapshot",
+            IngestStrategy::Incremental => "incremental",
+        }
+    }
+}
+
+/// Considera o status remoto como soft-delete (tombstone local).
+/// Cloud usa `status` para arquivar/inativar — esta etapa cobre o caso
+/// realista. Hard-delete real exigirá endpoint de tombstones (próxima etapa).
+fn is_tombstoned_status(status: Option<&str>) -> bool {
+    match status {
+        None => false,
+        Some(s) => {
+            let s = s.to_ascii_lowercase();
+            s == "inativo" || s == "arquivado" || s == "deleted" || s == "removido"
+        }
+    }
+}
+
+/// Ingere uma resposta do upstream (snapshot OU delta) na tabela tipada.
+/// Retorna `(linhas_aplicadas, max_updated_at_ms_no_lote)`.
+pub fn ingest_produtos(
+    json_text: &str,
+    now_ms: i64,
+    strategy: IngestStrategy,
+) -> DbResult<(usize, Option<i64>)> {
     let arr: serde_json::Value = serde_json::from_str(json_text)
         .map_err(|e| DbError(format!("ingest_produtos: json inválido: {e}")))?;
     let items = match arr.as_array() {
         Some(a) => a,
-        None => return Ok(0),
+        None => return Ok((0, None)),
     };
 
     with_conn(|conn| {
         let tx = conn.unchecked_transaction()?;
         let mut count = 0usize;
+        let mut max_remote_ms: Option<i64> = None;
         {
             let mut stmt = tx.prepare(
                 "INSERT INTO produtos_local(
                     id, sku, nome, status, categoria_id, categoria_nome,
                     preco_venda, estoque_atual, payload,
                     updated_at_remote_ms, synced_at_ms, deleted_at_ms
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,NULL)
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
                  ON CONFLICT(id) DO UPDATE SET
                     sku                  = excluded.sku,
                     nome                 = excluded.nome,
@@ -577,7 +704,7 @@ pub fn ingest_produtos_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize>
                     payload              = excluded.payload,
                     updated_at_remote_ms = COALESCE(excluded.updated_at_remote_ms, produtos_local.updated_at_remote_ms),
                     synced_at_ms         = excluded.synced_at_ms,
-                    deleted_at_ms        = NULL",
+                    deleted_at_ms        = excluded.deleted_at_ms",
             )?;
             for item in items {
                 let id = match json_str(item, "id") {
@@ -590,12 +717,26 @@ pub fn ingest_produtos_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize>
                     .and_then(|n| n.as_str())
                     .map(|s| s.to_string());
                 let updated_ms = json_str(item, "updated_at").and_then(parse_iso_to_ms);
+                if let Some(ms) = updated_ms {
+                    max_remote_ms = Some(max_remote_ms.map_or(ms, |c| c.max(ms)));
+                }
+                let status = json_str(item, "status");
+                // Tombstone aplicado APENAS em modo incremental — em snapshot
+                // não temos como diferenciar "não retornou" de "removido", e
+                // status pode aparecer como "inativo" sem ser deleção.
+                let deleted_at_ms = if strategy == IngestStrategy::Incremental
+                    && is_tombstoned_status(status)
+                {
+                    Some(now_ms)
+                } else {
+                    None::<i64>
+                };
                 let payload = serde_json::to_string(item).unwrap_or_else(|_| "{}".into());
                 stmt.execute(params![
                     id,
                     json_str(item, "sku"),
                     json_str(item, "nome"),
-                    json_str(item, "status"),
+                    status,
                     json_str(item, "categoria_id"),
                     categoria_nome,
                     json_f64(item, "preco_venda"),
@@ -603,16 +744,30 @@ pub fn ingest_produtos_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize>
                     payload,
                     updated_ms,
                     now_ms,
+                    deleted_at_ms,
                 ])?;
                 count += 1;
             }
         }
         let total: i64 =
             tx.query_row("SELECT COUNT(*) FROM produtos_local WHERE deleted_at_ms IS NULL", [], |r| r.get(0))?;
-        upsert_domain_meta(&tx, "produtos", total, now_ms, "upstream")?;
+        upsert_domain_meta(&tx, DomainMetaUpdate {
+            domain: "produtos",
+            row_count: total,
+            now_ms,
+            source: "upstream",
+            strategy: strategy.as_str(),
+            delta_count: count as i64,
+            max_remote_updated_ms: max_remote_ms,
+        })?;
         tx.commit()?;
-        Ok(count)
+        Ok((count, max_remote_ms))
     })
+}
+
+/// Compat: chamada antiga (snapshot).
+pub fn ingest_produtos_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize> {
+    ingest_produtos(json_text, now_ms, IngestStrategy::Snapshot).map(|(n, _)| n)
 }
 
 pub struct ProdutosFilter<'a> {
@@ -666,22 +821,27 @@ pub fn read_produtos(filter: ProdutosFilter<'_>) -> DbResult<String> {
 
 // ---------- Clientes lite ----------
 
-pub fn ingest_clientes_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize> {
+pub fn ingest_clientes(
+    json_text: &str,
+    now_ms: i64,
+    strategy: IngestStrategy,
+) -> DbResult<(usize, Option<i64>)> {
     let arr: serde_json::Value = serde_json::from_str(json_text)
         .map_err(|e| DbError(format!("ingest_clientes: json inválido: {e}")))?;
     let items = match arr.as_array() {
         Some(a) => a,
-        None => return Ok(0),
+        None => return Ok((0, None)),
     };
     with_conn(|conn| {
         let tx = conn.unchecked_transaction()?;
         let mut count = 0usize;
+        let mut max_remote_ms: Option<i64> = None;
         {
             let mut stmt = tx.prepare(
                 "INSERT INTO clientes_local(
                     id, nome, nome_fantasia, documento, status, payload,
                     updated_at_remote_ms, synced_at_ms, deleted_at_ms
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,NULL)
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
                  ON CONFLICT(id) DO UPDATE SET
                     nome                 = excluded.nome,
                     nome_fantasia        = excluded.nome_fantasia,
@@ -690,7 +850,7 @@ pub fn ingest_clientes_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize>
                     payload              = excluded.payload,
                     updated_at_remote_ms = COALESCE(excluded.updated_at_remote_ms, clientes_local.updated_at_remote_ms),
                     synced_at_ms         = excluded.synced_at_ms,
-                    deleted_at_ms        = NULL",
+                    deleted_at_ms        = excluded.deleted_at_ms",
             )?;
             for item in items {
                 let id = match json_str(item, "id") {
@@ -698,26 +858,50 @@ pub fn ingest_clientes_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize>
                     None => continue,
                 };
                 let updated_ms = json_str(item, "updated_at").and_then(parse_iso_to_ms);
+                if let Some(ms) = updated_ms {
+                    max_remote_ms = Some(max_remote_ms.map_or(ms, |c| c.max(ms)));
+                }
+                let status = json_str(item, "status");
+                let deleted_at_ms = if strategy == IngestStrategy::Incremental
+                    && is_tombstoned_status(status)
+                {
+                    Some(now_ms)
+                } else {
+                    None::<i64>
+                };
                 let payload = serde_json::to_string(item).unwrap_or_else(|_| "{}".into());
                 stmt.execute(params![
                     id,
                     json_str(item, "nome"),
                     json_str(item, "nome_fantasia"),
                     json_str(item, "documento"),
-                    json_str(item, "status"),
+                    status,
                     payload,
                     updated_ms,
                     now_ms,
+                    deleted_at_ms,
                 ])?;
                 count += 1;
             }
         }
         let total: i64 =
             tx.query_row("SELECT COUNT(*) FROM clientes_local WHERE deleted_at_ms IS NULL", [], |r| r.get(0))?;
-        upsert_domain_meta(&tx, "clientes_lite", total, now_ms, "upstream")?;
+        upsert_domain_meta(&tx, DomainMetaUpdate {
+            domain: "clientes_lite",
+            row_count: total,
+            now_ms,
+            source: "upstream",
+            strategy: strategy.as_str(),
+            delta_count: count as i64,
+            max_remote_updated_ms: max_remote_ms,
+        })?;
         tx.commit()?;
-        Ok(count)
+        Ok((count, max_remote_ms))
     })
+}
+
+pub fn ingest_clientes_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize> {
+    ingest_clientes(json_text, now_ms, IngestStrategy::Snapshot).map(|(n, _)| n)
 }
 
 pub fn read_clientes(status: Option<&str>) -> DbResult<String> {
@@ -794,7 +978,19 @@ pub fn ingest_saldos_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize> {
         }
         let total: i64 =
             tx.query_row("SELECT COUNT(*) FROM estoque_saldos_local", [], |r| r.get(0))?;
-        upsert_domain_meta(&tx, "estoque_saldos", total, now_ms, "upstream")?;
+        // Saldos seguem em SNAPSHOT nesta etapa (movimentações são append-only,
+        // mas o agregado depende do conjunto inteiro — sync incremental real
+        // exigirá derivar de `estoque_movimentacoes` com cursor por
+        // `created_at`. Fica para a próxima etapa.)
+        upsert_domain_meta(&tx, DomainMetaUpdate {
+            domain: "estoque_saldos",
+            row_count: total,
+            now_ms,
+            source: "upstream",
+            strategy: "snapshot",
+            delta_count: count as i64,
+            max_remote_updated_ms: None,
+        })?;
         tx.commit()?;
         Ok(count)
     })
@@ -826,16 +1022,25 @@ pub fn read_saldos() -> DbResult<String> {
 pub fn list_domain_stats() -> DbResult<Vec<DomainStat>> {
     with_conn(|conn| {
         let mut stmt = conn.prepare(
-            "SELECT domain, row_count, last_synced_ms, last_source
+            "SELECT domain, row_count, last_synced_ms, last_source,
+                    last_strategy, last_delta_count, last_remote_cursor_ms,
+                    last_attempt_ms, last_synced_ok, last_error
              FROM domain_sync_meta
              ORDER BY domain ASC",
         )?;
         let rows = stmt.query_map([], |r| {
+            let ok: i64 = r.get(8)?;
             Ok(DomainStat {
                 domain: r.get(0)?,
                 row_count: r.get(1)?,
                 last_synced_ms: r.get::<_, Option<i64>>(2)?,
                 last_source: r.get::<_, Option<String>>(3)?,
+                last_strategy: r.get::<_, Option<String>>(4)?,
+                last_delta_count: r.get::<_, Option<i64>>(5)?.unwrap_or(0),
+                last_remote_cursor_ms: r.get::<_, Option<i64>>(6)?,
+                last_attempt_ms: r.get::<_, Option<i64>>(7)?,
+                last_synced_ok: ok != 0,
+                last_error: r.get::<_, Option<String>>(9)?,
             })
         })?;
         let mut out = Vec::new();
