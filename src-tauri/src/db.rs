@@ -821,22 +821,27 @@ pub fn read_produtos(filter: ProdutosFilter<'_>) -> DbResult<String> {
 
 // ---------- Clientes lite ----------
 
-pub fn ingest_clientes_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize> {
+pub fn ingest_clientes(
+    json_text: &str,
+    now_ms: i64,
+    strategy: IngestStrategy,
+) -> DbResult<(usize, Option<i64>)> {
     let arr: serde_json::Value = serde_json::from_str(json_text)
         .map_err(|e| DbError(format!("ingest_clientes: json inválido: {e}")))?;
     let items = match arr.as_array() {
         Some(a) => a,
-        None => return Ok(0),
+        None => return Ok((0, None)),
     };
     with_conn(|conn| {
         let tx = conn.unchecked_transaction()?;
         let mut count = 0usize;
+        let mut max_remote_ms: Option<i64> = None;
         {
             let mut stmt = tx.prepare(
                 "INSERT INTO clientes_local(
                     id, nome, nome_fantasia, documento, status, payload,
                     updated_at_remote_ms, synced_at_ms, deleted_at_ms
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,NULL)
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
                  ON CONFLICT(id) DO UPDATE SET
                     nome                 = excluded.nome,
                     nome_fantasia        = excluded.nome_fantasia,
@@ -845,7 +850,7 @@ pub fn ingest_clientes_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize>
                     payload              = excluded.payload,
                     updated_at_remote_ms = COALESCE(excluded.updated_at_remote_ms, clientes_local.updated_at_remote_ms),
                     synced_at_ms         = excluded.synced_at_ms,
-                    deleted_at_ms        = NULL",
+                    deleted_at_ms        = excluded.deleted_at_ms",
             )?;
             for item in items {
                 let id = match json_str(item, "id") {
@@ -853,26 +858,50 @@ pub fn ingest_clientes_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize>
                     None => continue,
                 };
                 let updated_ms = json_str(item, "updated_at").and_then(parse_iso_to_ms);
+                if let Some(ms) = updated_ms {
+                    max_remote_ms = Some(max_remote_ms.map_or(ms, |c| c.max(ms)));
+                }
+                let status = json_str(item, "status");
+                let deleted_at_ms = if strategy == IngestStrategy::Incremental
+                    && is_tombstoned_status(status)
+                {
+                    Some(now_ms)
+                } else {
+                    None::<i64>
+                };
                 let payload = serde_json::to_string(item).unwrap_or_else(|_| "{}".into());
                 stmt.execute(params![
                     id,
                     json_str(item, "nome"),
                     json_str(item, "nome_fantasia"),
                     json_str(item, "documento"),
-                    json_str(item, "status"),
+                    status,
                     payload,
                     updated_ms,
                     now_ms,
+                    deleted_at_ms,
                 ])?;
                 count += 1;
             }
         }
         let total: i64 =
             tx.query_row("SELECT COUNT(*) FROM clientes_local WHERE deleted_at_ms IS NULL", [], |r| r.get(0))?;
-        upsert_domain_meta(&tx, "clientes_lite", total, now_ms, "upstream")?;
+        upsert_domain_meta(&tx, DomainMetaUpdate {
+            domain: "clientes_lite",
+            row_count: total,
+            now_ms,
+            source: "upstream",
+            strategy: strategy.as_str(),
+            delta_count: count as i64,
+            max_remote_updated_ms: max_remote_ms,
+        })?;
         tx.commit()?;
-        Ok(count)
+        Ok((count, max_remote_ms))
     })
+}
+
+pub fn ingest_clientes_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize> {
+    ingest_clientes(json_text, now_ms, IngestStrategy::Snapshot).map(|(n, _)| n)
 }
 
 pub fn read_clientes(status: Option<&str>) -> DbResult<String> {
