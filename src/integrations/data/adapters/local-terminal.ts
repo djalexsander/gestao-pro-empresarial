@@ -76,11 +76,14 @@ async function tryLocal<T>(
     const payload = (json && typeof json === "object" && "data" in (json as any)
       ? (json as any).data
       : json) as T;
-    // Origem real do dado conforme o servidor: "local-db" → cache local SQLite,
-    // "upstream" → o servidor foi à nuvem buscar para nós.
+    // Origem real do dado conforme o servidor:
+    //   "local-db"          → cache_kv (TTL curto)
+    //   "local-table-stale" → tabela tipada local (upstream caiu)
+    //   "upstream"          → o servidor foi à nuvem buscar agora
     const sourceHdr = res.headers.get("x-gp-source");
+    const isLocalData = sourceHdr === "local-db" || sourceHdr === "local-table-stale";
     reportDataSource({
-      source: sourceHdr === "local-db" ? "local-server" : "local-terminal",
+      source: isLocalData ? "local-server" : "local-terminal",
       domain,
       method,
       fallback: false,
