@@ -3324,6 +3324,7 @@ fn gerar_lancamentos_locais_para_caixa(
            FROM venda_pagamentos_local p
            JOIN vendas_local v ON v.local_uuid = p.venda_local_uuid
           WHERE v.caixa_local_uuid = ?1
+            AND COALESCE(v.status,'ativa') <> 'cancelada'
           GROUP BY forma
          HAVING SUM(p.valor) <> 0",
     )?;
@@ -3339,6 +3340,7 @@ fn gerar_lancamentos_locais_para_caixa(
                 ROUND(SUM(v.total),2) AS total
            FROM vendas_local v
           WHERE v.caixa_local_uuid = ?1
+            AND COALESCE(v.status,'ativa') <> 'cancelada'
             AND NOT EXISTS (
                 SELECT 1 FROM venda_pagamentos_local p
                  WHERE p.venda_local_uuid = v.local_uuid
@@ -3514,6 +3516,7 @@ pub fn caixa_resumo_local(caixa_local_uuid: &str) -> DbResult<Option<CaixaResumo
                FROM venda_pagamentos_local p
                JOIN vendas_local v ON v.local_uuid = p.venda_local_uuid
               WHERE v.caixa_local_uuid = ?1
+            AND COALESCE(v.status,'ativa') <> 'cancelada'
               GROUP BY forma",
         )?;
         let mut por_forma_map: std::collections::BTreeMap<String, (f64, i64)> =
@@ -3533,6 +3536,7 @@ pub fn caixa_resumo_local(caixa_local_uuid: &str) -> DbResult<Option<CaixaResumo
                     COUNT(*) AS qtd
                FROM vendas_local v
               WHERE v.caixa_local_uuid = ?1
+            AND COALESCE(v.status,'ativa') <> 'cancelada'
                 AND NOT EXISTS (
                     SELECT 1 FROM venda_pagamentos_local p
                      WHERE p.venda_local_uuid = v.local_uuid
@@ -3556,7 +3560,8 @@ pub fn caixa_resumo_local(caixa_local_uuid: &str) -> DbResult<Option<CaixaResumo
         // Total geral + qtd vendas.
         let (total_vendido, qtd_vendas): (f64, i64) = conn.query_row(
             "SELECT COALESCE(SUM(total),0), COUNT(*)
-               FROM vendas_local WHERE caixa_local_uuid = ?1",
+               FROM vendas_local WHERE caixa_local_uuid = ?1
+                 AND COALESCE(status,'ativa') <> 'cancelada'",
             params![caixa_local_uuid],
             |r| Ok((r.get(0)?, r.get(1)?)),
         ).unwrap_or((0.0, 0));
