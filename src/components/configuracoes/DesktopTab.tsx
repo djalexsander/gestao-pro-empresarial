@@ -44,6 +44,38 @@ export function DesktopTab() {
   const [dbInfo, setDbInfo] = useState<DbInfoPayload | null>(null);
   const [knownTerminals, setKnownTerminals] = useState<PersistedTerminal[]>([]);
   const [domainStats, setDomainStats] = useState<DomainStat[]>([]);
+  const [syncingDomain, setSyncingDomain] = useState<string | null>(null);
+
+  // cfg derivado para chamadas ao backend local (terminal usa o config; servidor
+  // bate em si mesmo via 127.0.0.1).
+  const localCfg =
+    role === "terminal"
+      ? config.terminal
+      : daemon?.running && daemon.port
+        ? {
+            host: "127.0.0.1",
+            porta: daemon.port,
+            terminalId: "self",
+            terminalNome: "self",
+          }
+        : undefined;
+
+  const recarregarDomainStats = async () => {
+    if (!localCfg) return;
+    const stats = await fetchDomainStats(localCfg);
+    setDomainStats(stats);
+  };
+
+  const handleSync = async (domain: "produtos" | "clientes_lite") => {
+    if (!localCfg) return;
+    setSyncingDomain(domain);
+    try {
+      await runDbSync(localCfg, domain);
+      await recarregarDomainStats();
+    } finally {
+      setSyncingDomain(null);
+    }
+  };
 
   useEffect(() => {
     if (!isDesktop || role === "unset") return;
