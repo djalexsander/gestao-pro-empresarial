@@ -537,24 +537,97 @@ pub struct DomainStat {
     pub row_count: i64,
     pub last_synced_ms: Option<i64>,
     pub last_source: Option<String>,
+    pub last_strategy: Option<String>,
+    pub last_delta_count: i64,
+    pub last_remote_cursor_ms: Option<i64>,
+    pub last_attempt_ms: Option<i64>,
+    pub last_synced_ok: bool,
+    pub last_error: Option<String>,
+}
+
+/// Estado de sync por domínio (lido pela camada de proxy).
+#[derive(Debug, Clone)]
+pub struct DomainSyncState {
+    pub last_remote_cursor_ms: Option<i64>,
+    pub last_strategy: Option<String>,
+}
+
+pub fn get_domain_sync_state(domain: &str) -> DbResult<DomainSyncState> {
+    with_conn(|conn| {
+        let row = conn
+            .query_row(
+                "SELECT last_remote_cursor_ms, last_strategy
+                 FROM domain_sync_meta WHERE domain = ?1",
+                params![domain],
+                |r| Ok((r.get::<_, Option<i64>>(0)?, r.get::<_, Option<String>>(1)?)),
+            )
+            .optional()?;
+        Ok(match row {
+            Some((c, s)) => DomainSyncState { last_remote_cursor_ms: c, last_strategy: s },
+            None => DomainSyncState { last_remote_cursor_ms: None, last_strategy: None },
+        })
+    })
+}
+
+pub fn record_sync_error(domain: &str, now_ms: i64, err: &str) -> DbResult<()> {
+    with_conn(|conn| {
+        conn.execute(
+            "INSERT INTO domain_sync_meta(domain, last_synced_ms, row_count, last_source,
+                last_error, last_strategy, last_delta_count, last_attempt_ms, last_synced_ok)
+             VALUES (?1, 0, 0, NULL, ?2, NULL, 0, ?3, 0)
+             ON CONFLICT(domain) DO UPDATE SET
+                last_error      = excluded.last_error,
+                last_attempt_ms = excluded.last_attempt_ms,
+                last_synced_ok  = 0",
+            params![domain, err, now_ms],
+        )?;
+        Ok(())
+    })
+}
+
+/// Argumentos consolidados para gravar metadata após uma ingestão bem-sucedida.
+pub struct DomainMetaUpdate<'a> {
+    pub domain: &'a str,
+    pub row_count: i64,
+    pub now_ms: i64,
+    pub source: &'a str,        // "upstream" | "manual"
+    pub strategy: &'a str,      // "snapshot" | "incremental" | "append"
+    pub delta_count: i64,
+    pub max_remote_updated_ms: Option<i64>,
 }
 
 fn upsert_domain_meta(
     conn: &Connection,
-    domain: &str,
-    row_count: i64,
-    now_ms: i64,
-    source: &str,
+    upd: DomainMetaUpdate<'_>,
 ) -> rusqlite::Result<()> {
+    // Avança o cursor monotonicamente — nunca retrocede.
     conn.execute(
-        "INSERT INTO domain_sync_meta(domain, last_synced_ms, row_count, last_source, last_error)
-         VALUES (?1, ?2, ?3, ?4, NULL)
+        "INSERT INTO domain_sync_meta(domain, last_synced_ms, row_count, last_source,
+            last_error, last_strategy, last_delta_count, last_attempt_ms, last_synced_ok,
+            last_remote_cursor_ms)
+         VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?2, 1, ?7)
          ON CONFLICT(domain) DO UPDATE SET
-            last_synced_ms = excluded.last_synced_ms,
-            row_count      = excluded.row_count,
-            last_source    = excluded.last_source,
-            last_error     = NULL",
-        params![domain, now_ms, row_count, source],
+            last_synced_ms        = excluded.last_synced_ms,
+            row_count             = excluded.row_count,
+            last_source           = excluded.last_source,
+            last_error            = NULL,
+            last_strategy         = excluded.last_strategy,
+            last_delta_count      = excluded.last_delta_count,
+            last_attempt_ms       = excluded.last_attempt_ms,
+            last_synced_ok        = 1,
+            last_remote_cursor_ms = MAX(
+                COALESCE(domain_sync_meta.last_remote_cursor_ms, 0),
+                COALESCE(excluded.last_remote_cursor_ms, 0)
+            )",
+        params![
+            upd.domain,
+            upd.now_ms,
+            upd.row_count,
+            upd.source,
+            upd.strategy,
+            upd.delta_count,
+            upd.max_remote_updated_ms,
+        ],
     )?;
     Ok(())
 }
