@@ -1022,16 +1022,25 @@ pub fn read_saldos() -> DbResult<String> {
 pub fn list_domain_stats() -> DbResult<Vec<DomainStat>> {
     with_conn(|conn| {
         let mut stmt = conn.prepare(
-            "SELECT domain, row_count, last_synced_ms, last_source
+            "SELECT domain, row_count, last_synced_ms, last_source,
+                    last_strategy, last_delta_count, last_remote_cursor_ms,
+                    last_attempt_ms, last_synced_ok, last_error
              FROM domain_sync_meta
              ORDER BY domain ASC",
         )?;
         let rows = stmt.query_map([], |r| {
+            let ok: i64 = r.get(8)?;
             Ok(DomainStat {
                 domain: r.get(0)?,
                 row_count: r.get(1)?,
                 last_synced_ms: r.get::<_, Option<i64>>(2)?,
                 last_source: r.get::<_, Option<String>>(3)?,
+                last_strategy: r.get::<_, Option<String>>(4)?,
+                last_delta_count: r.get::<_, Option<i64>>(5)?.unwrap_or(0),
+                last_remote_cursor_ms: r.get::<_, Option<i64>>(6)?,
+                last_attempt_ms: r.get::<_, Option<i64>>(7)?,
+                last_synced_ok: ok != 0,
+                last_error: r.get::<_, Option<String>>(9)?,
             })
         })?;
         let mut out = Vec::new();
