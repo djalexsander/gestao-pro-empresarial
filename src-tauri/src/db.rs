@@ -634,27 +634,65 @@ fn upsert_domain_meta(
 
 // ---------- Produtos ----------
 
-/// Ingere um snapshot do upstream (`[{...produto...}]`) na tabela tipada.
-/// Faz upsert por id; não apaga produtos ausentes (tombstones virão com
-/// sync incremental). Retorna a quantidade de registros aplicados.
-pub fn ingest_produtos_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize> {
+/// Estratégia da ingestão (afeta como o servidor trata "ausentes").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IngestStrategy {
+    /// Snapshot completo do upstream — base inicial; não sabemos se algo foi
+    /// removido fora deste lote, então NÃO marcamos tombstones por ausência.
+    Snapshot,
+    /// Lote incremental por `updated_at` — só vieram registros alterados.
+    /// Tombstone "soft" é aplicado para qualquer linha cujo `status` no
+    /// upstream tenha mudado para algo diferente de "ativo".
+    Incremental,
+}
+
+impl IngestStrategy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            IngestStrategy::Snapshot => "snapshot",
+            IngestStrategy::Incremental => "incremental",
+        }
+    }
+}
+
+/// Considera o status remoto como soft-delete (tombstone local).
+/// Cloud usa `status` para arquivar/inativar — esta etapa cobre o caso
+/// realista. Hard-delete real exigirá endpoint de tombstones (próxima etapa).
+fn is_tombstoned_status(status: Option<&str>) -> bool {
+    match status {
+        None => false,
+        Some(s) => {
+            let s = s.to_ascii_lowercase();
+            s == "inativo" || s == "arquivado" || s == "deleted" || s == "removido"
+        }
+    }
+}
+
+/// Ingere uma resposta do upstream (snapshot OU delta) na tabela tipada.
+/// Retorna `(linhas_aplicadas, max_updated_at_ms_no_lote)`.
+pub fn ingest_produtos(
+    json_text: &str,
+    now_ms: i64,
+    strategy: IngestStrategy,
+) -> DbResult<(usize, Option<i64>)> {
     let arr: serde_json::Value = serde_json::from_str(json_text)
         .map_err(|e| DbError(format!("ingest_produtos: json inválido: {e}")))?;
     let items = match arr.as_array() {
         Some(a) => a,
-        None => return Ok(0),
+        None => return Ok((0, None)),
     };
 
     with_conn(|conn| {
         let tx = conn.unchecked_transaction()?;
         let mut count = 0usize;
+        let mut max_remote_ms: Option<i64> = None;
         {
             let mut stmt = tx.prepare(
                 "INSERT INTO produtos_local(
                     id, sku, nome, status, categoria_id, categoria_nome,
                     preco_venda, estoque_atual, payload,
                     updated_at_remote_ms, synced_at_ms, deleted_at_ms
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,NULL)
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
                  ON CONFLICT(id) DO UPDATE SET
                     sku                  = excluded.sku,
                     nome                 = excluded.nome,
@@ -666,7 +704,7 @@ pub fn ingest_produtos_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize>
                     payload              = excluded.payload,
                     updated_at_remote_ms = COALESCE(excluded.updated_at_remote_ms, produtos_local.updated_at_remote_ms),
                     synced_at_ms         = excluded.synced_at_ms,
-                    deleted_at_ms        = NULL",
+                    deleted_at_ms        = excluded.deleted_at_ms",
             )?;
             for item in items {
                 let id = match json_str(item, "id") {
@@ -679,12 +717,26 @@ pub fn ingest_produtos_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize>
                     .and_then(|n| n.as_str())
                     .map(|s| s.to_string());
                 let updated_ms = json_str(item, "updated_at").and_then(parse_iso_to_ms);
+                if let Some(ms) = updated_ms {
+                    max_remote_ms = Some(max_remote_ms.map_or(ms, |c| c.max(ms)));
+                }
+                let status = json_str(item, "status");
+                // Tombstone aplicado APENAS em modo incremental — em snapshot
+                // não temos como diferenciar "não retornou" de "removido", e
+                // status pode aparecer como "inativo" sem ser deleção.
+                let deleted_at_ms = if strategy == IngestStrategy::Incremental
+                    && is_tombstoned_status(status)
+                {
+                    Some(now_ms)
+                } else {
+                    None::<i64>
+                };
                 let payload = serde_json::to_string(item).unwrap_or_else(|_| "{}".into());
                 stmt.execute(params![
                     id,
                     json_str(item, "sku"),
                     json_str(item, "nome"),
-                    json_str(item, "status"),
+                    status,
                     json_str(item, "categoria_id"),
                     categoria_nome,
                     json_f64(item, "preco_venda"),
@@ -692,16 +744,30 @@ pub fn ingest_produtos_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize>
                     payload,
                     updated_ms,
                     now_ms,
+                    deleted_at_ms,
                 ])?;
                 count += 1;
             }
         }
         let total: i64 =
             tx.query_row("SELECT COUNT(*) FROM produtos_local WHERE deleted_at_ms IS NULL", [], |r| r.get(0))?;
-        upsert_domain_meta(&tx, "produtos", total, now_ms, "upstream")?;
+        upsert_domain_meta(&tx, DomainMetaUpdate {
+            domain: "produtos",
+            row_count: total,
+            now_ms,
+            source: "upstream",
+            strategy: strategy.as_str(),
+            delta_count: count as i64,
+            max_remote_updated_ms: max_remote_ms,
+        })?;
         tx.commit()?;
-        Ok(count)
+        Ok((count, max_remote_ms))
     })
+}
+
+/// Compat: chamada antiga (snapshot).
+pub fn ingest_produtos_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize> {
+    ingest_produtos(json_text, now_ms, IngestStrategy::Snapshot).map(|(n, _)| n)
 }
 
 pub struct ProdutosFilter<'a> {
