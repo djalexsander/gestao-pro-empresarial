@@ -347,4 +347,138 @@ export const localTerminalAdapter: DataAdapter = {
         () => cloudAdapter.clientes.listLite(input),
       ),
   },
+
+  caixa: {
+    ...cloudAdapter.caixa,
+    /**
+     * WRITE LOCAL: abertura/sangria/suprimento/fechamento vão PRIMEIRO ao
+     * servidor local (SQLite + outbox). Se o servidor local não responde,
+     * caímos no cloudAdapter — comportamento legado preservado.
+     *
+     * Idempotência:
+     *  - `client_uuid` (1 por modal/operação) impede duplicar entre cliques.
+     *  - O servidor local gera/reusa um `local_uuid` estável que vira o
+     *    `_client_uuid` da RPC upstream (movimento). Para abrir/fechar a
+     *    chave única do caixa (terminal_id / caixa_id) protege a nuvem.
+     */
+    abrir: async (input: AbrirCaixaInput): Promise<string> => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const local = await abrirCaixaLocal(
+          cfg,
+          {
+            valor_inicial: input.valor_inicial,
+            observacao: input.observacao ?? null,
+            operador_id: input.operador_id ?? null,
+            terminal_id: input.terminal_id ?? null,
+            client_uuid:
+              (input as AbrirCaixaInput & { client_uuid?: string | null })
+                .client_uuid ?? null,
+          },
+          token,
+        );
+        if (local) {
+          reportDataSource({
+            source: "local-server",
+            domain: "caixa",
+            method: "abrir",
+            fallback: false,
+          });
+          return local.remote_id ?? local.caixa_id;
+        }
+      }
+      const result = await cloudAdapter.caixa.abrir(input);
+      reportDataSource({
+        source: "cloud", domain: "caixa", method: "abrir", fallback: true,
+      });
+      return result;
+    },
+
+    registrarMovimento: async (
+      input: RegistrarMovimentoCaixaInput,
+    ): Promise<string> => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const local = await registrarMovCaixaLocal(
+          cfg,
+          {
+            caixa_id: input.caixa_id,
+            tipo: input.tipo,
+            valor: input.valor,
+            motivo: input.motivo ?? null,
+            client_uuid: input.client_uuid ?? null,
+          },
+          token,
+        );
+        if (local) {
+          reportDataSource({
+            source: "local-server",
+            domain: "caixa",
+            method: "registrarMovimento",
+            fallback: false,
+          });
+          return local.remote_id ?? local.movimento_id;
+        }
+      }
+      const result = await cloudAdapter.caixa.registrarMovimento(input);
+      reportDataSource({
+        source: "cloud", domain: "caixa", method: "registrarMovimento", fallback: true,
+      });
+      return result;
+    },
+
+    fechar: async (input: FecharCaixaInput): Promise<FecharCaixaResult> => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const local = await fecharCaixaLocal(
+          cfg,
+          {
+            caixa_id: input.caixa_id,
+            valor_informado: input.valor_informado,
+            observacao: input.observacao ?? null,
+            client_uuid:
+              (input as FecharCaixaInput & { client_uuid?: string | null })
+                .client_uuid ?? null,
+          },
+          token,
+        );
+        if (local) {
+          reportDataSource({
+            source: "local-server",
+            domain: "caixa",
+            method: "fechar",
+            fallback: false,
+          });
+          // Se ainda pendente, devolvemos um resultado provisório válido
+          // para a UI (a confirmação real virá quando o cloud responder).
+          if (local.outbox_status === "sent" && local.remote_id) {
+            // Best-effort: pega o resumo real da nuvem se possível.
+            try {
+              return await cloudAdapter.caixa.fechar(input);
+            } catch {
+              /* fallback abaixo */
+            }
+          }
+          return {
+            caixa_id: local.remote_id ?? input.caixa_id,
+            valor_esperado: input.valor_informado,
+            valor_informado: local.valor_informado,
+            diferenca: 0,
+            fechado_em: new Date().toISOString(),
+          };
+        }
+      }
+      const result = await cloudAdapter.caixa.fechar(input);
+      reportDataSource({
+        source: "cloud", domain: "caixa", method: "fechar", fallback: true,
+      });
+      return result;
+    },
+  },
 };
