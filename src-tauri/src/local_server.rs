@@ -2265,3 +2265,211 @@ pub fn stop() -> Result<LocalServerStatus, String> {
     if let Some(tx) = caixa_sched_opt { let _ = tx.send(()); }
     Ok(current_status())
 }
+
+// ============================================================================
+// CANCELAMENTO LOCAL DE VENDA — handler + scheduler (v10)
+// ============================================================================
+
+#[derive(Deserialize, Debug)]
+struct CancelarVendaLocalRequest {
+    venda_local_uuid: String,
+    #[serde(default)]
+    motivo: Option<String>,
+    #[serde(default)]
+    operador_id: Option<String>,
+    #[serde(default)]
+    client_uuid: Option<String>,
+}
+
+#[derive(Serialize)]
+struct CancelarVendaLocalResponse {
+    venda_local_uuid: String,
+    cancelamento_local_uuid: String,
+    idempotente: bool,
+    qtd_itens_estornados: i64,
+    qtd_total_estornada: f64,
+    caixa_local_uuid: Option<String>,
+    outbox_status: String,
+    remote_response: Option<String>,
+}
+
+async fn cancelar_venda_local_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<CancelarVendaLocalRequest>,
+) -> Result<Json<CancelarVendaLocalResponse>, (StatusCode, String)> {
+    let now = now_ms();
+    let input = db::LocalCancelarVendaInput {
+        venda_local_uuid: req.venda_local_uuid,
+        motivo: req.motivo,
+        operador_id: req.operador_id,
+        client_uuid: req.client_uuid,
+    };
+    let r = db::cancelar_venda_local(input, now)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+
+    let mut outbox_status = r.outbox_status.clone();
+    let mut remote_response: Option<String> = None;
+    if !r.idempotente && ctx.upstream.is_some() {
+        if let Ok(resp) =
+            push_one_outbox_cancel(&ctx, &headers, &r.cancelamento_local_uuid).await
+        {
+            outbox_status = "sent".into();
+            remote_response = Some(resp);
+        }
+    }
+
+    Ok(Json(CancelarVendaLocalResponse {
+        venda_local_uuid: r.venda_local_uuid,
+        cancelamento_local_uuid: r.cancelamento_local_uuid,
+        idempotente: r.idempotente,
+        qtd_itens_estornados: r.qtd_itens_estornados,
+        qtd_total_estornada: r.qtd_total_estornada,
+        caixa_local_uuid: r.caixa_local_uuid,
+        outbox_status,
+        remote_response,
+    }))
+}
+
+/// Empurra UM cancelamento da outbox para o upstream via RPC `cancelar_venda`.
+/// Requer que a venda original já esteja sincronizada (tenha remote_id).
+async fn push_one_outbox_cancel(
+    ctx: &AppCtx,
+    headers: &HeaderMap,
+    local_uuid: &str,
+) -> Result<String, String> {
+    let upstream = ctx.upstream.as_ref().ok_or("upstream não configurado")?;
+    let now = now_ms();
+
+    let venda_remote_id = match db::cancel_resolve_venda_remote(local_uuid)
+        .map_err(|e| e.to_string())?
+    {
+        Some(s) if !s.is_empty() => s,
+        _ => {
+            // Re-agenda: aguardando venda original ser sincronizada.
+            let _ = db::outbox_cancel_mark_error(
+                local_uuid, "aguardando sync da venda original", now,
+            );
+            return Err("venda original ainda não sincronizada".into());
+        }
+    };
+
+    let item = db::outbox_cancel_list(1000, None)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|i| i.local_uuid == local_uuid)
+        .ok_or("cancelamento não encontrado na outbox")?;
+    if item.status == "sent" { return Ok(String::new()); }
+
+    db::outbox_cancel_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
+
+    let auth = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+
+    let body = serde_json::json!({
+        "_venda_id": venda_remote_id,
+        "_motivo":   item.motivo,
+        // _client_uuid garante idempotência cross-runs (caso a RPC suporte;
+        // se ignorar, segue funcionando — RPC já faz idempotência por status).
+        "_client_uuid": local_uuid,
+    });
+    let url = format!(
+        "{}/rest/v1/rpc/cancelar_venda",
+        upstream.base_url.trim_end_matches('/')
+    );
+    let resp = ctx.http.post(&url)
+        .header("apikey", &upstream.anon_key)
+        .header(axum::http::header::AUTHORIZATION, auth)
+        .header(axum::http::header::CONTENT_TYPE, "application/json")
+        .header(axum::http::header::ACCEPT, "application/json")
+        .json(&body)
+        .send().await
+        .map_err(|e| {
+            let msg = format!("rede: {e}");
+            let _ = db::outbox_cancel_mark_error(local_uuid, &msg, now);
+            msg
+        })?;
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        // Aceita "venda já cancelada" como sucesso idempotente do upstream.
+        let lower = text.to_lowercase();
+        if lower.contains("já cancelada") || lower.contains("already") {
+            db::outbox_cancel_mark_sent(local_uuid, &text, now)
+                .map_err(|e| e.to_string())?;
+            return Ok(text);
+        }
+        let msg = format!("HTTP {}: {}", status.as_u16(), text);
+        let _ = db::outbox_cancel_mark_error(local_uuid, &msg, now);
+        return Err(msg);
+    }
+    db::outbox_cancel_mark_sent(local_uuid, &text, now).map_err(|e| e.to_string())?;
+    Ok(text)
+}
+
+async fn outbox_cancel_stats_handler() -> Result<Json<db::OutboxCancelStats>, (StatusCode, String)> {
+    db::outbox_cancel_stats().map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+async fn outbox_cancel_list_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<db::OutboxCancelItem>>, (StatusCode, String)> {
+    let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(200);
+    let status = q.get("status").map(|s| s.as_str());
+    db::outbox_cancel_list(limit, status).map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+async fn outbox_cancel_flush_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<Json<FlushResponse>, (StatusCode, String)> {
+    let pending = db::outbox_cancel_pending_batch_all(100)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let mut sent = 0usize;
+    let mut failed = 0usize;
+    let mut errors: Vec<String> = Vec::new();
+    for it in &pending {
+        match push_one_outbox_cancel(&ctx, &headers, &it.local_uuid).await {
+            Ok(_) => sent += 1,
+            Err(e) => { failed += 1; errors.push(format!("{}: {}", it.local_uuid, e)); }
+        }
+    }
+    Ok(Json(FlushResponse { attempted: pending.len(), sent, failed, errors }))
+}
+
+async fn outbox_cancel_retry_errors_handler() -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
+    let n = db::outbox_cancel_reset_errors(now_ms())
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(RetryErrorsResponse { requeued: n }))
+}
+
+async fn run_outbox_cancel_scheduler(
+    ctx: AppCtx,
+    mut shutdown_rx: oneshot::Receiver<()>,
+) {
+    eprintln!("[gestao-pro] outbox cancelamentos scheduler: iniciado");
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_millis(SCHEDULER_TICK_MS)) => {}
+            _ = &mut shutdown_rx => {
+                eprintln!("[gestao-pro] outbox cancelamentos scheduler: parado");
+                break;
+            }
+        }
+        if ctx.upstream.is_none() { continue; }
+        let pending = match db::outbox_cancel_pending_batch(SCHEDULER_BATCH) {
+            Ok(p) => p,
+            Err(e) => { eprintln!("[gestao-pro] outbox cancel: batch err: {e}"); continue; }
+        };
+        if pending.is_empty() { continue; }
+        let empty = HeaderMap::new();
+        for it in &pending {
+            let _ = push_one_outbox_cancel(&ctx, &empty, &it.local_uuid).await;
+        }
+    }
+}
