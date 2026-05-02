@@ -519,6 +519,69 @@ export function DesktopTab() {
           </Card>
         )}
 
+        {role !== "unset" && outbox && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Fila offline — estoque
+              </CardTitle>
+              <div className="flex gap-2">
+                {outbox.error > 0 && (
+                  <Button size="sm" variant="outline" onClick={() => void handleRetryErrors()}>
+                    Reenfileirar erros
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={flushing || outbox.pending === 0}
+                  onClick={() => void handleFlush()}
+                >
+                  {flushing ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                  )}
+                  Sincronizar agora
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 text-sm sm:grid-cols-4">
+                <Field label="Pendentes" value={String(outbox.pending)} />
+                <Field label="Enviando" value={String(outbox.sending)} />
+                <Field label="Enviadas" value={String(outbox.sent)} />
+                <Field label="Com erro" value={String(outbox.error)} />
+                <Field
+                  label="Último envio"
+                  value={
+                    outbox.last_sent_at_ms
+                      ? new Date(outbox.last_sent_at_ms).toLocaleString("pt-BR")
+                      : "—"
+                  }
+                />
+                {outbox.last_error && (
+                  <div className="sm:col-span-3">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                      Último erro
+                    </div>
+                    <div className="mt-0.5 break-all text-xs text-destructive">
+                      {outbox.last_error}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Movimentações de estoque são gravadas localmente no servidor
+                (saldo refletido na hora) e enviadas à nuvem em background.
+                Idempotência garantida por <code>local_uuid</code> — retries
+                não duplicam.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         <Card>
           <CardHeader>
             <CardTitle>Backend de dados</CardTitle>
