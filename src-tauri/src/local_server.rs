@@ -932,6 +932,18 @@ async fn db_sync_handler(
             )
             .await
         }
+        "estoque_movimentacoes" | "estoque_saldos" => {
+            let params = estoque_movs_base_params();
+            proxy_with_incremental_sync(
+                &ctx,
+                &headers,
+                "estoque_movimentacoes",
+                "/rest/v1/estoque_movimentacoes",
+                &params,
+                true,
+            )
+            .await
+        }
         other => {
             return Err((
                 StatusCode::BAD_REQUEST,
