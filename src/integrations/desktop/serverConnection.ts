@@ -1080,3 +1080,131 @@ export async function enviarHeartbeatLocal(
     return null;
   }
 }
+
+// ----------------------------------------------------------------------------
+// Outbox de cancelamentos de venda (v10) — local-first
+// ----------------------------------------------------------------------------
+
+export interface OutboxCancelamentosStats extends OutboxStats {
+  /**
+   * Cancelamentos enfileirados que ainda não podem ir ao upstream porque a
+   * venda original ainda não foi sincronizada (ordem causal venda → cancelamento).
+   */
+  waiting_venda_sync: number;
+}
+
+export interface OutboxCancelamentoItem extends OutboxItem {
+  venda_local_uuid: string;
+  venda_remote_id: string | null;
+  motivo: string | null;
+}
+
+export interface CancelarVendaLocalRequest {
+  venda_local_uuid: string;
+  motivo?: string | null;
+  operador_id?: string | null;
+  client_uuid?: string | null;
+}
+
+export interface CancelarVendaLocalResponse {
+  venda_local_uuid: string;
+  cancelamento_local_uuid: string;
+  idempotente: boolean;
+  qtd_itens_estornados: number;
+  qtd_total_estornada: number;
+  caixa_local_uuid: string | null;
+  outbox_status: "pending" | "sending" | "sent" | "error";
+  remote_response: string | null;
+}
+
+export function cancelarVendaLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: CancelarVendaLocalRequest,
+  authToken?: string | null,
+): Promise<CancelarVendaLocalResponse | null> {
+  return postLocalJson(cfg, "/api/vendas/cancelar", payload, authToken, 15_000);
+}
+
+export async function fetchOutboxCancelamentosStats(
+  cfg?: TerminalConexaoConfig,
+): Promise<OutboxCancelamentosStats | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  try {
+    const res = await fetch(`${baseUrl}/db/outbox/cancelamentos/stats`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as OutboxCancelamentosStats;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchOutboxCancelamentosList(
+  cfg: TerminalConexaoConfig | undefined,
+  opts?: { status?: OutboxItem["status"]; limit?: number },
+): Promise<OutboxCancelamentoItem[]> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return [];
+  const url = new URL(`${baseUrl}/db/outbox/cancelamentos`);
+  if (opts?.status) url.searchParams.set("status", opts.status);
+  if (opts?.limit) url.searchParams.set("limit", String(opts.limit));
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const json = (await res.json()) as { items?: OutboxCancelamentoItem[] };
+    return json.items ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function flushOutboxCancelamentos(
+  cfg: TerminalConexaoConfig | undefined,
+  authToken?: string | null,
+): Promise<OutboxFlushResult | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30_000);
+  try {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    const res = await fetch(`${baseUrl}/db/outbox/cancelamentos/flush`, {
+      method: "POST",
+      headers,
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    return (await res.json()) as OutboxFlushResult;
+  } catch {
+    clearTimeout(timer);
+    return null;
+  }
+}
+
+export async function retryOutboxCancelamentosErrors(
+  cfg: TerminalConexaoConfig | undefined,
+): Promise<number> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return 0;
+  try {
+    const res = await fetch(`${baseUrl}/db/outbox/cancelamentos/retry-errors`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return 0;
+    const json = (await res.json()) as { requeued?: number };
+    return json.requeued ?? 0;
+  } catch {
+    return 0;
+  }
+}
