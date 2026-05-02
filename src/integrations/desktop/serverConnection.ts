@@ -341,6 +341,20 @@ export interface OutboxStats {
   error: number;
   last_sent_at_ms: number | null;
   last_error: string | null;
+  /** Itens `pending` cujo backoff já venceu — elegíveis ao próximo tick. */
+  due_now: number;
+  /** Próximo `next_attempt_at_ms` agendado entre os pending (ms epoch). */
+  next_attempt_at_ms: number | null;
+  /** Última vez que o scheduler de background rodou. */
+  last_auto_flush_ms: number | null;
+  /** Última vez que o scheduler enviou algo (sent>0). */
+  last_auto_flush_sent_ms: number | null;
+  /** Telemetria da última rodada automática. */
+  last_auto_attempted: number | null;
+  last_auto_sent: number | null;
+  last_auto_failed: number | null;
+  /** Última vez que o operador clicou "Sincronizar agora". */
+  last_manual_flush_ms: number | null;
 }
 
 export interface OutboxItem {

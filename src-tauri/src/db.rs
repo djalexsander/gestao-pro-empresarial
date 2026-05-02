@@ -26,7 +26,7 @@ use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -281,11 +281,21 @@ pub fn init() -> DbResult<()> {
         "ALTER TABLE domain_sync_meta ADD COLUMN last_delta_count INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE domain_sync_meta ADD COLUMN last_attempt_ms INTEGER",
         "ALTER TABLE domain_sync_meta ADD COLUMN last_synced_ok INTEGER NOT NULL DEFAULT 1",
+        // v6: backoff scheduling para a outbox de estoque.
+        // `next_attempt_at_ms` controla quando o item está elegível para
+        // reenvio automático. NULL = elegível imediatamente (= now).
+        "ALTER TABLE outbox_estoque_movs ADD COLUMN next_attempt_at_ms INTEGER",
     ];
     for sql in alters {
         // Erro só ocorre quando a coluna já existe — seguro ignorar.
         let _ = conn.execute(sql, []);
     }
+    // Índice para o scheduler escolher rapidamente o próximo lote elegível.
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_outbox_status_next
+            ON outbox_estoque_movs(status, next_attempt_at_ms)",
+        [],
+    );
 
     // schema_version
     conn.execute(
@@ -1594,6 +1604,22 @@ pub struct OutboxStats {
     pub error: i64,
     pub last_sent_at_ms: Option<i64>,
     pub last_error: Option<String>,
+    /// Itens `pending` cujo `next_attempt_at_ms` já está vencido — ou seja,
+    /// elegíveis para envio agora pelo scheduler.
+    pub due_now: i64,
+    /// `next_attempt_at_ms` mais próximo entre os pending — quando o
+    /// scheduler tentará a próxima rodada.
+    pub next_attempt_at_ms: Option<i64>,
+    /// Última rodada do scheduler (independente de ter enviado algo).
+    pub last_auto_flush_ms: Option<i64>,
+    /// Última rodada do scheduler em que algo realmente foi para o upstream.
+    pub last_auto_flush_sent_ms: Option<i64>,
+    /// Estatística da última rodada automática (tentou/enviou/falhou).
+    pub last_auto_attempted: Option<i64>,
+    pub last_auto_sent: Option<i64>,
+    pub last_auto_failed: Option<i64>,
+    /// Última rodada manual ("Sincronizar agora").
+    pub last_manual_flush_ms: Option<i64>,
 }
 
 pub fn outbox_stats() -> DbResult<OutboxStats> {
@@ -1630,7 +1656,81 @@ pub fn outbox_stats() -> DbResult<OutboxStats> {
             )
             .optional()?
             .flatten();
+
+        // Backoff observability: due_now e próxima janela.
+        let now = chrono::Utc::now().timestamp_millis();
+        s.due_now = conn
+            .query_row(
+                "SELECT COUNT(*) FROM outbox_estoque_movs
+                  WHERE status='pending'
+                    AND COALESCE(next_attempt_at_ms, 0) <= ?1",
+                params![now],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()?
+            .unwrap_or(0);
+        s.next_attempt_at_ms = conn
+            .query_row(
+                "SELECT MIN(COALESCE(next_attempt_at_ms, 0))
+                   FROM outbox_estoque_movs WHERE status='pending'",
+                [],
+                |r| r.get::<_, Option<i64>>(0),
+            )
+            .optional()?
+            .flatten();
+
+        // Meta do scheduler — chaves opcionais; ausente = NULL.
+        s.last_auto_flush_ms = meta_get_i64(conn, "outbox_last_auto_flush_ms")?;
+        s.last_auto_flush_sent_ms = meta_get_i64(conn, "outbox_last_auto_flush_sent_ms")?;
+        s.last_auto_attempted = meta_get_i64(conn, "outbox_last_auto_attempted")?;
+        s.last_auto_sent = meta_get_i64(conn, "outbox_last_auto_sent")?;
+        s.last_auto_failed = meta_get_i64(conn, "outbox_last_auto_failed")?;
+        s.last_manual_flush_ms = meta_get_i64(conn, "outbox_last_manual_flush_ms")?;
         Ok(s)
+    })
+}
+
+fn meta_get_i64(conn: &Connection, key: &str) -> DbResult<Option<i64>> {
+    let v: Option<String> = conn
+        .query_row(
+            "SELECT value FROM meta WHERE key = ?1",
+            params![key],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(v.and_then(|s| s.parse::<i64>().ok()))
+}
+
+fn meta_set_i64(conn: &Connection, key: &str, value: i64) -> DbResult<()> {
+    conn.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value.to_string()],
+    )?;
+    Ok(())
+}
+
+/// Registra a rodada do scheduler (auto ou manual) para a UI.
+pub fn outbox_record_flush_round(
+    kind: &str, // "auto" | "manual"
+    now_ms: i64,
+    attempted: i64,
+    sent: i64,
+    failed: i64,
+) -> DbResult<()> {
+    with_conn(|conn| {
+        if kind == "auto" {
+            meta_set_i64(conn, "outbox_last_auto_flush_ms", now_ms)?;
+            meta_set_i64(conn, "outbox_last_auto_attempted", attempted)?;
+            meta_set_i64(conn, "outbox_last_auto_sent", sent)?;
+            meta_set_i64(conn, "outbox_last_auto_failed", failed)?;
+            if sent > 0 {
+                meta_set_i64(conn, "outbox_last_auto_flush_sent_ms", now_ms)?;
+            }
+        } else {
+            meta_set_i64(conn, "outbox_last_manual_flush_ms", now_ms)?;
+        }
+        Ok(())
     })
 }
 
@@ -1686,8 +1786,73 @@ pub fn outbox_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec<Outbox
     })
 }
 
+/// Retorna SOMENTE itens `pending` com `next_attempt_at_ms <= now` (ou NULL).
+/// É a base do flush automático: NUNCA puxa um item em backoff.
 pub fn outbox_pending_batch(limit: i64) -> DbResult<Vec<OutboxItem>> {
-    outbox_list(limit, Some("pending"))
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut stmt = conn.prepare(
+            "SELECT local_uuid, client_uuid, payload, status, attempts, last_error,
+                    remote_id, created_at_ms, updated_at_ms, sent_at_ms
+               FROM outbox_estoque_movs
+              WHERE status = 'pending'
+                AND COALESCE(next_attempt_at_ms, 0) <= ?1
+              ORDER BY created_at_ms ASC
+              LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![now, limit], |r| {
+            Ok(OutboxItem {
+                local_uuid: r.get(0)?,
+                client_uuid: r.get(1)?,
+                payload: r.get(2)?,
+                status: r.get(3)?,
+                attempts: r.get(4)?,
+                last_error: r.get(5)?,
+                remote_id: r.get(6)?,
+                created_at_ms: r.get(7)?,
+                updated_at_ms: r.get(8)?,
+                sent_at_ms: r.get(9)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    })
+}
+
+/// Igual a `outbox_pending_batch` mas IGNORA `next_attempt_at_ms`. Usado
+/// pelo flush manual: o operador clicou "Sincronizar agora" e quer ignorar
+/// a janela de espera do backoff.
+pub fn outbox_pending_batch_all(limit: i64) -> DbResult<Vec<OutboxItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let mut stmt = conn.prepare(
+            "SELECT local_uuid, client_uuid, payload, status, attempts, last_error,
+                    remote_id, created_at_ms, updated_at_ms, sent_at_ms
+               FROM outbox_estoque_movs
+              WHERE status = 'pending'
+              ORDER BY created_at_ms ASC
+              LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit], |r| {
+            Ok(OutboxItem {
+                local_uuid: r.get(0)?,
+                client_uuid: r.get(1)?,
+                payload: r.get(2)?,
+                status: r.get(3)?,
+                attempts: r.get(4)?,
+                last_error: r.get(5)?,
+                remote_id: r.get(6)?,
+                created_at_ms: r.get(7)?,
+                updated_at_ms: r.get(8)?,
+                sent_at_ms: r.get(9)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    })
 }
 
 pub fn outbox_mark_sending(local_uuid: &str, now_ms: i64) -> DbResult<()> {
@@ -1707,7 +1872,7 @@ pub fn outbox_mark_sent(local_uuid: &str, remote_id: &str, now_ms: i64) -> DbRes
         conn.execute(
             "UPDATE outbox_estoque_movs
                 SET status='sent', sent_at_ms=?2, updated_at_ms=?2,
-                    remote_id=?3, last_error=NULL
+                    remote_id=?3, last_error=NULL, next_attempt_at_ms=NULL
               WHERE local_uuid=?1",
             params![local_uuid, now_ms, remote_id],
         )?;
@@ -1715,26 +1880,74 @@ pub fn outbox_mark_sent(local_uuid: &str, remote_id: &str, now_ms: i64) -> DbRes
     })
 }
 
+/// Política de backoff exponencial limitado (em ms):
+/// 1ª falha → 5s, 2ª → 15s, 3ª → 1min, 4ª → 5min, 5ª+ → 15min (cap).
+fn backoff_ms_for_attempts(attempts: i64) -> i64 {
+    match attempts {
+        a if a <= 1 => 5_000,
+        2 => 15_000,
+        3 => 60_000,
+        4 => 5 * 60_000,
+        _ => 15 * 60_000,
+    }
+}
+
+/// Após este nº de tentativas automáticas o item para de ser retomado pelo
+/// scheduler e fica como `error`, exigindo "Reenfileirar erros" / manual.
+const MAX_AUTO_ATTEMPTS: i64 = 8;
+
+/// Marca falha de envio. Decide entre dois caminhos:
+///  * `attempts < MAX_AUTO_ATTEMPTS` → mantém `status='pending'` com
+///    `next_attempt_at_ms` agendado para o backoff. O scheduler retoma
+///    automaticamente.
+///  * caso contrário → `status='error'` (precisa de intervenção manual).
+/// Em ambos os casos, `last_error` é preservado para a UI.
 pub fn outbox_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbResult<()> {
     with_conn(|conn| {
-        conn.execute(
-            "UPDATE outbox_estoque_movs
-                SET status='error', last_error=?2, updated_at_ms=?3
-              WHERE local_uuid=?1",
-            params![local_uuid, err, now_ms],
-        )?;
+        let attempts: i64 = conn
+            .query_row(
+                "SELECT attempts FROM outbox_estoque_movs WHERE local_uuid=?1",
+                params![local_uuid],
+                |r| r.get(0),
+            )
+            .optional()?
+            .unwrap_or(1);
+
+        if attempts >= MAX_AUTO_ATTEMPTS {
+            conn.execute(
+                "UPDATE outbox_estoque_movs
+                    SET status='error', last_error=?2, updated_at_ms=?3,
+                        next_attempt_at_ms=NULL
+                  WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms],
+            )?;
+        } else {
+            let next = now_ms + backoff_ms_for_attempts(attempts);
+            conn.execute(
+                "UPDATE outbox_estoque_movs
+                    SET status='pending', last_error=?2, updated_at_ms=?3,
+                        next_attempt_at_ms=?4
+                  WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms, next],
+            )?;
+        }
         Ok(())
     })
 }
 
+/// Limpa backoff/erros e força reenvio imediato.
+/// Útil tanto para o botão "Reenfileirar erros" quanto para o "Sincronizar
+/// agora" do operador (que quer ignorar a janela de espera).
 pub fn outbox_reset_errors(now_ms: i64) -> DbResult<i64> {
     with_conn(|conn| {
         let n = conn.execute(
             "UPDATE outbox_estoque_movs
-                SET status='pending', updated_at_ms=?1
-              WHERE status='error'",
+                SET status='pending', updated_at_ms=?1,
+                    next_attempt_at_ms=NULL, last_error=NULL
+              WHERE status IN ('error','pending') AND last_error IS NOT NULL",
             params![now_ms],
         )?;
         Ok(n as i64)
     })
 }
+

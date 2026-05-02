@@ -134,10 +134,18 @@ export function DesktopTab() {
       setOutbox(ob);
     };
     void carregar();
-    const t = setInterval(() => void carregar(), 30_000);
+    // Polling padrão (info / domínios / terminais) a cada 30s.
+    const tFull = setInterval(() => void carregar(), 30_000);
+    // Polling RÁPIDO só do outbox (stats) a cada 5s — assim a UI reflete
+    // o background sync quase em tempo real sem custo perceptível.
+    const tOutbox = setInterval(async () => {
+      const ob = await fetchOutboxStats(cfg);
+      if (alive) setOutbox(ob);
+    }, 5_000);
     return () => {
       alive = false;
-      clearInterval(t);
+      clearInterval(tFull);
+      clearInterval(tOutbox);
     };
   }, [isDesktop, role, config.terminal, daemon?.running, daemon?.port]);
 
@@ -550,7 +558,10 @@ export function DesktopTab() {
             <CardContent>
               <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 text-sm sm:grid-cols-4">
                 <Field label="Pendentes" value={String(outbox.pending)} />
-                <Field label="Enviando" value={String(outbox.sending)} />
+                <Field
+                  label="Prontos agora"
+                  value={`${outbox.due_now} / ${outbox.pending}`}
+                />
                 <Field label="Enviadas" value={String(outbox.sent)} />
                 <Field label="Com erro" value={String(outbox.error)} />
                 <Field
@@ -561,8 +572,35 @@ export function DesktopTab() {
                       : "—"
                   }
                 />
+                <Field
+                  label="Próx. tentativa auto"
+                  value={
+                    outbox.next_attempt_at_ms
+                      ? new Date(outbox.next_attempt_at_ms).toLocaleString("pt-BR")
+                      : "—"
+                  }
+                />
+                <Field
+                  label="Último auto-flush"
+                  value={
+                    outbox.last_auto_flush_ms
+                      ? `${new Date(outbox.last_auto_flush_ms).toLocaleTimeString("pt-BR")}` +
+                        (outbox.last_auto_attempted != null
+                          ? ` · ${outbox.last_auto_sent ?? 0}/${outbox.last_auto_attempted} ok`
+                          : "")
+                      : "—"
+                  }
+                />
+                <Field
+                  label="Último flush manual"
+                  value={
+                    outbox.last_manual_flush_ms
+                      ? new Date(outbox.last_manual_flush_ms).toLocaleString("pt-BR")
+                      : "—"
+                  }
+                />
                 {outbox.last_error && (
-                  <div className="sm:col-span-3">
+                  <div className="sm:col-span-4">
                     <div className="text-xs uppercase tracking-wide text-muted-foreground">
                       Último erro
                     </div>
@@ -574,9 +612,12 @@ export function DesktopTab() {
               </div>
               <p className="mt-3 text-xs text-muted-foreground">
                 Movimentações de estoque são gravadas localmente no servidor
-                (saldo refletido na hora) e enviadas à nuvem em background.
+                (saldo refletido na hora) e enviadas à nuvem em background a
+                cada 10s. Falhas entram em backoff exponencial (5s → 15s → 1m →
+                5m → 15m). Após 8 tentativas o item vai para{" "}
+                <strong>erro</strong> e exige <em>Reenfileirar erros</em>.
                 Idempotência garantida por <code>local_uuid</code> — retries
-                não duplicam.
+                nunca duplicam.
               </p>
             </CardContent>
           </Card>

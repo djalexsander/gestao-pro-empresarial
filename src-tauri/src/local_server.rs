@@ -46,6 +46,8 @@ struct ServerState {
     server_id: Option<String>,
     hostname: Option<String>,
     shutdown_tx: Option<oneshot::Sender<()>>,
+    /// Sinaliza o scheduler de background (outbox de estoque) para parar.
+    scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     upstream: Option<UpstreamConfig>,
     /// Últimos heartbeats por terminalId (em memória; banco local virá depois).
     terminals: HashMap<String, TerminalHeartbeat>,
@@ -1190,7 +1192,7 @@ async fn outbox_flush_handler(
     State(ctx): State<AppCtx>,
     headers: HeaderMap,
 ) -> Result<Json<FlushResponse>, (StatusCode, String)> {
-    let pending = db::outbox_pending_batch(100)
+    let pending = db::outbox_pending_batch_all(100)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let mut sent = 0usize;
     let mut failed = 0usize;
@@ -1204,6 +1206,14 @@ async fn outbox_flush_handler(
             }
         }
     }
+    // Telemetria — distingue do flush automático.
+    let _ = db::outbox_record_flush_round(
+        "manual",
+        now_ms(),
+        pending.len() as i64,
+        sent as i64,
+        failed as i64,
+    );
     Ok(Json(FlushResponse {
         attempted: pending.len(),
         sent,
@@ -1221,6 +1231,99 @@ async fn outbox_retry_errors_handler() -> Result<Json<RetryErrorsResponse>, (Sta
     let n = db::outbox_reset_errors(now_ms())
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(RetryErrorsResponse { requeued: n }))
+}
+
+// ============================================================================
+// Background sync — scheduler do outbox de estoque
+// ============================================================================
+//
+// Roda em uma task tokio separada, acordando a cada `SCHEDULER_TICK_MS`.
+// Por tick:
+//   1. Lê `outbox_pending_batch(BATCH)` — JÁ filtra por
+//      `next_attempt_at_ms <= now`, então itens em backoff são pulados
+//      naturalmente (sem lógica adicional aqui).
+//   2. Tenta `push_one_outbox` para cada item. Sucesso → `sent`. Falha →
+//      `outbox_mark_error` agenda o próximo `next_attempt_at_ms` via
+//      backoff exponencial (5s → 15s → 1m → 5m → 15m). Após
+//      `MAX_AUTO_ATTEMPTS` o item vai para `error` e exige ação manual.
+//   3. Registra a rodada em `meta` (para a UI mostrar último auto-flush e
+//      próxima tentativa).
+//
+// Garantias:
+//   * Nunca duplica: `push_one_outbox` usa `local_uuid` como
+//     `_client_uuid` na RPC upstream — idempotência ponta a ponta.
+//   * Não trava terminal: roda em task própria, fora do path da request.
+//   * Backoff seguro: itens com falha NÃO são re-tentados imediatamente.
+//   * Best-effort imediato preservado: o handler de `registrar_mov_local`
+//     continua tentando o push na hora; o scheduler só pega o que sobrou.
+//   * Cancelável: `scheduler_shutdown_tx` interrompe imediatamente em
+//     `stop()`.
+
+const SCHEDULER_TICK_MS: u64 = 10_000;
+const SCHEDULER_BATCH: i64 = 50;
+
+async fn run_outbox_scheduler(
+    ctx: AppCtx,
+    mut shutdown_rx: oneshot::Receiver<()>,
+) {
+    eprintln!("[gestao-pro] outbox scheduler: iniciado (tick={}ms)", SCHEDULER_TICK_MS);
+    loop {
+        // Espera o tick OU o sinal de shutdown — o que vier primeiro.
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_millis(SCHEDULER_TICK_MS)) => {}
+            _ = &mut shutdown_rx => {
+                eprintln!("[gestao-pro] outbox scheduler: parado");
+                break;
+            }
+        }
+
+        // Sem upstream configurado, não há pra onde empurrar — apenas
+        // registra a rodada para a UI saber que o scheduler está vivo.
+        if ctx.upstream.is_none() {
+            let _ = db::outbox_record_flush_round("auto", now_ms(), 0, 0, 0);
+            continue;
+        }
+
+        let pending = match db::outbox_pending_batch(SCHEDULER_BATCH) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("[gestao-pro] outbox scheduler: falha lendo batch: {e}");
+                continue;
+            }
+        };
+
+        if pending.is_empty() {
+            // Mantém o "last_auto_flush_ms" fresco — útil pra UI saber que
+            // o scheduler rodou recentemente, mesmo sem nada a fazer.
+            let _ = db::outbox_record_flush_round("auto", now_ms(), 0, 0, 0);
+            continue;
+        }
+
+        let empty_headers = HeaderMap::new();
+        let mut sent = 0i64;
+        let mut failed = 0i64;
+        for it in &pending {
+            match push_one_outbox(&ctx, &empty_headers, &it.local_uuid).await {
+                Ok(_) => sent += 1,
+                Err(_) => failed += 1,
+            }
+        }
+        let _ = db::outbox_record_flush_round(
+            "auto",
+            now_ms(),
+            pending.len() as i64,
+            sent,
+            failed,
+        );
+        if sent > 0 || failed > 0 {
+            eprintln!(
+                "[gestao-pro] outbox auto-flush: attempted={} sent={} failed={}",
+                pending.len(),
+                sent,
+                failed,
+            );
+        }
+    }
 }
 
 // ---------- Router ----------
@@ -1355,6 +1458,21 @@ pub fn start(
             .await;
     });
 
+    // Background scheduler para a outbox de estoque — cancelável via
+    // `scheduler_tx` em `stop()`. Roda em paralelo ao servidor HTTP, sem
+    // travar requests do terminal.
+    let (scheduler_tx, scheduler_rx) = oneshot::channel::<()>();
+    let scheduler_ctx = AppCtx {
+        upstream: upstream.clone(),
+        http: reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .map_err(|e| format!("Falha ao criar HTTP client (scheduler): {e}"))?,
+    };
+    handle.spawn(async move {
+        run_outbox_scheduler(scheduler_ctx, scheduler_rx).await;
+    });
+
     {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = true;
@@ -1364,6 +1482,7 @@ pub fn start(
         s.server_id = server_id;
         s.hostname = host;
         s.shutdown_tx = Some(tx);
+        s.scheduler_shutdown_tx = Some(scheduler_tx);
         s.upstream = upstream;
         s.terminals.clear();
     }
@@ -1372,16 +1491,19 @@ pub fn start(
 }
 
 pub fn stop() -> Result<LocalServerStatus, String> {
-    let tx_opt = {
+    let (tx_opt, sched_opt) = {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = false;
         s.port = None;
         s.started_at_ms = None;
         s.upstream = None;
         s.terminals.clear();
-        s.shutdown_tx.take()
+        (s.shutdown_tx.take(), s.scheduler_shutdown_tx.take())
     };
     if let Some(tx) = tx_opt {
+        let _ = tx.send(());
+    }
+    if let Some(tx) = sched_opt {
         let _ = tx.send(());
     }
     Ok(current_status())
