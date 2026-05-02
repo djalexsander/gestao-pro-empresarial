@@ -1736,7 +1736,67 @@ async fn caixa_local_aberto_handler(
     Ok(Json(row))
 }
 
-/// Despacha UM item da outbox de caixa para o upstream. Despacha por action:
+
+/// GET `/api/caixa/resumo?caixa_id=...` ou `?operador_id=...` para o aberto.
+/// Retorna o resumo local do caixa: totais por forma de pagamento, vendas,
+/// suprimentos, sangrias, esperado em dinheiro e diferença (se fechado).
+async fn caixa_resumo_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<Option<db::CaixaResumoLocal>>, (StatusCode, String)> {
+    let caixa_local_uuid: Option<String> = if let Some(cid) = q.get("caixa_id") {
+        db::resolve_caixa_id_publico(cid)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    } else {
+        let op = q.get("operador_id").map(|s| s.as_str());
+        db::caixa_local_aberto(op)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .map(|r| r.local_uuid)
+    };
+    let Some(clu) = caixa_local_uuid else {
+        return Ok(Json(None));
+    };
+    let resumo = db::caixa_resumo_local(&clu)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(resumo))
+}
+
+/// GET `/api/caixa/lancamentos?caixa_id=...` — lista os lançamentos
+/// financeiros locais derivados do fechamento daquele caixa.
+async fn caixa_lancamentos_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<db::LancamentoLocalRow>>, (StatusCode, String)> {
+    let caixa_local_uuid: Option<String> = if let Some(cid) = q.get("caixa_id") {
+        db::resolve_caixa_id_publico(cid)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    } else {
+        let op = q.get("operador_id").map(|s| s.as_str());
+        db::caixa_local_aberto(op)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .map(|r| r.local_uuid)
+    };
+    let Some(clu) = caixa_local_uuid else {
+        return Ok(Json(Vec::new()));
+    };
+    let rows = db::lancamentos_local_por_caixa(&clu)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(rows))
+}
+
+/// POST `/api/caixa/regenerar-lancamentos?caixa_id=...` — força a
+/// regeneração dos lançamentos derivados (idempotente).
+async fn caixa_regenerar_lancamentos_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let cid = q.get("caixa_id").cloned()
+        .ok_or((StatusCode::BAD_REQUEST, "caixa_id é obrigatório".into()))?;
+    let clu = db::resolve_caixa_id_publico(&cid)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "caixa não encontrado".into()))?;
+    db::regenerar_lancamentos_locais_caixa(&clu)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(serde_json::json!({ "ok": true, "caixa_local_uuid": clu })))
+}
+
 ///
 ///   - `abrir`     → RPC `abrir_caixa`      → devolve UUID do caixa criado
 ///   - `movimento` → RPC `caixa_registrar_movimento` → devolve id do movimento
@@ -2013,6 +2073,9 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/caixa/movimento", post(registrar_caixa_movimento_handler))
         .route("/api/caixa/fechar", post(registrar_caixa_fechar_handler))
         .route("/api/caixa/aberto", get(caixa_local_aberto_handler))
+        .route("/api/caixa/resumo", get(caixa_resumo_handler))
+        .route("/api/caixa/lancamentos", get(caixa_lancamentos_handler))
+        .route("/api/caixa/regenerar-lancamentos", post(caixa_regenerar_lancamentos_handler))
         .route("/db/outbox/caixa", get(outbox_caixa_list_handler))
         .route("/db/outbox/caixa/stats", get(outbox_caixa_stats_handler))
         .route("/db/outbox/caixa/flush", post(outbox_caixa_flush_handler))

@@ -830,6 +830,112 @@ export async function fetchCaixaLocalAberto(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Resumo local do caixa + lançamentos derivados (v9)
+// ---------------------------------------------------------------------------
+
+export interface CaixaResumoFormaRow {
+  forma_pagamento: string;
+  total: number;
+  qtd_vendas: number;
+}
+
+export interface CaixaResumoLocal {
+  caixa_local_uuid: string;
+  remote_id: string | null;
+  status: "aberto" | "fechado";
+  data_abertura_ms: number;
+  data_fechamento_ms: number | null;
+  operador_id: string | null;
+  terminal_id: string | null;
+  valor_inicial: number;
+  valor_informado: number | null;
+  valor_esperado_dinheiro: number;
+  diferenca: number | null;
+  total_vendido: number;
+  qtd_vendas: number;
+  total_suprimentos: number;
+  total_sangrias: number;
+  por_forma: CaixaResumoFormaRow[];
+}
+
+export interface LancamentoLocalRow {
+  local_uuid: string;
+  caixa_local_uuid: string;
+  tipo: "entrada" | "saida";
+  categoria: string;
+  forma_pagamento: string | null;
+  valor: number;
+  descricao: string | null;
+  origem: string;
+  created_at_ms: number;
+}
+
+async function getLocalJson<T>(
+  cfg: TerminalConexaoConfig | undefined,
+  path: string,
+  query?: Record<string, string | null | undefined>,
+): Promise<T | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  const url = new URL(`${baseUrl}${path}`);
+  if (query) {
+    for (const [k, v] of Object.entries(query)) {
+      if (v) url.searchParams.set(k, v);
+    }
+  }
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+export function fetchCaixaResumoLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  opts: { caixaId?: string | null; operadorId?: string | null } = {},
+): Promise<CaixaResumoLocal | null> {
+  return getLocalJson<CaixaResumoLocal | null>(cfg, "/api/caixa/resumo", {
+    caixa_id: opts.caixaId ?? undefined,
+    operador_id: opts.operadorId ?? undefined,
+  }).then((v) => v ?? null);
+}
+
+export function fetchCaixaLancamentosLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  opts: { caixaId?: string | null; operadorId?: string | null } = {},
+): Promise<LancamentoLocalRow[]> {
+  return getLocalJson<LancamentoLocalRow[]>(cfg, "/api/caixa/lancamentos", {
+    caixa_id: opts.caixaId ?? undefined,
+    operador_id: opts.operadorId ?? undefined,
+  }).then((v) => v ?? []);
+}
+
+export async function regenerarLancamentosCaixaLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  caixaId: string,
+): Promise<boolean> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return false;
+  const url = new URL(`${baseUrl}/api/caixa/regenerar-lancamentos`);
+  url.searchParams.set("caixa_id", caixaId);
+  try {
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function fetchOutboxCaixaStats(
   cfg?: TerminalConexaoConfig,
 ): Promise<OutboxCaixaStats | null> {

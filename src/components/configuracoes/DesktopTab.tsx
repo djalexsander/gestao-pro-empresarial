@@ -20,7 +20,9 @@ import { useDesktopRole } from "@/components/desktop/DesktopRoleProvider";
 import { DesktopSetupWizard } from "@/components/desktop/DesktopSetupWizard";
 import { useServerConnection } from "@/components/desktop/useServerConnection";
 import {
+  fetchCaixaLancamentosLocal,
   fetchCaixaLocalAberto,
+  fetchCaixaResumoLocal,
   fetchDbInfo,
   fetchDomainStats,
   fetchKnownTerminals,
@@ -30,13 +32,16 @@ import {
   flushOutbox,
   flushOutboxCaixa,
   flushOutboxVendas,
+  regenerarLancamentosCaixaLocal,
   retryOutboxCaixaErrors,
   retryOutboxErrors,
   retryOutboxVendasErrors,
   runDbSync,
   type CaixaLocalAbertoRow,
+  type CaixaResumoLocal,
   type DbInfoPayload,
   type DomainStat,
+  type LancamentoLocalRow,
   type OutboxCaixaStats,
   type OutboxStats,
   type PersistedTerminal,
@@ -66,6 +71,9 @@ export function DesktopTab() {
   const [outboxCaixa, setOutboxCaixa] = useState<OutboxCaixaStats | null>(null);
   const [flushingCaixa, setFlushingCaixa] = useState(false);
   const [caixaAberto, setCaixaAberto] = useState<CaixaLocalAbertoRow | null>(null);
+  const [caixaResumo, setCaixaResumo] = useState<CaixaResumoLocal | null>(null);
+  const [caixaLancamentos, setCaixaLancamentos] = useState<LancamentoLocalRow[]>([]);
+  const [regenerandoLanc, setRegenerandoLanc] = useState(false);
 
   // cfg derivado para chamadas ao backend local (terminal usa o config; servidor
   // bate em si mesmo via 127.0.0.1).
@@ -154,6 +162,22 @@ export function DesktopTab() {
     setOutboxCaixa(await fetchOutboxCaixaStats(localCfg));
   };
 
+  const handleRegenerarLancamentos = async () => {
+    if (!localCfg || !caixaAberto?.local_uuid) return;
+    setRegenerandoLanc(true);
+    try {
+      await regenerarLancamentosCaixaLocal(localCfg, caixaAberto.local_uuid);
+      const [resumo, lancs] = await Promise.all([
+        fetchCaixaResumoLocal(localCfg, { caixaId: caixaAberto.local_uuid }),
+        fetchCaixaLancamentosLocal(localCfg, { caixaId: caixaAberto.local_uuid }),
+      ]);
+      setCaixaResumo(resumo);
+      setCaixaLancamentos(lancs);
+    } finally {
+      setRegenerandoLanc(false);
+    }
+  };
+
   useEffect(() => {
     if (!isDesktop || role === "unset") return;
     const cfg =
@@ -188,6 +212,21 @@ export function DesktopTab() {
       setOutboxVendas(obv);
       setOutboxCaixa(obc);
       setCaixaAberto(ca);
+
+      // Resumo + lançamentos: prioriza caixa aberto, senão omite (último
+      // fechado pode ser carregado on-demand pelo operador via UI).
+      if (ca?.local_uuid) {
+        const [resumo, lancs] = await Promise.all([
+          fetchCaixaResumoLocal(cfg, { caixaId: ca.local_uuid }),
+          fetchCaixaLancamentosLocal(cfg, { caixaId: ca.local_uuid }),
+        ]);
+        if (!alive) return;
+        setCaixaResumo(resumo);
+        setCaixaLancamentos(lancs);
+      } else {
+        setCaixaResumo(null);
+        setCaixaLancamentos([]);
+      }
     };
     void carregar();
     const tFull = setInterval(() => void carregar(), 30_000);
@@ -870,6 +909,189 @@ export function DesktopTab() {
                 localmente e despachados em ordem causal (abrir → movimento →
                 fechar) por <code>local_uuid</code>. Mesmo backoff exponencial
                 de estoque/vendas. Idempotência ponta-a-ponta.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {role !== "unset" && caixaResumo && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                Resumo local — caixa
+                <Badge
+                  variant={caixaResumo.status === "aberto" ? "default" : "secondary"}
+                >
+                  {caixaResumo.status}
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
+              <div className="grid gap-3 sm:grid-cols-4">
+                <Field
+                  label="Total vendido"
+                  value={caixaResumo.total_vendido.toLocaleString("pt-BR", {
+                    style: "currency",
+                    currency: "BRL",
+                  })}
+                />
+                <Field label="Qtd vendas" value={String(caixaResumo.qtd_vendas)} />
+                <Field
+                  label="Valor inicial"
+                  value={caixaResumo.valor_inicial.toLocaleString("pt-BR", {
+                    style: "currency",
+                    currency: "BRL",
+                  })}
+                />
+                <Field
+                  label="Esperado em dinheiro"
+                  value={caixaResumo.valor_esperado_dinheiro.toLocaleString(
+                    "pt-BR",
+                    { style: "currency", currency: "BRL" },
+                  )}
+                />
+                <Field
+                  label="Suprimentos"
+                  value={caixaResumo.total_suprimentos.toLocaleString("pt-BR", {
+                    style: "currency",
+                    currency: "BRL",
+                  })}
+                />
+                <Field
+                  label="Sangrias"
+                  value={caixaResumo.total_sangrias.toLocaleString("pt-BR", {
+                    style: "currency",
+                    currency: "BRL",
+                  })}
+                />
+                {caixaResumo.valor_informado != null && (
+                  <Field
+                    label="Informado no fechamento"
+                    value={caixaResumo.valor_informado.toLocaleString("pt-BR", {
+                      style: "currency",
+                      currency: "BRL",
+                    })}
+                  />
+                )}
+                {caixaResumo.diferenca != null && (
+                  <Field
+                    label="Diferença"
+                    value={caixaResumo.diferenca.toLocaleString("pt-BR", {
+                      style: "currency",
+                      currency: "BRL",
+                    })}
+                  />
+                )}
+              </div>
+
+              <div>
+                <div className="mb-2 text-xs uppercase tracking-wide text-muted-foreground">
+                  Totais por forma de pagamento
+                </div>
+                {caixaResumo.por_forma.length === 0 ? (
+                  <div className="text-xs text-muted-foreground">
+                    Nenhuma venda local vinculada a este caixa ainda.
+                  </div>
+                ) : (
+                  <div className="overflow-hidden rounded-md border">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/40">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium">Forma</th>
+                          <th className="px-3 py-2 text-right font-medium">Vendas</th>
+                          <th className="px-3 py-2 text-right font-medium">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {caixaResumo.por_forma.map((f) => (
+                          <tr key={f.forma_pagamento} className="border-t">
+                            <td className="px-3 py-2 font-mono text-xs">
+                              {f.forma_pagamento}
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums">
+                              {f.qtd_vendas}
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums">
+                              {f.total.toLocaleString("pt-BR", {
+                                style: "currency",
+                                currency: "BRL",
+                              })}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Lançamentos financeiros derivados
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleRegenerarLancamentos}
+                    disabled={regenerandoLanc || !caixaAberto?.local_uuid}
+                  >
+                    {regenerandoLanc ? "Regenerando…" : "Regenerar"}
+                  </Button>
+                </div>
+                {caixaLancamentos.length === 0 ? (
+                  <div className="text-xs text-muted-foreground">
+                    Os lançamentos derivados são gerados ao fechar o caixa.
+                    Use o botão acima para forçar uma prévia.
+                  </div>
+                ) : (
+                  <div className="overflow-hidden rounded-md border">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/40">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium">Tipo</th>
+                          <th className="px-3 py-2 text-left font-medium">Categoria</th>
+                          <th className="px-3 py-2 text-left font-medium">Descrição</th>
+                          <th className="px-3 py-2 text-right font-medium">Valor</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {caixaLancamentos.map((l) => (
+                          <tr key={l.local_uuid} className="border-t">
+                            <td className="px-3 py-2">
+                              <Badge
+                                variant={l.tipo === "entrada" ? "default" : "secondary"}
+                              >
+                                {l.tipo}
+                              </Badge>
+                            </td>
+                            <td className="px-3 py-2 font-mono text-xs">
+                              {l.categoria}
+                            </td>
+                            <td className="px-3 py-2 text-muted-foreground">
+                              {l.descricao ?? "—"}
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums">
+                              {l.valor.toLocaleString("pt-BR", {
+                                style: "currency",
+                                currency: "BRL",
+                              })}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Resumo derivado em tempo real das vendas locais e movimentos
+                de caixa associados ao <code>caixa_local_uuid</code>. Os
+                lançamentos financeiros locais são <strong>idempotentes</strong>:
+                regerados a cada fechamento (ou via botão acima) sem alterar a
+                fonte da verdade. O financeiro real continua sendo gerado pelo
+                upstream ao processar <code>fechar_caixa</code>.
               </p>
             </CardContent>
           </Card>

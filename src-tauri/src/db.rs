@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -488,6 +488,10 @@ pub fn init() -> DbResult<()> {
         // `next_attempt_at_ms` controla quando o item está elegível para
         // reenvio automático. NULL = elegível imediatamente (= now).
         "ALTER TABLE outbox_estoque_movs ADD COLUMN next_attempt_at_ms INTEGER",
+        // v9: vínculo opcional venda → caixa local aberto no momento da venda.
+        // Permite calcular o resumo local do caixa (totais por forma de
+        // pagamento) de forma determinística, sem depender de timestamp.
+        "ALTER TABLE vendas_local ADD COLUMN caixa_local_uuid TEXT",
     ];
     for sql in alters {
         // Erro só ocorre quando a coluna já existe — seguro ignorar.
@@ -499,6 +503,51 @@ pub fn init() -> DbResult<()> {
             ON outbox_estoque_movs(status, next_attempt_at_ms)",
         [],
     );
+    // v9: índice para varrer rapidamente vendas vinculadas a um caixa local.
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_vendas_local_caixa
+            ON vendas_local(caixa_local_uuid) WHERE caixa_local_uuid IS NOT NULL",
+        [],
+    );
+
+    // ------------------------------------------------------------------
+    // v9 — Lançamentos financeiros locais derivados do fechamento do caixa.
+    //
+    // Esta tabela é puramente DERIVADA: gerada pelo `fechar_caixa_local` a
+    // partir das vendas locais associadas + suprimentos/sangrias. Serve como
+    // base inicial para um futuro financeiro local mais completo, e como
+    // fonte de observabilidade do que aquele caixa "produziu" do ponto de
+    // vista financeiro.
+    //
+    // Não enfileira em outbox nesta etapa — o financeiro real continua sendo
+    // gerado no upstream via `fechar_caixa` na nuvem. Aqui é só leitura local.
+    //
+    // categoria:
+    //   'venda_<forma>'  → entrada de venda por forma de pagamento
+    //   'suprimento'     → entrada manual de dinheiro no caixa
+    //   'sangria'        → saída manual de dinheiro do caixa
+    // tipo: 'entrada' | 'saida'
+    // ------------------------------------------------------------------
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS lancamentos_financeiros_local (
+            local_uuid       TEXT PRIMARY KEY,
+            caixa_local_uuid TEXT NOT NULL,
+            tipo             TEXT NOT NULL,
+            categoria        TEXT NOT NULL,
+            forma_pagamento  TEXT,
+            valor            REAL NOT NULL DEFAULT 0,
+            descricao        TEXT,
+            origem           TEXT NOT NULL DEFAULT 'fechamento_caixa',
+            payload          TEXT,
+            created_at_ms    INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_lanc_local_caixa
+            ON lancamentos_financeiros_local(caixa_local_uuid, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_lanc_local_categoria
+            ON lancamentos_financeiros_local(caixa_local_uuid, categoria);
+        "#,
+    )?;
 
     // schema_version
     conn.execute(
@@ -2328,14 +2377,42 @@ pub fn registrar_venda_local(
     with_conn(|conn| {
         let tx = conn.unchecked_transaction()?;
 
+        // 0) Resolve o caixa local aberto para vincular esta venda.
+        //    Estratégia: prioriza match por operador_id; cai para qualquer
+        //    caixa aberto neste banco (típico em terminais 1-caixa). NULL é
+        //    aceito — venda ainda funciona mesmo sem caixa aberto local.
+        let caixa_local_uuid: Option<String> = {
+            let by_op: Option<String> = match input.operador_id.as_deref() {
+                Some(op) if !op.is_empty() => tx.query_row(
+                    "SELECT local_uuid FROM caixa_local
+                      WHERE status='aberto' AND operador_id = ?1
+                   ORDER BY data_abertura_ms DESC LIMIT 1",
+                    params![op],
+                    |r| r.get::<_, String>(0),
+                ).optional()?,
+                _ => None,
+            };
+            if by_op.is_some() {
+                by_op
+            } else {
+                tx.query_row(
+                    "SELECT local_uuid FROM caixa_local
+                      WHERE status='aberto'
+                   ORDER BY data_abertura_ms DESC LIMIT 1",
+                    [],
+                    |r| r.get::<_, String>(0),
+                ).optional()?
+            }
+        };
+
         // 1) Cabeçalho.
         tx.execute(
             "INSERT INTO vendas_local(
                 local_uuid, client_uuid, cliente_id, subtotal, desconto, total,
                 forma_pagamento, status_pagamento, valor_recebido, troco,
                 observacao, operador_id, terminal_id, gerar_financeiro,
-                qtd_itens, created_at_ms, updated_at_ms
-             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?16)",
+                qtd_itens, caixa_local_uuid, created_at_ms, updated_at_ms
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?17)",
             params![
                 local_uuid,
                 input.client_uuid,
@@ -2352,6 +2429,7 @@ pub fn registrar_venda_local(
                 input.terminal_id,
                 if input.gerar_financeiro { 1i64 } else { 0i64 },
                 qtd_itens,
+                caixa_local_uuid,
                 now_ms,
             ],
         )?;
@@ -3136,6 +3214,11 @@ pub fn fechar_caixa_local(
                 now_ms,
             ],
         )?;
+
+        // Lançamentos financeiros locais derivados.
+        // Idempotente: limpa e reinsere sempre que o caixa é fechado.
+        gerar_lancamentos_locais_para_caixa(&tx, &caixa_local_uuid, now_ms)?;
+
         tx.commit()?;
         Ok(LocalFecharCaixaResult {
             local_uuid,
@@ -3143,6 +3226,328 @@ pub fn fechar_caixa_local(
             valor_informado: input.valor_informado,
         })
     })
+}
+
+// ---------------------------------------------------------------------------
+// Lançamentos financeiros locais derivados — geração e leitura
+// ---------------------------------------------------------------------------
+//
+// Os lançamentos são DERIVADOS do estado local do caixa e das vendas locais
+// associadas. Isso significa que podem ser regenerados a qualquer momento
+// sem perda de informação (a fonte da verdade continua sendo
+// `caixa_local`, `caixa_movs_local`, `vendas_local` e `venda_pagamentos_local`).
+//
+// Esta função é chamada DENTRO da transação de `fechar_caixa_local` e também
+// pode ser chamada de fora (`regenerar_lancamentos_locais_caixa`) caso seja
+// preciso recalcular após reabertura/sync.
+
+fn gerar_lancamentos_locais_para_caixa(
+    tx: &rusqlite::Transaction<'_>,
+    caixa_local_uuid: &str,
+    now_ms: i64,
+) -> rusqlite::Result<()> {
+    // Limpa derivados antigos deste caixa.
+    tx.execute(
+        "DELETE FROM lancamentos_financeiros_local WHERE caixa_local_uuid=?1",
+        params![caixa_local_uuid],
+    )?;
+
+    // 1) Vendas — agregadas por forma de pagamento.
+    //    Usa venda_pagamentos_local quando há linhas; cai para o
+    //    cabeçalho da venda quando não há (vendas com forma única).
+    let mut stmt = tx.prepare(
+        "SELECT COALESCE(NULLIF(p.forma_pagamento,''), 'indefinido') AS forma,
+                ROUND(SUM(p.valor),2) AS total
+           FROM venda_pagamentos_local p
+           JOIN vendas_local v ON v.local_uuid = p.venda_local_uuid
+          WHERE v.caixa_local_uuid = ?1
+          GROUP BY forma
+         HAVING SUM(p.valor) <> 0",
+    )?;
+    let pagto_rows: Vec<(String, f64)> = stmt
+        .query_map(params![caixa_local_uuid], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    drop(stmt);
+
+    // Fallback: vendas sem entrada em venda_pagamentos_local — usa o
+    // cabeçalho (forma_pagamento + total) para não perder valor.
+    let mut stmt = tx.prepare(
+        "SELECT COALESCE(NULLIF(v.forma_pagamento,''), 'indefinido') AS forma,
+                ROUND(SUM(v.total),2) AS total
+           FROM vendas_local v
+          WHERE v.caixa_local_uuid = ?1
+            AND NOT EXISTS (
+                SELECT 1 FROM venda_pagamentos_local p
+                 WHERE p.venda_local_uuid = v.local_uuid
+            )
+          GROUP BY forma
+         HAVING SUM(v.total) <> 0",
+    )?;
+    let cab_rows: Vec<(String, f64)> = stmt
+        .query_map(params![caixa_local_uuid], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    drop(stmt);
+
+    // Agrega cabeçalho-fallback no mesmo dicionário.
+    use std::collections::BTreeMap;
+    let mut por_forma: BTreeMap<String, f64> = BTreeMap::new();
+    for (f, v) in pagto_rows.into_iter().chain(cab_rows.into_iter()) {
+        *por_forma.entry(f).or_insert(0.0) += v;
+    }
+    for (forma, valor) in por_forma.iter() {
+        if (*valor).abs() < 0.005 { continue; }
+        let lid = random_uuid_v4();
+        let categoria = format!("venda_{}", forma);
+        let descricao = format!("Vendas — {}", forma);
+        tx.execute(
+            "INSERT INTO lancamentos_financeiros_local(
+                local_uuid, caixa_local_uuid, tipo, categoria, forma_pagamento,
+                valor, descricao, origem, payload, created_at_ms
+             ) VALUES (?1,?2,'entrada',?3,?4,?5,?6,'fechamento_caixa',NULL,?7)",
+            params![lid, caixa_local_uuid, categoria, forma, valor, descricao, now_ms],
+        )?;
+    }
+
+    // 2) Suprimentos / sangrias — totais agregados.
+    let (total_sup, total_san): (f64, f64) = tx.query_row(
+        "SELECT
+            COALESCE(SUM(CASE WHEN tipo='suprimento' THEN valor ELSE 0 END),0),
+            COALESCE(SUM(CASE WHEN tipo='sangria'    THEN valor ELSE 0 END),0)
+           FROM caixa_movs_local WHERE caixa_local_uuid=?1",
+        params![caixa_local_uuid],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ).unwrap_or((0.0, 0.0));
+
+    if total_sup.abs() >= 0.005 {
+        let lid = random_uuid_v4();
+        tx.execute(
+            "INSERT INTO lancamentos_financeiros_local(
+                local_uuid, caixa_local_uuid, tipo, categoria, forma_pagamento,
+                valor, descricao, origem, payload, created_at_ms
+             ) VALUES (?1,?2,'entrada','suprimento',NULL,?3,'Suprimentos do caixa','fechamento_caixa',NULL,?4)",
+            params![lid, caixa_local_uuid, total_sup, now_ms],
+        )?;
+    }
+    if total_san.abs() >= 0.005 {
+        let lid = random_uuid_v4();
+        tx.execute(
+            "INSERT INTO lancamentos_financeiros_local(
+                local_uuid, caixa_local_uuid, tipo, categoria, forma_pagamento,
+                valor, descricao, origem, payload, created_at_ms
+             ) VALUES (?1,?2,'saida','sangria',NULL,?3,'Sangrias do caixa','fechamento_caixa',NULL,?4)",
+            params![lid, caixa_local_uuid, total_san, now_ms],
+        )?;
+    }
+
+    Ok(())
+}
+
+/// Regenera lançamentos locais para um caixa específico, fora da transação
+/// principal de fechamento. Útil para reprocessar quando vendas chegam após
+/// o fechamento ter sido enfileirado, ou para debug.
+pub fn regenerar_lancamentos_locais_caixa(caixa_local_uuid: &str) -> DbResult<()> {
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+        gerar_lancamentos_locais_para_caixa(&tx, caixa_local_uuid, chrono::Utc::now().timestamp_millis())?;
+        tx.commit()?;
+        Ok(())
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct LancamentoLocalRow {
+    pub local_uuid: String,
+    pub caixa_local_uuid: String,
+    pub tipo: String,
+    pub categoria: String,
+    pub forma_pagamento: Option<String>,
+    pub valor: f64,
+    pub descricao: Option<String>,
+    pub origem: String,
+    pub created_at_ms: i64,
+}
+
+pub fn lancamentos_local_por_caixa(caixa_local_uuid: &str) -> DbResult<Vec<LancamentoLocalRow>> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT local_uuid, caixa_local_uuid, tipo, categoria, forma_pagamento,
+                    valor, descricao, origem, created_at_ms
+               FROM lancamentos_financeiros_local
+              WHERE caixa_local_uuid=?1
+           ORDER BY tipo DESC, categoria ASC, created_at_ms ASC",
+        )?;
+        let rows = stmt.query_map(params![caixa_local_uuid], |r| {
+            Ok(LancamentoLocalRow {
+                local_uuid: r.get(0)?,
+                caixa_local_uuid: r.get(1)?,
+                tipo: r.get(2)?,
+                categoria: r.get(3)?,
+                forma_pagamento: r.get(4)?,
+                valor: r.get(5)?,
+                descricao: r.get(6)?,
+                origem: r.get(7)?,
+                created_at_ms: r.get(8)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Resumo local do caixa — totais derivados em tempo real
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+pub struct CaixaResumoFormaRow {
+    pub forma_pagamento: String,
+    pub total: f64,
+    pub qtd_vendas: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CaixaResumoLocal {
+    pub caixa_local_uuid: String,
+    pub remote_id: Option<String>,
+    pub status: String,
+    pub data_abertura_ms: i64,
+    pub data_fechamento_ms: Option<i64>,
+    pub operador_id: Option<String>,
+    pub terminal_id: Option<String>,
+    pub valor_inicial: f64,
+    pub valor_informado: Option<f64>,
+    /// Esperado em dinheiro = valor_inicial + entradas em dinheiro - sangrias + suprimentos.
+    pub valor_esperado_dinheiro: f64,
+    /// Diferença = valor_informado - valor_esperado_dinheiro (quando fechado).
+    pub diferenca: Option<f64>,
+    pub total_vendido: f64,
+    pub qtd_vendas: i64,
+    pub total_suprimentos: f64,
+    pub total_sangrias: f64,
+    pub por_forma: Vec<CaixaResumoFormaRow>,
+}
+
+pub fn caixa_resumo_local(caixa_local_uuid: &str) -> DbResult<Option<CaixaResumoLocal>> {
+    with_conn(|conn| {
+        // Cabeçalho do caixa.
+        let cab: Option<(String, Option<String>, String, i64, Option<i64>,
+            Option<String>, Option<String>, f64, Option<f64>)> = conn.query_row(
+            "SELECT local_uuid, remote_id, status, data_abertura_ms, data_fechamento_ms,
+                    operador_id, terminal_id, valor_inicial, valor_informado
+               FROM caixa_local WHERE local_uuid=?1",
+            params![caixa_local_uuid],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
+                    r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?)),
+        ).optional()?;
+        let Some(cab) = cab else { return Ok(None) };
+        let (clu, remote_id, status, dt_ab, dt_fc, oper, term, valor_inicial, valor_informado) = cab;
+
+        // Totais por forma de pagamento (pagamentos detalhados).
+        let mut stmt = conn.prepare(
+            "SELECT COALESCE(NULLIF(p.forma_pagamento,''),'indefinido') AS forma,
+                    ROUND(SUM(p.valor),2) AS total,
+                    COUNT(DISTINCT v.local_uuid) AS qtd
+               FROM venda_pagamentos_local p
+               JOIN vendas_local v ON v.local_uuid = p.venda_local_uuid
+              WHERE v.caixa_local_uuid = ?1
+              GROUP BY forma",
+        )?;
+        let mut por_forma_map: std::collections::BTreeMap<String, (f64, i64)> =
+            std::collections::BTreeMap::new();
+        for row in stmt.query_map(params![caixa_local_uuid], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?, r.get::<_, i64>(2)?))
+        })? {
+            let (f, t, q) = row?;
+            let e = por_forma_map.entry(f).or_insert((0.0, 0));
+            e.0 += t; e.1 += q;
+        }
+        drop(stmt);
+        // Fallback cabeçalho.
+        let mut stmt = conn.prepare(
+            "SELECT COALESCE(NULLIF(v.forma_pagamento,''),'indefinido') AS forma,
+                    ROUND(SUM(v.total),2) AS total,
+                    COUNT(*) AS qtd
+               FROM vendas_local v
+              WHERE v.caixa_local_uuid = ?1
+                AND NOT EXISTS (
+                    SELECT 1 FROM venda_pagamentos_local p
+                     WHERE p.venda_local_uuid = v.local_uuid
+                )
+              GROUP BY forma",
+        )?;
+        for row in stmt.query_map(params![caixa_local_uuid], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?, r.get::<_, i64>(2)?))
+        })? {
+            let (f, t, q) = row?;
+            let e = por_forma_map.entry(f).or_insert((0.0, 0));
+            e.0 += t; e.1 += q;
+        }
+        drop(stmt);
+
+        let por_forma: Vec<CaixaResumoFormaRow> = por_forma_map
+            .into_iter()
+            .map(|(forma, (total, q))| CaixaResumoFormaRow { forma_pagamento: forma, total, qtd_vendas: q })
+            .collect();
+
+        // Total geral + qtd vendas.
+        let (total_vendido, qtd_vendas): (f64, i64) = conn.query_row(
+            "SELECT COALESCE(SUM(total),0), COUNT(*)
+               FROM vendas_local WHERE caixa_local_uuid = ?1",
+            params![caixa_local_uuid],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        ).unwrap_or((0.0, 0));
+
+        // Suprimentos / sangrias.
+        let (total_sup, total_san): (f64, f64) = conn.query_row(
+            "SELECT
+                COALESCE(SUM(CASE WHEN tipo='suprimento' THEN valor ELSE 0 END),0),
+                COALESCE(SUM(CASE WHEN tipo='sangria'    THEN valor ELSE 0 END),0)
+               FROM caixa_movs_local WHERE caixa_local_uuid=?1",
+            params![caixa_local_uuid],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        ).unwrap_or((0.0, 0.0));
+
+        // Esperado em dinheiro: valor_inicial + (vendas em "dinheiro") + suprimentos - sangrias.
+        let total_dinheiro: f64 = por_forma
+            .iter()
+            .filter(|f| {
+                let s = f.forma_pagamento.to_lowercase();
+                s == "dinheiro" || s == "cash" || s == "money"
+            })
+            .map(|f| f.total)
+            .sum();
+        let valor_esperado_dinheiro = valor_inicial + total_dinheiro + total_sup - total_san;
+        let diferenca = valor_informado.map(|v| {
+            let d = v - valor_esperado_dinheiro;
+            (d * 100.0).round() / 100.0
+        });
+
+        Ok(Some(CaixaResumoLocal {
+            caixa_local_uuid: clu,
+            remote_id,
+            status,
+            data_abertura_ms: dt_ab,
+            data_fechamento_ms: dt_fc,
+            operador_id: oper,
+            terminal_id: term,
+            valor_inicial,
+            valor_informado,
+            valor_esperado_dinheiro: (valor_esperado_dinheiro * 100.0).round() / 100.0,
+            diferenca,
+            total_vendido: (total_vendido * 100.0).round() / 100.0,
+            qtd_vendas,
+            total_suprimentos: (total_sup * 100.0).round() / 100.0,
+            total_sangrias: (total_san * 100.0).round() / 100.0,
+            por_forma,
+        }))
+    })
+}
+
+/// Resolve um identificador (local_uuid OU remote_id) de caixa para o
+/// `local_uuid` interno. Útil para os handlers HTTP aceitarem qualquer um.
+pub fn resolve_caixa_id_publico(any_id: &str) -> DbResult<Option<String>> {
+    with_conn(|conn| resolve_caixa_local_uuid(conn, any_id))
 }
 
 // ---------------------------------------------------------------------------
