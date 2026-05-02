@@ -136,6 +136,24 @@ export function DesktopTab() {
     setOutboxVendas(await fetchOutboxVendasStats(localCfg));
   };
 
+  const handleFlushCaixa = async () => {
+    if (!localCfg) return;
+    setFlushingCaixa(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      await flushOutboxCaixa(localCfg, data.session?.access_token ?? null);
+      setOutboxCaixa(await fetchOutboxCaixaStats(localCfg));
+    } finally {
+      setFlushingCaixa(false);
+    }
+  };
+
+  const handleRetryErrorsCaixa = async () => {
+    if (!localCfg) return;
+    await retryOutboxCaixaErrors(localCfg);
+    setOutboxCaixa(await fetchOutboxCaixaStats(localCfg));
+  };
+
   useEffect(() => {
     if (!isDesktop || role === "unset") return;
     const cfg =
