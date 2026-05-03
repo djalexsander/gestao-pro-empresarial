@@ -2164,6 +2164,13 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/db/outbox/financeiro/flush", post(outbox_fin_flush_handler))
         .route("/db/outbox/financeiro/retry-errors", post(outbox_fin_retry_errors_handler))
         .route("/api/clientes/lite", get(clientes_lite_handler))
+        .route("/backup/status", get(backup_status_handler))
+        .route("/backup/list", get(backup_list_handler))
+        .route("/backup/log", get(backup_log_handler))
+        .route("/backup/create", post(backup_create_handler))
+        .route("/backup/export", post(backup_export_handler))
+        .route("/backup/restore/schedule", post(backup_restore_schedule_handler))
+        .route("/backup/restore/cancel", post(backup_restore_cancel_handler))
         .with_state(ctx)
         .layer(cors)
 }
