@@ -48,6 +48,12 @@ export interface DesktopConfig {
   serverNome?: string;
   /** Quando o papel é `terminal`, a config de conexão com o servidor local. */
   terminal?: TerminalConexaoConfig;
+  /**
+   * Impressora padrão DESTA MÁQUINA (server ou terminal). Cada máquina tem
+   * a sua, então um caixa nunca imprime na impressora de outro caixa.
+   * Nome exatamente como reportado pelo SO (Get-Printer / lpstat).
+   */
+  defaultPrinter?: string | null;
   /** Marca de tempo do último ajuste (ms). */
   atualizadoEm?: number;
   /** Versão do schema — útil para migrações futuras. */

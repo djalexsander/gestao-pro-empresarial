@@ -24,9 +24,12 @@ import { toast } from "sonner";
 import type { StatusPagamento, FormaPagamento } from "@/hooks/useVendas";
 import { useConfigEmpresa } from "@/hooks/useConfigEmpresa";
 import type { CupomItem } from "@/lib/cupom";
-import { imprimirCupomIframe, salvarCupomPdf } from "@/lib/cupom-print";
+import { imprimirCupom, salvarCupomPdf } from "@/lib/cupom-print";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { isDesktop } from "@/integrations/data/mode";
+import { PrinterPickerDialog } from "@/components/desktop/PrinterPickerDialog";
+import { setDefaultPrinter } from "@/integrations/desktop/printers";
+import { useState } from "react";
 
 interface VendaSucessoDialogProps {
   open: boolean;
@@ -80,6 +83,8 @@ export function VendaSucessoDialog({
   onVerVendas,
 }: VendaSucessoDialogProps) {
   const { data: empresa } = useConfigEmpresa();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerWarning, setPickerWarning] = useState<string | null>(null);
 
   function buildCupom() {
     if (!venda) return null;
@@ -101,12 +106,35 @@ export function VendaSucessoDialog({
     };
   }
 
-  function handleImprimir() {
+  async function handleImprimir() {
     const cupom = buildCupom();
     if (!cupom) return;
-    const ok = imprimirCupomIframe(empresa ?? null, cupom);
-    if (!ok) {
-      toast.error("Não foi possível iniciar a impressão. Tente novamente.");
+    const res = await imprimirCupom(empresa ?? null, cupom);
+    if (res.ok) {
+      if (res.printerName) {
+        toast.success(`Cupom enviado para "${res.printerName}".`);
+      }
+      return;
+    }
+    if (res.needsPicker) {
+      setPickerWarning(res.warning ?? null);
+      setPickerOpen(true);
+      return;
+    }
+    toast.error(res.error ?? "Não foi possível imprimir o cupom.");
+  }
+
+  async function handlePickerSelect(name: string) {
+    setDefaultPrinter(name);
+    toast.success(`Impressora "${name}" salva como padrão deste terminal.`);
+    // Reimprime imediatamente após escolher.
+    const cupom = buildCupom();
+    if (!cupom) return;
+    const res = await imprimirCupom(empresa ?? null, cupom);
+    if (res.ok && res.printerName) {
+      toast.success(`Cupom enviado para "${res.printerName}".`);
+    } else if (!res.ok) {
+      toast.error(res.error ?? "Falha ao imprimir após a seleção.");
     }
   }
 
@@ -151,6 +179,7 @@ export function VendaSucessoDialog({
   if (!venda) return null;
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b border-border bg-success/10 px-6 py-5 text-center">
@@ -256,6 +285,16 @@ export function VendaSucessoDialog({
         </div>
       </DialogContent>
     </Dialog>
+    <PrinterPickerDialog
+      open={pickerOpen}
+      onOpenChange={(v) => {
+        setPickerOpen(v);
+        if (!v) setPickerWarning(null);
+      }}
+      warning={pickerWarning}
+      onSelect={(name) => void handlePickerSelect(name)}
+    />
+    </>
   );
 }
 

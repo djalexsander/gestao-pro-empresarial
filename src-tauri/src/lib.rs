@@ -1,8 +1,10 @@
 mod db;
 mod backup;
 mod local_server;
+mod printers;
 
 use local_server::LocalServerStatus;
+use printers::PrinterInfo;
 
 #[tauri::command]
 fn start_local_server(
@@ -64,6 +66,19 @@ fn backup_cancel_restore() -> Result<bool, String> {
     backup::cancel_restore().map_err(|e| e.0)
 }
 
+// ---- Impressoras ----
+
+#[tauri::command]
+fn list_printers() -> Result<Vec<PrinterInfo>, String> {
+    printers::list_printers()
+}
+
+#[tauri::command]
+fn print_pdf_bytes(bytes: Vec<u8>, printer_name: String) -> Result<String, String> {
+    let path = printers::write_temp_pdf(&bytes)?;
+    printers::print_pdf(&path, &printer_name)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -84,6 +99,8 @@ pub fn run() {
             backup_export,
             backup_schedule_restore,
             backup_cancel_restore,
+            list_printers,
+            print_pdf_bytes,
         ])
         .setup(|_app| {
             // Aplica restauração pendente ANTES de abrir o banco. Se houver
