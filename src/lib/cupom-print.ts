@@ -13,6 +13,10 @@ import { isDesktop } from "@/integrations/data/mode";
 import type { ConfigEmpresa } from "@/hooks/useConfigEmpresa";
 import { gerarCupomHtml, type CupomData } from "@/lib/cupom";
 import { formatBRL } from "@/lib/mock-data";
+import {
+  getDefaultPrinter,
+  printPdfBytes,
+} from "@/integrations/desktop/printers";
 
 const FORMA_LABEL: Record<string, string> = {
   dinheiro: "DINHEIRO",
