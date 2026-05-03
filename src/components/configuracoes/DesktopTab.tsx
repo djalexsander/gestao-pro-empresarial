@@ -1548,6 +1548,8 @@ export function DesktopTab() {
 
         {localCfg && <BackupSeguranca cfg={localCfg} />}
 
+        <AtualizacoesTab />
+
         <Card>
           <CardHeader>
             <CardTitle>Backend de dados</CardTitle>
