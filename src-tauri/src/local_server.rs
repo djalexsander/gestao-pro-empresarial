@@ -2764,3 +2764,77 @@ async fn run_outbox_financeiro_scheduler(
         }
     }
 }
+
+// ============================================================================
+// BACKUP / RESTAURAÇÃO / EXPORTAÇÃO — handlers HTTP
+// ============================================================================
+
+#[derive(Deserialize)]
+struct BackupCreateRequest {
+    #[serde(default)]
+    kind: Option<String>,
+}
+
+async fn backup_create_handler(
+    Json(req): Json<BackupCreateRequest>,
+) -> Result<Json<backup::BackupEntry>, (StatusCode, String)> {
+    let kind = req.kind.unwrap_or_else(|| "manual".into());
+    let kind = if kind == "auto" { "auto" } else { "manual" };
+    backup::create_backup(kind)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))
+}
+
+async fn backup_status_handler() -> Result<Json<backup::BackupStatus>, (StatusCode, String)> {
+    backup::status()
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))
+}
+
+async fn backup_list_handler() -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let files = backup::list_backup_files()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))?;
+    Ok(Json(serde_json::json!({ "files": files })))
+}
+
+async fn backup_log_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(50);
+    let entries = backup::recent_log(limit)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))?;
+    Ok(Json(serde_json::json!({ "entries": entries })))
+}
+
+#[derive(Deserialize)]
+struct BackupExportRequest {
+    source_path: String,
+    dest_path: String,
+}
+
+async fn backup_export_handler(
+    Json(req): Json<BackupExportRequest>,
+) -> Result<Json<backup::BackupEntry>, (StatusCode, String)> {
+    backup::export_backup(&req.source_path, &req.dest_path)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))
+}
+
+#[derive(Deserialize)]
+struct BackupRestoreRequest {
+    source_path: String,
+}
+
+async fn backup_restore_schedule_handler(
+    Json(req): Json<BackupRestoreRequest>,
+) -> Result<Json<backup::BackupEntry>, (StatusCode, String)> {
+    backup::schedule_restore(&req.source_path)
+        .map(Json)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.0))
+}
+
+async fn backup_restore_cancel_handler() -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let cancelled = backup::cancel_restore()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))?;
+    Ok(Json(serde_json::json!({ "cancelled": cancelled })))
+}
