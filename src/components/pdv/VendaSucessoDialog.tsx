@@ -83,6 +83,8 @@ export function VendaSucessoDialog({
   onVerVendas,
 }: VendaSucessoDialogProps) {
   const { data: empresa } = useConfigEmpresa();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerWarning, setPickerWarning] = useState<string | null>(null);
 
   function buildCupom() {
     if (!venda) return null;
@@ -104,12 +106,35 @@ export function VendaSucessoDialog({
     };
   }
 
-  function handleImprimir() {
+  async function handleImprimir() {
     const cupom = buildCupom();
     if (!cupom) return;
-    const ok = imprimirCupomIframe(empresa ?? null, cupom);
-    if (!ok) {
-      toast.error("Não foi possível iniciar a impressão. Tente novamente.");
+    const res = await imprimirCupom(empresa ?? null, cupom);
+    if (res.ok) {
+      if (res.printerName) {
+        toast.success(`Cupom enviado para "${res.printerName}".`);
+      }
+      return;
+    }
+    if (res.needsPicker) {
+      setPickerWarning(res.warning ?? null);
+      setPickerOpen(true);
+      return;
+    }
+    toast.error(res.error ?? "Não foi possível imprimir o cupom.");
+  }
+
+  async function handlePickerSelect(name: string) {
+    setDefaultPrinter(name);
+    toast.success(`Impressora "${name}" salva como padrão deste terminal.`);
+    // Reimprime imediatamente após escolher.
+    const cupom = buildCupom();
+    if (!cupom) return;
+    const res = await imprimirCupom(empresa ?? null, cupom);
+    if (res.ok && res.printerName) {
+      toast.success(`Cupom enviado para "${res.printerName}".`);
+    } else if (!res.ok) {
+      toast.error(res.error ?? "Falha ao imprimir após a seleção.");
     }
   }
 
