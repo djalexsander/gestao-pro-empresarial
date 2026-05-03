@@ -99,6 +99,68 @@ export function imprimirCupomIframe(
   }
 }
 
+export interface ImprimirCupomResult {
+  ok: boolean;
+  /** Quando true: precisa pedir ao usuário para escolher impressora. */
+  needsPicker?: boolean;
+  /** Mensagem de aviso (impressora salva indisponível, etc.) */
+  warning?: string;
+  error?: string;
+  printerName?: string;
+}
+
+/**
+ * Imprime o cupom usando a melhor estratégia para o runtime atual.
+ *
+ * Desktop/Tauri:
+ *   - Se não há impressora padrão salva, devolve `needsPicker: true` para a UI
+ *     abrir o seletor.
+ *   - Se há, gera o PDF e envia direto para a impressora padrão (sem popup,
+ *     sem diálogo do SO).
+ *   - Se a impressão falhar (ex.: impressora removida), devolve
+ *     `needsPicker: true` com `warning` explicando.
+ *
+ * Web:
+ *   - Usa iframe oculto + window.print().
+ */
+export async function imprimirCupom(
+  empresa: ConfigEmpresa | null,
+  cupom: CupomData,
+): Promise<ImprimirCupomResult> {
+  if (!isDesktop()) {
+    const ok = imprimirCupomIframe(empresa, cupom);
+    return ok
+      ? { ok: true }
+      : { ok: false, error: "Não foi possível iniciar a impressão." };
+  }
+
+  const printer = getDefaultPrinter();
+  if (!printer) {
+    return {
+      ok: false,
+      needsPicker: true,
+      warning:
+        "Este terminal ainda não tem uma impressora padrão. Escolha uma para começar.",
+    };
+  }
+
+  try {
+    const doc = gerarPdfCupom(empresa, cupom);
+    const buf = doc.output("arraybuffer");
+    const msg = await printPdfBytes(new Uint8Array(buf), printer);
+    return { ok: true, printerName: printer, warning: msg };
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    return {
+      ok: false,
+      needsPicker: true,
+      warning: `Impressora "${printer}" indisponível: ${errMsg}. Escolha outra impressora.`,
+      error: errMsg,
+      printerName: printer,
+    };
+  }
+}
+
 function fmtDate(d: Date): string {
   return d.toLocaleString("pt-BR", {
     day: "2-digit",
