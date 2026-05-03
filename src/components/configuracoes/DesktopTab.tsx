@@ -437,6 +437,16 @@ export function DesktopTab() {
           </CardContent>
         </Card>
 
+        {isServer && (
+          <ServerReadinessCard
+            daemon={daemon}
+            info={info}
+            dbInfo={dbInfo}
+            serverNome={config.serverNome}
+            serverId={config.serverId}
+          />
+        )}
+
         {/* Status de conexão real */}
         {role !== "unset" && (
           <Card>
