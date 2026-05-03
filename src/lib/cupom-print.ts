@@ -254,9 +254,33 @@ function safeFileName(numero: string | null): string {
   return `cupom_${base}.pdf`;
 }
 
+const LAST_DIR_KEY = "gp.cupomPdf.lastDir.v1";
+
+function getLastDir(): string | null {
+  try {
+    return localStorage.getItem(LAST_DIR_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function setLastDir(fullPath: string) {
+  try {
+    // Extrai diretório do path completo (suporta / e \).
+    const idx = Math.max(fullPath.lastIndexOf("/"), fullPath.lastIndexOf("\\"));
+    if (idx > 0) localStorage.setItem(LAST_DIR_KEY, fullPath.slice(0, idx));
+  } catch {}
+}
+
+function joinPath(dir: string, file: string): string {
+  const sep = dir.includes("\\") ? "\\" : "/";
+  return dir.endsWith(sep) ? `${dir}${file}` : `${dir}${sep}${file}`;
+}
+
 /**
  * Salva PDF do cupom.
  * - Desktop/Tauri: abre diálogo nativo de salvar e grava com fs.
+ *   Lembra a última pasta usada (localStorage) e sugere para a próxima venda.
  * - Web: download via blob + <a download>.
  */
 export async function salvarCupomPdf(
@@ -275,15 +299,19 @@ export async function salvarCupomPdf(
         /* @vite-ignore */ "@tauri-apps/plugin-fs"
       )) as typeof import("@tauri-apps/plugin-fs");
 
+      const lastDir = getLastDir();
+      const defaultPath = lastDir ? joinPath(lastDir, fileName) : fileName;
+
       const path = await dialogMod.save({
         title: "Salvar PDF do cupom",
-        defaultPath: fileName,
+        defaultPath,
         filters: [{ name: "PDF", extensions: ["pdf"] }],
       });
       if (!path) return { ok: false, cancelled: true };
 
       const arrayBuffer = doc.output("arraybuffer");
       await fsMod.writeFile(path as string, new Uint8Array(arrayBuffer));
+      setLastDir(path as string);
       return { ok: true, path: path as string };
     } catch (e) {
       console.error("[cupom-pdf] erro ao salvar PDF nativo", e);
