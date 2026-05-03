@@ -59,6 +59,7 @@ import {
 } from "@/integrations/desktop/serverConnection";
 import { supabase } from "@/integrations/supabase/client";
 import { BackupSeguranca } from "./BackupSeguranca";
+import { AtualizacoesTab } from "./AtualizacoesTab";
 
 /**
  * Aba "Desktop" em Configurações — só faz sentido quando a app está rodando
