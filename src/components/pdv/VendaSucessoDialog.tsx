@@ -24,9 +24,12 @@ import { toast } from "sonner";
 import type { StatusPagamento, FormaPagamento } from "@/hooks/useVendas";
 import { useConfigEmpresa } from "@/hooks/useConfigEmpresa";
 import type { CupomItem } from "@/lib/cupom";
-import { imprimirCupomIframe, salvarCupomPdf } from "@/lib/cupom-print";
+import { imprimirCupom, salvarCupomPdf } from "@/lib/cupom-print";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { isDesktop } from "@/integrations/data/mode";
+import { PrinterPickerDialog } from "@/components/desktop/PrinterPickerDialog";
+import { setDefaultPrinter } from "@/integrations/desktop/printers";
+import { useState } from "react";
 
 interface VendaSucessoDialogProps {
   open: boolean;
