@@ -1563,6 +1563,23 @@ export function DesktopTab() {
 
         <AtualizacoesTab />
 
+        <SuporteDiagnosticoCard
+          config={config}
+          conn={conn}
+          info={info}
+          daemon={daemon}
+          dbInfo={dbInfo}
+          outboxes={{
+            estoque: outbox,
+            vendas: outboxVendas,
+            caixa: outboxCaixa,
+            cancelamentos: outboxCancel,
+            financeiro: outboxFin,
+          }}
+        />
+
+        <PilotoChecklist />
+
         <Card>
           <CardHeader>
             <CardTitle>Backend de dados</CardTitle>
