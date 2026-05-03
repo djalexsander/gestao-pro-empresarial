@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -55,11 +55,23 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
   const [valorInformado, setValorInformado] = useState("");
   const [observacao, setObservacao] = useState("");
   const fechar = useFecharCaixa();
+  const valorRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (open) {
       setValorInformado("");
       setObservacao("");
+      // Foca + seleciona após o Dialog terminar a animação de abertura,
+      // sempre que reabrir (não só na 1ª montagem). Dois rAFs garantem que
+      // o conteúdo já esteja no DOM e o portal do Radix tenha se estabilizado.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const el = valorRef.current;
+          if (!el) return;
+          el.focus();
+          el.select();
+        });
+      });
     }
   }, [open]);
 
@@ -162,6 +174,7 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
               </span>
               <Input
                 id="valor-informado"
+                ref={valorRef}
                 type="text"
                 inputMode="decimal"
                 value={valorInformado}

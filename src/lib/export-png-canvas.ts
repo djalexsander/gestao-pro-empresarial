@@ -598,12 +598,17 @@ function drawCell(
 
 // ---------- Download ----------
 
+import { saveBytes } from "@/lib/desktop-save";
+
+function dataUrlToBytes(dataUrl: string): Uint8Array {
+  const base64 = dataUrl.split(",")[1] ?? "";
+  const bin = atob(base64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
 export function downloadCanvasAsPng(canvas: HTMLCanvasElement, filename: string) {
   const dataUrl = canvas.toDataURL("image/png");
-  const a = document.createElement("a");
-  a.href = dataUrl;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  void saveBytes(dataUrlToBytes(dataUrl), filename, "image/png");
 }

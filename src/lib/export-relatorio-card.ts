@@ -18,6 +18,7 @@ import {
   type CanvasResumoCard,
 } from "@/lib/export-png-canvas";
 import { toCSV, downloadCSV, csvFilename, type CsvColumn } from "@/lib/export-csv";
+import { saveBytes } from "@/lib/desktop-save";
 
 export type ExportFormato = "pdf" | "png" | "csv";
 
@@ -192,5 +193,9 @@ export async function exportarRelatorioCard<T>(
   );
   doc.setTextColor(0);
 
-  doc.save(tsFilename(slug(prefix), "pdf"));
+  void saveBytes(
+    new Uint8Array(doc.output("arraybuffer")),
+    tsFilename(slug(prefix), "pdf"),
+    "application/pdf",
+  );
 }

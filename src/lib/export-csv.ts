@@ -160,19 +160,11 @@ export function toCSV<T>(rows: T[], columns: CsvColumn<T>[]): string {
   return `${head}\r\n${body}`;
 }
 
+import { saveText } from "@/lib/desktop-save";
+
 export function downloadCSV(filename: string, csv: string) {
   // BOM UTF-8 para Excel reconhecer acentos
-  const blob = new Blob([`\uFEFF${csv}`], {
-    type: "text/csv;charset=utf-8;",
-  });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  void saveText(csv, filename, "text/csv;charset=utf-8;", { addBom: true });
 }
 
 export function csvFilename(prefix: string, ext: "csv" = "csv"): string {

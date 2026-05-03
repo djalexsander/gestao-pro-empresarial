@@ -6,6 +6,7 @@ import {
   downloadCanvasAsPng,
   type CanvasResumoCard,
 } from "@/lib/export-png-canvas";
+import { saveBytes } from "@/lib/desktop-save";
 import { fetchEmpresaHeader } from "@/lib/export-empresa-header";
 import type {
   QaItem,
@@ -141,7 +142,11 @@ export function exportarRelatorioQaPDF(opts: {
     doc.internal.pageSize.getHeight() - 8,
   );
 
-  doc.save(tsFilename(slug(validacao.titulo), "pdf"));
+  void saveBytes(
+    new Uint8Array(doc.output("arraybuffer")),
+    tsFilename(slug(validacao.titulo), "pdf"),
+    "application/pdf",
+  );
 }
 
 export async function exportarRelatorioQaPNG(opts: {
