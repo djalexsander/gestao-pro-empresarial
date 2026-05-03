@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { invalidarEmpresaHeaderCache } from "@/lib/export-empresa-header";
 
 export interface ConfigEmpresa {
   id: string;
@@ -93,6 +94,7 @@ export function useSalvarConfigEmpresa() {
       return data as ConfigEmpresa;
     },
     onSuccess: () => {
+      invalidarEmpresaHeaderCache();
       qc.invalidateQueries({ queryKey: ["config_empresa"] });
       toast.success("Dados da empresa salvos.");
     },

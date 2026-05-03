@@ -22,6 +22,11 @@ export interface EmpresaHeader {
 let cache: { user: string | null; data: EmpresaHeader | null; ts: number } | null = null;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
+/** Invalida o cache do cabeçalho — chamar após salvar/remover logo. */
+export function invalidarEmpresaHeaderCache() {
+  cache = null;
+}
+
 function pickName(razao: string | null, fantasia: string | null): string {
   return (fantasia || razao || "Minha empresa").trim();
 }
