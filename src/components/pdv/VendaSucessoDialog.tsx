@@ -179,6 +179,7 @@ export function VendaSucessoDialog({
   if (!venda) return null;
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b border-border bg-success/10 px-6 py-5 text-center">
@@ -284,6 +285,16 @@ export function VendaSucessoDialog({
         </div>
       </DialogContent>
     </Dialog>
+    <PrinterPickerDialog
+      open={pickerOpen}
+      onOpenChange={(v) => {
+        setPickerOpen(v);
+        if (!v) setPickerWarning(null);
+      }}
+      warning={pickerWarning}
+      onSelect={(name) => void handlePickerSelect(name)}
+    />
+    </>
   );
 }
 
