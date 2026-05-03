@@ -139,6 +139,7 @@ export function VendaSucessoDialog({
   useHotkeys(
     [
       { key: "F5", handler: handleImprimir, allowInInputs: true },
+      { key: "F6", handler: handleBaixarPdf, allowInInputs: true },
       { key: "p", ctrl: true, handler: handleImprimir, allowInInputs: true },
       { key: "Enter", handler: () => onNovaVenda(), allowInInputs: true },
       { key: "Escape", handler: () => onOpenChange(false), allowInInputs: true },
