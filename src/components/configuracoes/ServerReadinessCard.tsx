@@ -13,9 +13,9 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import type {
   DbInfoPayload,
-  LocalServerStatus,
   ServerInfoPayload,
 } from "@/integrations/desktop/serverConnection";
+import type { LocalServerStatus } from "@/components/desktop/useServerConnection";
 
 interface Props {
   daemon: LocalServerStatus | null;
