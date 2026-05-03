@@ -58,6 +58,7 @@ import {
   type ServerConnStatus,
 } from "@/integrations/desktop/serverConnection";
 import { supabase } from "@/integrations/supabase/client";
+import { BackupSeguranca } from "./BackupSeguranca";
 
 /**
  * Aba "Desktop" em Configurações — só faz sentido quando a app está rodando
@@ -1543,6 +1544,8 @@ export function DesktopTab() {
             </CardContent>
           </Card>
         )}
+
+        {localCfg && <BackupSeguranca cfg={localCfg} />}
 
         <Card>
           <CardHeader>
