@@ -99,6 +99,8 @@ pub fn run() {
             backup_export,
             backup_schedule_restore,
             backup_cancel_restore,
+            list_printers,
+            print_pdf_bytes,
         ])
         .setup(|_app| {
             // Aplica restauração pendente ANTES de abrir o banco. Se houver
