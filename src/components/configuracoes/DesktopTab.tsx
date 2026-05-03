@@ -61,6 +61,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { BackupSeguranca } from "./BackupSeguranca";
 import { AtualizacoesTab } from "./AtualizacoesTab";
 import { ServerReadinessCard } from "./ServerReadinessCard";
+import { PilotoChecklist } from "./PilotoChecklist";
+import { SuporteDiagnosticoCard } from "./SuporteDiagnosticoCard";
 
 /**
  * Aba "Desktop" em Configurações — só faz sentido quando a app está rodando
@@ -1560,6 +1562,23 @@ export function DesktopTab() {
         {localCfg && <BackupSeguranca cfg={localCfg} />}
 
         <AtualizacoesTab />
+
+        <SuporteDiagnosticoCard
+          config={config}
+          conn={conn}
+          info={info}
+          daemon={daemon}
+          dbInfo={dbInfo}
+          outboxes={{
+            estoque: outbox,
+            vendas: outboxVendas,
+            caixa: outboxCaixa,
+            cancelamentos: outboxCancel,
+            financeiro: outboxFin,
+          }}
+        />
+
+        <PilotoChecklist />
 
         <Card>
           <CardHeader>
