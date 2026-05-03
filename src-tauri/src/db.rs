@@ -1628,21 +1628,22 @@ pub fn read_saldos() -> DbResult<String> {
             ))
         })?;
         let mut out = String::from("[");
-        let mut first = true;
-        for row in rows {
-            let (produto_id, variacao_id, qtd) = row?;
-            if !first {
-                out.push(',');
-            }
-            let var_field = if variacao_id.is_empty() {
-                "null".to_string()
-            } else {
-                format!(""{variacao_id}"")
-            };
-            out.push_str(&format!(
-                "{{"produto_id":"{produto_id}","variacao_id":{var_field},"tipo":"entrada","quantidade":{qtd}}}"
-            ));
-            first = false;
+let mut first = true;
+for row in rows {
+    let (produto_id, variacao_id, qtd) = row?;
+    if !first {
+        out.push(',');
+    }
+    let var_field = if variacao_id.is_empty() {
+        "null".to_string()
+    } else {
+        format!("\"{variacao_id}\"")
+    };
+    out.push_str(&format!(
+        "{{\"produto_id\":\"{produto_id}\",\"variacao_id\":{var_field},\"tipo\":\"entrada\",\"quantidade\":{qtd}}}"
+    ));
+    first = false;
+}
         }
         out.push(']');
         Ok(out)
