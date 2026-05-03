@@ -16,6 +16,7 @@ import { Loader2, PowerOff, AlertTriangle } from "lucide-react";
 import { useFecharCaixa, type CaixaResumo } from "@/hooks/useCaixa";
 import { formatBRL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
+import { useHotkeys } from "@/hooks/useHotkeys";
 
 interface Props {
   open: boolean;
