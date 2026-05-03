@@ -797,6 +797,17 @@ function PDVPage() {
         },
       },
       {
+        // Ctrl+F10 → abre modal de Fechar caixa (mesma família do F10 finalizar).
+        key: "F10",
+        ctrl: true,
+        allowInInputs: true,
+        handler: () => {
+          if (!caixaAberto || fecharCaixaOpen) return;
+          flashHotkey("F10");
+          setFecharCaixaOpen(true);
+        },
+      },
+      {
         key: "Escape",
         allowInInputs: true,
         handler: () => {
