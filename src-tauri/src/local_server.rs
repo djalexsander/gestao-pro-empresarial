@@ -33,6 +33,7 @@ use std::sync::Mutex;
 use tokio::sync::oneshot;
 use tower_http::cors::{Any, CorsLayer};
 
+use crate::backup;
 use crate::db;
 
 // ---------- Estado global ----------
@@ -56,6 +57,8 @@ struct ServerState {
     cancel_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     /// Sinaliza o scheduler de background (outbox financeira) para parar.
     fin_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
+    /// Sinaliza o scheduler de backup automático para parar.
+    backup_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     upstream: Option<UpstreamConfig>,
     /// Últimos heartbeats por terminalId (em memória; banco local virá depois).
     terminals: HashMap<String, TerminalHeartbeat>,
@@ -2161,6 +2164,13 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/db/outbox/financeiro/flush", post(outbox_fin_flush_handler))
         .route("/db/outbox/financeiro/retry-errors", post(outbox_fin_retry_errors_handler))
         .route("/api/clientes/lite", get(clientes_lite_handler))
+        .route("/backup/status", get(backup_status_handler))
+        .route("/backup/list", get(backup_list_handler))
+        .route("/backup/log", get(backup_log_handler))
+        .route("/backup/create", post(backup_create_handler))
+        .route("/backup/export", post(backup_export_handler))
+        .route("/backup/restore/schedule", post(backup_restore_schedule_handler))
+        .route("/backup/restore/cancel", post(backup_restore_cancel_handler))
         .with_state(ctx)
         .layer(cors)
 }
@@ -2333,6 +2343,13 @@ pub fn start(
         run_outbox_financeiro_scheduler(fin_ctx, fin_scheduler_rx).await;
     });
 
+    // Scheduler de backup automático local. Roda 1× por dia, no máximo,
+    // controlado por timestamp em meta. Não depende de upstream.
+    let (backup_scheduler_tx, backup_scheduler_rx) = oneshot::channel::<()>();
+    handle.spawn(async move {
+        backup::run_backup_scheduler(backup_scheduler_rx).await;
+    });
+
     {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = true;
@@ -2347,6 +2364,7 @@ pub fn start(
         s.caixa_scheduler_shutdown_tx = Some(caixa_scheduler_tx);
         s.cancel_scheduler_shutdown_tx = Some(cancel_scheduler_tx);
         s.fin_scheduler_shutdown_tx = Some(fin_scheduler_tx);
+        s.backup_scheduler_shutdown_tx = Some(backup_scheduler_tx);
         s.upstream = upstream;
         s.terminals.clear();
     }
@@ -2355,7 +2373,7 @@ pub fn start(
 }
 
 pub fn stop() -> Result<LocalServerStatus, String> {
-    let (tx_opt, sched_opt, vendas_sched_opt, caixa_sched_opt, cancel_sched_opt, fin_sched_opt) = {
+    let (tx_opt, sched_opt, vendas_sched_opt, caixa_sched_opt, cancel_sched_opt, fin_sched_opt, backup_sched_opt) = {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = false;
         s.port = None;
@@ -2369,6 +2387,7 @@ pub fn stop() -> Result<LocalServerStatus, String> {
             s.caixa_scheduler_shutdown_tx.take(),
             s.cancel_scheduler_shutdown_tx.take(),
             s.fin_scheduler_shutdown_tx.take(),
+            s.backup_scheduler_shutdown_tx.take(),
         )
     };
     if let Some(tx) = tx_opt { let _ = tx.send(()); }
@@ -2377,6 +2396,7 @@ pub fn stop() -> Result<LocalServerStatus, String> {
     if let Some(tx) = caixa_sched_opt { let _ = tx.send(()); }
     if let Some(tx) = cancel_sched_opt { let _ = tx.send(()); }
     if let Some(tx) = fin_sched_opt { let _ = tx.send(()); }
+    if let Some(tx) = backup_sched_opt { let _ = tx.send(()); }
     Ok(current_status())
 }
 
@@ -2760,4 +2780,78 @@ async fn run_outbox_financeiro_scheduler(
             );
         }
     }
+}
+
+// ============================================================================
+// BACKUP / RESTAURAÇÃO / EXPORTAÇÃO — handlers HTTP
+// ============================================================================
+
+#[derive(Deserialize)]
+struct BackupCreateRequest {
+    #[serde(default)]
+    kind: Option<String>,
+}
+
+async fn backup_create_handler(
+    Json(req): Json<BackupCreateRequest>,
+) -> Result<Json<backup::BackupEntry>, (StatusCode, String)> {
+    let kind = req.kind.unwrap_or_else(|| "manual".into());
+    let kind = if kind == "auto" { "auto" } else { "manual" };
+    backup::create_backup(kind)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))
+}
+
+async fn backup_status_handler() -> Result<Json<backup::BackupStatus>, (StatusCode, String)> {
+    backup::status()
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))
+}
+
+async fn backup_list_handler() -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let files = backup::list_backup_files()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))?;
+    Ok(Json(serde_json::json!({ "files": files })))
+}
+
+async fn backup_log_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(50);
+    let entries = backup::recent_log(limit)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))?;
+    Ok(Json(serde_json::json!({ "entries": entries })))
+}
+
+#[derive(Deserialize)]
+struct BackupExportRequest {
+    source_path: String,
+    dest_path: String,
+}
+
+async fn backup_export_handler(
+    Json(req): Json<BackupExportRequest>,
+) -> Result<Json<backup::BackupEntry>, (StatusCode, String)> {
+    backup::export_backup(&req.source_path, &req.dest_path)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))
+}
+
+#[derive(Deserialize)]
+struct BackupRestoreRequest {
+    source_path: String,
+}
+
+async fn backup_restore_schedule_handler(
+    Json(req): Json<BackupRestoreRequest>,
+) -> Result<Json<backup::BackupEntry>, (StatusCode, String)> {
+    backup::schedule_restore(&req.source_path)
+        .map(Json)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.0))
+}
+
+async fn backup_restore_cancel_handler() -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let cancelled = backup::cancel_restore()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))?;
+    Ok(Json(serde_json::json!({ "cancelled": cancelled })))
 }

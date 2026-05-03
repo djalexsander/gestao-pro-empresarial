@@ -1455,3 +1455,129 @@ export async function retryOutboxFinanceiroErrors(
     return 0;
   }
 }
+
+// =============================================================================
+// Backup / Restauração / Exportação (v13 — Bloco de segurança)
+// =============================================================================
+
+export interface BackupStatusPayload {
+  backups_dir: string;
+  db_path: string;
+  last_backup_ms: number | null;
+  last_auto_backup_ms: number | null;
+  last_restore_ms: number | null;
+  restore_pending: boolean;
+  auto_retention: number;
+  auto_interval_ms: number;
+  total_backups: number;
+  total_size_bytes: number;
+}
+
+export interface BackupFileItem {
+  name: string;
+  path: string;
+  size_bytes: number;
+  modified_ms: number;
+  kind: string;
+}
+
+export interface BackupLogEntry {
+  id: number;
+  kind: string;
+  path: string;
+  status: string;
+  size_bytes: number | null;
+  message: string | null;
+  created_at_ms: number;
+}
+
+async function getJson<T>(
+  cfg: TerminalConexaoConfig | undefined,
+  path: string,
+): Promise<T | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  try {
+    const res = await fetch(`${baseUrl}${path}`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function postJson<T>(
+  cfg: TerminalConexaoConfig | undefined,
+  path: string,
+  body?: unknown,
+): Promise<T | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  try {
+    const res = await fetch(`${baseUrl}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: body ? JSON.stringify(body) : "{}",
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchBackupStatus(cfg?: TerminalConexaoConfig) {
+  return getJson<BackupStatusPayload>(cfg, "/backup/status");
+}
+
+export async function fetchBackupList(cfg?: TerminalConexaoConfig) {
+  const r = await getJson<{ files: BackupFileItem[] }>(cfg, "/backup/list");
+  return r?.files ?? [];
+}
+
+export async function fetchBackupLog(
+  cfg?: TerminalConexaoConfig,
+  limit = 50,
+) {
+  const r = await getJson<{ entries: BackupLogEntry[] }>(
+    cfg,
+    `/backup/log?limit=${limit}`,
+  );
+  return r?.entries ?? [];
+}
+
+export async function criarBackupAgora(
+  cfg: TerminalConexaoConfig | undefined,
+  kind: "manual" | "auto" = "manual",
+) {
+  return postJson<BackupLogEntry>(cfg, "/backup/create", { kind });
+}
+
+export async function exportarBackup(
+  cfg: TerminalConexaoConfig | undefined,
+  source_path: string,
+  dest_path: string,
+) {
+  return postJson<BackupLogEntry>(cfg, "/backup/export", {
+    source_path,
+    dest_path,
+  });
+}
+
+export async function agendarRestauracao(
+  cfg: TerminalConexaoConfig | undefined,
+  source_path: string,
+) {
+  return postJson<BackupLogEntry>(cfg, "/backup/restore/schedule", {
+    source_path,
+  });
+}
+
+export async function cancelarRestauracao(cfg?: TerminalConexaoConfig) {
+  const r = await postJson<{ cancelled: boolean }>(cfg, "/backup/restore/cancel");
+  return r?.cancelled ?? false;
+}

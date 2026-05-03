@@ -720,6 +720,12 @@ fn with_conn<T>(f: impl FnOnce(&Connection) -> DbResult<T>) -> DbResult<T> {
     f(&guard)
 }
 
+/// Versão pública de `with_conn` para módulos vizinhos (ex.: `backup`)
+/// que precisam executar SQL administrativo (logs, metadados).
+pub fn with_raw_conn<T>(f: impl FnOnce(&Connection) -> DbResult<T>) -> DbResult<T> {
+    with_conn(f)
+}
+
 // ---------- Terminals ----------
 
 #[derive(Debug, Serialize, Clone)]
