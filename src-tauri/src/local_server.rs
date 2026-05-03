@@ -33,6 +33,7 @@ use std::sync::Mutex;
 use tokio::sync::oneshot;
 use tower_http::cors::{Any, CorsLayer};
 
+use crate::backup;
 use crate::db;
 
 // ---------- Estado global ----------
@@ -56,6 +57,8 @@ struct ServerState {
     cancel_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     /// Sinaliza o scheduler de background (outbox financeira) para parar.
     fin_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
+    /// Sinaliza o scheduler de backup automático para parar.
+    backup_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     upstream: Option<UpstreamConfig>,
     /// Últimos heartbeats por terminalId (em memória; banco local virá depois).
     terminals: HashMap<String, TerminalHeartbeat>,
