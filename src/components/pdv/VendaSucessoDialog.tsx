@@ -252,7 +252,7 @@ export function VendaSucessoDialog({
         </div>
 
         <div className="border-t border-border bg-muted/10 px-4 py-2 text-center text-[10px] uppercase tracking-wide text-muted-foreground">
-          Esc fechar · Ctrl+P imprimir (alternativa)
+          F5 imprimir · F6 baixar PDF · V vendas · Enter nova · Esc fechar
         </div>
       </DialogContent>
     </Dialog>
