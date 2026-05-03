@@ -15,7 +15,7 @@ import type {
   DbInfoPayload,
   ServerInfoPayload,
 } from "@/integrations/desktop/serverConnection";
-import type { LocalServerStatus } from "@/components/desktop/useServerConnection";
+import type { LocalServerStatus } from "@/integrations/desktop/tauriBridge";
 
 interface Props {
   daemon: LocalServerStatus | null;
