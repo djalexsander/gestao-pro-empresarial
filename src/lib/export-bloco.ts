@@ -14,6 +14,7 @@ import {
   type CanvasResumoCard,
   type CanvasColumn,
 } from "@/lib/export-png-canvas";
+import { saveBytes } from "@/lib/desktop-save";
 
 function tsFilename(prefix: string, ext: string): string {
   const d = new Date();
@@ -99,7 +100,11 @@ export async function exportarBlocoPDF<T>(opts: ExportPdfOptions<T>) {
 
   adicionarRodapePaginacao(doc);
 
-  doc.save(tsFilename(slug(opts.titulo), "pdf"));
+  void saveBytes(
+    new Uint8Array(doc.output("arraybuffer")),
+    tsFilename(slug(opts.titulo), "pdf"),
+    "application/pdf",
+  );
   return doc.internal.pageSize.getWidth();
 }
 
