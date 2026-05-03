@@ -60,6 +60,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { BackupSeguranca } from "./BackupSeguranca";
 import { AtualizacoesTab } from "./AtualizacoesTab";
+import { ServerReadinessCard } from "./ServerReadinessCard";
 
 /**
  * Aba "Desktop" em Configurações — só faz sentido quando a app está rodando
@@ -435,6 +436,16 @@ export function DesktopTab() {
             )}
           </CardContent>
         </Card>
+
+        {isServer && (
+          <ServerReadinessCard
+            daemon={daemon}
+            info={info}
+            dbInfo={dbInfo}
+            serverNome={config.serverNome}
+            serverId={config.serverId}
+          />
+        )}
 
         {/* Status de conexão real */}
         {role !== "unset" && (
