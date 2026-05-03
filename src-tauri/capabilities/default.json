@@ -19,6 +19,10 @@
     "updater:default",
     "process:default",
     "process:allow-restart",
-    "dialog:default"
+    "dialog:default",
+    "dialog:allow-save",
+    "fs:default",
+    "fs:allow-write-file",
+    "fs:allow-write-text-file"
   ]
 }

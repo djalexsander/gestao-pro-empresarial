@@ -23,8 +23,10 @@ import { formatBRL } from "@/lib/mock-data";
 import { toast } from "sonner";
 import type { StatusPagamento, FormaPagamento } from "@/hooks/useVendas";
 import { useConfigEmpresa } from "@/hooks/useConfigEmpresa";
-import { imprimirCupom, baixarCupomHtml, type CupomItem } from "@/lib/cupom";
+import type { CupomItem } from "@/lib/cupom";
+import { imprimirCupomIframe, salvarCupomPdf } from "@/lib/cupom-print";
 import { useHotkeys } from "@/hooks/useHotkeys";
+import { isDesktop } from "@/integrations/data/mode";
 
 interface VendaSucessoDialogProps {
   open: boolean;
@@ -102,24 +104,32 @@ export function VendaSucessoDialog({
   function handleImprimir() {
     const cupom = buildCupom();
     if (!cupom) return;
-    const ok = imprimirCupom(empresa ?? null, cupom);
+    const ok = imprimirCupomIframe(empresa ?? null, cupom);
     if (!ok) {
-      toast.error(
-        "Não foi possível abrir a janela de impressão. Permita pop-ups deste site e tente novamente.",
-      );
+      toast.error("Não foi possível iniciar a impressão. Tente novamente.");
     }
   }
 
-  function handleBaixarPdf() {
+  async function handleBaixarPdf() {
     const cupom = buildCupom();
     if (!cupom) return;
-    const ok = baixarCupomHtml(empresa ?? null, cupom);
-    if (ok) {
-      toast.success(
-        "Cupom baixado. Abra o arquivo e use 'Salvar como PDF' do navegador.",
-      );
-    } else {
-      toast.error("Não foi possível baixar o cupom.");
+    const t = toast.loading("Gerando PDF do cupom...");
+    try {
+      const res = await salvarCupomPdf(empresa ?? null, cupom);
+      toast.dismiss(t);
+      if (res.cancelled) return;
+      if (res.ok) {
+        toast.success(
+          isDesktop() && res.path
+            ? `PDF salvo em: ${res.path}`
+            : "PDF do cupom baixado.",
+        );
+      } else {
+        toast.error(res.error ?? "Não foi possível salvar o PDF.");
+      }
+    } catch (e) {
+      toast.dismiss(t);
+      toast.error(e instanceof Error ? e.message : "Falha ao gerar o PDF.");
     }
   }
 
@@ -129,6 +139,7 @@ export function VendaSucessoDialog({
   useHotkeys(
     [
       { key: "F5", handler: handleImprimir, allowInInputs: true },
+      { key: "F6", handler: handleBaixarPdf, allowInInputs: true },
       { key: "p", ctrl: true, handler: handleImprimir, allowInInputs: true },
       { key: "Enter", handler: () => onNovaVenda(), allowInInputs: true },
       { key: "Escape", handler: () => onOpenChange(false), allowInInputs: true },
@@ -224,6 +235,7 @@ export function VendaSucessoDialog({
             </Button>
             <Button variant="outline" onClick={handleBaixarPdf}>
               <Download className="h-4 w-4" /> Baixar PDF
+              <Kbd>F6</Kbd>
             </Button>
           </div>
         </div>
@@ -240,7 +252,7 @@ export function VendaSucessoDialog({
         </div>
 
         <div className="border-t border-border bg-muted/10 px-4 py-2 text-center text-[10px] uppercase tracking-wide text-muted-foreground">
-          Esc fechar · Ctrl+P imprimir (alternativa)
+          F5 imprimir · F6 baixar PDF · V vendas · Enter nova · Esc fechar
         </div>
       </DialogContent>
     </Dialog>
