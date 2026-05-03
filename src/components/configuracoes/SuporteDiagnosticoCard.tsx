@@ -99,9 +99,10 @@ export function SuporteDiagnosticoCard({
               sending: v.sending,
               sent: v.sent,
               error: v.error,
-              due_now: (v as OutboxStats).due_now ?? null,
-              last_success_ms: (v as OutboxStats).last_success_ms ?? null,
-              last_attempt_ms: (v as OutboxStats).last_attempt_ms ?? null,
+              due_now: v.due_now,
+              last_sent_at_ms: v.last_sent_at_ms,
+              last_auto_flush_ms: v.last_auto_flush_ms,
+              last_error: v.last_error,
             }
           : null,
       ]),
