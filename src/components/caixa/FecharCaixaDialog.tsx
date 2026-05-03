@@ -86,10 +86,11 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
   const temDiferenca = diferenca !== null && Math.abs(diferenca) > 0.009;
   const exigeJustificativa = temDiferenca && observacao.trim().length === 0;
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function confirmar() {
     if (Number.isNaN(informadoNum) || informadoNum < 0) return;
+    if (valorInformado === "") return;
     if (exigeJustificativa) return;
+    if (fechar.isPending) return;
     await fechar.mutateAsync({
       caixa_id: caixaId,
       valor_informado: informadoNum,
@@ -97,6 +98,28 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
     });
     onOpenChange(false);
   }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    await confirmar();
+  }
+
+  // Ctrl+Enter confirma o fechamento mesmo com foco no Textarea de
+  // observação (onde Enter sozinho insere quebra de linha). Escopo "modal"
+  // garante prioridade sobre os atalhos do PDV subjacente.
+  useHotkeys(
+    [
+      {
+        key: "Enter",
+        ctrl: true,
+        allowInInputs: true,
+        handler: () => {
+          void confirmar();
+        },
+      },
+    ],
+    { enabled: open, scope: "modal" },
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
