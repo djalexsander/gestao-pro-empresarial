@@ -60,6 +60,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { BackupSeguranca } from "./BackupSeguranca";
 import { AtualizacoesTab } from "./AtualizacoesTab";
+import { ImpressoraConfigCard } from "./ImpressoraConfigCard";
 import { ServerReadinessCard } from "./ServerReadinessCard";
 import { PilotoChecklist } from "./PilotoChecklist";
 import { SuporteDiagnosticoCard } from "./SuporteDiagnosticoCard";
@@ -1560,6 +1561,8 @@ export function DesktopTab() {
         )}
 
         {localCfg && <BackupSeguranca cfg={localCfg} />}
+
+        <ImpressoraConfigCard />
 
         <AtualizacoesTab />
 
