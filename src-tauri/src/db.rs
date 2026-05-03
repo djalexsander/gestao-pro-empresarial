@@ -1637,10 +1637,10 @@ pub fn read_saldos() -> DbResult<String> {
             let var_field = if variacao_id.is_empty() {
                 "null".to_string()
             } else {
-                format!(""{variacao_id}"")
+                format!("\"{variacao_id}\"")
             };
             out.push_str(&format!(
-                "{{"produto_id":"{produto_id}","variacao_id":{var_field},"tipo":"entrada","quantidade":{qtd}}}"
+                "{{\"produto_id\":\"{produto_id}\",\"variacao_id\":{var_field},\"tipo\":\"entrada\",\"quantidade\":{qtd}}}"
             ));
             first = false;
         }
