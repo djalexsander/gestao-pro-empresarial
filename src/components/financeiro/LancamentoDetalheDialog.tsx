@@ -17,7 +17,10 @@ import {
   HandCoins,
   Trash2,
   Pencil,
+  MessageCircle,
+  Copy,
 } from "lucide-react";
+import { gerarPixCopiaCola } from "@/lib/pix";
 import { toast } from "sonner";
 import {
   Dialog,
