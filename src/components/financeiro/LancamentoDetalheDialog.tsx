@@ -572,6 +572,10 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
             )}
           </div>
 
+          {!isPagar && !jaResolvido && (
+            <CobrancaActions lancamento={lancamento} saldoRestante={saldoRestante} />
+          )}
+
           <DialogFooter className="flex flex-col-reverse flex-wrap gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap gap-2 sm:flex-row">
               <Button
