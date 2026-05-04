@@ -569,8 +569,8 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
             )}
           </div>
 
-          <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-between">
-            <div className="flex flex-col gap-2 sm:flex-row">
+          <DialogFooter className="flex flex-col-reverse flex-wrap gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap gap-2 sm:flex-row">
               <Button
                 variant="outline"
                 onClick={() => onOpenChange(false)}
