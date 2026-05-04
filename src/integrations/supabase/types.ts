@@ -3591,6 +3591,7 @@ export type Database = {
             Args: {
               _client_uuid?: string
               _cliente_id: string
+              _data_vencimento?: string
               _desconto: number
               _forma: Database["public"]["Enums"]["forma_pagamento"]
               _gerar_financeiro?: boolean
