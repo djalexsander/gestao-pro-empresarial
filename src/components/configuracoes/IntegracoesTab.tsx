@@ -212,6 +212,9 @@ function ConfigDialog({ tipo, atual, open, onOpenChange, onSalvar, salvando }: C
 
   // WhatsApp
   const [waAtivo, setWaAtivo] = useState<boolean>(atual?.ativo ?? false);
+  const [waNumeroEmpresa, setWaNumeroEmpresa] = useState<string>(cfg.numero_empresa ?? "");
+  const [waModoEnvio, setWaModoEnvio] = useState<string>(cfg.modo_envio ?? "manual");
+  const [waTipoApi, setWaTipoApi] = useState<string>(cfg.tipo_api ?? "none");
   const [waDiasAntes, setWaDiasAntes] = useState<number>(cfg.dias_antes ?? 2);
   const [waDiasApos, setWaDiasApos] = useState<number>(cfg.dias_apos ?? 3);
   const [waMsgAntes, setWaMsgAntes] = useState<string>(cfg.msg_antes ?? TEMPLATE_WA_DEFAULT);
@@ -237,12 +240,20 @@ function ConfigDialog({ tipo, atual, open, onOpenChange, onSalvar, salvando }: C
       return;
     }
     if (tipo === "whatsapp") {
+      const numeroLimpo = waNumeroEmpresa.replace(/\D/g, "");
+      if (waAtivo && !numeroLimpo) {
+        toast.error("Informe o número de WhatsApp da empresa");
+        return;
+      }
       onSalvar({
         tipo_integracao: tipo,
         status: waAtivo ? "connected" : "disabled",
         ativo: waAtivo,
         nome_exibicao: meta.titulo,
         configuracoes: {
+          numero_empresa: numeroLimpo,
+          modo_envio: waModoEnvio,
+          tipo_api: waTipoApi,
           dias_antes: waDiasAntes,
           dias_apos: waDiasApos,
           msg_antes: waMsgAntes,
@@ -317,6 +328,48 @@ function ConfigDialog({ tipo, atual, open, onOpenChange, onSalvar, salvando }: C
               </div>
               <Switch checked={waAtivo} onCheckedChange={setWaAtivo} />
             </div>
+            <div className="space-y-1.5">
+              <Label>Número de WhatsApp da empresa</Label>
+              <Input
+                value={waNumeroEmpresa}
+                onChange={(e) => setWaNumeroEmpresa(e.target.value)}
+                placeholder="55 11 99999-9999 (DDI + DDD + número)"
+                inputMode="tel"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Usado como remetente nos envios automáticos via API. No envio manual, abre o WhatsApp do operador.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Modo de envio</Label>
+                <Select value={waModoEnvio} onValueChange={setWaModoEnvio}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="manual">Manual (link wa.me)</SelectItem>
+                    <SelectItem value="automatico">Automático (API)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Provedor da API</Label>
+                <Select value={waTipoApi} onValueChange={setWaTipoApi}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Nenhum</SelectItem>
+                    <SelectItem value="whatsapp_cloud">WhatsApp Cloud API (oficial)</SelectItem>
+                    <SelectItem value="zapi">Z-API</SelectItem>
+                    <SelectItem value="twilio">Twilio</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {waModoEnvio === "automatico" && (
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-300">
+                Envio automático requer integração com API oficial do WhatsApp. A estrutura está preparada,
+                mas o disparo automático será habilitado em breve. Por enquanto, use o modo manual.
+              </div>
+            )}
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Dias antes do vencimento</Label>
