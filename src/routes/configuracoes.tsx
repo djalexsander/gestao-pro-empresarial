@@ -11,6 +11,7 @@ import { SociosTab } from "@/components/configuracoes/SociosTab";
 import { PlanosModulosTab } from "@/components/configuracoes/PlanosModulosTab";
 import { BalancaTab } from "@/components/configuracoes/BalancaTab";
 import { DesktopTab } from "@/components/configuracoes/DesktopTab";
+import { IntegracoesTab } from "@/components/configuracoes/IntegracoesTab";
 
 export const Route = createFileRoute("/configuracoes")({
   head: () => ({
