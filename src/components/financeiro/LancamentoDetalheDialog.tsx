@@ -17,7 +17,10 @@ import {
   HandCoins,
   Trash2,
   Pencil,
+  MessageCircle,
+  Copy,
 } from "lucide-react";
+import { gerarPixCopiaCola } from "@/lib/pix";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -569,6 +572,10 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
             )}
           </div>
 
+          {!isPagar && !jaResolvido && (
+            <CobrancaActions lancamento={lancamento} saldoRestante={saldoRestante} />
+          )}
+
           <DialogFooter className="flex flex-col-reverse flex-wrap gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap gap-2 sm:flex-row">
               <Button
@@ -718,5 +725,169 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
         />
       )}
     </>
+  );
+}
+
+interface CobrancaActionsProps {
+  lancamento: LancamentoDetalhe;
+  saldoRestante: number;
+}
+
+function CobrancaActions({ lancamento, saldoRestante }: CobrancaActionsProps) {
+  const qc = useQueryClient();
+  const [pixCode, setPixCode] = useState<string | null>(null);
+
+  const { data: integracoes = [] } = useQuery({
+    queryKey: ["integracoes_cobranca"],
+    queryFn: async () => {
+      const { data, error } = await (supabase.from as unknown as (t: string) => {
+        select: (cols: string) => {
+          in: (col: string, vals: string[]) => Promise<{ data: any[] | null; error: { message: string } | null }>;
+        };
+      })("empresa_integracoes")
+        .select("tipo_integracao, status, ativo, configuracoes, empresa_id, owner_id")
+        .in("tipo_integracao", ["pix", "whatsapp"]);
+      if (error) throw new Error(error.message);
+      return data ?? [];
+    },
+    staleTime: 30_000,
+  });
+
+  const pix = integracoes.find((i) => i.tipo_integracao === "pix");
+  const wa = integracoes.find((i) => i.tipo_integracao === "whatsapp");
+
+  const formatBR = (v: number) =>
+    v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const buildVenc = () => {
+    const d = lancamento.data_vencimento.length === 10
+      ? lancamento.data_vencimento
+      : lancamento.data_vencimento.slice(0, 10);
+    const [y, m, day] = d.split("-");
+    return `${day}/${m}/${y}`;
+  };
+
+  const gerarPix = () => {
+    if (!pix?.configuracoes?.chave) {
+      toast.error("Configure o Pix em Configurações → Integrações");
+      return;
+    }
+    const code = gerarPixCopiaCola({
+      chave: pix.configuracoes.chave,
+      nome: pix.configuracoes.nome_recebedor || "RECEBEDOR",
+      cidade: pix.configuracoes.cidade || "BRASIL",
+      valor: saldoRestante,
+      txid: lancamento.id.replace(/-/g, "").slice(0, 25),
+      descricao: lancamento.descricao.slice(0, 60),
+    });
+    setPixCode(code);
+    toast.success("Pix gerado");
+  };
+
+  const copiarPix = async () => {
+    let code = pixCode;
+    if (!code) {
+      if (!pix?.configuracoes?.chave) {
+        toast.error("Configure o Pix em Configurações → Integrações");
+        return;
+      }
+      code = gerarPixCopiaCola({
+        chave: pix.configuracoes.chave,
+        nome: pix.configuracoes.nome_recebedor || "RECEBEDOR",
+        cidade: pix.configuracoes.cidade || "BRASIL",
+        valor: saldoRestante,
+        txid: lancamento.id.replace(/-/g, "").slice(0, 25),
+        descricao: lancamento.descricao.slice(0, 60),
+      });
+      setPixCode(code);
+    }
+    try {
+      await navigator.clipboard.writeText(code);
+      toast.success("Pix copiado");
+    } catch {
+      toast.error("Não foi possível copiar");
+    }
+  };
+
+  const cobrarWhatsApp = async () => {
+    const tel = (lancamento.cliente_telefone || "").replace(/\D/g, "");
+    if (!tel) {
+      toast.error("Cliente sem telefone cadastrado");
+      return;
+    }
+    const template: string =
+      wa?.configuracoes?.msg_vencimento ||
+      "Olá {{cliente_nome}}, sua cobrança de R$ {{valor}} vence em {{vencimento}}. Pix: {{pix_copia_cola}}";
+    let pixCopia = pixCode || "";
+    if (!pixCopia && pix?.configuracoes?.chave) {
+      pixCopia = gerarPixCopiaCola({
+        chave: pix.configuracoes.chave,
+        nome: pix.configuracoes.nome_recebedor || "RECEBEDOR",
+        cidade: pix.configuracoes.cidade || "BRASIL",
+        valor: saldoRestante,
+        txid: lancamento.id.replace(/-/g, "").slice(0, 25),
+        descricao: lancamento.descricao.slice(0, 60),
+      });
+      setPixCode(pixCopia);
+    }
+    const msg = template
+      .replace(/\{\{cliente_nome\}\}/g, lancamento.cliente_nome || "cliente")
+      .replace(/\{\{valor\}\}/g, formatBR(saldoRestante))
+      .replace(/\{\{vencimento\}\}/g, buildVenc())
+      .replace(/\{\{empresa_nome\}\}/g, "")
+      .replace(/\{\{pix_copia_cola\}\}/g, pixCopia || "");
+
+    const telFull = tel.length <= 11 ? `55${tel}` : tel;
+    const url = `https://wa.me/${telFull}?text=${encodeURIComponent(msg)}`;
+    window.open(url, "_blank");
+
+    // Registra log
+    if (wa?.empresa_id) {
+      try {
+        await (supabase.from as any)("cobranca_whatsapp_logs").insert({
+          empresa_id: wa.empresa_id,
+          owner_id: wa.owner_id,
+          cliente_id: lancamento.cliente_id ?? null,
+          lancamento_id: lancamento.id,
+          telefone: telFull,
+          mensagem: msg,
+          status: "manual",
+          tipo: "manual",
+          sent_at: new Date().toISOString(),
+        });
+        qc.invalidateQueries({ queryKey: ["cobranca_whatsapp_logs"] });
+      } catch {
+        /* silencioso */
+      }
+    }
+  };
+
+  return (
+    <div className="rounded-md border bg-muted/30 p-3">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Cobrança
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="outline" onClick={cobrarWhatsApp} className="gap-1.5">
+          <MessageCircle className="h-4 w-4" /> Cobrar no WhatsApp
+        </Button>
+        <Button size="sm" variant="outline" onClick={gerarPix} className="gap-1.5">
+          <Receipt className="h-4 w-4" /> Gerar Pix
+        </Button>
+        <Button size="sm" variant="outline" onClick={copiarPix} className="gap-1.5">
+          <Copy className="h-4 w-4" /> Copiar Pix
+        </Button>
+      </div>
+      {pixCode && (
+        <p className="mt-2 break-all rounded border bg-background p-2 font-mono text-xs">
+          {pixCode}
+        </p>
+      )}
+      {!pix?.configuracoes?.chave && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Configure o Pix em Configurações → Integrações para habilitar copia e cola.
+        </p>
+      )}
+    </div>
   );
 }

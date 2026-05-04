@@ -11,6 +11,7 @@ import { SociosTab } from "@/components/configuracoes/SociosTab";
 import { PlanosModulosTab } from "@/components/configuracoes/PlanosModulosTab";
 import { BalancaTab } from "@/components/configuracoes/BalancaTab";
 import { DesktopTab } from "@/components/configuracoes/DesktopTab";
+import { IntegracoesTab } from "@/components/configuracoes/IntegracoesTab";
 
 export const Route = createFileRoute("/configuracoes")({
   head: () => ({
@@ -98,14 +99,7 @@ function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="integracoes" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Integrações disponíveis</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">Conecte gateways de pagamento, NFe e marketplaces em breve.</p>
-            </CardContent>
-          </Card>
+          <IntegracoesTab />
         </TabsContent>
 
       </Tabs>
