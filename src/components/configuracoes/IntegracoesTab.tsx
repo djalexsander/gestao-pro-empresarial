@@ -212,6 +212,9 @@ function ConfigDialog({ tipo, atual, open, onOpenChange, onSalvar, salvando }: C
 
   // WhatsApp
   const [waAtivo, setWaAtivo] = useState<boolean>(atual?.ativo ?? false);
+  const [waNumeroEmpresa, setWaNumeroEmpresa] = useState<string>(cfg.numero_empresa ?? "");
+  const [waModoEnvio, setWaModoEnvio] = useState<string>(cfg.modo_envio ?? "manual");
+  const [waTipoApi, setWaTipoApi] = useState<string>(cfg.tipo_api ?? "none");
   const [waDiasAntes, setWaDiasAntes] = useState<number>(cfg.dias_antes ?? 2);
   const [waDiasApos, setWaDiasApos] = useState<number>(cfg.dias_apos ?? 3);
   const [waMsgAntes, setWaMsgAntes] = useState<string>(cfg.msg_antes ?? TEMPLATE_WA_DEFAULT);
