@@ -329,7 +329,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogContent className="max-h-[90vh] overflow-y-auto overflow-x-hidden sm:max-w-3xl lg:max-w-4xl">
           <DialogHeader>
             <DialogTitle className="flex items-center justify-between gap-3">
               <span className="truncate">{lancamento.descricao}</span>
