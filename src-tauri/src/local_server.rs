@@ -107,11 +107,14 @@ struct ServerInfoResponse {
     server_id: Option<String>,
     server_name: Option<String>,
     hostname: Option<String>,
+    host: Option<String>,
     started_at: Option<i64>,
     started_at_iso: Option<String>,
     port: Option<u16>,
     upstream_configured: bool,
     terminals_conectados: usize,
+    backend_running: bool,
+    database_ready: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
