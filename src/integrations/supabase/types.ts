@@ -447,6 +447,51 @@ export type Database = {
         }
         Relationships: []
       }
+      cobranca_whatsapp_logs: {
+        Row: {
+          cliente_id: string | null
+          created_at: string
+          empresa_id: string
+          erro: string | null
+          id: string
+          lancamento_id: string | null
+          mensagem: string
+          owner_id: string
+          sent_at: string | null
+          status: Database["public"]["Enums"]["cobranca_wa_status"]
+          telefone: string | null
+          tipo: Database["public"]["Enums"]["cobranca_wa_tipo"]
+        }
+        Insert: {
+          cliente_id?: string | null
+          created_at?: string
+          empresa_id: string
+          erro?: string | null
+          id?: string
+          lancamento_id?: string | null
+          mensagem: string
+          owner_id: string
+          sent_at?: string | null
+          status?: Database["public"]["Enums"]["cobranca_wa_status"]
+          telefone?: string | null
+          tipo?: Database["public"]["Enums"]["cobranca_wa_tipo"]
+        }
+        Update: {
+          cliente_id?: string | null
+          created_at?: string
+          empresa_id?: string
+          erro?: string | null
+          id?: string
+          lancamento_id?: string | null
+          mensagem?: string
+          owner_id?: string
+          sent_at?: string | null
+          status?: Database["public"]["Enums"]["cobranca_wa_status"]
+          telefone?: string | null
+          tipo?: Database["public"]["Enums"]["cobranca_wa_tipo"]
+        }
+        Relationships: []
+      }
       compra_itens: {
         Row: {
           compra_id: string
@@ -762,6 +807,51 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      empresa_integracoes: {
+        Row: {
+          ativo: boolean
+          configuracoes: Json
+          created_at: string
+          empresa_id: string
+          erro_ultimo_sync: string | null
+          id: string
+          nome_exibicao: string | null
+          owner_id: string
+          status: Database["public"]["Enums"]["integracao_status"]
+          tipo_integracao: Database["public"]["Enums"]["integracao_tipo"]
+          ultimo_sync_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          configuracoes?: Json
+          created_at?: string
+          empresa_id: string
+          erro_ultimo_sync?: string | null
+          id?: string
+          nome_exibicao?: string | null
+          owner_id: string
+          status?: Database["public"]["Enums"]["integracao_status"]
+          tipo_integracao: Database["public"]["Enums"]["integracao_tipo"]
+          ultimo_sync_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          configuracoes?: Json
+          created_at?: string
+          empresa_id?: string
+          erro_ultimo_sync?: string | null
+          id?: string
+          nome_exibicao?: string | null
+          owner_id?: string
+          status?: Database["public"]["Enums"]["integracao_status"]
+          tipo_integracao?: Database["public"]["Enums"]["integracao_tipo"]
+          ultimo_sync_at?: string | null
+          updated_at?: string
+        }
+        Relationships: []
       }
       empresa_membros: {
         Row: {
@@ -1777,6 +1867,66 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      pedidos_externos: {
+        Row: {
+          cliente_documento: string | null
+          cliente_nome: string | null
+          cliente_telefone: string | null
+          created_at: string
+          empresa_id: string
+          endereco_entrega: Json | null
+          external_id: string
+          id: string
+          itens: Json
+          origem: Database["public"]["Enums"]["pedido_externo_origem"]
+          owner_id: string
+          raw_payload: Json | null
+          sincronizado_em: string | null
+          status: string
+          updated_at: string
+          valor_total: number
+          venda_id: string | null
+        }
+        Insert: {
+          cliente_documento?: string | null
+          cliente_nome?: string | null
+          cliente_telefone?: string | null
+          created_at?: string
+          empresa_id: string
+          endereco_entrega?: Json | null
+          external_id: string
+          id?: string
+          itens?: Json
+          origem: Database["public"]["Enums"]["pedido_externo_origem"]
+          owner_id: string
+          raw_payload?: Json | null
+          sincronizado_em?: string | null
+          status?: string
+          updated_at?: string
+          valor_total?: number
+          venda_id?: string | null
+        }
+        Update: {
+          cliente_documento?: string | null
+          cliente_nome?: string | null
+          cliente_telefone?: string | null
+          created_at?: string
+          empresa_id?: string
+          endereco_entrega?: Json | null
+          external_id?: string
+          id?: string
+          itens?: Json
+          origem?: Database["public"]["Enums"]["pedido_externo_origem"]
+          owner_id?: string
+          raw_payload?: Json | null
+          sincronizado_em?: string | null
+          status?: string
+          updated_at?: string
+          valor_total?: number
+          venda_id?: string | null
+        }
+        Relationships: []
       }
       planos: {
         Row: {
@@ -3940,6 +4090,12 @@ export type Database = {
         | "fechamento"
       caixa_status: "aberto" | "fechado"
       categoria_financeira_tipo: "receita" | "despesa"
+      cobranca_wa_status: "pending" | "sent" | "failed" | "manual"
+      cobranca_wa_tipo:
+        | "antes_vencimento"
+        | "vencimento"
+        | "apos_vencimento"
+        | "manual"
       compra_status:
         | "rascunho"
         | "pendente"
@@ -3960,6 +4116,13 @@ export type Database = {
         | "outro"
         | "ifood"
         | "fiado"
+      integracao_status:
+        | "disconnected"
+        | "configuring"
+        | "connected"
+        | "error"
+        | "disabled"
+      integracao_tipo: "ifood" | "mercado_livre" | "shopee" | "whatsapp" | "pix"
       lancamento_status:
         | "pendente"
         | "pago"
@@ -3984,6 +4147,7 @@ export type Database = {
         | "transferencia"
       pagamento_referencia: "plano" | "modulo" | "outro"
       pagamento_status: "pago" | "pendente" | "atrasado" | "cancelado"
+      pedido_externo_origem: "ifood" | "mercado_livre" | "shopee"
       pessoa_tipo: "PF" | "PJ"
       plano_tipo_cobranca: "mensal" | "anual" | "vitalicio"
       produto_status: "ativo" | "inativo" | "descontinuado"
@@ -4154,6 +4318,13 @@ export const Constants = {
       ],
       caixa_status: ["aberto", "fechado"],
       categoria_financeira_tipo: ["receita", "despesa"],
+      cobranca_wa_status: ["pending", "sent", "failed", "manual"],
+      cobranca_wa_tipo: [
+        "antes_vencimento",
+        "vencimento",
+        "apos_vencimento",
+        "manual",
+      ],
       compra_status: [
         "rascunho",
         "pendente",
@@ -4176,6 +4347,14 @@ export const Constants = {
         "ifood",
         "fiado",
       ],
+      integracao_status: [
+        "disconnected",
+        "configuring",
+        "connected",
+        "error",
+        "disabled",
+      ],
+      integracao_tipo: ["ifood", "mercado_livre", "shopee", "whatsapp", "pix"],
       lancamento_status: [
         "pendente",
         "pago",
@@ -4203,6 +4382,7 @@ export const Constants = {
       ],
       pagamento_referencia: ["plano", "modulo", "outro"],
       pagamento_status: ["pago", "pendente", "atrasado", "cancelado"],
+      pedido_externo_origem: ["ifood", "mercado_livre", "shopee"],
       pessoa_tipo: ["PF", "PJ"],
       plano_tipo_cobranca: ["mensal", "anual", "vitalicio"],
       produto_status: ["ativo", "inativo", "descontinuado"],
