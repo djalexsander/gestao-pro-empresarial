@@ -30,7 +30,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
 
       - name: Setup Rust (stable)
         uses: dtolnay/rust-toolchain@stable
@@ -40,8 +44,8 @@ jobs:
         with:
           workspaces: "src-tauri -> target"
 
-      - name: Install npm dependencies
-        run: npm ci
+      - name: Install dependencies (bun)
+        run: bun install --frozen-lockfile
 
       - name: Resolver versão / tag
         id: ver
