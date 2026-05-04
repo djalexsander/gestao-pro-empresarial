@@ -247,6 +247,14 @@ export function FinalizarVendaDialog({
     return "pago";
   }, [totalPago, total, pagamentos, dinheiroInsuficiente]);
 
+  // ===== Detecção de FIADO =====
+  const temFiado = useMemo(
+    () => pagamentos.some((p) => p.forma === "fiado"),
+    [pagamentos],
+  );
+  const fiadoSemCliente = temFiado && !cliente;
+  const fiadoSemVencimento = temFiado && !vencimentoFiado;
+
   // Forma "principal" = a de maior valor (apenas para o card de resumo)
   const formaPrincipal: FormaPagamento = useMemo(() => {
     if (pagamentos.length === 0) return "dinheiro";
