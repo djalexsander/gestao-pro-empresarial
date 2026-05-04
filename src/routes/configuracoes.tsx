@@ -99,14 +99,7 @@ function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="integracoes" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Integrações disponíveis</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">Conecte gateways de pagamento, NFe e marketplaces em breve.</p>
-            </CardContent>
-          </Card>
+          <IntegracoesTab />
         </TabsContent>
 
       </Tabs>
