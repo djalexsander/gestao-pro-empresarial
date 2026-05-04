@@ -1616,6 +1616,7 @@ function PDVPage() {
         observacao={observacao}
         operadorEmail={user?.email}
         clientUuid={cartUuid}
+        onSelecionarCliente={() => setClientePopoverOpen(true)}
         onConfirmed={({ vendaId, forma, status, troco, valorRecebido }) => {
           setFinalizarOpen(false);
           som.beep("ok");
