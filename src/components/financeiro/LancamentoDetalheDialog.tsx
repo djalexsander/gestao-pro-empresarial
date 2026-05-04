@@ -329,7 +329,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogContent className="max-h-[90vh] overflow-y-auto overflow-x-hidden sm:max-w-3xl lg:max-w-4xl">
           <DialogHeader>
             <DialogTitle className="flex items-center justify-between gap-3">
               <span className="truncate">{lancamento.descricao}</span>
@@ -569,8 +569,8 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
             )}
           </div>
 
-          <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-between">
-            <div className="flex flex-col gap-2 sm:flex-row">
+          <DialogFooter className="flex flex-col-reverse flex-wrap gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap gap-2 sm:flex-row">
               <Button
                 variant="outline"
                 onClick={() => onOpenChange(false)}
@@ -604,7 +604,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
                 </Button>
               )}
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="flex flex-wrap gap-2 sm:flex-row">
               {!jaResolvido && (
                 <Button
                   variant="outline"

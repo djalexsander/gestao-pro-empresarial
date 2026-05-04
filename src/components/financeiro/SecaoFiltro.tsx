@@ -87,7 +87,7 @@ export function SecaoFiltro({ value, onChange, showForma }: Props) {
           <span className="hidden text-muted-foreground sm:inline">· {PRESET_LABELS[value.preset]}</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 space-y-3 p-3">
+      <PopoverContent align="end" className="w-[min(92vw,22rem)] space-y-3 p-3">
         <div>
           <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
             Período
@@ -125,7 +125,7 @@ export function SecaoFiltro({ value, onChange, showForma }: Props) {
                 onChange={(e) =>
                   setDraft((d) => ({ ...d, custom: { ...d.custom, inicio: e.target.value } }))
                 }
-                className="h-8 text-xs"
+                className="h-9 w-full text-xs"
               />
             </div>
             <div>
@@ -136,7 +136,7 @@ export function SecaoFiltro({ value, onChange, showForma }: Props) {
                 onChange={(e) =>
                   setDraft((d) => ({ ...d, custom: { ...d.custom, fim: e.target.value } }))
                 }
-                className="h-8 text-xs"
+                className="h-9 w-full text-xs"
               />
             </div>
           </div>
