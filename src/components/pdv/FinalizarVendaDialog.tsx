@@ -407,7 +407,9 @@ export function FinalizarVendaDialog({
     itens.length > 0 &&
     !dinheiroInsuficiente &&
     pagamentos.length > 0 &&
-    totalPago > 0;
+    totalPago > 0 &&
+    !fiadoSemCliente &&
+    !fiadoSemVencimento;
 
   useHotkeys(
     [
