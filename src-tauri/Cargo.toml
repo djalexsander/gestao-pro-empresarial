@@ -39,8 +39,12 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 dirs = "5"
 
 [profile.release]
+# LTO completo + codegen-units=1 estavam causando STATUS_ACCESS_VIOLATION
+# (crash do rustc/link) no Windows MSVC. "thin" mantém binário pequeno
+# sem estourar o linker.
 panic = "abort"
-codegen-units = 1
-lto = true
+codegen-units = 16
+lto = "thin"
 opt-level = "s"
 strip = true
+incremental = false
