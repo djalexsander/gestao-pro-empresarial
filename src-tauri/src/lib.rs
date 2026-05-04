@@ -7,18 +7,24 @@ use local_server::LocalServerStatus;
 use printers::PrinterInfo;
 
 #[tauri::command]
-fn start_local_server(
+async fn start_local_server(
     port: u16,
     server_name: Option<String>,
     server_id: Option<String>,
     upstream_url: Option<String>,
     upstream_anon_key: Option<String>,
 ) -> Result<LocalServerStatus, String> {
-    local_server::start(port, server_name, server_id, upstream_url, upstream_anon_key)
+    eprintln!("[gestao-pro] start_local_server invoked port={port} name={:?} id={:?}", server_name, server_id);
+    let res = local_server::start(port, server_name, server_id, upstream_url, upstream_anon_key).await;
+    match &res {
+        Ok(st) => eprintln!("[gestao-pro] start_local_server OK running={} port={:?}", st.running, st.port),
+        Err(e) => eprintln!("[gestao-pro] start_local_server ERROR: {e}"),
+    }
+    res
 }
 
 #[tauri::command]
-fn stop_local_server() -> Result<LocalServerStatus, String> {
+async fn stop_local_server() -> Result<LocalServerStatus, String> {
     local_server::stop()
 }
 
