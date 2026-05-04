@@ -61,6 +61,12 @@ interface FinalizarVendaDialogProps {
    * carrinho atual. Reenvio com o mesmo UUID NÃO duplica venda nem estoque.
    */
   clientUuid?: string | null;
+  /**
+   * Chamado quando o operador clica em "Selecionar / cadastrar cliente" no
+   * fluxo de venda Fiado. O PDV deve abrir o popover/diálogo de cliente.
+   * O modal de finalização permanece aberto.
+   */
+  onSelecionarCliente?: () => void;
   onConfirmed: (result: {
     vendaId: string;
     forma: FormaPagamento;
