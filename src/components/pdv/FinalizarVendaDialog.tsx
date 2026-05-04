@@ -148,17 +148,27 @@ export function FinalizarVendaDialog({
   observacao,
   operadorEmail,
   clientUuid,
+  onSelecionarCliente,
   onConfirmed,
 }: FinalizarVendaDialogProps) {
   const [pagamentos, setPagamentos] = useState<PagamentoLinha[]>([]);
   const [obsFinal, setObsFinal] = useState("");
   const [hotkeyFlash, setHotkeyFlash] = useState<string | null>(null);
+  const [vencimentoFiado, setVencimentoFiado] = useState<string>("");
   const ultimoValorRef = useRef<HTMLInputElement>(null);
+  const vencimentoInputRef = useRef<HTMLInputElement>(null);
   const dialogContentRef = useRef<HTMLDivElement>(null);
 
   const finalizar = useFinalizarVendaPDV();
   const { operador } = useOperador();
   const { terminal } = useTerminal();
+
+  // Sugere vencimento padrão +30 dias da data atual.
+  function dataPadraoFiado(): string {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().slice(0, 10);
+  }
 
   // Reset ao abrir: começa com 1 pagamento em dinheiro cobrindo o total
   useEffect(() => {
@@ -168,6 +178,7 @@ export function FinalizarVendaDialog({
       setPagamentos([inicial]);
       setObsFinal("");
       setHotkeyFlash(null);
+      setVencimentoFiado(dataPadraoFiado());
       setTimeout(() => ultimoValorRef.current?.focus(), 50);
     }
   }, [open, total]);
