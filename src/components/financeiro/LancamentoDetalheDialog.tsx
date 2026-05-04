@@ -604,7 +604,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
                 </Button>
               )}
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="flex flex-wrap gap-2 sm:flex-row">
               {!jaResolvido && (
                 <Button
                   variant="outline"
