@@ -148,11 +148,15 @@ export interface ServerInfoPayload {
   server_id?: string | null;
   server_name?: string | null;
   hostname?: string | null;
+  /** IP IPv4 detectado da rede local (preferir sobre hostname para terminais). */
+  host?: string | null;
   started_at?: number | null;
   started_at_iso?: string | null;
   port?: number | null;
   upstream_configured?: boolean;
   terminals_conectados?: number;
+  backend_running?: boolean;
+  database_ready?: boolean;
 }
 
 /** Consulta opcional ao /server-info para enriquecer o status. */
