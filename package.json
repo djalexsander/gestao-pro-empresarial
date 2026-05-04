@@ -13,6 +13,8 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "npm run build:desktop && tauri build",
+    "generate:latest": "node scripts/generate-latest-json.mjs",
+    "tauri:build:signed": "npm run build:desktop && tauri build && npm run generate:latest",
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write ."
