@@ -195,6 +195,12 @@ export interface FinalizarVendaInput {
   terminal_id?: string | null;
   /** Chave de idempotência. Recomendado preencher SEMPRE no PDV. */
   client_uuid?: string | null;
+  /**
+   * Data de vencimento (YYYY-MM-DD). Obrigatório quando há pagamento na forma
+   * `fiado` — o backend valida e rejeita a venda se ausente. Usado para criar
+   * o lançamento em Contas a Receber com vencimento correto.
+   */
+  data_vencimento?: string | null;
 }
 
 // -------------------- Cancelar / Excluir venda --------------------

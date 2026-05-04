@@ -400,6 +400,8 @@ const vendas: DataAdapter["vendas"] = {
       _terminal_id: input.terminal_id ?? null,
       // Chave de idempotência (nullable: chamadas antigas seguem funcionando)
       _client_uuid: input.client_uuid ?? null,
+      // Data de vencimento (obrigatória quando houver pagamento fiado)
+      _data_vencimento: input.data_vencimento ?? null,
     });
     if (error) throw error;
     return data as string;

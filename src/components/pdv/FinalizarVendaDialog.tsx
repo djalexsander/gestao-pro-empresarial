@@ -15,8 +15,11 @@ import {
   Plus,
   Trash2,
   UtensilsCrossed,
+  AlertTriangle,
+  UserPlus,
   type LucideIcon,
 } from "lucide-react";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -58,6 +61,12 @@ interface FinalizarVendaDialogProps {
    * carrinho atual. Reenvio com o mesmo UUID NÃO duplica venda nem estoque.
    */
   clientUuid?: string | null;
+  /**
+   * Chamado quando o operador clica em "Selecionar / cadastrar cliente" no
+   * fluxo de venda Fiado. O PDV deve abrir o popover/diálogo de cliente.
+   * O modal de finalização permanece aberto.
+   */
+  onSelecionarCliente?: () => void;
   onConfirmed: (result: {
     vendaId: string;
     forma: FormaPagamento;
@@ -139,17 +148,27 @@ export function FinalizarVendaDialog({
   observacao,
   operadorEmail,
   clientUuid,
+  onSelecionarCliente,
   onConfirmed,
 }: FinalizarVendaDialogProps) {
   const [pagamentos, setPagamentos] = useState<PagamentoLinha[]>([]);
   const [obsFinal, setObsFinal] = useState("");
   const [hotkeyFlash, setHotkeyFlash] = useState<string | null>(null);
+  const [vencimentoFiado, setVencimentoFiado] = useState<string>("");
   const ultimoValorRef = useRef<HTMLInputElement>(null);
+  const vencimentoInputRef = useRef<HTMLInputElement>(null);
   const dialogContentRef = useRef<HTMLDivElement>(null);
 
   const finalizar = useFinalizarVendaPDV();
   const { operador } = useOperador();
   const { terminal } = useTerminal();
+
+  // Sugere vencimento padrão +30 dias da data atual.
+  function dataPadraoFiado(): string {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().slice(0, 10);
+  }
 
   // Reset ao abrir: começa com 1 pagamento em dinheiro cobrindo o total
   useEffect(() => {
@@ -159,6 +178,7 @@ export function FinalizarVendaDialog({
       setPagamentos([inicial]);
       setObsFinal("");
       setHotkeyFlash(null);
+      setVencimentoFiado(dataPadraoFiado());
       setTimeout(() => ultimoValorRef.current?.focus(), 50);
     }
   }, [open, total]);
@@ -226,6 +246,14 @@ export function FinalizarVendaDialog({
     if (totalPago === 0) return "pendente";
     return "pago";
   }, [totalPago, total, pagamentos, dinheiroInsuficiente]);
+
+  // ===== Detecção de FIADO =====
+  const temFiado = useMemo(
+    () => pagamentos.some((p) => p.forma === "fiado"),
+    [pagamentos],
+  );
+  const fiadoSemCliente = temFiado && !cliente;
+  const fiadoSemVencimento = temFiado && !vencimentoFiado;
 
   // Forma "principal" = a de maior valor (apenas para o card de resumo)
   const formaPrincipal: FormaPagamento = useMemo(() => {
@@ -309,6 +337,18 @@ export function FinalizarVendaDialog({
     if (totalPago > total + 0.005 && valorDinheiroDevido === 0) {
       return;
     }
+
+    // ===== Validação FIADO =====
+    if (fiadoSemCliente) {
+      toast.error("Para vendas fiado é obrigatório selecionar um cliente.");
+      onSelecionarCliente?.();
+      return;
+    }
+    if (fiadoSemVencimento) {
+      toast.error("Informe a data de vencimento para a venda fiado.");
+      setTimeout(() => vencimentoInputRef.current?.focus(), 30);
+      return;
+    }
     if (totalPago < total - 0.005) {
       // Parcial — segue normalmente, mas o sistema gera lançamento pendente
     }
@@ -345,6 +385,7 @@ export function FinalizarVendaDialog({
         operador_id: operador?.id ?? null,
         terminal_id: terminal?.id ?? null,
         client_uuid: clientUuid ?? null,
+        data_vencimento: temFiado ? vencimentoFiado : null,
       },
       {
         onSuccess: (vendaId) => {
@@ -366,7 +407,9 @@ export function FinalizarVendaDialog({
     itens.length > 0 &&
     !dinheiroInsuficiente &&
     pagamentos.length > 0 &&
-    totalPago > 0;
+    totalPago > 0 &&
+    !fiadoSemCliente &&
+    !fiadoSemVencimento;
 
   useHotkeys(
     [
@@ -702,6 +745,68 @@ export function FinalizarVendaDialog({
               </div>
             )}
 
+            {/* ============ FIADO: cliente + vencimento obrigatórios ============ */}
+            {temFiado && (
+              <div
+                className={cn(
+                  "rounded-lg border-2 p-3 transition-colors",
+                  fiadoSemCliente || fiadoSemVencimento
+                    ? "border-destructive/60 bg-destructive/5"
+                    : "border-warning/40 bg-warning/5",
+                )}
+              >
+                <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Venda fiado exige cliente e vencimento
+                </p>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">Cliente: </span>
+                    {cliente ? (
+                      <span className="font-medium text-foreground">{cliente.nome}</span>
+                    ) : (
+                      <span className="font-medium text-destructive">não selecionado</span>
+                    )}
+                  </div>
+                  {!cliente && onSelecionarCliente && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onSelecionarCliente()}
+                      className="h-8 gap-1.5"
+                    >
+                      <UserPlus className="h-3.5 w-3.5" />
+                      Selecionar / cadastrar
+                    </Button>
+                  )}
+                </div>
+                <div>
+                  <Label
+                    htmlFor="venc-fiado"
+                    className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground"
+                  >
+                    Data de vencimento *
+                  </Label>
+                  <Input
+                    ref={vencimentoInputRef}
+                    id="venc-fiado"
+                    type="date"
+                    value={vencimentoFiado}
+                    min={new Date().toISOString().slice(0, 10)}
+                    onChange={(e) => setVencimentoFiado(e.target.value)}
+                    className={cn(
+                      "h-10 max-w-[220px] font-mono",
+                      fiadoSemVencimento && "border-destructive ring-1 ring-destructive",
+                    )}
+                  />
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Sugerido: +30 dias da data atual
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Observação */}
             <div>
               <Label htmlFor="obs-final" className="mb-1.5 block text-xs">
@@ -852,7 +957,9 @@ export function FinalizarVendaDialog({
                 itens.length === 0 ||
                 dinheiroInsuficiente ||
                 pagamentos.length === 0 ||
-                totalPago <= 0
+                totalPago <= 0 ||
+                fiadoSemCliente ||
+                fiadoSemVencimento
               }
             >
               {finalizar.isPending ? (
@@ -874,7 +981,17 @@ export function FinalizarVendaDialog({
             o valor recebido.
           </div>
         )}
-        {!dinheiroInsuficiente && restante > 0.005 && (
+        {fiadoSemCliente && (
+          <div className="border-t border-destructive/30 bg-destructive/10 px-6 py-2 text-center text-xs font-medium text-destructive">
+            Para vendas fiado é obrigatório selecionar um cliente.
+          </div>
+        )}
+        {!fiadoSemCliente && fiadoSemVencimento && (
+          <div className="border-t border-destructive/30 bg-destructive/10 px-6 py-2 text-center text-xs font-medium text-destructive">
+            Informe a data de vencimento para a venda fiado.
+          </div>
+        )}
+        {!dinheiroInsuficiente && !fiadoSemCliente && !fiadoSemVencimento && restante > 0.005 && (
           <div className="border-t border-warning/30 bg-warning/10 px-6 py-2 text-center text-xs font-medium text-warning">
             Restam {formatBRL(restante)} a distribuir. A venda será registrada
             como <strong>parcial</strong>.
