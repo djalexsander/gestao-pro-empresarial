@@ -745,6 +745,68 @@ export function FinalizarVendaDialog({
               </div>
             )}
 
+            {/* ============ FIADO: cliente + vencimento obrigatórios ============ */}
+            {temFiado && (
+              <div
+                className={cn(
+                  "rounded-lg border-2 p-3 transition-colors",
+                  fiadoSemCliente || fiadoSemVencimento
+                    ? "border-destructive/60 bg-destructive/5"
+                    : "border-warning/40 bg-warning/5",
+                )}
+              >
+                <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Venda fiado exige cliente e vencimento
+                </p>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">Cliente: </span>
+                    {cliente ? (
+                      <span className="font-medium text-foreground">{cliente.nome}</span>
+                    ) : (
+                      <span className="font-medium text-destructive">não selecionado</span>
+                    )}
+                  </div>
+                  {!cliente && onSelecionarCliente && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onSelecionarCliente()}
+                      className="h-8 gap-1.5"
+                    >
+                      <UserPlus className="h-3.5 w-3.5" />
+                      Selecionar / cadastrar
+                    </Button>
+                  )}
+                </div>
+                <div>
+                  <Label
+                    htmlFor="venc-fiado"
+                    className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground"
+                  >
+                    Data de vencimento *
+                  </Label>
+                  <Input
+                    ref={vencimentoInputRef}
+                    id="venc-fiado"
+                    type="date"
+                    value={vencimentoFiado}
+                    min={new Date().toISOString().slice(0, 10)}
+                    onChange={(e) => setVencimentoFiado(e.target.value)}
+                    className={cn(
+                      "h-10 max-w-[220px] font-mono",
+                      fiadoSemVencimento && "border-destructive ring-1 ring-destructive",
+                    )}
+                  />
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Sugerido: +30 dias da data atual
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Observação */}
             <div>
               <Label htmlFor="obs-final" className="mb-1.5 block text-xs">
