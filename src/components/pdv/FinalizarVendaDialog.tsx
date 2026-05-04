@@ -337,6 +337,18 @@ export function FinalizarVendaDialog({
     if (totalPago > total + 0.005 && valorDinheiroDevido === 0) {
       return;
     }
+
+    // ===== Validação FIADO =====
+    if (fiadoSemCliente) {
+      toast.error("Para vendas fiado é obrigatório selecionar um cliente.");
+      onSelecionarCliente?.();
+      return;
+    }
+    if (fiadoSemVencimento) {
+      toast.error("Informe a data de vencimento para a venda fiado.");
+      setTimeout(() => vencimentoInputRef.current?.focus(), 30);
+      return;
+    }
     if (totalPago < total - 0.005) {
       // Parcial — segue normalmente, mas o sistema gera lançamento pendente
     }
