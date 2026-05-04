@@ -2213,7 +2213,7 @@ pub fn current_status() -> LocalServerStatus {
     }
 }
 
-pub fn start(
+pub async fn start(
     port: u16,
     server_name: Option<String>,
     server_id: Option<String>,
@@ -2259,6 +2259,11 @@ pub fn start(
         }
     }
 
+    // Garante que o banco local esteja inicializado antes de subir o HTTP.
+    if let Err(e) = db::init() {
+        eprintln!("[gestao-pro] db::init falhou no start: {e}");
+    }
+
     let addr: SocketAddr = format!("0.0.0.0:{port}")
         .parse()
         .map_err(|e: std::net::AddrParseError| format!("Endereço inválido: {e}"))?;
@@ -2273,11 +2278,10 @@ pub fn start(
 
     let app = build_router(ctx);
 
-    let handle = tokio::runtime::Handle::try_current()
-        .map_err(|_| "Runtime tokio não disponível neste contexto".to_string())?;
+    let handle = tokio::runtime::Handle::current();
 
-    let listener = handle
-        .block_on(async { tokio::net::TcpListener::bind(addr).await })
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
         .map_err(|e| format!("Falha ao abrir porta {port}: {e}"))?;
 
     let (tx, rx) = oneshot::channel::<()>();

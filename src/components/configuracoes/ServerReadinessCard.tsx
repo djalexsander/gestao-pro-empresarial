@@ -3,6 +3,7 @@ import {
   Copy,
   Loader2,
   Network,
+  Play,
   Server,
   ShieldAlert,
   XCircle,
@@ -16,6 +17,8 @@ import type {
   ServerInfoPayload,
 } from "@/integrations/desktop/serverConnection";
 import type { LocalServerStatus } from "@/integrations/desktop/tauriBridge";
+import { useBootController } from "@/components/desktop/useLocalServerBoot";
+import { useServerConnection } from "@/components/desktop/useServerConnection";
 
 interface Props {
   daemon: LocalServerStatus | null;
@@ -164,14 +167,55 @@ export function ServerReadinessCard({
           </p>
         </div>
 
-        {!backendOk && (
-          <div className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs text-amber-800 dark:text-amber-300">
-            <Loader2 className="h-3.5 w-3.5" />
-            Inicie o servidor local para que os terminais possam se conectar.
-          </div>
-        )}
+        {!backendOk && <StartServerAction />}
       </CardContent>
     </Card>
+  );
+}
+
+function StartServerAction() {
+  const boot = useBootController();
+  const { reverificar } = useServerConnection();
+
+  async function handleStart() {
+    const st = await boot.start();
+    if (st?.running) {
+      // Atualiza /health, /server-info e daemon status na sequência.
+      await reverificar();
+    }
+  }
+
+  return (
+    <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-800 dark:text-amber-300">
+      <div className="flex items-start gap-2">
+        <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <span>
+          O backend local ainda não está em execução. Os terminais não
+          conseguirão se conectar até que ele seja iniciado.
+        </span>
+      </div>
+      <Button
+        size="sm"
+        onClick={handleStart}
+        disabled={boot.starting}
+        className="w-full sm:w-auto"
+      >
+        {boot.starting ? (
+          <>
+            <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Iniciando…
+          </>
+        ) : (
+          <>
+            <Play className="mr-2 h-3.5 w-3.5" /> Iniciar servidor local
+          </>
+        )}
+      </Button>
+      {boot.lastError && (
+        <div className="text-[11px] text-destructive">
+          Erro: {boot.lastError}
+        </div>
+      )}
+    </div>
   );
 }
 

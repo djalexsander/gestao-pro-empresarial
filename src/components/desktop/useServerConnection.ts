@@ -62,12 +62,12 @@ export function useServerConnection(): UseServerConnectionResult {
     role === "terminal" ? config.terminal : undefined;
 
   const cfgServer: TerminalConexaoConfig | undefined =
-    role === "server" && daemon?.running && daemon.port
+    role === "server"
       ? {
           host: "127.0.0.1",
-          porta: daemon.port,
+          porta: daemon?.port ?? config.terminal?.porta ?? 3333,
           terminalId: "self",
-          terminalNome: daemon.server_name ?? "Servidor",
+          terminalNome: daemon?.server_name ?? config.serverNome ?? "Servidor",
         }
       : undefined;
 
