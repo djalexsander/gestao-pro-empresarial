@@ -136,7 +136,7 @@ export function SecaoFiltro({ value, onChange, showForma }: Props) {
                 onChange={(e) =>
                   setDraft((d) => ({ ...d, custom: { ...d.custom, fim: e.target.value } }))
                 }
-                className="h-8 text-xs"
+                className="h-9 w-full text-xs"
               />
             </div>
           </div>
