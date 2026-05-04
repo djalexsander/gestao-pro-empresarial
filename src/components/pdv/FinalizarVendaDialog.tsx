@@ -957,7 +957,9 @@ export function FinalizarVendaDialog({
                 itens.length === 0 ||
                 dinheiroInsuficiente ||
                 pagamentos.length === 0 ||
-                totalPago <= 0
+                totalPago <= 0 ||
+                fiadoSemCliente ||
+                fiadoSemVencimento
               }
             >
               {finalizar.isPending ? (
@@ -979,7 +981,17 @@ export function FinalizarVendaDialog({
             o valor recebido.
           </div>
         )}
-        {!dinheiroInsuficiente && restante > 0.005 && (
+        {fiadoSemCliente && (
+          <div className="border-t border-destructive/30 bg-destructive/10 px-6 py-2 text-center text-xs font-medium text-destructive">
+            Para vendas fiado é obrigatório selecionar um cliente.
+          </div>
+        )}
+        {!fiadoSemCliente && fiadoSemVencimento && (
+          <div className="border-t border-destructive/30 bg-destructive/10 px-6 py-2 text-center text-xs font-medium text-destructive">
+            Informe a data de vencimento para a venda fiado.
+          </div>
+        )}
+        {!dinheiroInsuficiente && !fiadoSemCliente && !fiadoSemVencimento && restante > 0.005 && (
           <div className="border-t border-warning/30 bg-warning/10 px-6 py-2 text-center text-xs font-medium text-warning">
             Restam {formatBRL(restante)} a distribuir. A venda será registrada
             como <strong>parcial</strong>.
