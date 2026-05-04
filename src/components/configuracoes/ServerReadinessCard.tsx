@@ -3,6 +3,7 @@ import {
   Copy,
   Loader2,
   Network,
+  Play,
   Server,
   ShieldAlert,
   XCircle,
@@ -16,6 +17,8 @@ import type {
   ServerInfoPayload,
 } from "@/integrations/desktop/serverConnection";
 import type { LocalServerStatus } from "@/integrations/desktop/tauriBridge";
+import { useBootController } from "@/components/desktop/useLocalServerBoot";
+import { useServerConnection } from "@/components/desktop/useServerConnection";
 
 interface Props {
   daemon: LocalServerStatus | null;
