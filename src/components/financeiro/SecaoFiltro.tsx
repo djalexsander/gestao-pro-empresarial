@@ -87,7 +87,7 @@ export function SecaoFiltro({ value, onChange, showForma }: Props) {
           <span className="hidden text-muted-foreground sm:inline">· {PRESET_LABELS[value.preset]}</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 space-y-3 p-3">
+      <PopoverContent align="end" className="w-[min(92vw,22rem)] space-y-3 p-3">
         <div>
           <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
             Período
