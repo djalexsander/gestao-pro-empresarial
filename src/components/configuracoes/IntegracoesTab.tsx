@@ -240,12 +240,20 @@ function ConfigDialog({ tipo, atual, open, onOpenChange, onSalvar, salvando }: C
       return;
     }
     if (tipo === "whatsapp") {
+      const numeroLimpo = waNumeroEmpresa.replace(/\D/g, "");
+      if (waAtivo && !numeroLimpo) {
+        toast.error("Informe o número de WhatsApp da empresa");
+        return;
+      }
       onSalvar({
         tipo_integracao: tipo,
         status: waAtivo ? "connected" : "disabled",
         ativo: waAtivo,
         nome_exibicao: meta.titulo,
         configuracoes: {
+          numero_empresa: numeroLimpo,
+          modo_envio: waModoEnvio,
+          tipo_api: waTipoApi,
           dias_antes: waDiasAntes,
           dias_apos: waDiasApos,
           msg_antes: waMsgAntes,
