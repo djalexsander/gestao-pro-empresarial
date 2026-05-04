@@ -38,29 +38,31 @@ export function ServerReadinessCard({
   serverNome,
   serverId,
 }: Props) {
-  const backendOk = !!daemon?.running;
-  const dbOk = !!dbInfo;
-  const portaOk =
-    typeof daemon?.port === "number" && daemon.port > 0 && daemon.port < 65536;
+  const porta = daemon?.port ?? info?.port ?? null;
+  const backendOk = !!daemon?.running || info?.backend_running === true;
+  const dbOk = !!dbInfo || info?.database_ready === true;
+  const portaOk = typeof porta === "number" && porta > 0 && porta < 65536;
   const identidadeOk = !!serverId;
 
   const checagens: Array<{ ok: boolean; label: string; detail?: string }> = [
     {
       ok: backendOk,
       label: "Backend local em execução",
-      detail: backendOk ? `Porta ${daemon!.port ?? "?"}` : "Servidor parado.",
+      detail: backendOk ? `Porta ${porta ?? "?"}` : "Servidor parado.",
     },
     {
       ok: portaOk,
       label: "Porta válida",
-      detail: portaOk ? `${daemon!.port}` : "Sem porta configurada.",
+      detail: portaOk ? `${porta}` : "Sem porta configurada.",
     },
     {
       ok: dbOk,
       label: "Banco local pronto",
       detail: dbInfo
         ? `Schema v${dbInfo.schema_version}`
-        : "Banco ainda não inicializado.",
+        : info?.database_ready
+          ? "Banco SQLite inicializado."
+          : "Banco ainda não inicializado.",
     },
     {
       ok: identidadeOk,
@@ -70,8 +72,7 @@ export function ServerReadinessCard({
   ];
 
   const pronto = checagens.every((c) => c.ok);
-  const hostname = daemon?.hostname ?? info?.hostname ?? null;
-  const porta = daemon?.port ?? info?.port ?? null;
+  const hostname = info?.host ?? daemon?.hostname ?? info?.hostname ?? null;
 
   function copiar(texto: string, label: string) {
     navigator.clipboard
