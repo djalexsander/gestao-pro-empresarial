@@ -27,10 +27,14 @@ const statusMap: Record<string, Tone> = {
   inativo: "neutral",
   rascunho: "neutral",
   pendente: "warning",
+  parcial: "info",
+  Parcial: "info",
+  pago: "success",
   aprovada: "info",
   recebida_parcial: "info",
   recebida: "success",
   cancelada: "danger",
+  vencido: "danger",
 };
 
 const labelMap: Record<string, string> = {
@@ -38,10 +42,13 @@ const labelMap: Record<string, string> = {
   inativo: "Inativo",
   rascunho: "Rascunho",
   pendente: "Pendente",
+  parcial: "Parcial",
+  pago: "Pago",
   aprovada: "Aprovada",
   recebida_parcial: "Recebida parcial",
   recebida: "Recebida",
   cancelada: "Cancelada",
+  vencido: "Vencido",
 };
 
 interface StatusBadgeProps {
