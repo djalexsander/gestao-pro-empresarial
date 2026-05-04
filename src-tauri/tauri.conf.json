@@ -46,10 +46,9 @@
       "active": true,
       "dialog": false,
       "endpoints": [
-        "https://gestao-pro-empresarial.alexproapps.com.br/releases/latest.json",
-        "https://gestao-pro-empresarial.lovable.app/releases/latest.json"
+        "https://github.com/djalexsander/gestao-pro-empresarial/releases/latest/download/latest.json"
       ],
-      "pubkey": "REPLACE_WITH_TAURI_UPDATER_PUBLIC_KEY"
+      "pubkey": "COLOCAR_CHAVE_PUBLICA_AQUI"
     }
   }
 }
