@@ -385,6 +385,7 @@ export function FinalizarVendaDialog({
         operador_id: operador?.id ?? null,
         terminal_id: terminal?.id ?? null,
         client_uuid: clientUuid ?? null,
+        data_vencimento: temFiado ? vencimentoFiado : null,
       },
       {
         onSuccess: (vendaId) => {
