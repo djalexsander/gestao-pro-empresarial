@@ -215,10 +215,14 @@ async fn server_info_handler() -> Json<ServerInfoResponse> {
             s.port,
             s.upstream.is_some(),
             s.terminals.len(),
+            s.running,
         )
     });
-    let (server_name, server_id, hostname, started_at, port, upstream_configured, terminals_conectados) =
-        snap.unwrap_or((None, None, None, None, None, false, 0));
+    let (server_name, server_id, hostname, started_at, port, upstream_configured, terminals_conectados, running) =
+        snap.unwrap_or((None, None, None, None, None, false, 0, false));
+
+    let host = local_ip().or_else(|| hostname.clone());
+    let database_ready = db::db_info().is_ok();
 
     Json(ServerInfoResponse {
         app: APP_NAME,
@@ -228,12 +232,25 @@ async fn server_info_handler() -> Json<ServerInfoResponse> {
         server_id,
         server_name,
         hostname,
+        host,
         started_at,
         started_at_iso: started_at.and_then(iso_from_ms),
         port,
         upstream_configured,
         terminals_conectados,
+        backend_running: running,
+        database_ready,
     })
+}
+
+/// Tenta descobrir o IP IPv4 não-loopback principal da máquina, para
+/// preencher o campo "Host" que os terminais devem usar na rede local.
+fn local_ip() -> Option<String> {
+    use std::net::UdpSocket;
+    let sock = UdpSocket::bind("0.0.0.0:0").ok()?;
+    // Não envia nada — só força a resolução do roteamento de saída.
+    sock.connect("8.8.8.8:80").ok()?;
+    sock.local_addr().ok().map(|a| a.ip().to_string())
 }
 
 // ---------- Heartbeat ----------
