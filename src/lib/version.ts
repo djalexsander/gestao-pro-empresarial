@@ -1,2 +1,2 @@
 // Versão do aplicativo — atualize quando publicar uma nova release
-export const APP_VERSION = "1.1.2";
+export const APP_VERSION = "1.1.3";
