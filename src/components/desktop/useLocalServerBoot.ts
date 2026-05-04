@@ -19,7 +19,7 @@ import {
   stopLocalServer,
 } from "@/integrations/desktop/tauriBridge";
 
-export const DEFAULT_LOCAL_PORT = 7400;
+export const DEFAULT_LOCAL_PORT = 3333;
 
 export function useLocalServerBoot() {
   const { isDesktop, role, config } = useDesktopRole();
