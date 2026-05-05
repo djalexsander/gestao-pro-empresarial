@@ -59,13 +59,13 @@ const unsafeFiles = files.filter((f) => /\.(exe|msi)(\.sig)?$/i.test(f) && UNSAF
 if (unsafeFiles.length) {
   fail(
     `Artefatos com nomes inseguros encontrados: ${unsafeFiles.join(", ")}. ` +
-      `Rode \\`npm run normalize:tauri-assets\\` antes de gerar o latest.json.`,
+      `Rode \`npm run normalize:tauri-assets\` antes de gerar o latest.json.`,
   );
 }
 if (UNSAFE_ASSET_RE.test(exeFile)) {
   fail(
     `Instalador com nome inseguro: "${exeFile}". ` +
-      `Rode \\`npm run normalize:tauri-assets\\` antes de gerar o latest.json.`,
+      `Rode \`npm run normalize:tauri-assets\` antes de gerar o latest.json.`,
   );
 }
 
