@@ -308,15 +308,16 @@ if (errors.length) {
 }
 
 console.log("✓ latest.json válido");
-console.log(`  version : ${data.version}`);
-console.log(`  pub_date: ${data.pub_date}`);
-console.log(`  url     : ${winUrl}`);
+console.log(`  version  : ${data.version}`);
+console.log(`  pub_date : ${data.pub_date}`);
+console.log(`  plataformas (${validatedPlatforms.length}):`);
+for (const p of validatedPlatforms) {
+  console.log(`    - ${p.key} → ${p.url}`);
+}
 console.log(
-  `  sig     : ${data.platforms["windows-x86_64"].signature.slice(0, 60)}…`,
-);
-console.log(
-  `  fontes  : ${sources
+  `  fontes   : ${sources
     .filter((s) => !s.missing && s.version)
     .map((s) => `${s.path}=${s.version}`)
     .join(", ")}`,
 );
+
