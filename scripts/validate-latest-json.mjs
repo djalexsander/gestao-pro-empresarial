@@ -212,6 +212,32 @@ if (!data.pub_date || typeof data.pub_date !== "string") {
   }
 }
 
+// -------------------- configuração do updater --------------------
+if (!updaterConfig || typeof updaterConfig !== "object") {
+  fail("src-tauri/tauri.conf.json não possui plugins.updater configurado.");
+} else {
+  if (updaterConfig.active !== true) fail("plugins.updater.active precisa ser true.");
+  if (!updaterConfig.pubkey || typeof updaterConfig.pubkey !== "string") {
+    fail("plugins.updater.pubkey ausente — sem chave pública o app não valida assinaturas.");
+  }
+  const endpoints = Array.isArray(updaterConfig.endpoints) ? updaterConfig.endpoints : [];
+  if (endpoints.length === 0) fail("plugins.updater.endpoints está vazio.");
+  for (const endpoint of endpoints) {
+    try {
+      const u = new URL(endpoint);
+      const decoded = safeDecodePath(u.pathname).toLowerCase();
+      if (!/^https?:$/.test(u.protocol)) fail(`endpoint do updater não é http(s): ${endpoint}`);
+      if (!decoded.endsWith("/latest.json")) fail(`endpoint do updater não termina em latest.json: ${endpoint}`);
+      if (u.hostname.includes("github.com") && !decoded.includes(`/${expectedRepo}/`)) {
+        fail(`endpoint do updater não aponta para o repo esperado (${expectedRepo}): ${endpoint}`);
+      }
+      await checkRemoteDownload(endpoint, "plugins.updater.endpoints/latest.json", { expectJson: true });
+    } catch (e) {
+      fail(`endpoint do updater inválido: ${endpoint} (${e.message})`);
+    }
+  }
+}
+
 // -------------------- platforms --------------------
 /**
  * Mapa de plataformas conhecidas do Tauri Updater v2 e as extensões válidas
