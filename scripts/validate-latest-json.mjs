@@ -251,6 +251,43 @@ function findBundleFile(name) {
   return bundleFiles.find((f) => f.name === name) || null;
 }
 
+function safeDecodePath(pathname) {
+  try {
+    return decodeURIComponent(pathname);
+  } catch {
+    return pathname;
+  }
+}
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function checkRemoteDownload(url, label, { expectJson = false } = {}) {
+  if (!CHECK_REMOTE_URLS) return;
+  try {
+    const res = await fetch(url, {
+      method: expectJson ? "GET" : "HEAD",
+      redirect: "follow",
+      headers: { "User-Agent": "GestaoPro-Updater-Diagnostics" },
+    });
+    if (!res.ok) {
+      fail(`${label} não está acessível publicamente (${res.status} ${res.statusText}): ${url}`);
+      return;
+    }
+    if (expectJson) {
+      const remote = await res.json().catch(() => null);
+      if (!remote || typeof remote !== "object") {
+        fail(`${label} respondeu, mas não é JSON válido: ${url}`);
+      } else if (data.version && remote.version !== data.version) {
+        fail(`${label} remoto tem version=${remote.version} ≠ latest.json local=${data.version}.`);
+      }
+    }
+  } catch (e) {
+    fail(`${label} falhou ao acessar publicamente: ${url} (${e.message})`);
+  }
+}
+
 function endsWithAny(pathname, exts) {
   const lower = pathname.toLowerCase();
   return exts.some((ext) => lower.endsWith(ext.toLowerCase()));
