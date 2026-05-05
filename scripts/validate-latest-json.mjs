@@ -95,6 +95,12 @@ const expectedRepo = (() => {
 const tauriConfig = readJsonFile("src-tauri/tauri.conf.json");
 const updaterConfig = tauriConfig?.plugins?.updater;
 
+if (/^true$/i.test(process.env.REPOSITORY_PRIVATE || "")) {
+  fail(
+    "O repositório GitHub está privado. O Tauri Updater baixa latest.json/assets sem autenticação; em repositório privado o GitHub responde 404 e o app mostra `Could not fetch a valid release JSON from the remote`.",
+  );
+}
+
 // -------------------- version --------------------
 let parsed = null;
 if (!data.version || typeof data.version !== "string") {
