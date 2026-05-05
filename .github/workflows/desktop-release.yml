@@ -71,10 +71,14 @@ jobs:
         run: npm run tauri:build:signed
 
       - name: Gerar latest.json (passo explícito, idempotente)
+        env:
+          RELEASE_TAG: ${{ steps.ver.outputs.tag }}
         shell: bash
         run: node scripts/generate-latest-json.mjs
 
       - name: Validar latest.json (campos obrigatórios + URL + assinatura)
+        env:
+          RELEASE_TAG: ${{ steps.ver.outputs.tag }}
         shell: bash
         run: node scripts/validate-latest-json.mjs
 
