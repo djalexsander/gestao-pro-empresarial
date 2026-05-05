@@ -21,8 +21,8 @@
  *     e contém a tag/versão correta
  *   - `signature` não-vazia e parece uma assinatura Tauri/minisign válida
  */
-import { readFileSync, existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 
 const ROOT = process.cwd();
 const DEFAULT_PATH = "src-tauri/target/release/bundle/nsis/latest.json";
@@ -32,6 +32,23 @@ const errors = [];
 const warn = [];
 const fail = (m) => errors.push(m);
 const note = (m) => warn.push(m);
+
+function readJsonFile(path) {
+  try {
+    return JSON.parse(readFileSync(resolve(ROOT, path), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function readOptionalJsonAbsolute(path) {
+  if (!path || !existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
 
 if (!existsSync(target)) {
   console.error(`✖ latest.json não encontrado em ${target}`);
