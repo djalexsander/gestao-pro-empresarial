@@ -94,6 +94,7 @@ const expectedRepo = (() => {
 
 const REQUIRE_LOCAL_ASSETS = /^true$/i.test(process.env.REQUIRE_LOCAL_ASSETS || "");
 const CHECK_REMOTE_URLS = /^true$/i.test(process.env.CHECK_REMOTE_URLS || "");
+const UNSAFE_ASSET_RE = /[^A-Za-z0-9._-]/;
 
 const tauriConfig = readJsonFile("src-tauri/tauri.conf.json");
 const updaterConfig = tauriConfig?.plugins?.updater;
@@ -397,6 +398,9 @@ if (!data.platforms || typeof data.platforms !== "object") {
         if (!assetName) {
           fail(`${prefix}.url não contém nome de arquivo no caminho: ${entry.url}`);
         } else {
+          if (UNSAFE_ASSET_RE.test(assetName)) {
+            fail(`${prefix}.url usa asset com acento/espaço/caractere inseguro: "${assetName}".`);
+          }
           localAsset = findBundleFile(assetName);
           if (!localAsset) {
             const message = `${prefix}.url referencia "${assetName}", mas esse arquivo não foi encontrado em src-tauri/target/release/bundle.`;
