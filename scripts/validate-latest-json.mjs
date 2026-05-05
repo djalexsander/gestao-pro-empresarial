@@ -257,13 +257,38 @@ if (!data.platforms || typeof data.platforms !== "object") {
           fail(`${prefix}.url não aponta para o repo correto: ${entry.url}`);
         }
         if (data.version) {
-          const hasVersion =
-            decoded.includes(`/v${data.version}/`) ||
-            decoded.includes(`/${data.version}/`) ||
-            decoded.includes(data.version);
-          if (!hasVersion) {
+          // Aceita variações comuns de nome do arquivo:
+          //   app-1.1.5.exe, app_1.1.5_x64-setup.exe, App.v1.1.5.msi,
+          //   app-1.1.5+build.123.exe, foo.1.1.5-beta.2.dmg, etc.
+          // Também tolera ?query e #hash (u.pathname já os exclui),
+          // separadores _ - + . e prefixo v/V.
+          const versionInUrl = (() => {
+            const haystack = decoded.replace(/[_\-+]/g, ".").toLowerCase();
+            const v = data.version.toLowerCase();
+            const vNorm = v.replace(/[_\-+]/g, ".");
+            const core = parsed ? parsed.core : v;
+            const variants = [vNorm, core];
+            for (const candidate of variants) {
+              const re = new RegExp(
+                `(^|[./v])${candidate.replace(/\./g, "\\.")}([./]|$)`,
+                "i",
+              );
+              if (re.test(haystack)) return candidate;
+            }
+            return null;
+          })();
+
+          if (!versionInUrl) {
             fail(
               `${prefix}.url não contém a versão "${data.version}" — possível asset de release antiga: ${entry.url}`,
+            );
+          } else if (
+            parsed &&
+            versionInUrl === parsed.core &&
+            parsed.prerelease
+          ) {
+            note(
+              `${prefix}.url contém apenas o core "${parsed.core}" sem o pré-release "${parsed.prerelease}".`,
             );
           }
         }
