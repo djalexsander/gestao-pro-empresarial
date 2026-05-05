@@ -64,6 +64,21 @@ jobs:
           echo "Versão package.json: ${PKG_VERSION}"
           echo "Tag da release:     ${TAG}"
 
+      - name: Validar chave do updater
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          $secret = $env:TAURI_SIGNING_PRIVATE_KEY
+          if ($secret.Length -lt 100) {
+            throw "TAURI_SIGNING_PRIVATE_KEY parece curta demais"
+          }
+          Write-Host "Secret carregado com tamanho:" $secret.Length
+          Write-Host "Senha carregada:" ($env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD.Length -gt 0)
+          $secret | Out-File -FilePath tauri-action-private.key -Encoding utf8 -NoNewline
+          npx tauri signer public-key --key tauri-action-private.key
+
       - name: Build assinado (Tauri)
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
