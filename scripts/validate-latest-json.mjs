@@ -92,6 +92,9 @@ const expectedRepo = (() => {
   return "djalexsander/gestao-pro-empresarial";
 })();
 
+const REQUIRE_LOCAL_ASSETS = /^true$/i.test(process.env.REQUIRE_LOCAL_ASSETS || "");
+const CHECK_REMOTE_URLS = /^true$/i.test(process.env.CHECK_REMOTE_URLS || "");
+
 const tauriConfig = readJsonFile("src-tauri/tauri.conf.json");
 const updaterConfig = tauriConfig?.plugins?.updater;
 
@@ -256,8 +259,6 @@ const PLATFORM_INSTALLERS = {
   "linux-armv7": [".AppImage", ".AppImage.tar.gz", ".deb", ".rpm"],
 };
 
-const REQUIRE_LOCAL_ASSETS = /^true$/i.test(process.env.REQUIRE_LOCAL_ASSETS || "");
-const CHECK_REMOTE_URLS = /^true$/i.test(process.env.CHECK_REMOTE_URLS || "");
 const bundleRoot = resolve(ROOT, "src-tauri/target/release/bundle");
 
 function listBundleFiles(dir = bundleRoot, out = []) {
