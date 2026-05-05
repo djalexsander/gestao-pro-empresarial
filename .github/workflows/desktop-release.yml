@@ -71,10 +71,16 @@ jobs:
         run: npm run tauri:build:signed
 
       - name: Gerar latest.json (passo explícito, idempotente)
+        env:
+          RELEASE_TAG: ${{ steps.ver.outputs.tag }}
         shell: bash
         run: node scripts/generate-latest-json.mjs
 
       - name: Validar latest.json (campos obrigatórios + URL + assinatura)
+        env:
+          RELEASE_TAG: ${{ steps.ver.outputs.tag }}
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+          REQUIRE_LOCAL_ASSETS: "true"
         shell: bash
         run: node scripts/validate-latest-json.mjs
 
@@ -111,3 +117,11 @@ jobs:
             release-assets/*.exe.sig
             release-assets/*.msi
             release-assets/*.msi.sig
+
+      - name: Validar assets publicados no GitHub Release
+        env:
+          RELEASE_TAG: ${{ steps.ver.outputs.tag }}
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+          CHECK_REMOTE_URLS: "true"
+        shell: bash
+        run: node scripts/validate-latest-json.mjs

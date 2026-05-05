@@ -21,8 +21,8 @@
  *     e contém a tag/versão correta
  *   - `signature` não-vazia e parece uma assinatura Tauri/minisign válida
  */
-import { readFileSync, existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 
 const ROOT = process.cwd();
 const DEFAULT_PATH = "src-tauri/target/release/bundle/nsis/latest.json";
@@ -32,6 +32,23 @@ const errors = [];
 const warn = [];
 const fail = (m) => errors.push(m);
 const note = (m) => warn.push(m);
+
+function readJsonFile(path) {
+  try {
+    return JSON.parse(readFileSync(resolve(ROOT, path), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function readOptionalJsonAbsolute(path) {
+  if (!path || !existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
 
 if (!existsSync(target)) {
   console.error(`✖ latest.json não encontrado em ${target}`);
@@ -62,6 +79,29 @@ function parseSemver(v) {
     build: m[5] || "",
     core: `${m[1]}.${m[2]}.${m[3]}`,
   };
+}
+
+const expectedTag = (() => {
+  const tag = process.env.RELEASE_TAG || process.env.GITHUB_REF_NAME || "";
+  return tag || (typeof data.version === "string" ? `v${data.version}` : "");
+})();
+
+const expectedRepo = (() => {
+  const fromEnv = process.env.GITHUB_REPOSITORY;
+  if (fromEnv && /^[^/]+\/[^/]+$/.test(fromEnv)) return fromEnv.toLowerCase();
+  return "djalexsander/gestao-pro-empresarial";
+})();
+
+const REQUIRE_LOCAL_ASSETS = /^true$/i.test(process.env.REQUIRE_LOCAL_ASSETS || "");
+const CHECK_REMOTE_URLS = /^true$/i.test(process.env.CHECK_REMOTE_URLS || "");
+
+const tauriConfig = readJsonFile("src-tauri/tauri.conf.json");
+const updaterConfig = tauriConfig?.plugins?.updater;
+
+if (/^true$/i.test(process.env.REPOSITORY_PRIVATE || "")) {
+  fail(
+    "O repositório GitHub está privado. O Tauri Updater baixa latest.json/assets sem autenticação; em repositório privado o GitHub responde 404 e o app mostra `Could not fetch a valid release JSON from the remote`.",
+  );
 }
 
 // -------------------- version --------------------
@@ -175,6 +215,32 @@ if (!data.pub_date || typeof data.pub_date !== "string") {
   }
 }
 
+// -------------------- configuração do updater --------------------
+if (!updaterConfig || typeof updaterConfig !== "object") {
+  fail("src-tauri/tauri.conf.json não possui plugins.updater configurado.");
+} else {
+  if (updaterConfig.active !== true) fail("plugins.updater.active precisa ser true.");
+  if (!updaterConfig.pubkey || typeof updaterConfig.pubkey !== "string") {
+    fail("plugins.updater.pubkey ausente — sem chave pública o app não valida assinaturas.");
+  }
+  const endpoints = Array.isArray(updaterConfig.endpoints) ? updaterConfig.endpoints : [];
+  if (endpoints.length === 0) fail("plugins.updater.endpoints está vazio.");
+  for (const endpoint of endpoints) {
+    try {
+      const u = new URL(endpoint);
+      const decoded = safeDecodePath(u.pathname).toLowerCase();
+      if (!/^https?:$/.test(u.protocol)) fail(`endpoint do updater não é http(s): ${endpoint}`);
+      if (!decoded.endsWith("/latest.json")) fail(`endpoint do updater não termina em latest.json: ${endpoint}`);
+      if (u.hostname.includes("github.com") && !decoded.includes(`/${expectedRepo}/`)) {
+        fail(`endpoint do updater não aponta para o repo esperado (${expectedRepo}): ${endpoint}`);
+      }
+      await checkRemoteDownload(endpoint, "plugins.updater.endpoints/latest.json", { expectJson: true });
+    } catch (e) {
+      fail(`endpoint do updater inválido: ${endpoint} (${e.message})`);
+    }
+  }
+}
+
 // -------------------- platforms --------------------
 /**
  * Mapa de plataformas conhecidas do Tauri Updater v2 e as extensões válidas
@@ -192,6 +258,62 @@ const PLATFORM_INSTALLERS = {
   "linux-aarch64": [".AppImage", ".AppImage.tar.gz", ".deb", ".rpm"],
   "linux-armv7": [".AppImage", ".AppImage.tar.gz", ".deb", ".rpm"],
 };
+
+const bundleRoot = resolve(ROOT, "src-tauri/target/release/bundle");
+
+function listBundleFiles(dir = bundleRoot, out = []) {
+  if (!existsSync(dir)) return out;
+  for (const name of readdirSync(dir)) {
+    const path = join(dir, name);
+    const stat = statSync(path);
+    if (stat.isDirectory()) listBundleFiles(path, out);
+    else out.push({ path, name, size: stat.size });
+  }
+  return out;
+}
+
+const bundleFiles = listBundleFiles();
+
+function findBundleFile(name) {
+  return bundleFiles.find((f) => f.name === name) || null;
+}
+
+function safeDecodePath(pathname) {
+  try {
+    return decodeURIComponent(pathname);
+  } catch {
+    return pathname;
+  }
+}
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function checkRemoteDownload(url, label, { expectJson = false } = {}) {
+  if (!CHECK_REMOTE_URLS) return;
+  try {
+    const res = await fetch(url, {
+      method: expectJson ? "GET" : "HEAD",
+      redirect: "follow",
+      headers: { "User-Agent": "GestaoPro-Updater-Diagnostics" },
+    });
+    if (!res.ok) {
+      fail(`${label} não está acessível publicamente (${res.status} ${res.statusText}): ${url}`);
+      return;
+    }
+    if (expectJson) {
+      const remote = await res.json().catch(() => null);
+      if (!remote || typeof remote !== "object") {
+        fail(`${label} respondeu, mas não é JSON válido: ${url}`);
+      } else if (data.version && remote.version !== data.version) {
+        fail(`${label} remoto tem version=${remote.version} ≠ latest.json local=${data.version}.`);
+      }
+    }
+  } catch (e) {
+    fail(`${label} falhou ao acessar publicamente: ${url} (${e.message})`);
+  }
+}
 
 function endsWithAny(pathname, exts) {
   const lower = pathname.toLowerCase();
@@ -226,6 +348,8 @@ if (!data.platforms || typeof data.platforms !== "object") {
 
     // url
     let urlOk = false;
+    let assetName = "";
+    let localAsset = null;
     if (!entry.url || typeof entry.url !== "string") {
       fail(`${prefix}.url ausente.`);
     } else {
@@ -234,7 +358,8 @@ if (!data.platforms || typeof data.platforms !== "object") {
         if (!/^https?:$/.test(u.protocol)) {
           fail(`${prefix}.url não é http(s): ${entry.url}`);
         }
-        const decoded = decodeURIComponent(u.pathname);
+        const decoded = safeDecodePath(u.pathname);
+        assetName = basename(decoded);
         if (allowedExts && !endsWithAny(decoded, allowedExts)) {
           fail(
             `${prefix}.url não termina em ${allowedExts.join("/")} (instalador esperado para ${key}): ${entry.url}`,
@@ -250,11 +375,36 @@ if (!data.platforms || typeof data.platforms !== "object") {
         if (!u.hostname.includes("github.com")) {
           note(`${prefix}.url não aponta para github.com: ${u.hostname}`);
         }
+        const isGitHubUrl = u.hostname === "github.com" || u.hostname.endsWith(".github.com");
         if (
-          u.hostname.includes("github.com") &&
-          !u.pathname.includes("/djalexsander/gestao-pro-empresarial/")
+          isGitHubUrl &&
+          !decoded.toLowerCase().includes(`/${expectedRepo}/`)
         ) {
-          fail(`${prefix}.url não aponta para o repo correto: ${entry.url}`);
+          fail(`${prefix}.url não aponta para o repo correto (${expectedRepo}): ${entry.url}`);
+        }
+        if (isGitHubUrl && expectedTag) {
+          const tagPath = `/${expectedRepo}/releases/download/${expectedTag}/`.toLowerCase();
+          const latestPath = `/${expectedRepo}/releases/latest/download/`.toLowerCase();
+          const decodedLower = decoded.toLowerCase();
+          if (decodedLower.includes(latestPath)) {
+            fail(
+              `${prefix}.url usa /releases/latest/download para o instalador. Use URL tagada /releases/download/${expectedTag}/${assetName} para evitar 404 por release/latest divergente.`,
+            );
+          } else if (!decodedLower.includes(tagPath)) {
+            fail(`${prefix}.url não aponta para a tag esperada "${expectedTag}": ${entry.url}`);
+          }
+        }
+        if (!assetName) {
+          fail(`${prefix}.url não contém nome de arquivo no caminho: ${entry.url}`);
+        } else {
+          localAsset = findBundleFile(assetName);
+          if (!localAsset) {
+            const message = `${prefix}.url referencia "${assetName}", mas esse arquivo não foi encontrado em src-tauri/target/release/bundle.`;
+            if (REQUIRE_LOCAL_ASSETS) fail(message);
+            else note(message);
+          } else if (localAsset.size <= 0) {
+            fail(`${prefix}.url referencia "${assetName}", mas o arquivo local está vazio.`);
+          }
         }
         if (data.version) {
           // Aceita variações comuns de nome do arquivo:
@@ -292,6 +442,7 @@ if (!data.platforms || typeof data.platforms !== "object") {
             );
           }
         }
+        await checkRemoteDownload(entry.url, `${prefix}.url`);
         urlOk = true;
       } catch (e) {
         fail(`${prefix}.url malformada: ${entry.url} (${e.message})`);
@@ -312,6 +463,21 @@ if (!data.platforms || typeof data.platforms !== "object") {
         fail(
           `${prefix}.signature não parece ser uma assinatura Tauri/minisign válida.`,
         );
+      }
+      if (localAsset) {
+        const sigAsset = findBundleFile(`${localAsset.name}.sig`);
+        if (!sigAsset) {
+          const message = `${prefix}.signature: arquivo local ${localAsset.name}.sig não encontrado ao lado dos bundles.`;
+          if (REQUIRE_LOCAL_ASSETS) fail(message);
+          else note(message);
+        } else {
+          const diskSig = readFileSync(sigAsset.path, "utf8").trim();
+          if (!diskSig) {
+            fail(`${prefix}.signature: arquivo ${sigAsset.name} está vazio.`);
+          } else if (diskSig !== sig) {
+            fail(`${prefix}.signature diverge do conteúdo de ${sigAsset.name}.`);
+          }
+        }
       }
     }
 

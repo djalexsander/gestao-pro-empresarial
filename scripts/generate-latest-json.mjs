@@ -20,8 +20,9 @@ import { readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 
 const ROOT = process.cwd();
-const REPO_URL =
-  "https://github.com/djalexsander/gestao-pro-empresarial/releases/latest/download";
+const REPO_OWNER = process.env.GITHUB_REPOSITORY_OWNER || "djalexsander";
+const REPO_NAME =
+  process.env.GITHUB_REPOSITORY?.split("/")[1] || "gestao-pro-empresarial";
 
 function fail(msg) {
   console.error(`\n✖ ${msg}\n`);
@@ -34,6 +35,10 @@ if (!existsSync(pkgPath)) fail("package.json não encontrado.");
 const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
 const version = pkg.version;
 if (!version) fail("Campo `version` ausente em package.json.");
+const releaseTag = process.env.RELEASE_TAG || process.env.GITHUB_REF_NAME || `v${version}`;
+const repoDownloadUrl = `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${encodeURIComponent(
+  releaseTag,
+)}`;
 
 // 2. Pasta NSIS
 const nsisDir = resolve(ROOT, "src-tauri/target/release/bundle/nsis");
@@ -60,8 +65,8 @@ const sigPath = join(nsisDir, sigFile);
 const signature = readFileSync(sigPath, "utf8").trim();
 if (!signature) fail(`Assinatura vazia em ${sigPath}.`);
 
-// 4. Montar URL pública (encoda nome do arquivo)
-const url = `${REPO_URL}/${encodeURIComponent(exeFile)}`;
+// 4. Montar URL pública tagada (mais estável que /releases/latest/download)
+const url = `${repoDownloadUrl}/${encodeURIComponent(exeFile)}`;
 
 // 5. Montar latest.json
 const latest = {
@@ -82,6 +87,7 @@ writeFileSync(outPath, JSON.stringify(latest, null, 2) + "\n");
 // 6. Log
 console.log("✓ latest.json gerado com sucesso\n");
 console.log(`  versão        : ${version}`);
+console.log(`  tag release   : ${releaseTag}`);
 console.log(`  instalador    : ${exeFile}`);
 console.log(`  assinatura    : ${sigFile}`);
 console.log(`  latest.json   : ${outPath}`);
