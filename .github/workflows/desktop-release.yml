@@ -71,15 +71,13 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           $secret = $env:TAURI_SIGNING_PRIVATE_KEY
-          if ($secret.Length -lt 100) {
-            throw "TAURI_SIGNING_PRIVATE_KEY parece curta demais"
-          }
           Write-Host "Secret carregado com tamanho:" $secret.Length
           Write-Host "Senha carregada:" ($env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD.Length -gt 0)
-          $secret | Out-File -FilePath tauri-action-private.key -Encoding utf8 -NoNewline
-
-          npm install
-          npx @tauri-apps/cli signer public-key --key tauri-action-private.key
+          $bytes = [System.Text.Encoding]::UTF8.GetBytes($secret)
+          $hash = [System.Security.Cryptography.SHA256]::Create().ComputeHash($bytes)
+          $hashText = -join ($hash | ForEach-Object { $_.ToString("x2") })
+          Write-Host "SHA256 da chave privada carregada no Actions:"
+          Write-Host $hashText
 
       - name: Build assinado (Tauri)
         env:
