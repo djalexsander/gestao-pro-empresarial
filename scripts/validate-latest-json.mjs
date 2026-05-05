@@ -230,6 +230,27 @@ const PLATFORM_INSTALLERS = {
   "linux-armv7": [".AppImage", ".AppImage.tar.gz", ".deb", ".rpm"],
 };
 
+const REQUIRE_LOCAL_ASSETS = /^true$/i.test(process.env.REQUIRE_LOCAL_ASSETS || "");
+const CHECK_REMOTE_URLS = /^true$/i.test(process.env.CHECK_REMOTE_URLS || "");
+const bundleRoot = resolve(ROOT, "src-tauri/target/release/bundle");
+
+function listBundleFiles(dir = bundleRoot, out = []) {
+  if (!existsSync(dir)) return out;
+  for (const name of readdirSync(dir)) {
+    const path = join(dir, name);
+    const stat = statSync(path);
+    if (stat.isDirectory()) listBundleFiles(path, out);
+    else out.push({ path, name, size: stat.size });
+  }
+  return out;
+}
+
+const bundleFiles = listBundleFiles();
+
+function findBundleFile(name) {
+  return bundleFiles.find((f) => f.name === name) || null;
+}
+
 function endsWithAny(pathname, exts) {
   const lower = pathname.toLowerCase();
   return exts.some((ext) => lower.endsWith(ext.toLowerCase()));
