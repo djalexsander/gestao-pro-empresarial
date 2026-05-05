@@ -176,63 +176,121 @@ if (!data.pub_date || typeof data.pub_date !== "string") {
 }
 
 // -------------------- platforms --------------------
-let winUrl = null;
+/**
+ * Mapa de plataformas conhecidas do Tauri Updater v2 e as extensões válidas
+ * de instalador para cada uma. Plataformas fora dessa lista geram aviso
+ * (não falham) — o Tauri permite chaves customizadas.
+ */
+const PLATFORM_INSTALLERS = {
+  "windows-x86_64": [".exe", ".msi"],
+  "windows-aarch64": [".exe", ".msi"],
+  "windows-i686": [".exe", ".msi"],
+  "darwin-x86_64": [".app.tar.gz", ".dmg"],
+  "darwin-aarch64": [".app.tar.gz", ".dmg"],
+  "darwin-universal": [".app.tar.gz", ".dmg"],
+  "linux-x86_64": [".AppImage", ".AppImage.tar.gz", ".deb", ".rpm"],
+  "linux-aarch64": [".AppImage", ".AppImage.tar.gz", ".deb", ".rpm"],
+  "linux-armv7": [".AppImage", ".AppImage.tar.gz", ".deb", ".rpm"],
+};
+
+function endsWithAny(pathname, exts) {
+  const lower = pathname.toLowerCase();
+  return exts.some((ext) => lower.endsWith(ext.toLowerCase()));
+}
+
+const validatedPlatforms = [];
+
 if (!data.platforms || typeof data.platforms !== "object") {
   fail("`platforms` ausente.");
 } else {
-  const win = data.platforms["windows-x86_64"];
-  if (!win) {
-    fail('`platforms["windows-x86_64"]` ausente.');
-  } else {
+  const keys = Object.keys(data.platforms);
+  if (keys.length === 0) {
+    fail("`platforms` está vazio — nenhum alvo declarado.");
+  }
+
+  for (const key of keys) {
+    const entry = data.platforms[key];
+    const prefix = `platforms["${key}"]`;
+
+    if (!entry || typeof entry !== "object") {
+      fail(`${prefix} não é um objeto.`);
+      continue;
+    }
+
+    const allowedExts = PLATFORM_INSTALLERS[key];
+    if (!allowedExts) {
+      note(
+        `${prefix}: chave de plataforma desconhecida (não é padrão do Tauri Updater v2).`,
+      );
+    }
+
     // url
-    if (!win.url || typeof win.url !== "string") {
-      fail("`platforms.windows-x86_64.url` ausente.");
+    let urlOk = false;
+    if (!entry.url || typeof entry.url !== "string") {
+      fail(`${prefix}.url ausente.`);
     } else {
-      winUrl = win.url;
       try {
-        const u = new URL(win.url);
-        if (!/^https?:$/.test(u.protocol)) fail(`url não é http(s): ${win.url}`);
-        if (!/\.(exe|msi)$/i.test(decodeURIComponent(u.pathname))) {
-          fail(`url não termina em .exe/.msi: ${win.url}`);
+        const u = new URL(entry.url);
+        if (!/^https?:$/.test(u.protocol)) {
+          fail(`${prefix}.url não é http(s): ${entry.url}`);
+        }
+        const decoded = decodeURIComponent(u.pathname);
+        if (allowedExts && !endsWithAny(decoded, allowedExts)) {
+          fail(
+            `${prefix}.url não termina em ${allowedExts.join("/")} (instalador esperado para ${key}): ${entry.url}`,
+          );
+        } else if (
+          !allowedExts &&
+          !/\.(exe|msi|dmg|deb|rpm|AppImage|tar\.gz|zip)$/i.test(decoded)
+        ) {
+          note(
+            `${prefix}.url não tem extensão de instalador reconhecida: ${entry.url}`,
+          );
         }
         if (!u.hostname.includes("github.com")) {
-          note(`url não aponta para github.com: ${u.hostname}`);
+          note(`${prefix}.url não aponta para github.com: ${u.hostname}`);
         }
-        if (!u.pathname.includes("/djalexsander/gestao-pro-empresarial/")) {
-          fail(`url não aponta para o repo correto: ${win.url}`);
+        if (
+          u.hostname.includes("github.com") &&
+          !u.pathname.includes("/djalexsander/gestao-pro-empresarial/")
+        ) {
+          fail(`${prefix}.url não aponta para o repo correto: ${entry.url}`);
         }
-        // Consistência da tag/versão na URL
         if (data.version) {
-          const decoded = decodeURIComponent(u.pathname);
           const hasVersion =
             decoded.includes(`/v${data.version}/`) ||
             decoded.includes(`/${data.version}/`) ||
             decoded.includes(data.version);
           if (!hasVersion) {
             fail(
-              `url não contém a versão "${data.version}" — possível asset de release antiga: ${win.url}`,
+              `${prefix}.url não contém a versão "${data.version}" — possível asset de release antiga: ${entry.url}`,
             );
           }
         }
+        urlOk = true;
       } catch (e) {
-        fail(`url malformada: ${win.url} (${e.message})`);
+        fail(`${prefix}.url malformada: ${entry.url} (${e.message})`);
       }
     }
 
     // signature
-    if (!win.signature || typeof win.signature !== "string") {
-      fail("`platforms.windows-x86_64.signature` ausente.");
+    if (!entry.signature || typeof entry.signature !== "string") {
+      fail(`${prefix}.signature ausente.`);
     } else {
-      const sig = win.signature.trim();
+      const sig = entry.signature.trim();
       if (sig.length < 100) {
-        fail(`signature suspeitosamente curta (${sig.length} chars).`);
+        fail(`${prefix}.signature suspeitosamente curta (${sig.length} chars).`);
       }
       const hasMinisignHeader = /untrusted comment:/i.test(sig);
       const looksLikeRawTauriSignature = /^[A-Za-z0-9+/=\r\n]+$/.test(sig);
       if (!hasMinisignHeader && !looksLikeRawTauriSignature) {
-        fail("signature não parece ser uma assinatura Tauri/minisign válida.");
+        fail(
+          `${prefix}.signature não parece ser uma assinatura Tauri/minisign válida.`,
+        );
       }
     }
+
+    if (urlOk) validatedPlatforms.push({ key, url: entry.url });
   }
 }
 
