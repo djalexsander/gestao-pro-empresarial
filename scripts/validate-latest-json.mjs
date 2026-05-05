@@ -18,7 +18,7 @@
  *   - `platforms["windows-x86_64"]` presente
  *   - `url` é http(s) e termina em .exe (instalador NSIS)
  *   - `url` aponta para o repo correto
- *   - `signature` não-vazia e parece minisign (header "untrusted comment")
+ *   - `signature` não-vazia e parece uma assinatura válida do Tauri
  */
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
@@ -109,9 +109,11 @@ if (!data.platforms || typeof data.platforms !== "object") {
       if (sig.length < 100) {
         fail(`signature suspeitosamente curta (${sig.length} chars).`);
       }
-      if (!/untrusted comment:/i.test(sig)) {
+      const hasMinisignHeader = /untrusted comment:/i.test(sig);
+      const looksLikeRawTauriSignature = /^[A-Za-z0-9+/=\r\n]+$/.test(sig);
+      if (!hasMinisignHeader && !looksLikeRawTauriSignature) {
         fail(
-          "signature não contém header minisign 'untrusted comment:' — provável conteúdo errado.",
+          "signature não parece ser uma assinatura Tauri/minisign válida.",
         );
       }
     }
