@@ -77,7 +77,9 @@ jobs:
           Write-Host "Secret carregado com tamanho:" $secret.Length
           Write-Host "Senha carregada:" ($env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD.Length -gt 0)
           $secret | Out-File -FilePath tauri-action-private.key -Encoding utf8 -NoNewline
-          npx tauri signer public-key --key tauri-action-private.key
+
+          npm install
+          npx @tauri-apps/cli signer public-key --key tauri-action-private.key
 
       - name: Build assinado (Tauri)
         env:
