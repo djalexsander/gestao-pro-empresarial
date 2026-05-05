@@ -12,13 +12,14 @@
  *
  * Verifica:
  *   - Arquivo existe e é JSON válido
- *   - `version` em formato semver (X.Y.Z[-pre])
- *   - `version` bate com package.json
- *   - `pub_date` em ISO-8601
+ *   - `version` em formato semver estrito (X.Y.Z[-pre][+build])
+ *   - `version` consistente entre latest.json, package.json,
+ *     src-tauri/tauri.conf.json, src-tauri/Cargo.toml e src/lib/version.ts
+ *   - `pub_date` em ISO-8601 com timezone, não no futuro, não > 1 ano atrás
  *   - `platforms["windows-x86_64"]` presente
- *   - `url` é http(s) e termina em .exe (instalador NSIS)
- *   - `url` aponta para o repo correto
- *   - `signature` não-vazia e parece uma assinatura válida do Tauri
+ *   - `url` é http(s), termina em .exe/.msi, aponta para o repo correto
+ *     e contém a tag/versão correta
+ *   - `signature` não-vazia e parece uma assinatura Tauri/minisign válida
  */
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
@@ -30,6 +31,7 @@ const target = resolve(ROOT, process.argv[2] || DEFAULT_PATH);
 const errors = [];
 const warn = [];
 const fail = (m) => errors.push(m);
+const note = (m) => warn.push(m);
 
 if (!existsSync(target)) {
   console.error(`✖ latest.json não encontrado em ${target}`);
@@ -44,35 +46,137 @@ try {
   process.exit(1);
 }
 
-// --- version ---
-const semver = /^\d+\.\d+\.\d+(?:-[\w.]+)?$/;
+// -------------------- semver --------------------
+// Estrito: X.Y.Z, com pré-release e build metadata opcionais (SemVer 2.0.0)
+const SEMVER_RE =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
+
+function parseSemver(v) {
+  const m = SEMVER_RE.exec(v);
+  if (!m) return null;
+  return {
+    major: Number(m[1]),
+    minor: Number(m[2]),
+    patch: Number(m[3]),
+    prerelease: m[4] || "",
+    build: m[5] || "",
+    core: `${m[1]}.${m[2]}.${m[3]}`,
+  };
+}
+
+// -------------------- version --------------------
+let parsed = null;
 if (!data.version || typeof data.version !== "string") {
   fail("`version` ausente ou não-string.");
-} else if (!semver.test(data.version)) {
-  fail(`\`version\` não é semver válido: "${data.version}".`);
-}
-
-// version vs package.json
-try {
-  const pkg = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8"));
-  if (data.version && pkg.version && data.version !== pkg.version) {
-    fail(
-      `\`version\` (${data.version}) diverge de package.json (${pkg.version}).`,
+} else {
+  parsed = parseSemver(data.version);
+  if (!parsed) {
+    fail(`\`version\` não é semver válido (SemVer 2.0.0): "${data.version}".`);
+  } else if (parsed.prerelease) {
+    note(
+      `version contém pré-release ("${parsed.prerelease}") — clientes estáveis podem ignorar.`,
     );
   }
-} catch {
-  warn.push("Não foi possível ler package.json para comparar version.");
 }
 
-// --- pub_date ---
+// -------------------- consistência entre fontes de versão --------------------
+function readVersionFromFile(path, extractor) {
+  try {
+    const txt = readFileSync(resolve(ROOT, path), "utf8");
+    return { path, version: extractor(txt) };
+  } catch {
+    return { path, version: null, missing: true };
+  }
+}
+
+const sources = [
+  readVersionFromFile("package.json", (t) => {
+    try {
+      return JSON.parse(t).version || null;
+    } catch {
+      return null;
+    }
+  }),
+  readVersionFromFile("src-tauri/tauri.conf.json", (t) => {
+    try {
+      return JSON.parse(t).version || null;
+    } catch {
+      return null;
+    }
+  }),
+  readVersionFromFile("src-tauri/Cargo.toml", (t) => {
+    // Pega a primeira ocorrência de `version = "X.Y.Z"` (deve ser do [package])
+    const m = /^\s*version\s*=\s*"([^"]+)"/m.exec(t);
+    return m ? m[1] : null;
+  }),
+  readVersionFromFile("src/lib/version.ts", (t) => {
+    const m = /version\s*[:=]\s*["'`]([^"'`]+)["'`]/i.exec(t);
+    return m ? m[1] : null;
+  }),
+];
+
+if (data.version) {
+  for (const s of sources) {
+    if (s.missing) continue; // tudo bem se o arquivo não existe (ex.: version.ts opcional)
+    if (!s.version) {
+      note(`Não foi possível extrair version de ${s.path}.`);
+      continue;
+    }
+    const p = parseSemver(s.version);
+    if (!p) {
+      fail(`${s.path} tem version não-semver: "${s.version}".`);
+      continue;
+    }
+    if (s.version !== data.version) {
+      // Permite diferença apenas em build metadata; pré-release deve bater.
+      if (parsed && p.core === parsed.core && p.prerelease === parsed.prerelease) {
+        note(
+          `${s.path} (${s.version}) difere de latest.json (${data.version}) apenas em build metadata.`,
+        );
+      } else {
+        fail(
+          `Versão divergente: ${s.path}=${s.version} ≠ latest.json=${data.version}.`,
+        );
+      }
+    }
+  }
+}
+
+// -------------------- pub_date --------------------
+const ISO_RE =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/;
+
 if (!data.pub_date || typeof data.pub_date !== "string") {
   fail("`pub_date` ausente.");
 } else {
+  if (!ISO_RE.test(data.pub_date)) {
+    fail(
+      `\`pub_date\` não é ISO-8601 com timezone: "${data.pub_date}" (esperado ex.: 2026-05-05T12:34:56Z).`,
+    );
+  }
   const d = new Date(data.pub_date);
-  if (isNaN(d.getTime())) fail(`\`pub_date\` inválida: "${data.pub_date}".`);
+  if (isNaN(d.getTime())) {
+    fail(`\`pub_date\` não parseável: "${data.pub_date}".`);
+  } else {
+    const now = Date.now();
+    const diff = d.getTime() - now;
+    // Tolerância de 10 min para clock skew
+    if (diff > 10 * 60 * 1000) {
+      fail(
+        `\`pub_date\` está no futuro (${data.pub_date}) — verifique o relógio do runner.`,
+      );
+    }
+    const ONE_YEAR = 365 * 24 * 60 * 60 * 1000;
+    if (now - d.getTime() > ONE_YEAR) {
+      note(
+        `\`pub_date\` tem mais de 1 ano (${data.pub_date}) — release antiga?`,
+      );
+    }
+  }
 }
 
-// --- platforms ---
+// -------------------- platforms --------------------
+let winUrl = null;
 if (!data.platforms || typeof data.platforms !== "object") {
   fail("`platforms` ausente.");
 } else {
@@ -84,6 +188,7 @@ if (!data.platforms || typeof data.platforms !== "object") {
     if (!win.url || typeof win.url !== "string") {
       fail("`platforms.windows-x86_64.url` ausente.");
     } else {
+      winUrl = win.url;
       try {
         const u = new URL(win.url);
         if (!/^https?:$/.test(u.protocol)) fail(`url não é http(s): ${win.url}`);
@@ -91,10 +196,23 @@ if (!data.platforms || typeof data.platforms !== "object") {
           fail(`url não termina em .exe/.msi: ${win.url}`);
         }
         if (!u.hostname.includes("github.com")) {
-          warn.push(`url não aponta para github.com: ${u.hostname}`);
+          note(`url não aponta para github.com: ${u.hostname}`);
         }
         if (!u.pathname.includes("/djalexsander/gestao-pro-empresarial/")) {
           fail(`url não aponta para o repo correto: ${win.url}`);
+        }
+        // Consistência da tag/versão na URL
+        if (data.version) {
+          const decoded = decodeURIComponent(u.pathname);
+          const hasVersion =
+            decoded.includes(`/v${data.version}/`) ||
+            decoded.includes(`/${data.version}/`) ||
+            decoded.includes(data.version);
+          if (!hasVersion) {
+            fail(
+              `url não contém a versão "${data.version}" — possível asset de release antiga: ${win.url}`,
+            );
+          }
         }
       } catch (e) {
         fail(`url malformada: ${win.url} (${e.message})`);
@@ -112,15 +230,13 @@ if (!data.platforms || typeof data.platforms !== "object") {
       const hasMinisignHeader = /untrusted comment:/i.test(sig);
       const looksLikeRawTauriSignature = /^[A-Za-z0-9+/=\r\n]+$/.test(sig);
       if (!hasMinisignHeader && !looksLikeRawTauriSignature) {
-        fail(
-          "signature não parece ser uma assinatura Tauri/minisign válida.",
-        );
+        fail("signature não parece ser uma assinatura Tauri/minisign válida.");
       }
     }
   }
 }
 
-// --- saída ---
+// -------------------- saída --------------------
 if (warn.length) {
   console.warn("\n⚠ Avisos:");
   for (const w of warn) console.warn("  - " + w);
@@ -136,7 +252,13 @@ if (errors.length) {
 console.log("✓ latest.json válido");
 console.log(`  version : ${data.version}`);
 console.log(`  pub_date: ${data.pub_date}`);
-console.log(`  url     : ${data.platforms["windows-x86_64"].url}`);
+console.log(`  url     : ${winUrl}`);
 console.log(
   `  sig     : ${data.platforms["windows-x86_64"].signature.slice(0, 60)}…`,
+);
+console.log(
+  `  fontes  : ${sources
+    .filter((s) => !s.missing && s.version)
+    .map((s) => `${s.path}=${s.version}`)
+    .join(", ")}`,
 );
