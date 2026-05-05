@@ -57,6 +57,10 @@ function normalizeOne({ dir, ext, desiredName }) {
 
   const renamedInstaller = renameReplacing(currentPath, desiredPath);
   const renamedSignature = renameReplacing(currentSigPath, desiredSigPath);
+  for (const staleName of candidates.filter((name) => name !== currentName && name !== desiredName)) {
+    rmSync(join(dir, staleName), { force: true });
+    rmSync(join(dir, `${staleName}.sig`), { force: true });
+  }
   const safe = !UNSAFE_ASSET_RE.test(desiredName) && !UNSAFE_ASSET_RE.test(`${desiredName}.sig`);
   if (!safe) fail(`Nome normalizado ainda contém caracteres inseguros: ${desiredName}`);
 
