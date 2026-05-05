@@ -74,6 +74,10 @@ jobs:
         shell: bash
         run: node scripts/generate-latest-json.mjs
 
+      - name: Validar latest.json (campos obrigatórios + URL + assinatura)
+        shell: bash
+        run: node scripts/validate-latest-json.mjs
+
       - name: Listar artefatos do bundle
         shell: bash
         run: |
