@@ -321,6 +321,8 @@ if (!data.platforms || typeof data.platforms !== "object") {
 
     // url
     let urlOk = false;
+    let assetName = "";
+    let localAsset = null;
     if (!entry.url || typeof entry.url !== "string") {
       fail(`${prefix}.url ausente.`);
     } else {
@@ -329,7 +331,8 @@ if (!data.platforms || typeof data.platforms !== "object") {
         if (!/^https?:$/.test(u.protocol)) {
           fail(`${prefix}.url não é http(s): ${entry.url}`);
         }
-        const decoded = decodeURIComponent(u.pathname);
+        const decoded = safeDecodePath(u.pathname);
+        assetName = basename(decoded);
         if (allowedExts && !endsWithAny(decoded, allowedExts)) {
           fail(
             `${prefix}.url não termina em ${allowedExts.join("/")} (instalador esperado para ${key}): ${entry.url}`,
@@ -345,11 +348,36 @@ if (!data.platforms || typeof data.platforms !== "object") {
         if (!u.hostname.includes("github.com")) {
           note(`${prefix}.url não aponta para github.com: ${u.hostname}`);
         }
+        const isGitHubUrl = u.hostname === "github.com" || u.hostname.endsWith(".github.com");
         if (
-          u.hostname.includes("github.com") &&
-          !u.pathname.includes("/djalexsander/gestao-pro-empresarial/")
+          isGitHubUrl &&
+          !decoded.toLowerCase().includes(`/${expectedRepo}/`)
         ) {
-          fail(`${prefix}.url não aponta para o repo correto: ${entry.url}`);
+          fail(`${prefix}.url não aponta para o repo correto (${expectedRepo}): ${entry.url}`);
+        }
+        if (isGitHubUrl && expectedTag) {
+          const tagPath = `/${expectedRepo}/releases/download/${expectedTag}/`.toLowerCase();
+          const latestPath = `/${expectedRepo}/releases/latest/download/`.toLowerCase();
+          const decodedLower = decoded.toLowerCase();
+          if (decodedLower.includes(latestPath)) {
+            fail(
+              `${prefix}.url usa /releases/latest/download para o instalador. Use URL tagada /releases/download/${expectedTag}/${assetName} para evitar 404 por release/latest divergente.`,
+            );
+          } else if (!decodedLower.includes(tagPath)) {
+            fail(`${prefix}.url não aponta para a tag esperada "${expectedTag}": ${entry.url}`);
+          }
+        }
+        if (!assetName) {
+          fail(`${prefix}.url não contém nome de arquivo no caminho: ${entry.url}`);
+        } else {
+          localAsset = findBundleFile(assetName);
+          if (!localAsset) {
+            const message = `${prefix}.url referencia "${assetName}", mas esse arquivo não foi encontrado em src-tauri/target/release/bundle.`;
+            if (REQUIRE_LOCAL_ASSETS) fail(message);
+            else note(message);
+          } else if (localAsset.size <= 0) {
+            fail(`${prefix}.url referencia "${assetName}", mas o arquivo local está vazio.`);
+          }
         }
         if (data.version) {
           // Aceita variações comuns de nome do arquivo:
@@ -387,6 +415,7 @@ if (!data.platforms || typeof data.platforms !== "object") {
             );
           }
         }
+        await checkRemoteDownload(entry.url, `${prefix}.url`);
         urlOk = true;
       } catch (e) {
         fail(`${prefix}.url malformada: ${entry.url} (${e.message})`);
@@ -407,6 +436,21 @@ if (!data.platforms || typeof data.platforms !== "object") {
         fail(
           `${prefix}.signature não parece ser uma assinatura Tauri/minisign válida.`,
         );
+      }
+      if (localAsset) {
+        const sigAsset = findBundleFile(`${localAsset.name}.sig`);
+        if (!sigAsset) {
+          const message = `${prefix}.signature: arquivo local ${localAsset.name}.sig não encontrado ao lado dos bundles.`;
+          if (REQUIRE_LOCAL_ASSETS) fail(message);
+          else note(message);
+        } else {
+          const diskSig = readFileSync(sigAsset.path, "utf8").trim();
+          if (!diskSig) {
+            fail(`${prefix}.signature: arquivo ${sigAsset.name} está vazio.`);
+          } else if (diskSig !== sig) {
+            fail(`${prefix}.signature diverge do conteúdo de ${sigAsset.name}.`);
+          }
+        }
       }
     }
 
