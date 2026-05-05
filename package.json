@@ -1,6 +1,6 @@
 {
   "name": "tanstack_start_ts",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "private": true,
   "sideEffects": false,
   "type": "module",
@@ -13,8 +13,9 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "npm run build:desktop && tauri build",
+    "normalize:tauri-assets": "node scripts/normalize-tauri-release-assets.mjs",
     "generate:latest": "node scripts/generate-latest-json.mjs",
-    "tauri:build:signed": "npm run build:desktop && tauri build && npm run generate:latest",
+    "tauri:build:signed": "npm run build:desktop && tauri build && npm run normalize:tauri-assets && npm run generate:latest",
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write ."
