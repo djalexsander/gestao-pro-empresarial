@@ -39,6 +39,7 @@ const releaseTag = process.env.RELEASE_TAG || process.env.GITHUB_REF_NAME || `v$
 const repoDownloadUrl = `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${encodeURIComponent(
   releaseTag,
 )}`;
+const UNSAFE_ASSET_RE = /[^A-Za-z0-9._-]/;
 
 // 2. Pasta NSIS
 const nsisDir = resolve(ROOT, "src-tauri/target/release/bundle/nsis");
@@ -54,12 +55,21 @@ const exeFile = files.find(
   (f) => f.toLowerCase().endsWith(".exe") && !f.endsWith(".sig"),
 );
 if (!exeFile) fail(`Nenhum instalador .exe encontrado em ${nsisDir}.`);
+if (UNSAFE_ASSET_RE.test(exeFile)) {
+  fail(
+    `Instalador com nome inseguro: "${exeFile}". ` +
+      `Rode \\`npm run normalize:tauri-assets\\` antes de gerar o latest.json.`,
+  );
+}
 
 const sigFile =
   files.find((f) => f === `${exeFile}.sig`) ||
   files.find((f) => f.toLowerCase().endsWith(".exe.sig"));
 if (!sigFile)
   fail(`Arquivo de assinatura .exe.sig não encontrado para ${exeFile}.`);
+if (sigFile !== `${exeFile}.sig`) {
+  fail(`Assinatura esperada não encontrada: ${exeFile}.sig (encontrado: ${sigFile}).`);
+}
 
 const sigPath = join(nsisDir, sigFile);
 const signature = readFileSync(sigPath, "utf8").trim();
