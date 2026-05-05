@@ -81,6 +81,20 @@ function parseSemver(v) {
   };
 }
 
+const expectedTag = (() => {
+  const tag = process.env.RELEASE_TAG || process.env.GITHUB_REF_NAME || "";
+  return tag || (typeof data.version === "string" ? `v${data.version}` : "");
+})();
+
+const expectedRepo = (() => {
+  const fromEnv = process.env.GITHUB_REPOSITORY;
+  if (fromEnv && /^[^/]+\/[^/]+$/.test(fromEnv)) return fromEnv.toLowerCase();
+  return "djalexsander/gestao-pro-empresarial";
+})();
+
+const tauriConfig = readJsonFile("src-tauri/tauri.conf.json");
+const updaterConfig = tauriConfig?.plugins?.updater;
+
 // -------------------- version --------------------
 let parsed = null;
 if (!data.version || typeof data.version !== "string") {
