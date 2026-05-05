@@ -55,6 +55,13 @@ const exeFile = files.find(
   (f) => f.toLowerCase().endsWith(".exe") && !f.endsWith(".sig"),
 );
 if (!exeFile) fail(`Nenhum instalador .exe encontrado em ${nsisDir}.`);
+const unsafeFiles = files.filter((f) => /\.(exe|msi)(\.sig)?$/i.test(f) && UNSAFE_ASSET_RE.test(f));
+if (unsafeFiles.length) {
+  fail(
+    `Artefatos com nomes inseguros encontrados: ${unsafeFiles.join(", ")}. ` +
+      `Rode \\`npm run normalize:tauri-assets\\` antes de gerar o latest.json.`,
+  );
+}
 if (UNSAFE_ASSET_RE.test(exeFile)) {
   fail(
     `Instalador com nome inseguro: "${exeFile}". ` +
