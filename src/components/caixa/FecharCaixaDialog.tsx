@@ -236,15 +236,25 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
               )}
             >
               <div className="flex items-center justify-between">
-                <span className="font-medium">Diferença</span>
+                <span className="font-medium">
+                  Diferença
+                  {tipoDiferenca && (
+                    <span className="ml-2 rounded-full bg-background/60 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+                      {tipoDiferenca}
+                    </span>
+                  )}
+                </span>
                 <span className="font-mono text-base font-bold tabular-nums">
                   {diferenca > 0 ? "+" : ""}
                   {formatBRL(diferenca)}
                 </span>
               </div>
-              {Math.abs(diferenca) >= 0.009 && (
+              {tipoDiferenca && (
                 <p className="mt-1 text-xs">
-                  {diferenca > 0 ? "Sobra de caixa" : "Falta de caixa"} — informe uma justificativa.
+                  {tipoDiferenca === "sobra" ? "Sobra de caixa" : "Falta de caixa"}
+                  {Math.abs(diferenca) >= LIMITE_JUSTIFICATIVA
+                    ? " — justifique o motivo abaixo."
+                    : " — justificativa opcional para diferenças pequenas."}
                 </p>
               )}
             </div>
