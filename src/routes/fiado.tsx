@@ -393,8 +393,8 @@ function FiadoContent() {
       { header: "Última compra", accessor: (r) => r.ultimaCompra ?? "" },
       { header: "Status", accessor: (r) => r.status },
     ];
-    await exportRowsToCSV("fiado_clientes", filtrados, cols, {
-      relatorio: "Clientes fiado",
+    await exportRowsToCSV("clientes_a_receber", filtrados, cols, {
+      relatorio: "Clientes a receber",
     });
     toast.success("CSV gerado.");
   }
