@@ -1421,8 +1421,17 @@ function PDVPage() {
                           <CommandItem
                             key={p.id}
                             value={p.id}
-                            onSelect={() => {
+                            onSelect={async () => {
                               const qtdAplicada = multiplicador > 1 ? multiplicador : 1;
+                              const okSaldo = await verificarSaldoAntesAdicionar(
+                                p.id,
+                                p.nome,
+                                qtdAplicada,
+                              );
+                              if (!okSaldo) {
+                                if (multiplicador > 1) setMultiplicador(1);
+                                return;
+                              }
                               addItemFromProduto(
                                 {
                                   produto_id: p.id,
