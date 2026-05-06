@@ -84,7 +84,19 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
   }, [informadoNum, valorEsperado, valorInformado]);
 
   const temDiferenca = diferenca !== null && Math.abs(diferenca) > 0.009;
-  const exigeJustificativa = temDiferenca && observacao.trim().length === 0;
+  // Limite acima do qual a justificativa passa a ser obrigatória.
+  // Diferenças pequenas (centavos de troco) não bloqueiam o fechamento.
+  const LIMITE_JUSTIFICATIVA = 5;
+  const tipoDiferenca: "sobra" | "falta" | null =
+    diferenca === null || Math.abs(diferenca) < 0.009
+      ? null
+      : diferenca > 0
+        ? "sobra"
+        : "falta";
+  const exigeJustificativa =
+    diferenca !== null &&
+    Math.abs(diferenca) >= LIMITE_JUSTIFICATIVA &&
+    observacao.trim().length === 0;
 
   async function confirmar() {
     if (Number.isNaN(informadoNum) || informadoNum < 0) return;
@@ -224,15 +236,25 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
               )}
             >
               <div className="flex items-center justify-between">
-                <span className="font-medium">Diferença</span>
+                <span className="font-medium">
+                  Diferença
+                  {tipoDiferenca && (
+                    <span className="ml-2 rounded-full bg-background/60 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+                      {tipoDiferenca}
+                    </span>
+                  )}
+                </span>
                 <span className="font-mono text-base font-bold tabular-nums">
                   {diferenca > 0 ? "+" : ""}
                   {formatBRL(diferenca)}
                 </span>
               </div>
-              {Math.abs(diferenca) >= 0.009 && (
+              {tipoDiferenca && (
                 <p className="mt-1 text-xs">
-                  {diferenca > 0 ? "Sobra de caixa" : "Falta de caixa"} — informe uma justificativa.
+                  {tipoDiferenca === "sobra" ? "Sobra de caixa" : "Falta de caixa"}
+                  {Math.abs(diferenca) >= LIMITE_JUSTIFICATIVA
+                    ? " — justifique o motivo abaixo."
+                    : " — justificativa opcional para diferenças pequenas."}
                 </p>
               )}
             </div>
@@ -241,7 +263,11 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
           {/* Justificativa */}
           <div className="space-y-2">
             <Label htmlFor="fech-obs" className="flex items-center gap-2">
-              Observação {temDiferenca && <Badge variant="destructive" className="text-[10px]">obrigatória</Badge>}
+              Observação
+              {exigeJustificativa && <Badge variant="destructive" className="text-[10px]">obrigatória</Badge>}
+              {temDiferenca && !exigeJustificativa && (
+                <Badge variant="secondary" className="text-[10px]">recomendada</Badge>
+              )}
             </Label>
             <Textarea
               id="fech-obs"
@@ -252,7 +278,7 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
             />
             {exigeJustificativa && (
               <p className="flex items-center gap-1 text-xs text-destructive">
-                <AlertTriangle className="h-3 w-3" /> Justificativa obrigatória quando há diferença.
+                <AlertTriangle className="h-3 w-3" /> Justificativa obrigatória para diferenças acima de {formatBRL(LIMITE_JUSTIFICATIVA)}.
               </p>
             )}
           </div>
