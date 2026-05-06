@@ -127,6 +127,25 @@ import type {
   ProdutoComVariacoes,
   ProdutosListInput,
 } from "./types";
+import type {
+  CompraComFornecedorDomain,
+  CompraDetalheDomain,
+  CompraMetadadosInput,
+  CompraStatusDomain,
+  CriarCompraInput,
+  DashboardData,
+  FornecedorMetricaDomain,
+  ReceberCompraInput,
+  ReceberCompraItensInput,
+  ReceberCompraItensResult,
+  SaldosEstoqueLote,
+  VendaDetalheDomain,
+  VendaListItemDomain,
+  VendaMetricasDomain,
+  VendaMetricasPeriodoInput,
+  VendaStatusHistoricoDomain,
+  VendasListInput,
+} from "./extra-types";
 
 export interface ProdutosAdapter {
   /**
@@ -289,6 +308,16 @@ export interface VendasAdapter {
    *    estoque — uso administrativo para limpar pendências.
    */
   alterarStatus(input: AlterarStatusVendaInput): Promise<AlterarStatusVendaResult>;
+
+  // ---------------------------- Reads ----------------------------
+  /** Lista vendas com cliente_nome resolvido. Limit default ~500. */
+  list(input?: VendasListInput): Promise<VendaListItemDomain[]>;
+  /** Detalhe completo de venda (itens, pagamentos, totais pagos). */
+  detalhe(vendaId: string): Promise<VendaDetalheDomain | null>;
+  /** Histórico de mudança de status. */
+  historico(vendaId: string): Promise<VendaStatusHistoricoDomain[]>;
+  /** Métricas agregadas por período (RPC `venda_metricas_periodo`). */
+  metricasPeriodo(input: VendaMetricasPeriodoInput): Promise<VendaMetricasDomain>;
 }
 
 export interface CaixaAdapter {
@@ -477,8 +506,10 @@ export interface EstoqueAdapter {
    * crescer, o adapter local pode calcular o saldo já agregado.
    */
   saldosLinhas(): Promise<EstoqueSaldoLinha[]>;
-  /** Histórico de movimentações com produto “joinado”. */
+  /** Histórico de movimentações com produto "joinado". */
   movimentacoes(input?: MovimentacoesListInput): Promise<MovimentacaoEstoqueDomain[]>;
+  /** Saldos em lote para validação rápida no PDV (RPC `saldos_estoque_lote`). */
+  saldosLote(produtoIds: string[]): Promise<SaldosEstoqueLote>;
 }
 
 /**
@@ -670,6 +701,28 @@ export interface LotesAdapter {
   list(input?: LotesListInput): Promise<LoteComSaldoDomain[]>;
 }
 
+/**
+ * Compras — listagem, criação, recebimento (parcial/total) e métricas.
+ * Toda escrita complexa pode passar por RPC (recebimento). Para criação
+ * o adapter cloud faz INSERT direto em `compras` + `compra_itens`.
+ */
+export interface ComprasAdapter {
+  list(input?: { limit?: number }): Promise<CompraComFornecedorDomain[]>;
+  get(compraId: string): Promise<CompraDetalheDomain | null>;
+  criar(input: CriarCompraInput): Promise<CompraComFornecedorDomain>;
+  atualizarStatus(input: { id: string; status: CompraStatusDomain }): Promise<void>;
+  atualizarMetadados(input: CompraMetadadosInput): Promise<void>;
+  receber(input: ReceberCompraInput): Promise<unknown>;
+  receberItens(input: ReceberCompraItensInput): Promise<ReceberCompraItensResult>;
+  excluir(compraId: string): Promise<void>;
+  fornecedorMetricas(): Promise<Map<string, FornecedorMetricaDomain>>;
+}
+
+/** Dashboard agregado — uma única chamada que monta todos os KPIs. */
+export interface DashboardAdapter {
+  carregar(): Promise<DashboardData>;
+}
+
 export interface DataAdapter {
   produtos: ProdutosAdapter;
   vendas: VendasAdapter;
@@ -682,5 +735,7 @@ export interface DataAdapter {
   categoriasProduto: CategoriasProdutoAdapter;
   categoriasFinanceiras: CategoriasFinanceirasAdapter;
   lotes: LotesAdapter;
+  compras: ComprasAdapter;
+  dashboard: DashboardAdapter;
   // realtime: RealtimeAdapter;
 }

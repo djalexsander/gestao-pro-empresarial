@@ -238,3 +238,13 @@ export interface DashboardData {
 // =============== Estoque adicional ===============
 /** Map produto_id -> saldo */
 export type SaldosEstoqueLote = Map<string, number>;
+
+// =============== Vendas — input listas/métricas ===============
+export interface VendasListInput {
+  limit?: number;
+}
+
+export interface VendaMetricasPeriodoInput {
+  data_inicio: string;
+  data_fim: string;
+}
