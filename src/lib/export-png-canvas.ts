@@ -618,6 +618,26 @@ function dataUrlToBytes(dataUrl: string): Uint8Array {
 }
 
 export function downloadCanvasAsPng(canvas: HTMLCanvasElement, filename: string) {
+  // Preferimos toBlob — evita string base64 gigante (que estoura limites em
+  // canvases altos e gera PNGs truncados / "print-only"). Fallback para
+  // toDataURL apenas se toBlob não estiver disponível.
+  if (typeof canvas.toBlob === "function") {
+    canvas.toBlob(async (blob) => {
+      if (!blob) {
+        // Fallback se o navegador retornar null (geralmente canvas grande demais)
+        try {
+          const dataUrl = canvas.toDataURL("image/png");
+          await saveBytes(dataUrlToBytes(dataUrl), filename, "image/png");
+        } catch {
+          /* swallow */
+        }
+        return;
+      }
+      const buf = new Uint8Array(await blob.arrayBuffer());
+      void saveBytes(buf, filename, "image/png");
+    }, "image/png");
+    return;
+  }
   const dataUrl = canvas.toDataURL("image/png");
   void saveBytes(dataUrlToBytes(dataUrl), filename, "image/png");
 }
