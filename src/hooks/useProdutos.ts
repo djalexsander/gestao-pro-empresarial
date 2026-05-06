@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import { dataClient } from "@/integrations/data";
 import type { Produto, ProdutoComCategoria, TipoIdentificacao } from "@/integrations/data";
 
@@ -40,13 +39,8 @@ export function useCreateCategoria() {
     mutationFn: async (nome: string): Promise<Categoria> => {
       const client_uuid = crypto.randomUUID();
       const r = await dataClient.produtos.criarCategoria({ nome, client_uuid });
-      const { data, error } = await supabase
-        .from("categorias_produto")
-        .select("id, nome, parent_id, ativo")
-        .eq("id", r.categoria_id)
-        .single();
-      if (error) throw error;
-      return data as Categoria;
+      // Sem re-fetch: a UI só usa o id. Demais campos são padrão.
+      return { id: r.categoria_id, nome, parent_id: null, ativo: true };
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["categorias"] });
@@ -211,14 +205,7 @@ export function useCreateVariacao() {
         ...input,
         client_uuid,
       });
-      // Mantém contrato (retorno usado por dialogs): re-busca a linha.
-      const { data, error } = await supabase
-        .from("produto_variacoes")
-        .select("*")
-        .eq("id", r.variacao_id)
-        .single();
-      if (error) throw error;
-      return data;
+      return { id: r.variacao_id };
     },
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["produto", vars.produto_id] });
