@@ -978,8 +978,10 @@ function BlocoModais({
           { key: "vencimento", header: "Vencimento", format: "date" },
           { key: "valor", header: "Valor", format: "currency", align: "right" },
         ]}
+        vendaIdField="venda_id"
         rows={vencidosLanc.map((l) => ({
           id: l.id,
+          venda_id: l.venda_id,
           descricao: l.descricao,
           tipo: l.tipo === "receber" ? "A receber" : "A pagar",
           vencimento: l.data_vencimento,
