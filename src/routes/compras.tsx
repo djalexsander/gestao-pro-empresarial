@@ -210,18 +210,17 @@ export function PurchasesPage() {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Select value={fornecedorFiltro} onValueChange={setFornecedorFiltro}>
               <SelectTrigger>
-                <SelectValue placeholder="Fornecedor" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos os fornecedores</SelectItem>
-                <SelectItem value="sem">Sem fornecedor</SelectItem>
-                {fornecedores.map((f) => (
-                  <SelectItem key={f.id} value={f.id}>
-                    {f.nome_fantasia || f.razao_social}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <FornecedorSearchSelect
+              value={fornecedorFiltro}
+              fornecedores={fornecedores}
+              filter={() => true}
+              extraOptions={[
+                { value: "todos", label: "Todos os fornecedores" },
+                { value: "sem", label: "Sem fornecedor" },
+              ]}
+              onChange={(v) => setFornecedorFiltro(v)}
+              placeholder="Fornecedor"
+            />
             <Input
               type="date"
               value={dataIni}
