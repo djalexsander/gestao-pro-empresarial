@@ -56,6 +56,7 @@ import {
   type LancamentoDetalhe,
 } from "@/components/financeiro/LancamentoDetalheDialog";
 import { ConciliarIfoodDialog } from "@/components/financeiro/ConciliarIfoodDialog";
+import { CaixaRelatorioDialog } from "@/components/caixa/CaixaRelatorioDialog";
 import { LancamentoFormDialog } from "@/components/financeiro/LancamentoFormDialog";
 import {
   BlocoDetalheDialog,
@@ -1096,6 +1097,7 @@ interface FluxoRow {
   descricao: string;
   valor: number; // positivo = entrada, negativo = saída
   status?: string | null;
+  caixaId?: string | null;
   // Operacional = não conta como receita/despesa real (fundo de troco,
   // encerramento). Apenas informativo no extrato.
   operacional?: boolean;
@@ -1275,6 +1277,7 @@ function FluxoCaixaPanel() {
           valor: number;
           motivo: string | null;
           created_at: string;
+          caixa_id: string | null;
         }) => {
           const tipo = m.tipo as FluxoTipo;
           const bruto = Number(m.valor) || 0;
@@ -1282,11 +1285,6 @@ function FluxoCaixaPanel() {
           let valor = bruto;
           if (tipo === "sangria" || tipo === "fechamento") valor = -Math.abs(bruto);
           else valor = Math.abs(bruto);
-          // Abertura e fechamento são movimentos OPERACIONAIS do caixa
-          // (fundo de troco / encerramento) — não são receita/despesa real.
-          // Mantemos a linha no extrato com valor informativo, mas eles não
-          // entram no cálculo de entradas, saídas, saldo do período nem no
-          // saldo acumulado real.
           const operacional = tipo === "abertura" || tipo === "fechamento";
           return {
             id: `mov-${m.id}`,
@@ -1296,6 +1294,7 @@ function FluxoCaixaPanel() {
             descricao: m.motivo ?? TIPO_LABEL[tipo] ?? "Movimento de caixa",
             valor,
             operacional,
+            caixaId: m.caixa_id,
           };
         },
       );
@@ -1378,6 +1377,7 @@ function FluxoCaixaPanel() {
   }, [rows]);
 
   const [conciliarLoteOpen, setConciliarLoteOpen] = useState(false);
+  const [caixaRelatorio, setCaixaRelatorio] = useState<string | null>(null);
 
   return (
     <div className="space-y-4">
@@ -1506,7 +1506,15 @@ function FluxoCaixaPanel() {
                 </TableRow>
               ) : (
                 rowsComSaldo.map((r) => (
-                  <TableRow key={r.id} className={cn(r.operacional && "bg-muted/30")}>
+                  <TableRow
+                    key={r.id}
+                    className={cn(
+                      r.operacional && "bg-muted/30",
+                      r.caixaId && "cursor-pointer hover:bg-muted/50",
+                    )}
+                    onClick={r.caixaId ? () => setCaixaRelatorio(r.caixaId!) : undefined}
+                    title={r.caixaId ? "Abrir relatório do caixa" : undefined}
+                  >
                     <TableCell className="text-muted-foreground">
                       {formatDateTime(r.data)}
                     </TableCell>
@@ -1574,6 +1582,11 @@ function FluxoCaixaPanel() {
         open={conciliarLoteOpen}
         onOpenChange={setConciliarLoteOpen}
         mode="lote"
+      />
+      <CaixaRelatorioDialog
+        open={!!caixaRelatorio}
+        onOpenChange={(o) => !o && setCaixaRelatorio(null)}
+        caixaId={caixaRelatorio}
       />
     </div>
   );

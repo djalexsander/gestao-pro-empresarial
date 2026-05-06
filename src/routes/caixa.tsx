@@ -52,6 +52,7 @@ import {
 import { AbrirCaixaDialog } from "@/components/caixa/AbrirCaixaDialog";
 import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
 import { MovimentoCaixaDialog } from "@/components/caixa/MovimentoCaixaDialog";
+import { CaixaRelatorioDialog } from "@/components/caixa/CaixaRelatorioDialog";
 import {
   useQualquerCaixaAberto,
   useCaixaResumo,
@@ -119,6 +120,7 @@ function CaixaPage() {
   const [dataInicio, setDataInicio] = useState("");
   const [dataFim, setDataFim] = useState("");
   const [diasAbertos, setDiasAbertos] = useState<Record<string, boolean>>({});
+  const [caixaRelatorio, setCaixaRelatorio] = useState<string | null>(null);
 
   // Agrupamento do histórico por data (com filtros)
   const historicoFiltrado = useMemo(() => {
@@ -527,7 +529,12 @@ function CaixaPage() {
                           </TableHeader>
                           <TableBody>
                             {grupo.caixas.map((c) => (
-                              <TableRow key={c.id}>
+                              <TableRow
+                                key={c.id}
+                                className="cursor-pointer hover:bg-muted/40"
+                                onClick={() => setCaixaRelatorio(c.id)}
+                                title="Abrir relatório do caixa"
+                              >
                                 <TableCell className="text-sm">
                                   {formatDateTime(c.data_abertura)}
                                 </TableCell>
@@ -575,7 +582,10 @@ function CaixaPage() {
                                       variant="ghost"
                                       size="icon"
                                       className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                      onClick={() => setExcluirCaixa(c)}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setExcluirCaixa(c);
+                                      }}
                                       title="Excluir caixa do histórico"
                                     >
                                       <Trash2 className="h-3.5 w-3.5" />
@@ -673,6 +683,12 @@ function CaixaPage() {
           )}
         </>
       )}
+
+      <CaixaRelatorioDialog
+        open={!!caixaRelatorio}
+        onOpenChange={(o) => !o && setCaixaRelatorio(null)}
+        caixaId={caixaRelatorio}
+      />
     </div>
   );
 }
