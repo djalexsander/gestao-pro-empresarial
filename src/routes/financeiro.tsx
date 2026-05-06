@@ -1075,6 +1075,269 @@ function LancamentosTable({
 }
 
 // ============================================================================
+// Contas a Pagar — com filtros por vencimento, busca e alertas visuais
+// ============================================================================
+
+type VencFiltro = "todas" | "vencidas" | "vence_hoje" | "vence_7d" | "vence_30d" | "futuras" | "sem_data";
+
+const VENC_LABEL: Record<VencFiltro, string> = {
+  todas: "Todas",
+  vencidas: "Vencidas",
+  vence_hoje: "Vence hoje",
+  vence_7d: "Próximos 7 dias",
+  vence_30d: "Próximos 30 dias",
+  futuras: "A vencer",
+  sem_data: "Sem vencimento",
+};
+
+function diasParaVencer(d: string | null): number | null {
+  if (!d) return null;
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  const [y, m, day] = d.split("-").map(Number);
+  const venc = new Date(y, (m ?? 1) - 1, day ?? 1);
+  venc.setHours(0, 0, 0, 0);
+  return Math.round((venc.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function ContasPagarPanel({
+  items,
+  loading,
+  onSelect,
+}: {
+  items: Lancamento[];
+  loading: boolean;
+  onSelect?: (l: Lancamento) => void;
+}) {
+  const [filtro, setFiltro] = useState<VencFiltro>("todas");
+  const [busca, setBusca] = useState("");
+
+  const buckets = useMemo(() => {
+    const b = {
+      vencidas: 0,
+      vence_hoje: 0,
+      vence_7d: 0,
+      vence_30d: 0,
+      futuras: 0,
+      sem_data: 0,
+      totalVencido: 0,
+      total7d: 0,
+    };
+    for (const l of items) {
+      const d = diasParaVencer(l.data_vencimento);
+      const aberto = Number(l.valor) - Number(l.valor_pago ?? 0);
+      if (d === null) {
+        b.sem_data++;
+        continue;
+      }
+      if (d < 0) {
+        b.vencidas++;
+        b.totalVencido += aberto;
+      } else if (d === 0) {
+        b.vence_hoje++;
+        b.total7d += aberto;
+      } else if (d <= 7) {
+        b.vence_7d++;
+        b.total7d += aberto;
+      } else if (d <= 30) {
+        b.vence_30d++;
+      } else {
+        b.futuras++;
+      }
+    }
+    return b;
+  }, [items]);
+
+  const filtered = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    return items.filter((l) => {
+      if (q && !l.descricao.toLowerCase().includes(q)) return false;
+      if (filtro === "todas") return true;
+      const d = diasParaVencer(l.data_vencimento);
+      if (filtro === "sem_data") return d === null;
+      if (d === null) return false;
+      if (filtro === "vencidas") return d < 0;
+      if (filtro === "vence_hoje") return d === 0;
+      if (filtro === "vence_7d") return d >= 0 && d <= 7;
+      if (filtro === "vence_30d") return d >= 0 && d <= 30;
+      if (filtro === "futuras") return d > 0;
+      return true;
+    });
+  }, [items, busca, filtro]);
+
+  const chips: { key: VencFiltro; count: number; tone?: "danger" | "warning" }[] = [
+    { key: "todas", count: items.length },
+    { key: "vencidas", count: buckets.vencidas, tone: "danger" },
+    { key: "vence_hoje", count: buckets.vence_hoje, tone: "warning" },
+    { key: "vence_7d", count: buckets.vence_7d, tone: "warning" },
+    { key: "vence_30d", count: buckets.vence_30d },
+    { key: "futuras", count: buckets.futuras },
+    { key: "sem_data", count: buckets.sem_data },
+  ];
+
+  return (
+    <div className="space-y-3">
+      {(buckets.vencidas > 0 || buckets.vence_7d > 0 || buckets.vence_hoje > 0) && (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {buckets.vencidas > 0 && (
+            <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+              <div>
+                <p className="font-semibold text-destructive">
+                  {buckets.vencidas} {buckets.vencidas === 1 ? "título vencido" : "títulos vencidos"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Total em aberto: <strong>{formatBRL(buckets.totalVencido)}</strong>
+                </p>
+              </div>
+            </div>
+          )}
+          {buckets.vence_hoje + buckets.vence_7d > 0 && (
+            <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
+              <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+              <div>
+                <p className="font-semibold text-warning">
+                  {buckets.vence_hoje + buckets.vence_7d} vence{buckets.vence_hoje + buckets.vence_7d > 1 ? "m" : ""} em até 7 dias
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Total: <strong>{formatBRL(buckets.total7d)}</strong>
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Buscar por descrição..."
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {chips.map((c) => (
+          <button
+            key={c.key}
+            type="button"
+            onClick={() => setFiltro(c.key)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors",
+              filtro === c.key
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border bg-card text-muted-foreground hover:bg-muted/40",
+              c.tone === "danger" && filtro !== c.key && "text-destructive",
+              c.tone === "warning" && filtro !== c.key && "text-warning",
+            )}
+          >
+            {VENC_LABEL[c.key]}
+            <span
+              className={cn(
+                "rounded-full bg-muted px-1.5 text-[10px] tabular-nums",
+                filtro === c.key && "bg-primary/20",
+              )}
+            >
+              {c.count}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Descrição</TableHead>
+                <TableHead>Vencimento</TableHead>
+                <TableHead className="text-right">Valor</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                    Carregando…
+                  </TableCell>
+                </TableRow>
+              ) : filtered.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                    Nenhuma conta encontrada para o filtro.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filtered.map((i) => {
+                  const d = diasParaVencer(i.data_vencimento);
+                  const vencido = d !== null && d < 0;
+                  const proximo = d !== null && d >= 0 && d <= 7;
+                  return (
+                    <TableRow
+                      key={i.id}
+                      onClick={() => onSelect?.(i)}
+                      className={cn(
+                        onSelect && "cursor-pointer transition-colors hover:bg-muted/50",
+                        vencido && "bg-destructive/5",
+                      )}
+                    >
+                      <TableCell className="font-medium">
+                        <div className="flex items-center gap-2">
+                          {vencido && <AlertTriangle className="h-3.5 w-3.5 text-destructive" />}
+                          {proximo && !vencido && (
+                            <CalendarClock className="h-3.5 w-3.5 text-warning" />
+                          )}
+                          {i.descricao}
+                        </div>
+                      </TableCell>
+                      <TableCell
+                        className={cn(
+                          vencido
+                            ? "font-medium text-destructive"
+                            : proximo
+                              ? "font-medium text-warning"
+                              : "text-muted-foreground",
+                        )}
+                      >
+                        {formatDate(i.data_vencimento)}
+                        {d !== null && (
+                          <span className="ml-1 text-[10px] opacity-70">
+                            {d < 0
+                              ? `(${Math.abs(d)}d atrás)`
+                              : d === 0
+                                ? "(hoje)"
+                                : `(em ${d}d)`}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right font-medium tabular-nums">
+                        {formatBRL(Number(i.valor))}
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge status={statusLabel(i)} />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <p className="text-xs text-muted-foreground">
+        Exibindo <strong>{filtered.length}</strong> de <strong>{items.length}</strong> registros
+      </p>
+    </div>
+  );
+}
+
+// ============================================================================
 // Fluxo de Caixa — consolidado a partir do módulo Caixa/Operacional
 // (aberturas, vendas, sangrias, suprimentos, fechamentos) + lançamentos
 // financeiros pagos/recebidos que NÃO vieram do caixa (para evitar duplicação).
