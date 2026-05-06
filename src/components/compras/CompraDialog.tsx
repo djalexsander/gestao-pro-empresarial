@@ -247,22 +247,14 @@ export function CompraDialog({ open, onOpenChange }: Props) {
 
           <div className="space-y-1.5">
             <Label>Fornecedor</Label>
-            <Select
+            <FornecedorSearchSelect
               value={fornecedorId || "none"}
-              onValueChange={(v) => setFornecedorId(v === "none" ? "" : v)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione um fornecedor" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Sem fornecedor</SelectItem>
-                {fornecedores.map((f) => (
-                  <SelectItem key={f.id} value={f.id}>
-                    {f.nome_fantasia || f.razao_social}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              fornecedores={fornecedores}
+              filter={() => true}
+              extraOptions={[{ value: "none", label: "Sem fornecedor" }]}
+              onChange={(v) => setFornecedorId(v === "none" ? "" : v)}
+              placeholder="Selecione um fornecedor"
+            />
           </div>
 
           {/* Scanner / busca por código */}
