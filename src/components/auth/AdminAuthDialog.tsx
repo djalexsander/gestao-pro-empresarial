@@ -2,7 +2,7 @@ import { useEffect, useId, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Eye, EyeOff, Lock, Loader2, ShieldCheck, Mail, Info } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 import { useAuth } from "@/components/auth/AuthProvider";
 import {
   Dialog,
@@ -69,13 +69,13 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
 
     try {
       // 1) Reautenticação obrigatória (não confia na sessão existente).
-      const { data: signInData, error: signInError } =
-        await supabase.auth.signInWithPassword({
+      const { user: authedUser, error: signInError } =
+        await dataClient.auth.signInWithPassword({
           email: email.trim(),
           password,
         });
 
-      if (signInError || !signInData.user) {
+      if (signInError || !authedUser) {
         toast.error(
           signInError?.message === "Invalid login credentials"
             ? "E-mail ou senha inválidos."
@@ -85,21 +85,19 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
         return;
       }
 
-      const authedUserId = signInData.user.id;
+      const authedUserId = authedUser.id;
 
       // 2) Verifica papel: somente admin/gerente/super_admin entram no ERP.
-      const { data: roles, error: rolesError } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", authedUserId);
-
-      if (rolesError) {
+      let roleList: string[] = [];
+      try {
+        roleList = await dataClient.userRoles.listar(authedUserId);
+      } catch {
         toast.error("Falha ao validar permissões.");
         setBusy(false);
         return;
       }
 
-      const roleList = (roles ?? []).map((r) => r.role as string);
+      // (já populado acima)
       const hasErpAccess =
         roleList.length === 0 || // primeiro usuário (sem roles) é tratado como admin
         roleList.includes("super_admin") ||

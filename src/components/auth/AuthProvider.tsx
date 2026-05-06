@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 import { registrarAuditLog } from "@/hooks/useAdmin";
 import { lockErp } from "@/lib/erpUnlock";
 
@@ -20,15 +20,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const lastEventUserRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, sess) => {
+    const subscription = dataClient.auth.onAuthStateChange((event, sess) => {
       setSession(sess);
       setUser(sess?.user ?? null);
 
-      // Registra eventos de auditoria (apenas eventos significativos, evita duplicar)
       if (event === "SIGNED_IN" && sess?.user && lastEventUserRef.current !== sess.user.id) {
         lastEventUserRef.current = sess.user.id;
-        // garante registro de empresa do usuário no primeiro acesso
-        supabase.rpc("garantir_empresa_atual").then(() => {
+        dataClient.auth.garantirEmpresaAtual().then(() => {
           registrarAuditLog("auth.login", {
             target_type: "user",
             target_id: sess.user.id,
@@ -41,7 +39,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    supabase.auth.getSession().then(({ data: { session: sess } }) => {
+    dataClient.auth.getSession().then(({ session: sess }) => {
       setSession(sess);
       setUser(sess?.user ?? null);
       setLoading(false);
@@ -60,7 +58,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
     }
     lockErp();
-    await supabase.auth.signOut();
+    await dataClient.auth.signOut();
   };
 
   return (
