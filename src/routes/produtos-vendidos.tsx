@@ -669,6 +669,7 @@ function ProdutosVendidosContent() {
                         })}
                       </TableBody>
                     </Table>
+                    </div>
                   )}
                 </CardContent>
               </Card>
