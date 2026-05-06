@@ -104,6 +104,10 @@ function SettingsPage() {
           <IntegracoesTab />
         </TabsContent>
 
+        <TabsContent value="autorizacoes" className="mt-4">
+          <AutorizacoesTab />
+        </TabsContent>
+
       </Tabs>
     </div>
   );
