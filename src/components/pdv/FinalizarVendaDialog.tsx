@@ -181,9 +181,37 @@ export function FinalizarVendaDialog({
       setObsFinal("");
       setHotkeyFlash(null);
       setVencimentoFiado(dataPadraoFiado());
+      setDescontoFinalStr("");
       setTimeout(() => ultimoValorRef.current?.focus(), 50);
     }
   }, [open, total]);
+
+  // ============= Desconto adicional aplicado no fechamento =============
+  const descontoFinal = useMemo(() => {
+    const v = Number(descontoFinalStr.replace(",", "."));
+    if (!Number.isFinite(v) || v < 0) return 0;
+    return Number(v.toFixed(2));
+  }, [descontoFinalStr]);
+
+  const descontoExcedeTotal = descontoFinal > total + 0.005;
+  const descontoTotalEfetivo = desconto + Math.min(descontoFinal, total);
+  const totalEfetivo = useMemo(
+    () => Math.max(0, Number((total - Math.min(descontoFinal, total)).toFixed(2))),
+    [total, descontoFinal],
+  );
+
+  // Quando o desconto final muda, sincroniza o pagamento se houver apenas
+  // um único pagamento e ele ainda casa com o total anterior (UX comum no PDV).
+  useEffect(() => {
+    if (!open) return;
+    setPagamentos((prev) => {
+      if (prev.length !== 1) return prev;
+      const p = prev[0];
+      const next = { ...p, valor: totalEfetivo };
+      if (p.forma === "dinheiro") next.valorRecebido = totalEfetivo;
+      return [next];
+    });
+  }, [totalEfetivo, open]);
 
   // Feedback visual de atalho (300ms)
   function flashHotkey(key: string) {
