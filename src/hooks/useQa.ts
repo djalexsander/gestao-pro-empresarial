@@ -1,7 +1,7 @@
 // Hooks da área "QA do Sistema (Validação de Lançamento)" — apenas super admin.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data/client";
 import { useAuth } from "@/components/auth/AuthProvider";
 
 export type QaSeveridade = "critico" | "medio" | "leve";
@@ -70,15 +70,7 @@ export interface QaResumoStatus {
 export function useQaModulos() {
   return useQuery({
     queryKey: ["qa", "modulos"],
-    queryFn: async (): Promise<QaModulo[]> => {
-      const { data, error } = await supabase
-        .from("qa_modulos")
-        .select("*")
-        .eq("ativo", true)
-        .order("ordem");
-      if (error) throw error;
-      return (data ?? []) as QaModulo[];
-    },
+    queryFn: () => dataClient.qa.listarModulos(),
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -86,15 +78,7 @@ export function useQaModulos() {
 export function useQaItens() {
   return useQuery({
     queryKey: ["qa", "itens"],
-    queryFn: async (): Promise<QaItem[]> => {
-      const { data, error } = await supabase
-        .from("qa_itens")
-        .select("*")
-        .eq("ativo", true)
-        .order("ordem");
-      if (error) throw error;
-      return (data ?? []) as QaItem[];
-    },
+    queryFn: () => dataClient.qa.listarItens(),
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -104,32 +88,14 @@ export function useQaItens() {
 export function useQaValidacoes() {
   return useQuery({
     queryKey: ["qa", "validacoes"],
-    queryFn: async (): Promise<QaValidacao[]> => {
-      const { data, error } = await supabase
-        .from("qa_validacoes")
-        .select("*")
-        .order("iniciada_em", { ascending: false })
-        .limit(100);
-      if (error) throw error;
-      return (data ?? []) as QaValidacao[];
-    },
+    queryFn: () => dataClient.qa.listarValidacoes(),
   });
 }
 
 export function useQaValidacaoAtiva() {
   return useQuery({
     queryKey: ["qa", "validacao_ativa"],
-    queryFn: async (): Promise<QaValidacao | null> => {
-      const { data, error } = await supabase
-        .from("qa_validacoes")
-        .select("*")
-        .eq("status", "em_andamento")
-        .order("iniciada_em", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return (data as QaValidacao | null) ?? null;
-    },
+    queryFn: () => dataClient.qa.validacaoAtiva(),
   });
 }
 
@@ -137,14 +103,7 @@ export function useQaAvaliacoes(validacaoId: string | undefined) {
   return useQuery({
     queryKey: ["qa", "avaliacoes", validacaoId],
     enabled: !!validacaoId,
-    queryFn: async (): Promise<QaAvaliacao[]> => {
-      const { data, error } = await supabase
-        .from("qa_avaliacoes")
-        .select("*")
-        .eq("validacao_id", validacaoId!);
-      if (error) throw error;
-      return (data ?? []) as QaAvaliacao[];
-    },
+    queryFn: () => dataClient.qa.listarAvaliacoes(validacaoId!),
   });
 }
 
@@ -156,18 +115,11 @@ export function useCriarValidacao() {
   return useMutation({
     mutationFn: async (input: { titulo: string; responsavelNome?: string }) => {
       if (!user) throw new Error("Sem sessão");
-      const { data, error } = await supabase
-        .from("qa_validacoes")
-        .insert({
-          titulo: input.titulo,
-          responsavel_id: user.id,
-          responsavel_nome: input.responsavelNome ?? user.email ?? "Master",
-          status: "em_andamento",
-        })
-        .select()
-        .single();
-      if (error) throw error;
-      return data as QaValidacao;
+      return dataClient.qa.criarValidacao({
+        titulo: input.titulo,
+        responsavel_id: user.id,
+        responsavel_nome: input.responsavelNome ?? user.email ?? "Master",
+      });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["qa", "validacoes"] });
@@ -181,22 +133,16 @@ export function useCriarValidacao() {
 export function useFinalizarValidacao() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: {
+    mutationFn: (input: {
       id: string;
       observacao?: string;
       resumo?: Record<string, unknown>;
-    }) => {
-      const { error } = await supabase
-        .from("qa_validacoes")
-        .update({
-          status: "finalizada",
-          finalizada_em: new Date().toISOString(),
-          observacao_final: input.observacao ?? null,
-          resumo: (input.resumo as never) ?? null,
-        })
-        .eq("id", input.id);
-      if (error) throw error;
-    },
+    }) =>
+      dataClient.qa.finalizarValidacao({
+        id: input.id,
+        observacao_final: input.observacao ?? null,
+        resumo: input.resumo ?? null,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["qa", "validacoes"] });
       qc.invalidateQueries({ queryKey: ["qa", "validacao_ativa"] });
@@ -218,20 +164,15 @@ export function useSalvarAvaliacao() {
       evidencia_url?: string | null;
     }) => {
       if (!user) throw new Error("Sem sessão");
-      const payload = {
+      return dataClient.qa.salvarAvaliacao({
         validacao_id: input.validacao_id,
         item_id: input.item_id,
         status: input.status,
         observacao: input.observacao ?? null,
         evidencia_url: input.evidencia_url ?? null,
-        testado_em: new Date().toISOString(),
         testado_por: user.id,
         testado_por_nome: user.email ?? "Master",
-      };
-      const { error } = await supabase
-        .from("qa_avaliacoes")
-        .upsert(payload, { onConflict: "validacao_id,item_id" });
-      if (error) throw error;
+      });
     },
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["qa", "avaliacoes", vars.validacao_id] });
@@ -243,22 +184,11 @@ export function useSalvarAvaliacao() {
 /* ===================== Upload de evidência ===================== */
 
 export async function uploadQaEvidencia(file: File, validacaoId: string): Promise<string> {
-  const ext = (file.name.split(".").pop() || "png").toLowerCase();
-  const path = `${validacaoId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const { error } = await supabase.storage
-    .from("qa-evidencias")
-    .upload(path, file, { upsert: false, contentType: file.type });
-  if (error) throw error;
-  // Bucket é privado — guardamos o path. Ao exibir, geramos signed URL.
-  return path;
+  return dataClient.qa.uploadEvidencia({ file, validacao_id: validacaoId });
 }
 
 export async function getQaEvidenciaSignedUrl(path: string): Promise<string | null> {
-  const { data, error } = await supabase.storage
-    .from("qa-evidencias")
-    .createSignedUrl(path, 60 * 60); // 1 h
-  if (error) return null;
-  return data?.signedUrl ?? null;
+  return dataClient.qa.signedUrlEvidencia(path);
 }
 
 /* ===================== Cálculos ===================== */
@@ -292,7 +222,6 @@ export function calcularResumoQa(
     }
   }
 
-  // Itens críticos não testados = bloqueante para "pronto"
   const criticosNaoTestados = itens.filter(
     (it) => it.critico && (map.get(it.id)?.status ?? "nao_testado") === "nao_testado",
   ).length;
