@@ -61,10 +61,10 @@ import { exportRowsToCSV, type CsvColumn } from "@/lib/export-csv";
 export const Route = createFileRoute("/fiado")({
   head: () => ({
     meta: [
-      { title: "Fiado — Gestão Pro" },
+      { title: "Clientes a Receber — Gestão Pro" },
       {
         name: "description",
-        content: "Controle de clientes devedores e pagamentos fiado.",
+        content: "Carteira de clientes a receber e controle de recebimentos pendentes.",
       },
     ],
   }),
@@ -393,8 +393,8 @@ function FiadoContent() {
       { header: "Última compra", accessor: (r) => r.ultimaCompra ?? "" },
       { header: "Status", accessor: (r) => r.status },
     ];
-    await exportRowsToCSV("fiado_clientes", filtrados, cols, {
-      relatorio: "Clientes fiado",
+    await exportRowsToCSV("clientes_a_receber", filtrados, cols, {
+      relatorio: "Clientes a receber",
     });
     toast.success("CSV gerado.");
   }
@@ -402,8 +402,8 @@ function FiadoContent() {
   return (
     <div className="space-y-6 p-4 md:p-6">
       <PageHeader
-        title="Fiado"
-        description="Clientes devedores e controle de pagamentos."
+        title="Clientes a Receber"
+        description="Carteira de recebimentos pendentes."
         actions={
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -424,10 +424,10 @@ function FiadoContent() {
       />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <StatCard label="Total em fiado" value={formatBRL(kpis.totalFiado)} icon={HandCoins} iconTone="warning" />
+        <StatCard label="Total a receber" value={formatBRL(kpis.totalFiado)} icon={HandCoins} iconTone="warning" />
         <StatCard label="Vencido" value={formatBRL(kpis.totalVencido)} icon={AlertTriangle} iconTone="danger" />
         <StatCard label="A vencer" value={formatBRL(kpis.totalAVencer)} icon={CalendarClock} iconTone="info" />
-        <StatCard label="Clientes devedores" value={String(kpis.qtdClientes)} icon={Users} iconTone="primary" />
+        <StatCard label="Clientes em aberto" value={String(kpis.qtdClientes)} icon={Users} iconTone="primary" />
         <StatCard label="Recebido hoje" value={formatBRL(kpis.recebidoHoje)} icon={Wallet} iconTone="success" />
         <StatCard label="Recebido no mês" value={formatBRL(kpis.recebidoMes)} icon={TrendingUp} iconTone="success" />
       </div>
@@ -465,7 +465,7 @@ function FiadoContent() {
           <Card>
             <CardContent className="flex flex-col items-center gap-2 py-12 text-center">
               <HandCoins className="h-10 w-10 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">Nenhum cliente devedor encontrado.</p>
+              <p className="text-sm text-muted-foreground">Nenhum cliente a receber encontrado.</p>
             </CardContent>
           </Card>
         ) : (

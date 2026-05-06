@@ -34,6 +34,7 @@ function rotasDoModo(modoChave: string): string[] {
       "/vendas",
       "/caixa",
       "/financeiro",
+      "/fiado",
       "/fornecedores",
       "/clientes",
       "/relatorios",

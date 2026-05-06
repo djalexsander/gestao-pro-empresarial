@@ -113,9 +113,9 @@ export const MODULES: ModuleDef[] = [
       },
       {
         to: "/fiado",
-        label: "Fiado",
+        label: "Clientes a Receber",
         icon: HandCoins,
-        description: "Clientes devedores e pagamentos",
+        description: "Carteira de recebimentos pendentes",
       },
     ],
   },
