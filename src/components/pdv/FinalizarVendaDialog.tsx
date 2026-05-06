@@ -446,6 +446,7 @@ export function FinalizarVendaDialog({
     !finalizar.isPending &&
     itens.length > 0 &&
     !dinheiroInsuficiente &&
+    !descontoExcedeTotal &&
     pagamentos.length > 0 &&
     totalPago > 0 &&
     !fiadoSemCliente &&
