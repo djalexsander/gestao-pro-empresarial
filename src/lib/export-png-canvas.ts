@@ -249,10 +249,19 @@ export async function renderReportCanvas(
   totalHeight += PADDING;
 
   // 4) Cria canvas final com pixel ratio para nitidez
-  const ratio = 2;
+  // Limites práticos por engine: Chrome ~32767, Safari/WebKit ~16384, alguns
+  // mobiles ~4096. Calculamos o maior `ratio` (até 2x) que ainda mantém o
+  // canvas dentro de um limite seguro — caso contrário a imagem é truncada
+  // ou `toDataURL` falha silenciosamente. Garante que TODAS as linhas saiam.
+  const MAX_DIM = 16000;
+  let ratio = 2;
+  while (ratio > 1 && (totalHeight * ratio > MAX_DIM || WIDTH * ratio > MAX_DIM)) {
+    ratio -= 0.25;
+  }
+  if (totalHeight * ratio > MAX_DIM) ratio = MAX_DIM / totalHeight;
   const canvas = document.createElement("canvas");
-  canvas.width = WIDTH * ratio;
-  canvas.height = totalHeight * ratio;
+  canvas.width = Math.floor(WIDTH * ratio);
+  canvas.height = Math.floor(totalHeight * ratio);
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D indisponível");
   ctx.scale(ratio, ratio);
@@ -609,6 +618,26 @@ function dataUrlToBytes(dataUrl: string): Uint8Array {
 }
 
 export function downloadCanvasAsPng(canvas: HTMLCanvasElement, filename: string) {
+  // Preferimos toBlob — evita string base64 gigante (que estoura limites em
+  // canvases altos e gera PNGs truncados / "print-only"). Fallback para
+  // toDataURL apenas se toBlob não estiver disponível.
+  if (typeof canvas.toBlob === "function") {
+    canvas.toBlob(async (blob) => {
+      if (!blob) {
+        // Fallback se o navegador retornar null (geralmente canvas grande demais)
+        try {
+          const dataUrl = canvas.toDataURL("image/png");
+          await saveBytes(dataUrlToBytes(dataUrl), filename, "image/png");
+        } catch {
+          /* swallow */
+        }
+        return;
+      }
+      const buf = new Uint8Array(await blob.arrayBuffer());
+      void saveBytes(buf, filename, "image/png");
+    }, "image/png");
+    return;
+  }
   const dataUrl = canvas.toDataURL("image/png");
   void saveBytes(dataUrlToBytes(dataUrl), filename, "image/png");
 }
