@@ -155,8 +155,10 @@ export function FinalizarVendaDialog({
   const [obsFinal, setObsFinal] = useState("");
   const [hotkeyFlash, setHotkeyFlash] = useState<string | null>(null);
   const [vencimentoFiado, setVencimentoFiado] = useState<string>("");
+  const [descontoFinalStr, setDescontoFinalStr] = useState<string>("");
   const ultimoValorRef = useRef<HTMLInputElement>(null);
   const vencimentoInputRef = useRef<HTMLInputElement>(null);
+  const descontoFinalRef = useRef<HTMLInputElement>(null);
   const dialogContentRef = useRef<HTMLDivElement>(null);
 
   const finalizar = useFinalizarVendaPDV();
@@ -179,9 +181,37 @@ export function FinalizarVendaDialog({
       setObsFinal("");
       setHotkeyFlash(null);
       setVencimentoFiado(dataPadraoFiado());
+      setDescontoFinalStr("");
       setTimeout(() => ultimoValorRef.current?.focus(), 50);
     }
   }, [open, total]);
+
+  // ============= Desconto adicional aplicado no fechamento =============
+  const descontoFinal = useMemo(() => {
+    const v = Number(descontoFinalStr.replace(",", "."));
+    if (!Number.isFinite(v) || v < 0) return 0;
+    return Number(v.toFixed(2));
+  }, [descontoFinalStr]);
+
+  const descontoExcedeTotal = descontoFinal > total + 0.005;
+  const descontoTotalEfetivo = desconto + Math.min(descontoFinal, total);
+  const totalEfetivo = useMemo(
+    () => Math.max(0, Number((total - Math.min(descontoFinal, total)).toFixed(2))),
+    [total, descontoFinal],
+  );
+
+  // Quando o desconto final muda, sincroniza o pagamento se houver apenas
+  // um único pagamento e ele ainda casa com o total anterior (UX comum no PDV).
+  useEffect(() => {
+    if (!open) return;
+    setPagamentos((prev) => {
+      if (prev.length !== 1) return prev;
+      const p = prev[0];
+      const next = { ...p, valor: totalEfetivo };
+      if (p.forma === "dinheiro") next.valorRecebido = totalEfetivo;
+      return [next];
+    });
+  }, [totalEfetivo, open]);
 
   // Feedback visual de atalho (300ms)
   function flashHotkey(key: string) {
@@ -219,8 +249,8 @@ export function FinalizarVendaDialog({
   );
 
   const restante = useMemo(
-    () => Number((total - totalPago).toFixed(2)),
-    [total, totalPago],
+    () => Number((totalEfetivo - totalPago).toFixed(2)),
+    [totalEfetivo, totalPago],
   );
 
   const dinheiroInsuficiente = useMemo(() => {
@@ -235,17 +265,17 @@ export function FinalizarVendaDialog({
   // parcial: 0 < totalPago < total
   // pendente: totalPago == 0 ou somente formas "pendentePorPadrao" cobrindo
   const statusPagamento: StatusPagamento = useMemo(() => {
-    if (Math.abs(totalPago - total) < 0.005 && !dinheiroInsuficiente) {
+    if (Math.abs(totalPago - totalEfetivo) < 0.005 && !dinheiroInsuficiente) {
       // Se TODAS as linhas são "pendentePorPadrao" (boleto/fiado), considera pendente
       const todasPendentes =
         pagamentos.length > 0 &&
         pagamentos.every((p) => getFormaInfo(p.forma).pendentePorPadrao);
       return todasPendentes ? "pendente" : "pago";
     }
-    if (totalPago > 0 && totalPago < total) return "parcial";
+    if (totalPago > 0 && totalPago < totalEfetivo) return "parcial";
     if (totalPago === 0) return "pendente";
     return "pago";
-  }, [totalPago, total, pagamentos, dinheiroInsuficiente]);
+  }, [totalPago, totalEfetivo, pagamentos, dinheiroInsuficiente]);
 
   // ===== Detecção de FIADO =====
   const temFiado = useMemo(
@@ -334,7 +364,7 @@ export function FinalizarVendaDialog({
     if (dinheiroInsuficiente) return;
     if (pagamentos.length === 0) return;
     // Aceita pagar exatamente o total ou menos (parcial). Mais que o total só faz sentido em dinheiro (troco).
-    if (totalPago > total + 0.005 && valorDinheiroDevido === 0) {
+    if (totalPago > totalEfetivo + 0.005 && valorDinheiroDevido === 0) {
       return;
     }
 
@@ -349,7 +379,7 @@ export function FinalizarVendaDialog({
       setTimeout(() => vencimentoInputRef.current?.focus(), 30);
       return;
     }
-    if (totalPago < total - 0.005) {
+    if (totalPago < totalEfetivo - 0.005) {
       // Parcial — segue normalmente, mas o sistema gera lançamento pendente
     }
 
@@ -368,18 +398,28 @@ export function FinalizarVendaDialog({
       };
     });
 
+    const operadorNomeAud = operador?.nome ?? operadorEmail ?? null;
+    const obsDesconto =
+      descontoFinal > 0
+        ? `Desconto aplicado na finalização: ${formatBRL(descontoFinal)}${
+            operadorNomeAud ? ` por ${operadorNomeAud}` : ""
+          } em ${new Date().toLocaleString("pt-BR")}`
+        : null;
+    const observacaoFinal =
+      [observacao, obsFinal, obsDesconto].filter(Boolean).join(" — ") || null;
+
     finalizar.mutate(
       {
         cliente_id: cliente?.id ?? null,
         subtotal,
-        desconto,
-        total,
+        desconto: descontoTotalEfetivo,
+        total: totalEfetivo,
         // Mantém compat. com a coluna `vendas.forma_pagamento` — usa a principal
         forma_pagamento: formaPrincipal,
         status_pagamento: statusPagamento,
         valor_recebido: totalRecebidoDinheiro || null,
         troco: trocoTotal || null,
-        observacao: [observacao, obsFinal].filter(Boolean).join(" — ") || null,
+        observacao: observacaoFinal,
         itens,
         pagamentos: pagamentosPayload,
         operador_id: operador?.id ?? null,
@@ -406,6 +446,7 @@ export function FinalizarVendaDialog({
     !finalizar.isPending &&
     itens.length > 0 &&
     !dinheiroInsuficiente &&
+    !descontoExcedeTotal &&
     pagamentos.length > 0 &&
     totalPago > 0 &&
     !fiadoSemCliente &&
@@ -457,6 +498,18 @@ export function FinalizarVendaDialog({
         },
       },
       {
+        key: "d",
+        allowInInputs: false, // só dispara quando o foco NÃO está em input/textarea
+        handler: (e) => {
+          e.preventDefault();
+          const el = descontoFinalRef.current;
+          if (!el) return;
+          el.focus();
+          el.select();
+          flashHotkey("D");
+        },
+      },
+      {
         key: "Backspace",
         allowInInputs: false,
         handler: () => {
@@ -479,6 +532,8 @@ export function FinalizarVendaDialog({
             <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
               <Kbd>F1-F7</Kbd>
               <span>forma</span>
+              <Kbd>D</Kbd>
+              <span>desconto</span>
               <Kbd>Enter</Kbd>
               <span>confirmar</span>
               <Kbd>Esc</Kbd>
@@ -807,6 +862,51 @@ export function FinalizarVendaDialog({
               </div>
             )}
 
+            {/* Desconto na finalização */}
+            <div className="rounded-lg border border-border bg-card/50 p-3">
+              <Label
+                htmlFor="desconto-final"
+                className="mb-1.5 flex items-center justify-between text-xs"
+              >
+                <span className="flex items-center gap-1.5">
+                  Desconto adicional
+                  <Kbd>D</Kbd>
+                </span>
+                <span className="text-[11px] text-muted-foreground">
+                  Subtotal: {formatBRL(total)}
+                </span>
+              </Label>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">
+                  R$
+                </span>
+                <Input
+                  ref={descontoFinalRef}
+                  id="desconto-final"
+                  type="text"
+                  inputMode="decimal"
+                  value={descontoFinalStr}
+                  onChange={(e) => setDescontoFinalStr(e.target.value)}
+                  onFocus={(e) => e.currentTarget.select()}
+                  placeholder="0,00"
+                  className={cn(
+                    "h-10 pl-10 font-mono tabular-nums",
+                    descontoExcedeTotal && "border-destructive ring-1 ring-destructive",
+                  )}
+                />
+              </div>
+              {descontoExcedeTotal && (
+                <p className="mt-1 flex items-center gap-1 text-[11px] text-destructive">
+                  <AlertTriangle className="h-3 w-3" /> Desconto não pode ser maior que o total ({formatBRL(total)}).
+                </p>
+              )}
+              {!descontoExcedeTotal && descontoFinal > 0 && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Total final: <strong className="text-foreground">{formatBRL(totalEfetivo)}</strong>
+                </p>
+              )}
+            </div>
+
             {/* Observação */}
             <div>
               <Label htmlFor="obs-final" className="mb-1.5 block text-xs">
@@ -838,11 +938,18 @@ export function FinalizarVendaDialog({
                     </span>
                   </SummaryRow>
                   <SummaryRow label="Subtotal">{formatBRL(subtotal)}</SummaryRow>
-                  <SummaryRow label="Descontos">
+                  <SummaryRow label="Descontos itens">
                     <span className="text-warning">
                       {desconto > 0 ? `- ${formatBRL(desconto)}` : formatBRL(0)}
                     </span>
                   </SummaryRow>
+                  {descontoFinal > 0 && (
+                    <SummaryRow label="Desconto final">
+                      <span className="text-warning">
+                        - {formatBRL(Math.min(descontoFinal, total))}
+                      </span>
+                    </SummaryRow>
+                  )}
                 </div>
               </div>
 
@@ -851,8 +958,13 @@ export function FinalizarVendaDialog({
                   Total a pagar
                 </p>
                 <p className="font-mono text-3xl font-bold tabular-nums text-primary">
-                  {formatBRL(total)}
+                  {formatBRL(totalEfetivo)}
                 </p>
+                {descontoFinal > 0 && !descontoExcedeTotal && (
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    De {formatBRL(total)} com desconto de {formatBRL(Math.min(descontoFinal, total))}
+                  </p>
+                )}
               </div>
 
               <div className="rounded-lg border border-border bg-card/60 p-3 text-sm">
@@ -956,6 +1068,7 @@ export function FinalizarVendaDialog({
                 finalizar.isPending ||
                 itens.length === 0 ||
                 dinheiroInsuficiente ||
+                descontoExcedeTotal ||
                 pagamentos.length === 0 ||
                 totalPago <= 0 ||
                 fiadoSemCliente ||
@@ -975,6 +1088,11 @@ export function FinalizarVendaDialog({
           </div>
         </div>
 
+        {descontoExcedeTotal && (
+          <div className="border-t border-destructive/30 bg-destructive/10 px-6 py-2 text-center text-xs font-medium text-destructive">
+            Desconto adicional ({formatBRL(descontoFinal)}) é maior que o total ({formatBRL(total)}).
+          </div>
+        )}
         {dinheiroInsuficiente && (
           <div className="border-t border-destructive/30 bg-destructive/10 px-6 py-2 text-center text-xs font-medium text-destructive">
             Há pagamento em dinheiro com valor recebido menor que o devido. Ajuste
