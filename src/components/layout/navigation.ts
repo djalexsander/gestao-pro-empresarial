@@ -130,7 +130,7 @@ export function findModuleByPath(pathname: string): ModuleDef {
   for (const mod of MODULES) {
     for (const item of mod.items) {
       const base = item.to.split("?")[0];
-      if (base !== "/" && pathname.startsWith(base)) return mod;
+      if (base !== "/" && (pathname === base || pathname.startsWith(base + "/"))) return mod;
     }
   }
   return MODULES[0];
