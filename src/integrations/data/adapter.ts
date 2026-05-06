@@ -308,6 +308,16 @@ export interface VendasAdapter {
    *    estoque — uso administrativo para limpar pendências.
    */
   alterarStatus(input: AlterarStatusVendaInput): Promise<AlterarStatusVendaResult>;
+
+  // ---------------------------- Reads ----------------------------
+  /** Lista vendas com cliente_nome resolvido. Limit default ~500. */
+  list(input?: VendasListInput): Promise<VendaListItemDomain[]>;
+  /** Detalhe completo de venda (itens, pagamentos, totais pagos). */
+  detalhe(vendaId: string): Promise<VendaDetalheDomain | null>;
+  /** Histórico de mudança de status. */
+  historico(vendaId: string): Promise<VendaStatusHistoricoDomain[]>;
+  /** Métricas agregadas por período (RPC `venda_metricas_periodo`). */
+  metricasPeriodo(input: VendaMetricasPeriodoInput): Promise<VendaMetricasDomain>;
 }
 
 export interface CaixaAdapter {
@@ -496,8 +506,10 @@ export interface EstoqueAdapter {
    * crescer, o adapter local pode calcular o saldo já agregado.
    */
   saldosLinhas(): Promise<EstoqueSaldoLinha[]>;
-  /** Histórico de movimentações com produto “joinado”. */
+  /** Histórico de movimentações com produto "joinado". */
   movimentacoes(input?: MovimentacoesListInput): Promise<MovimentacaoEstoqueDomain[]>;
+  /** Saldos em lote para validação rápida no PDV (RPC `saldos_estoque_lote`). */
+  saldosLote(produtoIds: string[]): Promise<SaldosEstoqueLote>;
 }
 
 /**
