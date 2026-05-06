@@ -30,7 +30,7 @@ export function useBalancaConfig() {
           updated_at: new Date().toISOString(),
         };
       }
-      return data as BalancaConfigRow;
+      return data as unknown as BalancaConfigRow;
     },
     staleTime: 60_000,
   });
@@ -43,7 +43,7 @@ export function useSaveBalancaConfig() {
     mutationFn: async (input: Partial<BalancaConfigRow>) => {
       if (!user) throw new Error("Não autenticado");
       const saved = await dataClient.balanca.salvar({ ...input, owner_id: user.id });
-      return saved as BalancaConfigRow;
+      return saved as unknown as BalancaConfigRow;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QK });
