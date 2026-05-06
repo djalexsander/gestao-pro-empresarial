@@ -24,6 +24,8 @@ import { dataClient } from "@/integrations/data";
 import { supabase } from "@/integrations/supabase/client";
 import { useClientes } from "@/hooks/useClientes";
 import { useFornecedores } from "@/hooks/useFornecedores";
+import { ClienteSearchSelect } from "@/components/clientes/ClienteSearchSelect";
+import { FornecedorSearchSelect } from "@/components/fornecedores/FornecedorSearchSelect";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import type {
   CriarLancamentoAvulsoInput,
