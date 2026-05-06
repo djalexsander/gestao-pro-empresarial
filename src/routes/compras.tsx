@@ -48,6 +48,7 @@ import {
 import { useCompras, useDeleteCompra, type CompraStatus } from "@/hooks/useCompras";
 import { useFornecedores } from "@/hooks/useFornecedores";
 import { CompraDialog } from "@/components/compras/CompraDialog";
+import { FornecedorSearchSelect } from "@/components/fornecedores/FornecedorSearchSelect";
 import { CompraDetailDialog } from "@/components/compras/CompraDetailDialog";
 
 export const Route = createFileRoute("/compras")({
