@@ -582,7 +582,10 @@ function CaixaPage() {
                                       variant="ghost"
                                       size="icon"
                                       className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                      onClick={() => setExcluirCaixa(c)}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setExcluirCaixa(c);
+                                      }}
                                       title="Excluir caixa do histórico"
                                     >
                                       <Trash2 className="h-3.5 w-3.5" />
