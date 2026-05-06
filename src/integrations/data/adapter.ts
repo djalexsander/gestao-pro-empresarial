@@ -748,6 +748,16 @@ export interface DashboardAdapter {
   carregar(): Promise<DashboardData>;
 }
 
+import type {
+  AutorizacoesAdapter,
+  BalancaAdapter,
+  ConfigEmpresaAdapter,
+  EmpresaAdapter,
+  NotificacoesAdapter,
+  ProdutoCodigosAdapter,
+  TerminaisAdapter,
+} from "./extra-adapters";
+
 export interface DataAdapter {
   produtos: ProdutosAdapter;
   vendas: VendasAdapter;
@@ -762,5 +772,12 @@ export interface DataAdapter {
   lotes: LotesAdapter;
   compras: ComprasAdapter;
   dashboard: DashboardAdapter;
+  terminais: TerminaisAdapter;
+  notificacoes: NotificacoesAdapter;
+  autorizacoes: AutorizacoesAdapter;
+  empresa: EmpresaAdapter;
+  configEmpresa: ConfigEmpresaAdapter;
+  balanca: BalancaAdapter;
+  produtoCodigos: ProdutoCodigosAdapter;
   // realtime: RealtimeAdapter;
 }
