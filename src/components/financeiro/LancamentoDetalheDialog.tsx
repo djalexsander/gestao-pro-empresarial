@@ -473,6 +473,42 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
               </>
             )}
 
+            {/* Compra vinculada */}
+            {temCompra && (
+              <>
+                <Separator />
+                <div className="rounded-md border border-primary/20 bg-primary/5 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      <Truck className="h-3.5 w-3.5" />
+                      Compra vinculada
+                    </p>
+                    {lancamento.compra_id && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setCompraOpen(true)}
+                        className="h-7 gap-1.5 text-xs"
+                      >
+                        Ver compra
+                      </Button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <Field icon={FileText} label="Número">
+                      {lancamento.compra_numero ?? "—"}
+                    </Field>
+                    <Field icon={Calendar} label="Emissão">
+                      {formatDate(lancamento.compra_data_emissao ?? null)}
+                    </Field>
+                    <Field icon={Wallet} label="Total">
+                      {formatBRL(Number(lancamento.compra_total ?? 0))}
+                    </Field>
+                  </div>
+                </div>
+              </>
+            )}
+
             {/* Histórico de pagamentos */}
             {pagamentos.length > 0 && (
               <>
