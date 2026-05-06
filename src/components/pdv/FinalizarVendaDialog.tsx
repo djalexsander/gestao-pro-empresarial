@@ -532,6 +532,8 @@ export function FinalizarVendaDialog({
             <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
               <Kbd>F1-F7</Kbd>
               <span>forma</span>
+              <Kbd>D</Kbd>
+              <span>desconto</span>
               <Kbd>Enter</Kbd>
               <span>confirmar</span>
               <Kbd>Esc</Kbd>
