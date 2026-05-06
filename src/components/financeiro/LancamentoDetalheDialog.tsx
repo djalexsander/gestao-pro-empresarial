@@ -41,6 +41,7 @@ import { useHotkeys } from "@/hooks/useHotkeys";
 import { ConciliarIfoodDialog } from "./ConciliarIfoodDialog";
 import { RegistrarPagamentoDialog } from "./RegistrarPagamentoDialog";
 import { LancamentoFormDialog } from "./LancamentoFormDialog";
+import { CompraDetailDialog } from "@/components/compras/CompraDetailDialog";
 
 export type LancamentoDetalhe = {
   id: string;
