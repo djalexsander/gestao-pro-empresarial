@@ -40,6 +40,7 @@ export function useUserRoles() {
 export const CAIXA_ALLOWED_BASES = [
   "/pos",
   "/pdv",
+  "/produtos-vendidos",
   "/produtos",
   "/estoque",
   "/compras",
