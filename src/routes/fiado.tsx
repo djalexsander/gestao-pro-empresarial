@@ -189,7 +189,7 @@ function FiadoContent() {
           `id, descricao, valor, valor_pago, data_vencimento, data_emissao, data_pagamento,
            status, observacoes, cliente_id, venda_id, forma_pagamento,
            cliente:clientes(id, nome, documento, telefone, celular, email),
-           venda:vendas(id, numero, data_finalizacao, total, operador_nome)`
+           venda:vendas(id, numero, data_finalizacao, total)`
         )
         .eq("tipo", "receber")
         .eq("forma_pagamento", "fiado")
