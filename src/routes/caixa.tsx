@@ -661,7 +661,7 @@ function CaixaPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AbrirCaixaDialog open={abrirOpen} onOpenChange={setAbrirOpen} />
+      
       {caixaAberto && (
         <>
           <FecharCaixaDialog
