@@ -141,11 +141,8 @@ function formatDateLong(iso: string): string {
 }
 
 function ProdutosVendidosPage() {
-  return (
-    <ModuloGate chave="vendas" titulo="Produtos vendidos">
-      <ProdutosVendidosContent />
-    </ModuloGate>
-  );
+  // Faz parte do plano base (Operacional) — sem ModuloGate.
+  return <ProdutosVendidosContent />;
 }
 
 function ProdutosVendidosContent() {
