@@ -1840,7 +1840,7 @@ const dashboard: DataAdapter["dashboard"] = {
       saida: val.saida,
     }));
 
-    const { data: produtos: produtosBaixo } = await supabase
+    const { data: produtosBaixo } = await supabase
       .from("produtos")
       .select("id, estoque_minimo")
       .eq("status", "ativo")
