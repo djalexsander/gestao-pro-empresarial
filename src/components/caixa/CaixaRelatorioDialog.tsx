@@ -216,7 +216,21 @@ export function CaixaRelatorioDialog({ open, onOpenChange, caixaId }: Props) {
                     <FormaTR label="Esperado em dinheiro" value={caixa.valor_esperado ?? 0} />
                     <FormaTR label="Informado no fechamento" value={caixa.valor_informado ?? 0} />
                     <TableRow>
-                      <TableCell className="font-semibold">Diferença</TableCell>
+                      <TableCell className="font-semibold">
+                        Diferença
+                        {caixa.diferenca !== null && Math.abs(caixa.diferenca) >= 0.009 && (
+                          <span
+                            className={cn(
+                              "ml-2 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+                              caixa.diferenca > 0
+                                ? "bg-info/15 text-info"
+                                : "bg-destructive/15 text-destructive",
+                            )}
+                          >
+                            {caixa.diferenca > 0 ? "Sobra" : "Falta"}
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell
                         className={cn(
                           "num text-right font-mono font-semibold tabular-nums",
@@ -224,7 +238,9 @@ export function CaixaRelatorioDialog({ open, onOpenChange, caixaId }: Props) {
                             ? "text-muted-foreground"
                             : Math.abs(caixa.diferenca) < 0.009
                               ? "text-success"
-                              : "text-destructive",
+                              : caixa.diferenca > 0
+                                ? "text-info"
+                                : "text-destructive",
                         )}
                       >
                         {caixa.diferenca === null
