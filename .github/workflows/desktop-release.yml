@@ -109,43 +109,7 @@ jobs:
 
       - name: Validar assinatura do instalador (simula verificação do updater)
         shell: bash
-        run: |
-          echo "=== Validando assinatura criptográfica ==="
-          
-          # Extrair pubkey do tauri.conf.json
-          PUBKEY=$(node -p "require('./src-tauri/tauri.conf.json').plugins.updater.pubkey")
-          echo "Pubkey configurada no app: ${PUBKEY:0:50}..."
-          
-          # Localizar o instalador e assinatura
-          EXE_FILE=$(ls src-tauri/target/release/bundle/nsis/*.exe 2>/dev/null | grep -v '\.sig$' | head -1)
-          SIG_FILE="${EXE_FILE}.sig"
-          
-          if [ -z "$EXE_FILE" ] || [ ! -f "$EXE_FILE" ]; then
-            echo "❌ Instalador .exe não encontrado"
-            exit 1
-          fi
-          
-          if [ ! -f "$SIG_FILE" ]; then
-            echo "❌ Arquivo de assinatura .exe.sig não encontrado"
-            exit 1
-          fi
-          
-          echo "Instalador: $EXE_FILE"
-          echo "Assinatura: $SIG_FILE"
-          
-          # Verificar assinatura usando tauri signer verify
-          echo ""
-          echo "Verificando assinatura com tauri signer verify..."
-          npx @tauri-apps/cli signer verify --signature "$SIG_FILE" --pubkey "$PUBKEY" "$EXE_FILE"
-          
-          if [ $? -eq 0 ]; then
-            echo ""
-            echo "✅ Assinatura válida! O updater conseguirá verificar esta release."
-          else
-            echo ""
-            echo "❌ Assinatura INVÁLIDA! O updater rejeitaria esta release."
-            exit 1
-          fi
+        run: node scripts/verify-updater-signature.mjs
 
       - name: Copiar latest.json para a raiz dos artefatos
         shell: bash
