@@ -1794,8 +1794,17 @@ function PDVPage() {
         produtoNome={pesoDialog?.nome ?? ""}
         precoPorKg={pesoDialog?.preco_venda ?? 0}
         casasDecimais={pesoDialog?.casas_decimais ?? 3}
-        onConfirm={(pesoKg) => {
+        onConfirm={async (pesoKg) => {
           if (!pesoDialog) return;
+          const okSaldo = await verificarSaldoAntesAdicionar(
+            pesoDialog.produto_id,
+            pesoDialog.nome,
+            pesoKg,
+          );
+          if (!okSaldo) {
+            setPesoDialog(null);
+            return;
+          }
           som.beep("ok");
           addItemFromProduto(
             {
