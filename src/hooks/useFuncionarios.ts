@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+// supabase removido — tudo via dataClient
 import { dataClient } from "@/integrations/data";
 import type { FuncionarioRoleDomain, OperadorSessaoDomain } from "@/integrations/data";
 

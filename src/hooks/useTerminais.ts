@@ -1,30 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
+import type { TerminalDomain } from "@/integrations/data/extra-adapters";
 
-export interface Terminal {
-  id: string;
-  nome: string;
-  descricao: string | null;
-  ativo: boolean;
-  identificador_dispositivo: string | null;
-  pareamento_token: string | null;
-  ultimo_uso: string | null;
-  caixa_aberto_id: string | null;
-  created_at: string;
-  papel: "servidor" | "terminal";
-  heartbeat_at: string | null;
-  operador_atual_id: string | null;
-  operador_atual_nome: string | null;
-  user_agent: string | null;
-  ip_local: string | null;
-  pode_pdv: boolean;
-  pode_erp: boolean;
-  pode_financeiro: boolean;
-  pode_configuracoes: boolean;
-  pode_relatorios: boolean;
-  pode_cadastros: boolean;
-}
+export type Terminal = TerminalDomain;
 
 /** Considera online se o último heartbeat foi há menos de 90s. */
 export function isTerminalOnline(t: Pick<Terminal, "heartbeat_at">): boolean {
@@ -36,12 +15,7 @@ export function isTerminalOnline(t: Pick<Terminal, "heartbeat_at">): boolean {
 export function useTerminais() {
   return useQuery({
     queryKey: ["terminais"],
-    queryFn: async (): Promise<Terminal[]> => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any).rpc("terminais_listar");
-      if (error) throw error;
-      return (data ?? []) as Terminal[];
-    },
+    queryFn: () => dataClient.terminais.list(),
     staleTime: 15_000,
     refetchInterval: 30_000,
   });
@@ -58,27 +32,11 @@ export function useTerminaisAtivos() {
 export function useCriarTerminal() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: {
+    mutationFn: (input: {
       nome: string;
       descricao?: string | null;
       identificador_dispositivo?: string | null;
-    }) => {
-      const { data: u } = await supabase.auth.getUser();
-      if (!u.user) throw new Error("Não autenticado");
-      const { data, error } = await supabase
-        .from("terminais")
-        .insert({
-          owner_id: u.user.id,
-          nome: input.nome,
-          descricao: input.descricao ?? null,
-          identificador_dispositivo: input.identificador_dispositivo ?? null,
-          ativo: true,
-        })
-        .select("id")
-        .single();
-      if (error) throw error;
-      return data?.id as string;
-    },
+    }) => dataClient.terminais.criar(input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["terminais"] });
       toast.success("Terminal cadastrado.");
@@ -90,24 +48,12 @@ export function useCriarTerminal() {
 export function useAtualizarTerminal() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: {
+    mutationFn: (input: {
       id: string;
       nome?: string;
       descricao?: string | null;
       identificador_dispositivo?: string | null;
-    }) => {
-      const { error } = await supabase
-        .from("terminais")
-        .update({
-          ...(input.nome !== undefined ? { nome: input.nome } : {}),
-          ...(input.descricao !== undefined ? { descricao: input.descricao } : {}),
-          ...(input.identificador_dispositivo !== undefined
-            ? { identificador_dispositivo: input.identificador_dispositivo }
-            : {}),
-        })
-        .eq("id", input.id);
-      if (error) throw error;
-    },
+    }) => dataClient.terminais.atualizar(input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["terminais"] });
       toast.success("Terminal atualizado.");
@@ -119,13 +65,8 @@ export function useAtualizarTerminal() {
 export function useToggleTerminalAtivo() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { id: string; ativo: boolean }) => {
-      const { error } = await supabase
-        .from("terminais")
-        .update({ ativo: input.ativo })
-        .eq("id", input.id);
-      if (error) throw error;
-    },
+    mutationFn: (input: { id: string; ativo: boolean }) =>
+      dataClient.terminais.alterarStatus(input),
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["terminais"] });
       toast.success(vars.ativo ? "Terminal ativado." : "Terminal desativado.");
@@ -137,10 +78,7 @@ export function useToggleTerminalAtivo() {
 export function useExcluirTerminal() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("terminais").delete().eq("id", id);
-      if (error) throw error;
-    },
+    mutationFn: (id: string) => dataClient.terminais.excluir(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["terminais"] });
       toast.success("Terminal excluído.");
@@ -152,14 +90,7 @@ export function useExcluirTerminal() {
 export function useGerarTokenTerminal() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string): Promise<string> => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any).rpc("terminal_gerar_token", {
-        _terminal_id: id,
-      });
-      if (error) throw error;
-      return data as string;
-    },
+    mutationFn: (id: string) => dataClient.terminais.gerarToken(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["terminais"] });
       toast.success("Token gerado.");
@@ -172,13 +103,7 @@ export function useGerarTokenTerminal() {
 export function useDefinirServidor() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase as any).rpc("terminal_definir_servidor", {
-        _terminal_id: id,
-      });
-      if (error) throw error;
-    },
+    mutationFn: (id: string) => dataClient.terminais.definirServidor(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["terminais"] });
       toast.success("Servidor principal definido.");
