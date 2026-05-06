@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Download, Loader2, BarChart3, TrendingUp, TrendingDown } from "lucide-react";
@@ -75,38 +75,16 @@ function Conteudo() {
     (async () => {
       setLoading(true);
       const { inicio, fim } = calcRange(periodo);
-      const [vendasRes, lancRes] = await Promise.all([
-        supabase
-          .from("vendas")
-          .select("total, status")
-          .gte("data_emissao", inicio)
-          .lte("data_emissao", fim)
-          .neq("status", "cancelada"),
-        supabase
-          .from("financeiro_lancamentos")
-          .select("tipo, valor_pago, status")
-          .gte("data_pagamento", inicio)
-          .lte("data_pagamento", fim)
-          .eq("status", "pago"),
-      ]);
-      if (cancelled) return;
-      if (vendasRes.error) toast.error(vendasRes.error.message);
-      if (lancRes.error) toast.error(lancRes.error.message);
-
-      const rec = (vendasRes.data ?? []).reduce(
-        (a: number, v: any) => a + (Number(v.total) || 0),
-        0,
-      );
-      const outras = (lancRes.data ?? [])
-        .filter((l: any) => l.tipo === "receita")
-        .reduce((a: number, l: any) => a + (Number(l.valor_pago) || 0), 0);
-      const desp = (lancRes.data ?? [])
-        .filter((l: any) => l.tipo === "despesa")
-        .reduce((a: number, l: any) => a + (Number(l.valor_pago) || 0), 0);
-
-      setReceitaVendas(rec);
-      setOutrasReceitas(outras);
-      setDespesas(desp);
+      try {
+        const totais = await dataClient.relatorios.dreTotais({ inicio, fim });
+        if (cancelled) return;
+        setReceitaVendas(totais.receita_vendas);
+        setOutrasReceitas(totais.outras_receitas);
+        setDespesas(totais.despesas);
+      } catch (e) {
+        if (cancelled) return;
+        toast.error(e instanceof Error ? e.message : "Falha ao carregar");
+      }
       setLoading(false);
     })();
     return () => {
