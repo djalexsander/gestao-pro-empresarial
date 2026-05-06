@@ -795,6 +795,7 @@ import type {
   UserRolesAdapter,
 } from "./extra-adapters";
 import type { AuthAdapter } from "./auth-adapter";
+import type { RelatoriosAdapter } from "./relatorios-adapter";
 
 export interface DataAdapter {
   produtos: ProdutosAdapter;
@@ -824,5 +825,6 @@ export interface DataAdapter {
   qa: QaAdapter;
   terminalRuntime: TerminalRuntimeAdapter;
   auth: AuthAdapter;
+  relatorios: RelatoriosAdapter;
   // realtime: RealtimeAdapter;
 }
