@@ -85,6 +85,8 @@ export function VendaSucessoDialog({
   const { data: empresa } = useConfigEmpresa();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerWarning, setPickerWarning] = useState<string | null>(null);
+  const [noPrinterOpen, setNoPrinterOpen] = useState(false);
+  const [noPrinterMsg, setNoPrinterMsg] = useState<string | null>(null);
 
   function buildCupom() {
     if (!venda) return null;
