@@ -1,6 +1,6 @@
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, Printer, Wallet, Power, PowerOff } from "lucide-react";
+import { Loader2, Printer, Wallet, Power, PowerOff, Unlock } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -9,8 +9,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -24,6 +36,8 @@ import { dataClient } from "@/integrations/data";
 import { formatBRL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import type { Caixa, CaixaMovimento } from "@/hooks/useCaixa";
+import { useReabrirCaixa } from "@/hooks/useCaixa";
+import { useEmpresaAtual } from "@/hooks/useEmpresa";
 
 
 interface Props {
