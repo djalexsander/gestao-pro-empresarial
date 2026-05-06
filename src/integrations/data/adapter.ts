@@ -128,16 +128,23 @@ import type {
   ProdutosListInput,
 } from "./types";
 import type {
+  CobrancaPendenteDomain,
   CompraComFornecedorDomain,
   CompraDetalheDomain,
   CompraMetadadosInput,
   CompraStatusDomain,
   CriarCompraInput,
   DashboardData,
+  FinanceiroIndicadoresMesDomain,
+  FinanceiroPeriodoRangeInput,
   FornecedorMetricaDomain,
+  PerformancePeriodoDomain,
+  PosicaoFinanceiraDomain,
   ReceberCompraInput,
   ReceberCompraItensInput,
   ReceberCompraItensResult,
+  ReceberOrigemDomain,
+  ReceberOrigemInput,
   SaldosEstoqueLote,
   VendaDetalheDomain,
   VendaListItemDomain,
@@ -471,6 +478,18 @@ export interface FinanceiroAdapter {
    * `cancelarLancamento` (preserva histórico).
    */
   excluirLancamentoAvulso(lancamentoId: string): Promise<ExcluirLancamentoAvulsoResult>;
+
+  // ---------------------------- Indicadores / leituras agregadas ----------------------------
+  /** Indicadores do mês atual (KPIs do hub financeiro). */
+  indicadoresMes(): Promise<FinanceiroIndicadoresMesDomain>;
+  /** Posição financeira (a receber/pagar/saldo) por período. */
+  posicaoPeriodo(periodo: FinanceiroPeriodoRangeInput): Promise<PosicaoFinanceiraDomain>;
+  /** Performance (vendido/custo/lucro) por período. */
+  performancePeriodo(periodo: FinanceiroPeriodoRangeInput): Promise<PerformancePeriodoDomain>;
+  /** A receber por origem (fiado/ifood/recebido/vencidos) por período + filtro de forma. */
+  receberOrigem(input: ReceberOrigemInput): Promise<ReceberOrigemDomain>;
+  /** Cobrança SaaS pendente (Pix/boleto) do tenant atual. */
+  cobrancaPendente(): Promise<CobrancaPendenteDomain | null>;
 }
 
 /**
