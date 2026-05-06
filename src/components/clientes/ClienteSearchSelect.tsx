@@ -1,15 +1,14 @@
-import { useClientes, type Cliente } from "@/hooks/useClientes";
+import { useClientes, type ClienteLite } from "@/hooks/useClientes";
 import { SearchableEntitySelect } from "@/components/shared/SearchableEntitySelect";
 
 type Props = {
   value: string | null | undefined;
-  onChange: (id: string, cliente: Cliente | null) => void;
-  clientes?: Cliente[];
+  onChange: (id: string, cliente: ClienteLite | null) => void;
+  clientes?: ClienteLite[];
   placeholder?: string;
   disabled?: boolean;
   className?: string;
   extraOptions?: { value: string; label: string }[];
-  filter?: (c: Cliente) => boolean;
 };
 
 export function ClienteSearchSelect({
@@ -20,14 +19,12 @@ export function ClienteSearchSelect({
   disabled,
   className,
   extraOptions,
-  filter,
 }: Props) {
   const { data: clientesHook = [] } = useClientes();
-  const base = clientesProp ?? clientesHook;
-  const lista = filter ? base.filter(filter) : base.filter((c) => c.status === "ativo");
+  const lista = clientesProp ?? clientesHook;
 
   return (
-    <SearchableEntitySelect<Cliente>
+    <SearchableEntitySelect<ClienteLite>
       value={value}
       items={lista}
       getId={(c) => c.id}
@@ -36,15 +33,14 @@ export function ClienteSearchSelect({
         const parts: string[] = [];
         if (c.nome_fantasia) parts.push(c.nome_fantasia);
         if (c.documento) parts.push(c.documento);
-        if (c.celular || c.telefone) parts.push((c.celular || c.telefone) as string);
         return parts.join(" · ") || null;
       }}
-      getTextFields={(c) => [c.nome, c.nome_fantasia, c.email]}
-      getDigitFields={(c) => [c.documento, c.telefone, c.celular]}
+      getTextFields={(c) => [c.nome, c.nome_fantasia]}
+      getDigitFields={(c) => [c.documento]}
       onChange={onChange}
       extraOptions={extraOptions}
       placeholder={placeholder}
-      searchPlaceholder="Buscar por nome, CPF/CNPJ, telefone, e-mail..."
+      searchPlaceholder="Buscar por nome, CPF/CNPJ..."
       emptyText="Nenhum cliente encontrado."
       disabled={disabled}
       className={className}
