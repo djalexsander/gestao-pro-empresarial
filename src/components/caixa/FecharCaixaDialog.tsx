@@ -17,6 +17,11 @@ import { useFecharCaixa, type CaixaResumo } from "@/hooks/useCaixa";
 import { formatBRL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { useHotkeys } from "@/hooks/useHotkeys";
+import { useAutorizacoesConfig } from "@/hooks/useAutorizacoes";
+import {
+  AutorizacaoGerencialDialog,
+  type AutorizacaoRequest,
+} from "@/components/autorizacoes/AutorizacaoGerencialDialog";
 
 interface Props {
   open: boolean;
