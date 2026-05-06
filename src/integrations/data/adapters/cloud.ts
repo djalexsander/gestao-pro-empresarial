@@ -666,6 +666,16 @@ const caixa: DataAdapter["caixa"] = {
     return data;
   },
 
+  async reabrir(input) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.rpc as any)("reabrir_caixa", {
+      _caixa_id: input.caixa_id,
+      _motivo: input.motivo ?? null,
+    });
+    if (error) throw error;
+    return data;
+  },
+
   // ---------------------------- Reads (Bloco 15) ----------------------------
   async aberto(filtro) {
     const { data: uid } = await supabase.auth.getUser();

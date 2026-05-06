@@ -358,6 +358,12 @@ export interface CaixaAdapter {
    */
   excluir(caixaId: string): Promise<unknown>;
 
+  /**
+   * Reabre um caixa fechado para refazer o fechamento. Apenas dono ou
+   * membros admin/owner. RPC `reabrir_caixa`.
+   */
+  reabrir(input: { caixa_id: string; motivo?: string | null }): Promise<unknown>;
+
   // ---------------------------- Reads (Bloco 15) ----------------------------
   /**
    * Caixa aberto do tenant. `operador_id` `null` = caixa do admin direto;
