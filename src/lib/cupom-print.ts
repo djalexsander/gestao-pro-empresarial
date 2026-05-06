@@ -139,6 +139,22 @@ export async function imprimirCupom(
 
   const printer = getDefaultPrinter();
   if (!printer) {
+    // Verifica se existem impressoras no SO. Se não houver nenhuma,
+    // não vale a pena abrir o seletor — sugerimos salvar como PDF.
+    let printers: { name: string }[] = [];
+    try {
+      printers = await listPrinters();
+    } catch {
+      printers = [];
+    }
+    if (printers.length === 0) {
+      return {
+        ok: false,
+        noPrinters: true,
+        warning:
+          "Nenhuma impressora encontrada neste computador. Você pode salvar o comprovante como PDF.",
+      };
+    }
     return {
       ok: false,
       needsPicker: true,
