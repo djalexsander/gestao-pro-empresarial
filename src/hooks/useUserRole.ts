@@ -55,7 +55,7 @@ export function isCaixaAllowedPath(pathname: string): boolean {
 
 /**
  * Helpers de papéis. `isAdminLike` libera acesso ao ERP completo.
- * Operadores `caixa` ficam restritos a /pos, /pdv, /produtos, /estoque, /compras.
+ * Operadores `caixa` ficam restritos a /pos, /pdv, /produtos-vendidos, /produtos, /estoque, /compras.
  */
 export function useUserRole() {
   const { data: roles = [], isLoading } = useUserRoles();
