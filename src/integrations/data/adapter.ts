@@ -490,6 +490,37 @@ export interface FinanceiroAdapter {
   receberOrigem(input: ReceberOrigemInput): Promise<ReceberOrigemDomain>;
   /** Cobrança SaaS pendente (Pix/boleto) do tenant atual. */
   cobrancaPendente(): Promise<CobrancaPendenteDomain | null>;
+  /** Lista lançamentos de fiado (tipo=receber + forma=fiado, exclui cancelados). */
+  listFiado(): Promise<FiadoLancamentoDomain[]>;
+}
+
+export interface FiadoLancamentoDomain {
+  id: string;
+  descricao: string;
+  valor: number;
+  valor_pago: number | null;
+  data_vencimento: string;
+  data_emissao: string | null;
+  data_pagamento: string | null;
+  status: string;
+  observacoes: string | null;
+  cliente_id: string | null;
+  venda_id: string | null;
+  forma_pagamento: string | null;
+  cliente: {
+    id: string;
+    nome: string;
+    documento: string | null;
+    telefone: string | null;
+    celular: string | null;
+    email: string | null;
+  } | null;
+  venda: {
+    id: string;
+    numero: string;
+    data_finalizacao: string | null;
+    total: number;
+  } | null;
 }
 
 /**
