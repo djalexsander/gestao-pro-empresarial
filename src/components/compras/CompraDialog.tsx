@@ -25,6 +25,7 @@ import { useProdutos } from "@/hooks/useProdutos";
 import { useCreateCompra, gerarNumeroCompra, type CompraItemInput } from "@/hooks/useCompras";
 import { buscarProdutoPorCodigo } from "@/hooks/useProdutoCodigo";
 import { ProdutoSearchSelect } from "@/components/produtos/ProdutoSearchSelect";
+import { FornecedorSearchSelect } from "@/components/fornecedores/FornecedorSearchSelect";
 
 interface Props {
   open: boolean;
