@@ -16,6 +16,7 @@ import { formatBRL } from "@/lib/mock-data";
 import {
   getDefaultPrinter,
   printPdfBytes,
+  listPrinters,
 } from "@/integrations/desktop/printers";
 
 const FORMA_LABEL: Record<string, string> = {
@@ -103,6 +104,8 @@ export interface ImprimirCupomResult {
   ok: boolean;
   /** Quando true: precisa pedir ao usuário para escolher impressora. */
   needsPicker?: boolean;
+  /** Quando true: nenhuma impressora foi detectada no SO — sugerir salvar. */
+  noPrinters?: boolean;
   /** Mensagem de aviso (impressora salva indisponível, etc.) */
   warning?: string;
   error?: string;
@@ -136,6 +139,22 @@ export async function imprimirCupom(
 
   const printer = getDefaultPrinter();
   if (!printer) {
+    // Verifica se existem impressoras no SO. Se não houver nenhuma,
+    // não vale a pena abrir o seletor — sugerimos salvar como PDF.
+    let printers: { name: string }[] = [];
+    try {
+      printers = await listPrinters();
+    } catch {
+      printers = [];
+    }
+    if (printers.length === 0) {
+      return {
+        ok: false,
+        noPrinters: true,
+        warning:
+          "Nenhuma impressora encontrada neste computador. Você pode salvar o comprovante como PDF.",
+      };
+    }
     return {
       ok: false,
       needsPicker: true,
@@ -315,9 +334,9 @@ function gerarPdfCupom(
   return doc;
 }
 
-function safeFileName(numero: string | null): string {
+function safeFileName(numero: string | null, ext: "pdf" | "png" = "pdf"): string {
   const base = (numero ?? "cupom").toString().replace(/[^a-zA-Z0-9_-]+/g, "_");
-  return `cupom_${base}.pdf`;
+  return `comprovante-venda-${base}.${ext}`;
 }
 
 const LAST_DIR_KEY = "gp.cupomPdf.lastDir.v1";
