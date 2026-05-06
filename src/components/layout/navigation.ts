@@ -66,10 +66,25 @@ export const MODULES: ModuleDef[] = [
     items: [
       { to: "/produtos", label: "Produtos", icon: Package, description: "Catálogo e cadastro" },
       { to: "/estoque", label: "Estoque", icon: Boxes, description: "Movimentações e saldos" },
-      { to: "/compras", label: "Compras", icon: ShoppingCart, description: "Pedidos a fornecedores" },
+      {
+        to: "/compras",
+        label: "Compras",
+        icon: ShoppingCart,
+        description: "Pedidos a fornecedores",
+      },
       { to: "/vendas", label: "Vendas", icon: Receipt, description: "Pedidos e faturamento" },
-      { to: "/caixa", label: "Caixa", icon: CircleDollarSign, description: "Abertura, operação e fechamento" },
-      { to: "/produtos-vendidos", label: "Produtos vendidos", icon: BarChart3, description: "Consulta por dia/período" },
+      {
+        to: "/caixa",
+        label: "Caixa",
+        icon: CircleDollarSign,
+        description: "Abertura, operação e fechamento",
+      },
+      {
+        to: "/produtos-vendidos",
+        label: "Produtos vendidos",
+        icon: BarChart3,
+        description: "Consulta por dia/período",
+      },
     ],
   },
   {
@@ -101,7 +116,12 @@ export const MODULES: ModuleDef[] = [
     key: "cadastros",
     label: "Cadastros",
     items: [
-      { to: "/fornecedores", label: "Fornecedores", icon: Truck, description: "Parceiros e compras" },
+      {
+        to: "/fornecedores",
+        label: "Fornecedores",
+        icon: Truck,
+        description: "Parceiros e compras",
+      },
       { to: "/clientes", label: "Clientes", icon: Users, description: "Base de clientes" },
     ],
   },
@@ -110,15 +130,30 @@ export const MODULES: ModuleDef[] = [
     label: "Análise",
     directRoute: "/relatorios",
     items: [
-      { to: "/relatorios", label: "Relatórios", icon: BarChart3, description: "Indicadores e exports" },
+      {
+        to: "/relatorios",
+        label: "Relatórios",
+        icon: BarChart3,
+        description: "Indicadores e exports",
+      },
     ],
   },
   {
     key: "configuracoes",
     label: "Configurações",
     items: [
-      { to: "/configuracoes", label: "Configurações", icon: Settings, description: "Ajustes do sistema" },
-      { to: "/modulos", label: "Meu Plano", icon: CreditCard, description: "Plano e módulos contratados" },
+      {
+        to: "/configuracoes",
+        label: "Configurações",
+        icon: Settings,
+        description: "Ajustes do sistema",
+      },
+      {
+        to: "/modulos",
+        label: "Meu Plano",
+        icon: CreditCard,
+        description: "Plano e módulos contratados",
+      },
     ],
   },
 ];
@@ -130,7 +165,7 @@ export function findModuleByPath(pathname: string): ModuleDef {
   for (const mod of MODULES) {
     for (const item of mod.items) {
       const base = item.to.split("?")[0];
-      if (base !== "/" && pathname.startsWith(base)) return mod;
+      if (base !== "/" && (pathname === base || pathname.startsWith(base + "/"))) return mod;
     }
   }
   return MODULES[0];

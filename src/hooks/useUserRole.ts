@@ -2,13 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/components/auth/AuthProvider";
 
-export type AppRole =
-  | "super_admin"
-  | "admin"
-  | "gerente"
-  | "caixa"
-  | "vendedor"
-  | "financeiro";
+export type AppRole = "super_admin" | "admin" | "gerente" | "caixa" | "vendedor" | "financeiro";
 
 /**
  * Retorna todos os papéis (roles) do usuário autenticado.
@@ -40,6 +34,7 @@ export function useUserRoles() {
 export const CAIXA_ALLOWED_BASES = [
   "/pos",
   "/pdv",
+  "/produtos-vendidos",
   "/produtos",
   "/estoque",
   "/compras",
@@ -47,14 +42,12 @@ export const CAIXA_ALLOWED_BASES = [
 
 /** Verifica se um pathname está na whitelist do operador de caixa. */
 export function isCaixaAllowedPath(pathname: string): boolean {
-  return CAIXA_ALLOWED_BASES.some(
-    (base) => pathname === base || pathname.startsWith(base + "/"),
-  );
+  return CAIXA_ALLOWED_BASES.some((base) => pathname === base || pathname.startsWith(base + "/"));
 }
 
 /**
  * Helpers de papéis. `isAdminLike` libera acesso ao ERP completo.
- * Operadores `caixa` ficam restritos a /pos, /pdv, /produtos, /estoque, /compras.
+ * Operadores `caixa` ficam restritos a /pos, /pdv, /produtos-vendidos, /produtos, /estoque, /compras.
  */
 export function useUserRole() {
   const { data: roles = [], isLoading } = useUserRoles();
