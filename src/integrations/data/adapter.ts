@@ -749,13 +749,19 @@ export interface DashboardAdapter {
 }
 
 import type {
+  AdminAdapter,
   AutorizacoesAdapter,
   BalancaAdapter,
   ConfigEmpresaAdapter,
   EmpresaAdapter,
   NotificacoesAdapter,
   ProdutoCodigosAdapter,
+  QaAdapter,
+  SaasAdminAdapter,
+  SaasClienteAdapter,
   TerminaisAdapter,
+  TerminalRuntimeAdapter,
+  UserRolesAdapter,
 } from "./extra-adapters";
 
 export interface DataAdapter {
@@ -779,5 +785,11 @@ export interface DataAdapter {
   configEmpresa: ConfigEmpresaAdapter;
   balanca: BalancaAdapter;
   produtoCodigos: ProdutoCodigosAdapter;
+  userRoles: UserRolesAdapter;
+  admin: AdminAdapter;
+  saasAdmin: SaasAdminAdapter;
+  saasCliente: SaasClienteAdapter;
+  qa: QaAdapter;
+  terminalRuntime: TerminalRuntimeAdapter;
   // realtime: RealtimeAdapter;
 }
