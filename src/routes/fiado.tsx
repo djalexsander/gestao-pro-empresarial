@@ -393,24 +393,6 @@ function FiadoContent() {
     }
   }
 
-  async function exportarCSV() {
-    const cols: CsvColumn<ClienteAgrupado>[] = [
-      { header: "Cliente", accessor: (r) => r.nome },
-      { header: "Documento", accessor: (r) => r.documento ?? "" },
-      { header: "Telefone", accessor: (r) => r.telefone ?? "" },
-      { header: "Total em aberto", accessor: (r) => r.totalAberto, type: "currency" },
-      { header: "Vencido", accessor: (r) => r.totalVencido, type: "currency" },
-      { header: "A vencer", accessor: (r) => r.totalAVencer, type: "currency" },
-      { header: "Total pago", accessor: (r) => r.totalPago, type: "currency" },
-      { header: "Qtd títulos", accessor: (r) => r.qtdTitulos, type: "integer" },
-      { header: "Última compra", accessor: (r) => r.ultimaCompra ?? "" },
-      { header: "Status", accessor: (r) => r.status },
-    ];
-    await exportRowsToCSV("clientes_a_receber", filtrados, cols, {
-      relatorio: "Clientes a receber",
-    });
-    toast.success("CSV gerado.");
-  }
 
   const [exportOpen, setExportOpen] = useState(false);
   const [exportEscopo, setExportEscopo] = useState<"todos" | "filtrados" | "cliente">("filtrados");
