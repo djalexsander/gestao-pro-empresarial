@@ -1277,6 +1277,7 @@ function FluxoCaixaPanel() {
           valor: number;
           motivo: string | null;
           created_at: string;
+          caixa_id: string | null;
         }) => {
           const tipo = m.tipo as FluxoTipo;
           const bruto = Number(m.valor) || 0;
@@ -1284,11 +1285,6 @@ function FluxoCaixaPanel() {
           let valor = bruto;
           if (tipo === "sangria" || tipo === "fechamento") valor = -Math.abs(bruto);
           else valor = Math.abs(bruto);
-          // Abertura e fechamento são movimentos OPERACIONAIS do caixa
-          // (fundo de troco / encerramento) — não são receita/despesa real.
-          // Mantemos a linha no extrato com valor informativo, mas eles não
-          // entram no cálculo de entradas, saídas, saldo do período nem no
-          // saldo acumulado real.
           const operacional = tipo === "abertura" || tipo === "fechamento";
           return {
             id: `mov-${m.id}`,
@@ -1298,6 +1294,7 @@ function FluxoCaixaPanel() {
             descricao: m.motivo ?? TIPO_LABEL[tipo] ?? "Movimento de caixa",
             valor,
             operacional,
+            caixaId: m.caixa_id,
           };
         },
       );
