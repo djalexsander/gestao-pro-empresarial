@@ -104,6 +104,8 @@ export interface ImprimirCupomResult {
   ok: boolean;
   /** Quando true: precisa pedir ao usuário para escolher impressora. */
   needsPicker?: boolean;
+  /** Quando true: nenhuma impressora foi detectada no SO — sugerir salvar. */
+  noPrinters?: boolean;
   /** Mensagem de aviso (impressora salva indisponível, etc.) */
   warning?: string;
   error?: string;
