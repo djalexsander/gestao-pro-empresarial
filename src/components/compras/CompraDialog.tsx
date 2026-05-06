@@ -324,27 +324,18 @@ export function CompraDialog({ open, onOpenChange }: Props) {
                     className="grid grid-cols-12 gap-2 border-b border-border px-3 py-2 last:border-b-0 items-center"
                   >
                     <div className="col-span-5">
-                      <Select
-                        value={it.produto_id || ""}
-                        onValueChange={(v) => {
-                          const p = produtos.find((x) => x.id === v);
+                      <ProdutoSearchSelect
+                        value={it.produto_id || null}
+                        onChange={(id, p) => {
                           updateItem(it._key, {
-                            produto_id: v,
-                            preco_unitario: it.preco_unitario || Number(p?.preco_custo ?? 0),
+                            produto_id: id,
+                            preco_unitario:
+                              it.preco_unitario || Number(p?.preco_custo ?? 0),
                           });
                         }}
-                      >
-                        <SelectTrigger className="h-9">
-                          <SelectValue placeholder="Selecionar..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {produtos.map((p) => (
-                            <SelectItem key={p.id} value={p.id}>
-                              {p.nome} <span className="text-muted-foreground">({p.sku})</span>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        produtos={produtos}
+                        filter={() => true}
+                      />
                     </div>
                     <div className="col-span-2">
                       <Input
