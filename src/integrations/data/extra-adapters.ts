@@ -239,3 +239,284 @@ export interface ProdutoCodigoDomain {
 export interface ProdutoCodigosAdapter {
   list(produtoId: string): Promise<ProdutoCodigoDomain[]>;
 }
+
+// =============== Onda 5: Admin / SaaS / QA / UserRoles / TerminalRuntime ===============
+
+// --- User roles ---
+export type AppRoleDomain =
+  | "super_admin"
+  | "admin"
+  | "gerente"
+  | "caixa"
+  | "vendedor"
+  | "financeiro";
+
+export interface UserRolesAdapter {
+  listar(userId: string): Promise<AppRoleDomain[]>;
+}
+
+// --- Admin (super admin global) ---
+export type EmpresaStatusAdminDomain = "ativa" | "inativa" | "bloqueada";
+export type EmpresaPlanoAdminDomain = "free" | "starter" | "pro" | "enterprise";
+
+export interface AdminUserDomain {
+  user_id: string;
+  email: string;
+  created_at: string;
+  last_sign_in_at: string | null;
+  email_confirmed: boolean;
+  roles: string[];
+  empresa_id: string | null;
+  empresa_nome: string | null;
+  empresa_status: EmpresaStatusAdminDomain | null;
+  empresa_plano: EmpresaPlanoAdminDomain | null;
+  total_produtos: number;
+  total_vendas: number;
+  total_compras: number;
+}
+
+export interface AdminEmpresaDomain {
+  id: string;
+  owner_id: string;
+  nome: string;
+  email: string | null;
+  telefone: string | null;
+  documento: string | null;
+  status: EmpresaStatusAdminDomain;
+  plano: EmpresaPlanoAdminDomain;
+  observacoes: string | null;
+  created_at: string;
+  updated_at: string;
+  total_usuarios: number;
+  total_produtos: number;
+  total_vendas: number;
+  total_compras: number;
+  total_movimentacoes: number;
+  volume_vendas: number;
+  volume_compras: number;
+}
+
+export interface AdminStatsDomain {
+  total_usuarios: number;
+  usuarios_30d: number;
+  usuarios_7d: number;
+  usuarios_confirmados: number;
+  usuarios_ativos_30d: number;
+  total_empresas: number;
+  empresas_ativas: number;
+  empresas_inativas: number;
+  empresas_bloqueadas: number;
+  empresas_30d: number;
+  empresas_7d: number;
+  total_produtos: number;
+  total_clientes: number;
+  total_fornecedores: number;
+  total_vendas: number;
+  total_compras: number;
+  total_movimentacoes: number;
+  volume_vendas_total: number;
+  volume_compras_total: number;
+}
+
+export interface AuditLogDomain {
+  id: string;
+  actor_id: string | null;
+  actor_email: string | null;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  metadata: Record<string, unknown>;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+}
+
+export interface SerieCrescimentoDomain {
+  data: string;
+  novos_usuarios: number;
+  novas_empresas: number;
+  total_usuarios_acum: number;
+  total_empresas_acum: number;
+}
+
+export interface AdminAdapter {
+  isSuperAdmin(userId: string): Promise<boolean>;
+  stats(): Promise<AdminStatsDomain>;
+  serieCrescimento(dias: number): Promise<SerieCrescimentoDomain[]>;
+  listarUsuarios(): Promise<AdminUserDomain[]>;
+  setUserRole(input: { userId: string; role: string; grant: boolean }): Promise<void>;
+  deleteUser(userId: string): Promise<void>;
+  listarEmpresas(): Promise<AdminEmpresaDomain[]>;
+  upsertEmpresa(input: {
+    id: string;
+    nome: string;
+    email?: string | null;
+    telefone?: string | null;
+    documento?: string | null;
+    plano?: EmpresaPlanoAdminDomain;
+    observacoes?: string | null;
+  }): Promise<void>;
+  setEmpresaStatus(input: { id: string; status: EmpresaStatusAdminDomain; motivo?: string }): Promise<void>;
+  deleteEmpresa(id: string): Promise<void>;
+  auditLogs(limit: number): Promise<AuditLogDomain[]>;
+  registrarAuditLog(input: {
+    action: string;
+    target_type?: string;
+    target_id?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<void>;
+}
+
+// --- SaaS Admin (planos/módulos/assinaturas/etc) ---
+export type PlanoTipoCobrancaDomain = "mensal" | "anual" | "vitalicio";
+export type AssinaturaStatusDomain = "trial" | "ativo" | "vencido" | "cancelado";
+export type EmpresaModuloStatusDomain = "ativo" | "pendente" | "cancelado";
+export type PagamentoStatusDomain = "pago" | "pendente" | "atrasado" | "cancelado";
+export type PagamentoReferenciaDomain = "plano" | "modulo" | "outro";
+export type SystemModeTipoDomain = "admin" | "operador";
+
+export interface SaasAdminAdapter {
+  // planos
+  listarPlanos(): Promise<unknown[]>;
+  upsertPlano(input: Record<string, unknown>): Promise<void>;
+  deletePlano(id: string): Promise<void>;
+  // módulos
+  listarModulos(): Promise<unknown[]>;
+  upsertModulo(input: Record<string, unknown>): Promise<void>;
+  deleteModulo(id: string): Promise<void>;
+  // assinaturas
+  listarAssinaturas(): Promise<unknown[]>;
+  setAssinatura(input: Record<string, unknown>): Promise<void>;
+  // empresa-módulos
+  listarEmpresaModulos(empresaId: string | null): Promise<unknown[]>;
+  setEmpresaModulo(input: Record<string, unknown>): Promise<void>;
+  removerEmpresaModulo(id: string): Promise<void>;
+  // pagamentos
+  listarPagamentos(empresaId: string | null): Promise<unknown[]>;
+  upsertPagamento(input: Record<string, unknown>): Promise<void>;
+  deletePagamento(id: string): Promise<void>;
+  // config comercial
+  obterConfigComercial(): Promise<unknown>;
+  setConfigComercial(input: Record<string, unknown>): Promise<void>;
+  // minha assinatura / meus módulos
+  minhaAssinatura(): Promise<unknown>;
+  meusModulos(): Promise<unknown[]>;
+  // modos
+  listarModos(): Promise<unknown[]>;
+  modosDisponiveis(): Promise<unknown[]>;
+  upsertModo(input: Record<string, unknown>): Promise<string>;
+  deleteModo(id: string): Promise<void>;
+  setModoModulos(input: { mode_id: string; module_ids: string[] }): Promise<void>;
+}
+
+// --- SaaS Cliente (auto-serviço empresa) ---
+export interface CobrancaCriadaDomain {
+  pagamento_id: string;
+  asaas_payment_id: string;
+  invoice_url?: string | null;
+  pix_qrcode?: string | null;
+  pix_copia_cola?: string | null;
+  due_date?: string | null;
+}
+
+export interface SaasClienteAdapter {
+  planosDisponiveis(): Promise<unknown[]>;
+  modulosDisponiveisCliente(): Promise<unknown[]>;
+  /** Solicita plano. Retorna { pagamentoId, cobranca? }. */
+  solicitarPlano(planoId: string): Promise<{ pagamentoId: string; cobranca: CobrancaCriadaDomain | null }>;
+  solicitarModulo(moduloId: string): Promise<{ pagamentoId: string; cobranca: CobrancaCriadaDomain | null }>;
+  resetarDadosEmpresa(): Promise<void>;
+}
+
+// --- QA (super admin) ---
+export type QaSeveridadeDomain = "critico" | "medio" | "leve";
+export type QaStatusAvaliacaoDomain = "nao_testado" | "ok" | "leve" | "medio" | "critico";
+export type QaValidacaoStatusDomain = "em_andamento" | "finalizada";
+
+export interface QaModuloDomain {
+  id: string;
+  chave: string;
+  nome: string;
+  descricao: string | null;
+  ordem: number;
+  ativo: boolean;
+}
+
+export interface QaItemDomain {
+  id: string;
+  modulo_id: string;
+  titulo: string;
+  descricao: string | null;
+  severidade: QaSeveridadeDomain;
+  critico: boolean;
+  rota_link: string | null;
+  ordem: number;
+  ativo: boolean;
+}
+
+export interface QaValidacaoDomain {
+  id: string;
+  titulo: string;
+  responsavel_id: string | null;
+  responsavel_nome: string | null;
+  status: QaValidacaoStatusDomain;
+  iniciada_em: string;
+  finalizada_em: string | null;
+  observacao_final: string | null;
+  resumo: Record<string, unknown> | null;
+}
+
+export interface QaAvaliacaoDomain {
+  id: string;
+  validacao_id: string;
+  item_id: string;
+  status: QaStatusAvaliacaoDomain;
+  observacao: string | null;
+  evidencia_url: string | null;
+  testado_em: string | null;
+  testado_por: string | null;
+  testado_por_nome: string | null;
+  updated_at: string;
+}
+
+export interface QaAdapter {
+  listarModulos(): Promise<QaModuloDomain[]>;
+  listarItens(): Promise<QaItemDomain[]>;
+  listarValidacoes(): Promise<QaValidacaoDomain[]>;
+  validacaoAtiva(): Promise<QaValidacaoDomain | null>;
+  listarAvaliacoes(validacaoId: string): Promise<QaAvaliacaoDomain[]>;
+  criarValidacao(input: {
+    titulo: string;
+    responsavel_id: string;
+    responsavel_nome: string;
+  }): Promise<QaValidacaoDomain>;
+  finalizarValidacao(input: {
+    id: string;
+    observacao_final: string | null;
+    resumo: Record<string, unknown> | null;
+  }): Promise<void>;
+  salvarAvaliacao(input: {
+    validacao_id: string;
+    item_id: string;
+    status: QaStatusAvaliacaoDomain;
+    observacao: string | null;
+    evidencia_url: string | null;
+    testado_por: string;
+    testado_por_nome: string;
+  }): Promise<void>;
+  uploadEvidencia(input: { file: File; validacao_id: string }): Promise<string>;
+  signedUrlEvidencia(path: string): Promise<string | null>;
+}
+
+// --- Terminal runtime (heartbeat / ping / limpar operador) ---
+export interface TerminalRuntimeAdapter {
+  heartbeat(input: {
+    terminal_id: string;
+    operador_id: string | null;
+    operador_nome: string | null;
+    user_agent: string | null;
+    ip_local: string | null;
+  }): Promise<void>;
+  limparOperador(terminalId: string): Promise<void>;
+  ping(): Promise<void>;
+}

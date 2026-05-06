@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data/client";
 import { useAuth } from "@/components/auth/AuthProvider";
 
 export type AppRole = "super_admin" | "admin" | "gerente" | "caixa" | "vendedor" | "financeiro";
@@ -16,12 +16,7 @@ export function useUserRoles() {
     staleTime: 60_000,
     queryFn: async (): Promise<AppRole[]> => {
       if (!user) return [];
-      const { data, error } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", user.id);
-      if (error) return [];
-      return (data ?? []).map((r) => r.role as AppRole);
+      return (await dataClient.userRoles.listar(user.id)) as AppRole[];
     },
   });
 }

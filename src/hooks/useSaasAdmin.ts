@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data/client";
 
 /* =========================================================
  * Tipos
@@ -107,18 +107,14 @@ export type ConfigComercial = {
 export function useAdminPlanos() {
   return useQuery({
     queryKey: ["admin-planos"],
-    queryFn: async () => {
-      const { data, error } = await (supabase.rpc as any)("admin_listar_planos");
-      if (error) throw error;
-      return (data ?? []) as Plano[];
-    },
+    queryFn: async () => (await dataClient.saasAdmin.listarPlanos()) as Plano[],
   });
 }
 
 export function useUpsertPlano() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: {
+    mutationFn: (input: {
       id: string | null;
       nome: string;
       descricao?: string | null;
@@ -128,8 +124,8 @@ export function useUpsertPlano() {
       limite_produtos?: number | null;
       ativo: boolean;
       ordem?: number;
-    }) => {
-      const { error } = await (supabase.rpc as any)("admin_upsert_plano", {
+    }) =>
+      dataClient.saasAdmin.upsertPlano({
         _id: input.id,
         _nome: input.nome,
         _descricao: input.descricao ?? null,
@@ -139,9 +135,7 @@ export function useUpsertPlano() {
         _limite_produtos: input.limite_produtos ?? null,
         _ativo: input.ativo,
         _ordem: input.ordem ?? 0,
-      });
-      if (error) throw error;
-    },
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-planos"] });
       qc.invalidateQueries({ queryKey: ["admin-config-comercial"] });
@@ -154,10 +148,7 @@ export function useUpsertPlano() {
 export function useDeletePlano() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await (supabase.rpc as any)("admin_delete_plano", { _id: id });
-      if (error) throw error;
-    },
+    mutationFn: (id: string) => dataClient.saasAdmin.deletePlano(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-planos"] });
       toast.success("Plano excluído.");
@@ -172,18 +163,14 @@ export function useDeletePlano() {
 export function useAdminModulos() {
   return useQuery({
     queryKey: ["admin-modulos"],
-    queryFn: async () => {
-      const { data, error } = await (supabase.rpc as any)("admin_listar_modulos");
-      if (error) throw error;
-      return (data ?? []) as Modulo[];
-    },
+    queryFn: async () => (await dataClient.saasAdmin.listarModulos()) as Modulo[],
   });
 }
 
 export function useUpsertModulo() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: {
+    mutationFn: (input: {
       id: string | null;
       nome: string;
       chave: string;
@@ -192,8 +179,8 @@ export function useUpsertModulo() {
       ativo: boolean;
       aplica_restricao: boolean;
       ordem?: number;
-    }) => {
-      const { error } = await (supabase.rpc as any)("admin_upsert_modulo", {
+    }) =>
+      dataClient.saasAdmin.upsertModulo({
         _id: input.id,
         _nome: input.nome,
         _chave: input.chave,
@@ -202,9 +189,7 @@ export function useUpsertModulo() {
         _ativo: input.ativo,
         _aplica_restricao: input.aplica_restricao,
         _ordem: input.ordem ?? 0,
-      });
-      if (error) throw error;
-    },
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-modulos"] });
       toast.success("Módulo salvo.");
@@ -216,10 +201,7 @@ export function useUpsertModulo() {
 export function useDeleteModulo() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await (supabase.rpc as any)("admin_delete_modulo", { _id: id });
-      if (error) throw error;
-    },
+    mutationFn: (id: string) => dataClient.saasAdmin.deleteModulo(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-modulos"] });
       toast.success("Módulo excluído.");
@@ -234,35 +216,29 @@ export function useDeleteModulo() {
 export function useAdminAssinaturas() {
   return useQuery({
     queryKey: ["admin-assinaturas"],
-    queryFn: async () => {
-      const { data, error } = await (supabase.rpc as any)("admin_listar_assinaturas");
-      if (error) throw error;
-      return (data ?? []) as AssinaturaRow[];
-    },
+    queryFn: async () => (await dataClient.saasAdmin.listarAssinaturas()) as AssinaturaRow[],
   });
 }
 
 export function useSetAssinatura() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: {
+    mutationFn: (input: {
       empresa_id: string;
       plano_id: string | null;
       status: AssinaturaStatus;
       data_inicio?: string | null;
       data_expiracao?: string | null;
       observacoes?: string | null;
-    }) => {
-      const { error } = await (supabase.rpc as any)("admin_set_assinatura", {
+    }) =>
+      dataClient.saasAdmin.setAssinatura({
         _empresa_id: input.empresa_id,
         _plano_id: input.plano_id,
         _status: input.status,
         _data_inicio: input.data_inicio ?? null,
         _data_expiracao: input.data_expiracao ?? null,
         _observacoes: input.observacoes ?? null,
-      });
-      if (error) throw error;
-    },
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-assinaturas"] });
       toast.success("Assinatura atualizada.");
@@ -277,37 +253,30 @@ export function useSetAssinatura() {
 export function useEmpresaModulos(empresaId?: string | null) {
   return useQuery({
     queryKey: ["admin-empresa-modulos", empresaId ?? "all"],
-    queryFn: async () => {
-      const { data, error } = await (supabase.rpc as any)("admin_listar_empresa_modulos", {
-        _empresa_id: empresaId ?? null,
-      });
-      if (error) throw error;
-      return (data ?? []) as EmpresaModuloRow[];
-    },
+    queryFn: async () =>
+      (await dataClient.saasAdmin.listarEmpresaModulos(empresaId ?? null)) as EmpresaModuloRow[],
   });
 }
 
 export function useSetEmpresaModulo() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: {
+    mutationFn: (input: {
       empresa_id: string;
       modulo_id: string;
       status: EmpresaModuloStatus;
       data_inicio?: string | null;
       data_expiracao?: string | null;
       observacoes?: string | null;
-    }) => {
-      const { error } = await (supabase.rpc as any)("admin_set_empresa_modulo", {
+    }) =>
+      dataClient.saasAdmin.setEmpresaModulo({
         _empresa_id: input.empresa_id,
         _modulo_id: input.modulo_id,
         _status: input.status,
         _data_inicio: input.data_inicio ?? null,
         _data_expiracao: input.data_expiracao ?? null,
         _observacoes: input.observacoes ?? null,
-      });
-      if (error) throw error;
-    },
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-empresa-modulos"] });
       qc.invalidateQueries({ queryKey: ["admin-assinaturas"] });
@@ -320,10 +289,7 @@ export function useSetEmpresaModulo() {
 export function useRemoverEmpresaModulo() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await (supabase.rpc as any)("admin_remover_empresa_modulo", { _id: id });
-      if (error) throw error;
-    },
+    mutationFn: (id: string) => dataClient.saasAdmin.removerEmpresaModulo(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-empresa-modulos"] });
       qc.invalidateQueries({ queryKey: ["admin-assinaturas"] });
@@ -339,20 +305,15 @@ export function useRemoverEmpresaModulo() {
 export function useAdminPagamentos(empresaId?: string | null) {
   return useQuery({
     queryKey: ["admin-pagamentos", empresaId ?? "all"],
-    queryFn: async () => {
-      const { data, error } = await (supabase.rpc as any)("admin_listar_pagamentos", {
-        _empresa_id: empresaId ?? null,
-      });
-      if (error) throw error;
-      return (data ?? []) as PagamentoRow[];
-    },
+    queryFn: async () =>
+      (await dataClient.saasAdmin.listarPagamentos(empresaId ?? null)) as PagamentoRow[],
   });
 }
 
 export function useUpsertPagamento() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: {
+    mutationFn: (input: {
       id: string | null;
       empresa_id: string;
       referencia_tipo: PagamentoReferencia;
@@ -365,8 +326,8 @@ export function useUpsertPagamento() {
       data_vencimento?: string | null;
       data_pagamento?: string | null;
       observacoes?: string | null;
-    }) => {
-      const { error } = await (supabase.rpc as any)("admin_registrar_pagamento", {
+    }) =>
+      dataClient.saasAdmin.upsertPagamento({
         _id: input.id,
         _empresa_id: input.empresa_id,
         _referencia_tipo: input.referencia_tipo,
@@ -379,9 +340,7 @@ export function useUpsertPagamento() {
         _data_vencimento: input.data_vencimento ?? null,
         _data_pagamento: input.data_pagamento ?? null,
         _observacoes: input.observacoes ?? null,
-      });
-      if (error) throw error;
-    },
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-pagamentos"] });
       toast.success("Pagamento salvo.");
@@ -393,10 +352,7 @@ export function useUpsertPagamento() {
 export function useDeletePagamento() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await (supabase.rpc as any)("admin_delete_pagamento", { _id: id });
-      if (error) throw error;
-    },
+    mutationFn: (id: string) => dataClient.saasAdmin.deletePagamento(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-pagamentos"] });
       toast.success("Pagamento removido.");
@@ -411,35 +367,29 @@ export function useDeletePagamento() {
 export function useConfigComercial() {
   return useQuery({
     queryKey: ["admin-config-comercial"],
-    queryFn: async () => {
-      const { data, error } = await (supabase.rpc as any)("admin_get_config_comercial");
-      if (error) throw error;
-      return data as unknown as ConfigComercial;
-    },
+    queryFn: async () => (await dataClient.saasAdmin.obterConfigComercial()) as ConfigComercial,
   });
 }
 
 export function useSetConfigComercial() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: {
+    mutationFn: (input: {
       dias_trial: number;
       permitir_modulos_no_trial: boolean;
       plano_padrao_id: string | null;
       valor_padrao_sistema: number;
       asaas_enabled?: boolean;
       asaas_ambiente?: "sandbox" | "producao";
-    }) => {
-      const { error } = await (supabase.rpc as any)("admin_set_config_comercial", {
+    }) =>
+      dataClient.saasAdmin.setConfigComercial({
         _dias_trial: input.dias_trial,
         _permitir_modulos_no_trial: input.permitir_modulos_no_trial,
         _plano_padrao_id: input.plano_padrao_id,
         _valor_padrao_sistema: input.valor_padrao_sistema,
         _asaas_enabled: input.asaas_enabled ?? null,
         _asaas_ambiente: input.asaas_ambiente ?? null,
-      });
-      if (error) throw error;
-    },
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-config-comercial"] });
       toast.success("Configurações comerciais atualizadas.");
@@ -468,11 +418,7 @@ export function useMinhaAssinatura() {
   return useQuery({
     queryKey: ["minha-assinatura"],
     staleTime: 60_000,
-    queryFn: async () => {
-      const { data, error } = await (supabase.rpc as any)("minha_assinatura_status");
-      if (error) throw error;
-      return data as unknown as MinhaAssinatura;
-    },
+    queryFn: async () => (await dataClient.saasAdmin.minhaAssinatura()) as MinhaAssinatura,
   });
 }
 
@@ -494,11 +440,8 @@ export function useMeusModulos() {
   return useQuery({
     queryKey: ["meus-modulos"],
     staleTime: 60_000,
-    queryFn: async (): Promise<MeuModulo[]> => {
-      const { data, error } = await (supabase.rpc as any)("meus_modulos");
-      if (error) throw error;
-      return (data ?? []) as MeuModulo[];
-    },
+    queryFn: async (): Promise<MeuModulo[]> =>
+      (await dataClient.saasAdmin.meusModulos()) as MeuModulo[],
   });
 }
 
@@ -546,11 +489,7 @@ export type ModoDisponivel = {
 export function useAdminModos() {
   return useQuery({
     queryKey: ["admin-modos"],
-    queryFn: async () => {
-      const { data, error } = await (supabase.rpc as any)("admin_modos_listar");
-      if (error) throw error;
-      return (data ?? []) as SystemMode[];
-    },
+    queryFn: async () => (await dataClient.saasAdmin.listarModos()) as SystemMode[],
   });
 }
 
@@ -559,18 +498,14 @@ export function useModosDisponiveis() {
   return useQuery({
     queryKey: ["modos-disponiveis"],
     staleTime: 60_000,
-    queryFn: async () => {
-      const { data, error } = await (supabase.rpc as any)("modos_disponiveis");
-      if (error) throw error;
-      return (data ?? []) as ModoDisponivel[];
-    },
+    queryFn: async () => (await dataClient.saasAdmin.modosDisponiveis()) as ModoDisponivel[],
   });
 }
 
 export function useUpsertModo() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: {
+    mutationFn: (input: {
       id: string | null;
       chave: string;
       nome: string;
@@ -580,8 +515,8 @@ export function useUpsertModo() {
       ativo: boolean;
       ordem?: number;
       icone?: string | null;
-    }) => {
-      const { data, error } = await (supabase.rpc as any)("admin_modo_upsert", {
+    }) =>
+      dataClient.saasAdmin.upsertModo({
         _id: input.id,
         _chave: input.chave,
         _nome: input.nome,
@@ -591,10 +526,7 @@ export function useUpsertModo() {
         _ativo: input.ativo,
         _ordem: input.ordem ?? 0,
         _icone: input.icone ?? null,
-      });
-      if (error) throw error;
-      return data as string;
-    },
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-modos"] });
       qc.invalidateQueries({ queryKey: ["modos-disponiveis"] });
@@ -607,10 +539,7 @@ export function useUpsertModo() {
 export function useDeleteModo() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await (supabase.rpc as any)("admin_modo_deletar", { _id: id });
-      if (error) throw error;
-    },
+    mutationFn: (id: string) => dataClient.saasAdmin.deleteModo(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-modos"] });
       qc.invalidateQueries({ queryKey: ["modos-disponiveis"] });
@@ -623,13 +552,8 @@ export function useDeleteModo() {
 export function useSetModoModulos() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { mode_id: string; module_ids: string[] }) => {
-      const { error } = await (supabase.rpc as any)("admin_modo_set_modulos", {
-        _mode_id: input.mode_id,
-        _module_ids: input.module_ids,
-      });
-      if (error) throw error;
-    },
+    mutationFn: (input: { mode_id: string; module_ids: string[] }) =>
+      dataClient.saasAdmin.setModoModulos(input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-modos"] });
       toast.success("Vínculos atualizados.");
@@ -637,4 +561,3 @@ export function useSetModoModulos() {
     onError: (e: Error) => toast.error(e.message),
   });
 }
-
