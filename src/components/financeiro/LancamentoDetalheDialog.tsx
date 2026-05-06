@@ -13,6 +13,7 @@ import {
   Phone,
   IdCard,
   ShoppingCart,
+  Truck,
   History,
   HandCoins,
   Trash2,
