@@ -265,17 +265,17 @@ export function FinalizarVendaDialog({
   // parcial: 0 < totalPago < total
   // pendente: totalPago == 0 ou somente formas "pendentePorPadrao" cobrindo
   const statusPagamento: StatusPagamento = useMemo(() => {
-    if (Math.abs(totalPago - total) < 0.005 && !dinheiroInsuficiente) {
+    if (Math.abs(totalPago - totalEfetivo) < 0.005 && !dinheiroInsuficiente) {
       // Se TODAS as linhas são "pendentePorPadrao" (boleto/fiado), considera pendente
       const todasPendentes =
         pagamentos.length > 0 &&
         pagamentos.every((p) => getFormaInfo(p.forma).pendentePorPadrao);
       return todasPendentes ? "pendente" : "pago";
     }
-    if (totalPago > 0 && totalPago < total) return "parcial";
+    if (totalPago > 0 && totalPago < totalEfetivo) return "parcial";
     if (totalPago === 0) return "pendente";
     return "pago";
-  }, [totalPago, total, pagamentos, dinheiroInsuficiente]);
+  }, [totalPago, totalEfetivo, pagamentos, dinheiroInsuficiente]);
 
   // ===== Detecção de FIADO =====
   const temFiado = useMemo(
