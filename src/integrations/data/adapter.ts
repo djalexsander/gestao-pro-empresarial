@@ -763,6 +763,7 @@ import type {
   TerminalRuntimeAdapter,
   UserRolesAdapter,
 } from "./extra-adapters";
+import type { AuthAdapter } from "./auth-adapter";
 
 export interface DataAdapter {
   produtos: ProdutosAdapter;
@@ -791,5 +792,6 @@ export interface DataAdapter {
   saasCliente: SaasClienteAdapter;
   qa: QaAdapter;
   terminalRuntime: TerminalRuntimeAdapter;
+  auth: AuthAdapter;
   // realtime: RealtimeAdapter;
 }
