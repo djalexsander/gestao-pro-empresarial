@@ -315,9 +315,9 @@ function gerarPdfCupom(
   return doc;
 }
 
-function safeFileName(numero: string | null): string {
+function safeFileName(numero: string | null, ext: "pdf" | "png" = "pdf"): string {
   const base = (numero ?? "cupom").toString().replace(/[^a-zA-Z0-9_-]+/g, "_");
-  return `cupom_${base}.pdf`;
+  return `comprovante-venda-${base}.${ext}`;
 }
 
 const LAST_DIR_KEY = "gp.cupomPdf.lastDir.v1";
