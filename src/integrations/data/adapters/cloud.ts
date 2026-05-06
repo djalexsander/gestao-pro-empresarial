@@ -896,6 +896,7 @@ const financeiro: DataAdapter["financeiro"] = {
     const d = (data ?? {}) as Record<string, unknown>;
     return {
       lancamento_id: String(d.lancamento_id ?? lancamentoId),
+      excluido: Boolean(d.excluido),
     };
   },
 
