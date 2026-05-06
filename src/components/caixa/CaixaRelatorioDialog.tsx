@@ -330,12 +330,75 @@ export function CaixaRelatorioDialog({ open, onOpenChange, caixaId }: Props) {
         )}
 
         <DialogFooter className="gap-2 sm:gap-2">
+          {caixa?.status === "fechado" && podeReabrir && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                setMotivoReabrir("");
+                setReabrirOpen(true);
+              }}
+              disabled={reabrir.isPending}
+            >
+              <Unlock className="h-4 w-4" /> Reabrir caixa
+            </Button>
+          )}
           <Button variant="outline" onClick={handlePrint} disabled={!caixa}>
             <Printer className="h-4 w-4" /> Imprimir
           </Button>
           <Button onClick={() => onOpenChange(false)}>Fechar</Button>
         </DialogFooter>
       </DialogContent>
+
+      <AlertDialog open={reabrirOpen} onOpenChange={setReabrirOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reabrir caixa?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O caixa voltará para o status <strong>aberto</strong> e você
+              poderá refazer o fechamento informando o valor correto em
+              dinheiro. Lançamentos automáticos do fechamento (iFood, fiado,
+              outros) que ainda não foram conciliados serão removidos e
+              recriados no novo fechamento.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="motivo-reabrir">Motivo (opcional)</Label>
+            <Textarea
+              id="motivo-reabrir"
+              value={motivoReabrir}
+              onChange={(e) => setMotivoReabrir(e.target.value)}
+              placeholder="Ex.: Dinheiro que faltava reapareceu — refazer fechamento."
+              rows={3}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={reabrir.isPending}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={reabrir.isPending || !caixaId}
+              onClick={async (e) => {
+                e.preventDefault();
+                if (!caixaId) return;
+                try {
+                  await reabrir.mutateAsync({
+                    caixa_id: caixaId,
+                    motivo: motivoReabrir.trim() || null,
+                  });
+                  setReabrirOpen(false);
+                  onOpenChange(false);
+                } catch {
+                  /* erro já exibido via toast */
+                }
+              }}
+            >
+              {reabrir.isPending ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Reabrindo...</>
+              ) : (
+                <><Unlock className="h-4 w-4" /> Reabrir caixa</>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
