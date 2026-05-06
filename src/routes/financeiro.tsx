@@ -1377,6 +1377,7 @@ function FluxoCaixaPanel() {
   }, [rows]);
 
   const [conciliarLoteOpen, setConciliarLoteOpen] = useState(false);
+  const [caixaRelatorio, setCaixaRelatorio] = useState<string | null>(null);
 
   return (
     <div className="space-y-4">
