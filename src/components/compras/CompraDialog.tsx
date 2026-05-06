@@ -73,6 +73,7 @@ export function CompraDialog({ open, onOpenChange }: Props) {
       setFornecedorId("");
       setDataEmissao(new Date().toISOString().slice(0, 10));
       setDataPrevista("");
+      setDataVencimento("");
       setNumeroNf("");
       setDesconto(0);
       setFrete(0);
