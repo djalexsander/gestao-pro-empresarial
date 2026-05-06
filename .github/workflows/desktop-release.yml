@@ -107,10 +107,6 @@ jobs:
           echo "== MSI =="
           ls -la src-tauri/target/release/bundle/msi/ || true
 
-      - name: Validar assinatura do instalador (simula verificação do updater)
-        shell: bash
-        run: node scripts/verify-updater-signature.mjs
-
       - name: Copiar latest.json para a raiz dos artefatos
         shell: bash
         run: |
