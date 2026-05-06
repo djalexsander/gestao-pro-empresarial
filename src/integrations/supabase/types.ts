@@ -585,6 +585,7 @@ export type Database = {
           data_emissao: string
           data_prevista: string | null
           data_recebimento: string | null
+          data_vencimento: string | null
           desconto: number
           fornecedor_id: string | null
           frete: number
@@ -605,6 +606,7 @@ export type Database = {
           data_emissao?: string
           data_prevista?: string | null
           data_recebimento?: string | null
+          data_vencimento?: string | null
           desconto?: number
           fornecedor_id?: string | null
           frete?: number
@@ -625,6 +627,7 @@ export type Database = {
           data_emissao?: string
           data_prevista?: string | null
           data_recebimento?: string | null
+          data_vencimento?: string | null
           desconto?: number
           fornecedor_id?: string | null
           frete?: number
