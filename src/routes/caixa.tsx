@@ -683,6 +683,12 @@ function CaixaPage() {
           )}
         </>
       )}
+
+      <CaixaRelatorioDialog
+        open={!!caixaRelatorio}
+        onOpenChange={(o) => !o && setCaixaRelatorio(null)}
+        caixaId={caixaRelatorio}
+      />
     </div>
   );
 }
