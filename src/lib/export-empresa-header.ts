@@ -8,7 +8,7 @@
  */
 
 import type jsPDF from "jspdf";
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 
 export interface EmpresaHeader {
   nome: string;
@@ -65,8 +65,8 @@ async function imageUrlToDataUrl(
  * Retorna null se não houver sessão; os exports devem seguir sem cabeçalho.
  */
 export async function fetchEmpresaHeader(): Promise<EmpresaHeader | null> {
-  const { data: u } = await supabase.auth.getUser();
-  const userId = u.user?.id ?? null;
+  const { user } = await dataClient.auth.getUser();
+  const userId = user?.id ?? null;
   if (!userId) return null;
 
   if (
@@ -77,12 +77,22 @@ export async function fetchEmpresaHeader(): Promise<EmpresaHeader | null> {
     return cache.data;
   }
 
-  const { data, error } = await supabase
-    .from("configuracoes_empresa")
-    .select("razao_social, nome_fantasia, cnpj, logo_url")
-    .maybeSingle();
+  let data: { razao_social: string; nome_fantasia: string | null; cnpj: string | null; logo_url: string | null } | null = null;
+  try {
+    const cfg = await dataClient.configEmpresa.obter();
+    data = cfg
+      ? {
+          razao_social: cfg.razao_social,
+          nome_fantasia: cfg.nome_fantasia,
+          cnpj: cfg.cnpj,
+          logo_url: cfg.logo_url,
+        }
+      : null;
+  } catch {
+    data = null;
+  }
 
-  if (error || !data) {
+  if (!data) {
     cache = { user: userId, data: null, ts: Date.now() };
     return null;
   }

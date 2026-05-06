@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import { dataClient } from "@/integrations/data";
 import { invalidarEmpresaHeaderCache } from "@/lib/export-empresa-header";
 import type { ConfigEmpresaDomain } from "@/integrations/data/extra-adapters";
@@ -36,9 +35,9 @@ export function useSalvarConfigEmpresa() {
 
 /** Faz upload da logo no bucket "empresa-logos" e retorna a URL pública. */
 export async function uploadLogoEmpresa(file: File): Promise<string> {
-  const { data: u } = await supabase.auth.getUser();
-  if (!u.user) throw new Error("Não autenticado");
-  return dataClient.configEmpresa.uploadLogo({ file, userId: u.user.id });
+  const { user } = await dataClient.auth.getUser();
+  if (!user) throw new Error("Não autenticado");
+  return dataClient.configEmpresa.uploadLogo({ file, userId: user.id });
 }
 
 /** Remove a logo do storage (best-effort). */
