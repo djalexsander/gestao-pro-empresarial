@@ -2,13 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/components/auth/AuthProvider";
 
-export type AppRole =
-  | "super_admin"
-  | "admin"
-  | "gerente"
-  | "caixa"
-  | "vendedor"
-  | "financeiro";
+export type AppRole = "super_admin" | "admin" | "gerente" | "caixa" | "vendedor" | "financeiro";
 
 /**
  * Retorna todos os papéis (roles) do usuário autenticado.
@@ -48,9 +42,7 @@ export const CAIXA_ALLOWED_BASES = [
 
 /** Verifica se um pathname está na whitelist do operador de caixa. */
 export function isCaixaAllowedPath(pathname: string): boolean {
-  return CAIXA_ALLOWED_BASES.some(
-    (base) => pathname === base || pathname.startsWith(base + "/"),
-  );
+  return CAIXA_ALLOWED_BASES.some((base) => pathname === base || pathname.startsWith(base + "/"));
 }
 
 /**
