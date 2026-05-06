@@ -54,6 +54,7 @@ export function CompraDialog({ open, onOpenChange }: Props) {
   const [fornecedorId, setFornecedorId] = useState<string>("");
   const [dataEmissao, setDataEmissao] = useState(new Date().toISOString().slice(0, 10));
   const [dataPrevista, setDataPrevista] = useState("");
+  const [dataVencimento, setDataVencimento] = useState("");
   const [numeroNf, setNumeroNf] = useState("");
   const [desconto, setDesconto] = useState(0);
   const [frete, setFrete] = useState(0);
