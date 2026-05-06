@@ -280,9 +280,6 @@ export function CaixaRelatorioDialog({ open, onOpenChange, caixaId }: Props) {
         )}
 
         <DialogFooter className="gap-2 sm:gap-2">
-          <Button variant="outline" onClick={handleExportPng} disabled={!caixa}>
-            <Download className="h-4 w-4" /> PNG
-          </Button>
           <Button variant="outline" onClick={handlePrint} disabled={!caixa}>
             <Printer className="h-4 w-4" /> Imprimir
           </Button>
