@@ -610,6 +610,7 @@ function ProdutosVendidosContent() {
                   </button>
 
                   {!fechado && (
+                    <div className="overflow-x-auto">
                     <Table>
                       <TableHeader>
                         <TableRow>
