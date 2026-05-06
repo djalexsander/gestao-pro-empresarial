@@ -180,6 +180,7 @@ export function CompraDialog({ open, onOpenChange }: Props) {
         fornecedor_id: fornecedorId || null,
         data_emissao: dataEmissao,
         data_prevista: dataPrevista || null,
+        data_vencimento: dataVencimento || null,
         numero_nf: numeroNf || null,
         desconto,
         frete,
