@@ -920,8 +920,10 @@ function BlocoModais({
           { key: "vencimento", header: "Vencimento", format: "date" },
           { key: "valor", header: "Valor", format: "currency", align: "right" },
         ]}
+        vendaIdField="venda_id"
         rows={ifoodLanc.map((l) => ({
           id: l.id,
+          venda_id: l.venda_id,
           descricao: l.descricao,
           vencimento: l.data_vencimento,
           valor: Number(l.valor) - Number(l.valor_pago ?? 0),
