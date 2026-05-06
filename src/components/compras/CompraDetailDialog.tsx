@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { useCompra, useUpdateCompraStatus } from "@/hooks/useCompras";
+import { useCompra, useUpdateCompraStatus, useUpdateCompraMetadados } from "@/hooks/useCompras";
 import { ReceberCompraDialog } from "./ReceberCompraDialog";
 
 interface Props {
