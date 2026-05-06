@@ -231,6 +231,7 @@ function FinanceContent() {
         observacao_repasse: string | null;
         cliente_id: string | null;
         venda_id: string | null;
+        compra_id: string | null;
         fornecedor: {
           razao_social: string | null;
           nome_fantasia: string | null;
@@ -248,6 +249,12 @@ function FinanceContent() {
           numero: string | null;
           data_finalizacao: string | null;
           total: number | null;
+        } | null;
+        compra: {
+          numero: string | null;
+          data_emissao: string | null;
+          total: number | null;
+          status: string | null;
         } | null;
         categoria: { nome: string | null } | null;
       };
