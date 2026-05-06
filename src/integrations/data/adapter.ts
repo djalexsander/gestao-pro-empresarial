@@ -701,6 +701,28 @@ export interface LotesAdapter {
   list(input?: LotesListInput): Promise<LoteComSaldoDomain[]>;
 }
 
+/**
+ * Compras — listagem, criação, recebimento (parcial/total) e métricas.
+ * Toda escrita complexa pode passar por RPC (recebimento). Para criação
+ * o adapter cloud faz INSERT direto em `compras` + `compra_itens`.
+ */
+export interface ComprasAdapter {
+  list(input?: { limit?: number }): Promise<CompraComFornecedorDomain[]>;
+  get(compraId: string): Promise<CompraDetalheDomain | null>;
+  criar(input: CriarCompraInput): Promise<CompraComFornecedorDomain>;
+  atualizarStatus(input: { id: string; status: CompraStatusDomain }): Promise<void>;
+  atualizarMetadados(input: CompraMetadadosInput): Promise<void>;
+  receber(input: ReceberCompraInput): Promise<unknown>;
+  receberItens(input: ReceberCompraItensInput): Promise<ReceberCompraItensResult>;
+  excluir(compraId: string): Promise<void>;
+  fornecedorMetricas(): Promise<Map<string, FornecedorMetricaDomain>>;
+}
+
+/** Dashboard agregado — uma única chamada que monta todos os KPIs. */
+export interface DashboardAdapter {
+  carregar(): Promise<DashboardData>;
+}
+
 export interface DataAdapter {
   produtos: ProdutosAdapter;
   vendas: VendasAdapter;
@@ -713,5 +735,7 @@ export interface DataAdapter {
   categoriasProduto: CategoriasProdutoAdapter;
   categoriasFinanceiras: CategoriasFinanceirasAdapter;
   lotes: LotesAdapter;
+  compras: ComprasAdapter;
+  dashboard: DashboardAdapter;
   // realtime: RealtimeAdapter;
 }
