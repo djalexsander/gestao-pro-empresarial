@@ -142,6 +142,7 @@ export function useCreateCompra() {
           fornecedor_id: input.fornecedor_id,
           data_emissao: input.data_emissao,
           data_prevista: input.data_prevista ?? null,
+          data_vencimento: input.data_vencimento ?? null,
           numero_nf: input.numero_nf ?? null,
           serie_nf: input.serie_nf ?? null,
           desconto: input.desconto ?? 0,
