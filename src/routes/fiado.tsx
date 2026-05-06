@@ -643,6 +643,87 @@ function FiadoContent() {
       />
 
       <DetalheVendaDialog open={vendaOpen} onOpenChange={setVendaOpen} vendaId={vendaIdSel} />
+
+      <Dialog open={exportOpen} onOpenChange={setExportOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Exportar Clientes a Receber</DialogTitle>
+            <DialogDescription>
+              Escolha o escopo, o nível de detalhe e o formato de saída.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Escopo</Label>
+              <RadioGroup value={exportEscopo} onValueChange={(v) => setExportEscopo(v as typeof exportEscopo)}>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="filtrados" id="esc-filt" />
+                  <Label htmlFor="esc-filt" className="font-normal">
+                    Apenas clientes filtrados ({filtrados.length})
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="todos" id="esc-todos" />
+                  <Label htmlFor="esc-todos" className="font-normal">
+                    Todos os clientes ({clientesAgrupados.length})
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="cliente" id="esc-cliente" />
+                  <Label htmlFor="esc-cliente" className="font-normal">
+                    Um cliente específico
+                  </Label>
+                </div>
+              </RadioGroup>
+              {exportEscopo === "cliente" && (
+                <Select value={exportClienteId} onValueChange={setExportClienteId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o cliente" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clientesAgrupados.map((c) => (
+                      <SelectItem key={c.cliente_id} value={c.cliente_id}>
+                        {c.nome} — {formatBRL(c.totalAberto)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Detalhamento</Label>
+              <RadioGroup value={exportDetalhado ? "det" : "res"} onValueChange={(v) => setExportDetalhado(v === "det")}>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="det" id="det-sim" />
+                  <Label htmlFor="det-sim" className="font-normal">
+                    Detalhado (todos os títulos por cliente)
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="res" id="det-nao" />
+                  <Label htmlFor="det-nao" className="font-normal">
+                    Resumido (totais por cliente)
+                  </Label>
+                </div>
+              </RadioGroup>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" disabled={exportBusy} onClick={() => executarExport("csv")}>
+              <SheetIcon className="mr-2 h-4 w-4" /> CSV
+            </Button>
+            <Button variant="outline" disabled={exportBusy} onClick={() => executarExport("png")}>
+              <ImageIcon className="mr-2 h-4 w-4" /> PNG
+            </Button>
+            <Button disabled={exportBusy} onClick={() => executarExport("pdf")}>
+              <FileText className="mr-2 h-4 w-4" /> PDF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
