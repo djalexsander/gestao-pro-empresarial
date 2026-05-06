@@ -201,10 +201,11 @@ function FinanceContent() {
           `id, descricao, valor, valor_pago, data_vencimento, data_pagamento, data_emissao,
            tipo, status, observacoes, numero_documento, forma_pagamento, created_at,
            conciliado_em, valor_repasse, taxa_repasse, numero_repasse, observacao_repasse,
-           cliente_id, venda_id,
+           cliente_id, venda_id, compra_id,
            fornecedor:fornecedores(razao_social, nome_fantasia, documento, telefone),
            cliente:clientes(nome, documento, telefone, celular, email),
            venda:vendas(numero, data_finalizacao, total),
+           compra:compras(numero, data_emissao, total, status),
            categoria:categorias_financeiras(nome)`,
         )
         .order("data_vencimento", { ascending: true });
