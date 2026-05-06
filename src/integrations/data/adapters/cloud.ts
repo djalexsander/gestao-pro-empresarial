@@ -2288,6 +2288,345 @@ const dashboard: DataAdapter["dashboard"] = {
   },
 };
 
+// =====================================================================
+// Onda 4 — Terminais, Notificações, Autorizações, Empresa, Configuração,
+// Balança, Códigos de Produto.
+// =====================================================================
+const terminais: DataAdapter["terminais"] = {
+  async list() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("terminais_listar");
+    if (error) throw error;
+    return (data ?? []) as import("../extra-adapters").TerminalDomain[];
+  },
+  async criar(input) {
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) throw new Error("Não autenticado");
+    const { data, error } = await supabase
+      .from("terminais")
+      .insert({
+        owner_id: u.user.id,
+        nome: input.nome,
+        descricao: input.descricao ?? null,
+        identificador_dispositivo: input.identificador_dispositivo ?? null,
+        ativo: true,
+      })
+      .select("id")
+      .single();
+    if (error) throw error;
+    return data!.id as string;
+  },
+  async atualizar(input) {
+    const patch: Record<string, unknown> = {};
+    if (input.nome !== undefined) patch.nome = input.nome;
+    if (input.descricao !== undefined) patch.descricao = input.descricao;
+    if (input.identificador_dispositivo !== undefined)
+      patch.identificador_dispositivo = input.identificador_dispositivo;
+    const { error } = await supabase.from("terminais").update(patch).eq("id", input.id);
+    if (error) throw error;
+  },
+  async alterarStatus(input) {
+    const { error } = await supabase
+      .from("terminais")
+      .update({ ativo: input.ativo })
+      .eq("id", input.id);
+    if (error) throw error;
+  },
+  async excluir(terminalId) {
+    const { error } = await supabase.from("terminais").delete().eq("id", terminalId);
+    if (error) throw error;
+  },
+  async gerarToken(terminalId) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("terminal_gerar_token", {
+      _terminal_id: terminalId,
+    });
+    if (error) throw error;
+    return data as string;
+  },
+  async definirServidor(terminalId) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase as any).rpc("terminal_definir_servidor", {
+      _terminal_id: terminalId,
+    });
+    if (error) throw error;
+  },
+};
+
+const notificacoes: DataAdapter["notificacoes"] = {
+  async vencidas() {
+    const hoje = new Date().toISOString().slice(0, 10);
+    const { data, error } = await supabase
+      .from("financeiro_lancamentos")
+      .select("id, descricao, valor, data_vencimento, tipo")
+      .eq("status", "pendente")
+      .lt("data_vencimento", hoje)
+      .order("data_vencimento", { ascending: true })
+      .limit(20);
+    if (error) throw error;
+    return (data ?? []) as import("../extra-adapters").FinanceiroVencidoLite[];
+  },
+  async vencendoHoje() {
+    const hoje = new Date().toISOString().slice(0, 10);
+    const { data, error } = await supabase
+      .from("financeiro_lancamentos")
+      .select("id, descricao, valor, data_vencimento, tipo")
+      .eq("status", "pendente")
+      .eq("data_vencimento", hoje)
+      .limit(20);
+    if (error) throw error;
+    return (data ?? []) as import("../extra-adapters").FinanceiroVencidoLite[];
+  },
+  async produtosEstoqueMinimo() {
+    const { data, error } = await supabase
+      .from("produtos")
+      .select("id, nome, estoque_minimo")
+      .eq("status", "ativo")
+      .gt("estoque_minimo", 0);
+    if (error) throw error;
+    return (data ?? []) as import("../extra-adapters").ProdutoEstoqueMinimoLite[];
+  },
+  async movimentosEstoqueResumo() {
+    const { data, error } = await supabase
+      .from("estoque_movimentacoes")
+      .select("produto_id, tipo, quantidade");
+    if (error) throw error;
+    return (data ?? []) as import("../extra-adapters").MovimentacaoEstoqueLite[];
+  },
+  async estadosUsuario(userId) {
+    const { data, error } = await supabase
+      .from("notificacao_estados")
+      .select("notificacao_key, read, read_at, deleted")
+      .eq("user_id", userId);
+    if (error) throw error;
+    return (data ?? []) as import("../extra-adapters").NotificacaoEstadoLite[];
+  },
+  async marcarLida(input) {
+    const { error } = await supabase.from("notificacao_estados").upsert(
+      {
+        user_id: input.user_id,
+        notificacao_key: input.notificacao_key,
+        read: true,
+        read_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id,notificacao_key" },
+    );
+    if (error) throw error;
+  },
+  async excluir(input) {
+    const { error } = await supabase.from("notificacao_estados").upsert(
+      {
+        user_id: input.user_id,
+        notificacao_key: input.notificacao_key,
+        deleted: true,
+        deleted_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id,notificacao_key" },
+    );
+    if (error) throw error;
+  },
+  async marcarVariasLidas(input) {
+    if (input.chaves.length === 0) return;
+    const agora = new Date().toISOString();
+    const linhas = input.chaves.map((k) => ({
+      user_id: input.user_id,
+      notificacao_key: k,
+      read: true,
+      read_at: agora,
+    }));
+    const { error } = await supabase
+      .from("notificacao_estados")
+      .upsert(linhas, { onConflict: "user_id,notificacao_key" });
+    if (error) throw error;
+  },
+};
+
+const autorizacoes: DataAdapter["autorizacoes"] = {
+  async obterConfig() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("autorizacoes_config_obter");
+    if (error) throw error;
+    return data as import("../extra-adapters").AutorizacoesConfigDomain;
+  },
+  async salvarConfig(payload) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("autorizacoes_config_salvar", {
+      _payload: payload,
+    });
+    if (error) throw error;
+    return data as import("../extra-adapters").AutorizacoesConfigDomain;
+  },
+  async log(limit = 100) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any)
+      .from("autorizacoes_log")
+      .select(
+        "id, acao, metodo, status, contexto, autorizador_nome, valor_envolvido, diferenca_caixa, motivo_negacao, created_at",
+      )
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return (data ?? []) as import("../extra-adapters").AutorizacaoLogDomain[];
+  },
+  async validar(input) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("autorizacao_validar", {
+      _acao: input.acao,
+      _metodo: input.metodo,
+      _payload: input.payload,
+      _contexto: input.contexto,
+      _contexto_dados: input.contexto_dados ?? {},
+      _valor_envolvido: input.valor_envolvido ?? null,
+      _diferenca_caixa: input.diferenca_caixa ?? null,
+      _referencia_tipo: input.referencia_tipo ?? null,
+      _referencia_id: input.referencia_id ?? null,
+      _solicitante_funcionario_id: input.solicitante_funcionario_id ?? null,
+      _terminal_id: input.terminal_id ?? null,
+      _user_agent: input.user_agent ?? null,
+    });
+    if (error) throw error;
+    return data as import("../extra-adapters").ValidarAutorizacaoResultDomain;
+  },
+};
+
+const empresa: DataAdapter["empresa"] = {
+  async acessiveis(userId) {
+    const { data: proprias } = await supabase
+      .from("empresas")
+      .select("id, nome, owner_id")
+      .eq("owner_id", userId);
+
+    const { data: memberships } = await supabase
+      .from("empresa_membros")
+      .select("papel, empresa:empresas(id, nome, owner_id)")
+      .eq("user_id", userId);
+
+    const map = new Map<string, import("../extra-adapters").EmpresaAcessivelDomain>();
+    for (const e of proprias ?? []) {
+      map.set(e.id, { id: e.id, nome: e.nome, owner_id: e.owner_id, papel: "owner" });
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const m of (memberships ?? []) as any[]) {
+      if (!m.empresa) continue;
+      if (!map.has(m.empresa.id)) {
+        map.set(m.empresa.id, {
+          id: m.empresa.id,
+          nome: m.empresa.nome,
+          owner_id: m.empresa.owner_id,
+          papel: m.papel,
+        });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome));
+  },
+};
+
+const configEmpresa: DataAdapter["configEmpresa"] = {
+  async obter() {
+    const { data, error } = await supabase
+      .from("configuracoes_empresa")
+      .select(
+        "id, razao_social, nome_fantasia, cnpj, inscricao_estadual, inscricao_municipal, telefone, email, logradouro, numero, complemento, bairro, cidade, estado, cep, logo_url",
+      )
+      .maybeSingle();
+    if (error) throw error;
+    return (data as import("../extra-adapters").ConfigEmpresaDomain | null) ?? null;
+  },
+  async salvar(input) {
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) throw new Error("Não autenticado");
+    const payload = {
+      owner_id: u.user.id,
+      razao_social: input.razao_social ?? "Minha Empresa",
+      nome_fantasia: input.nome_fantasia ?? null,
+      cnpj: input.cnpj ?? null,
+      inscricao_estadual: input.inscricao_estadual ?? null,
+      inscricao_municipal: input.inscricao_municipal ?? null,
+      telefone: input.telefone ?? null,
+      email: input.email ?? null,
+      logradouro: input.logradouro ?? null,
+      numero: input.numero ?? null,
+      complemento: input.complemento ?? null,
+      bairro: input.bairro ?? null,
+      cidade: input.cidade ?? null,
+      estado: input.estado ?? null,
+      cep: input.cep ?? null,
+      logo_url: input.logo_url ?? null,
+    };
+    if (input.id) {
+      const { data, error } = await supabase
+        .from("configuracoes_empresa")
+        .update(payload)
+        .eq("id", input.id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as import("../extra-adapters").ConfigEmpresaDomain;
+    }
+    const { data, error } = await supabase
+      .from("configuracoes_empresa")
+      .insert(payload)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as import("../extra-adapters").ConfigEmpresaDomain;
+  },
+  async uploadLogo({ file, userId }) {
+    const ext = (file.name.split(".").pop() || "png").toLowerCase();
+    const path = `${userId}/logo-${Date.now()}.${ext}`;
+    const { error } = await supabase.storage
+      .from("empresa-logos")
+      .upload(path, file, { upsert: true, contentType: file.type });
+    if (error) throw error;
+    const { data } = supabase.storage.from("empresa-logos").getPublicUrl(path);
+    return data.publicUrl;
+  },
+  async removerLogo(url) {
+    if (!url) return;
+    const marker = "/empresa-logos/";
+    const idx = url.indexOf(marker);
+    if (idx === -1) return;
+    const path = url.substring(idx + marker.length);
+    await supabase.storage.from("empresa-logos").remove([path]);
+  },
+};
+
+const balanca: DataAdapter["balanca"] = {
+  async obter(userId) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any)
+      .from("balanca_config")
+      .select("*")
+      .eq("owner_id", userId)
+      .maybeSingle();
+    if (error) throw error;
+    return (data as import("../extra-adapters").BalancaConfigRowDomain | null) ?? null;
+  },
+  async salvar(input) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any)
+      .from("balanca_config")
+      .upsert(input, { onConflict: "owner_id" })
+      .select()
+      .single();
+    if (error) throw error;
+    return data as import("../extra-adapters").BalancaConfigRowDomain;
+  },
+};
+
+const produtoCodigos: DataAdapter["produtoCodigos"] = {
+  async list(produtoId) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any)
+      .from("produto_codigos")
+      .select("id, produto_id, variacao_id, tipo_codigo, valor_codigo, observacao, created_at")
+      .eq("produto_id", produtoId)
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as import("../extra-adapters").ProdutoCodigoDomain[];
+  },
+};
+
 export const cloudAdapter: DataAdapter = {
   produtos,
   vendas,
@@ -2302,4 +2641,12 @@ export const cloudAdapter: DataAdapter = {
   lotes,
   compras,
   dashboard,
+  terminais,
+  notificacoes,
+  autorizacoes,
+  empresa,
+  configEmpresa,
+  balanca,
+  produtoCodigos,
+};
 };
