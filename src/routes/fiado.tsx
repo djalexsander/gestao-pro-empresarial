@@ -58,7 +58,18 @@ import {
   type LancamentoDetalhe,
 } from "@/components/financeiro/LancamentoDetalheDialog";
 import { DetalheVendaDialog } from "@/components/vendas/DetalheVendaDialog";
-import { exportRowsToCSV, type CsvColumn } from "@/lib/export-csv";
+import { exportarRelatorioCard, type ExportFormato } from "@/lib/export-relatorio-card";
+import type { CsvColumn } from "@/lib/export-csv";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
 export const Route = createFileRoute("/fiado")({
   head: () => ({
