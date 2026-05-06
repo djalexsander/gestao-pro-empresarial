@@ -61,10 +61,10 @@ import { exportRowsToCSV, type CsvColumn } from "@/lib/export-csv";
 export const Route = createFileRoute("/fiado")({
   head: () => ({
     meta: [
-      { title: "Fiado — Gestão Pro" },
+      { title: "Clientes a Receber — Gestão Pro" },
       {
         name: "description",
-        content: "Controle de clientes devedores e pagamentos fiado.",
+        content: "Carteira de clientes a receber e controle de recebimentos pendentes.",
       },
     ],
   }),
