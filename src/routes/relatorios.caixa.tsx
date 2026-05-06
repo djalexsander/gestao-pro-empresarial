@@ -557,19 +557,83 @@ function Conteudo() {
           iconTone="warning"
         />
         <StatCard
-          label="Diferença de caixa"
+          label="Sobras"
+          value={formatBRL(metricas.totalSobras)}
+          hint={`${metricas.qtdComDivergencia} caixa(s) c/ divergência`}
+          icon={ArrowUpRight}
+          iconTone="success"
+        />
+        <StatCard
+          label="Faltas"
+          value={formatBRL(metricas.totalFaltas)}
+          hint="Dinheiro a menos no fechamento"
+          icon={ArrowDownRight}
+          iconTone="destructive"
+        />
+        <StatCard
+          label="Diferença líquida"
           value={formatBRL(metricas.divergencia)}
           hint={
             Math.abs(metricas.divergencia) < 0.01
               ? "Sem divergência"
               : metricas.divergencia > 0
-                ? "Sobra"
-                : "Falta"
+                ? "Sobra líquida"
+                : "Falta líquida"
           }
           icon={AlertTriangle}
           iconTone={Math.abs(metricas.divergencia) < 0.01 ? "primary" : "warning"}
         />
       </div>
+
+      {/* Diferenças por operador */}
+      {porOperador.length > 0 && (
+        <Card>
+          <CardContent className="p-4">
+            <h3 className="mb-3 text-sm font-semibold text-foreground">
+              Diferenças por operador
+            </h3>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Operador</TableHead>
+                    <TableHead className="text-right">Caixas c/ divergência</TableHead>
+                    <TableHead className="text-right">Sobras</TableHead>
+                    <TableHead className="text-right">Faltas</TableHead>
+                    <TableHead className="text-right">Líquido</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {porOperador.map((o) => (
+                    <TableRow key={o.operador_nome}>
+                      <TableCell className="font-medium">{o.operador_nome}</TableCell>
+                      <TableCell className="text-right tabular-nums">{o.qtd}</TableCell>
+                      <TableCell className="text-right tabular-nums text-success">
+                        {formatBRL(o.sobras)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-destructive">
+                        {formatBRL(o.faltas)}
+                      </TableCell>
+                      <TableCell
+                        className={cn(
+                          "text-right tabular-nums font-semibold",
+                          Math.abs(o.liquido) < 0.01
+                            ? "text-muted-foreground"
+                            : o.liquido > 0
+                              ? "text-info"
+                              : "text-destructive",
+                        )}
+                      >
+                        {(o.liquido > 0 ? "+" : "") + formatBRL(o.liquido)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Tabela */}
       <Card>
