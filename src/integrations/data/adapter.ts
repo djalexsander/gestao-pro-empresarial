@@ -127,6 +127,25 @@ import type {
   ProdutoComVariacoes,
   ProdutosListInput,
 } from "./types";
+import type {
+  CompraComFornecedorDomain,
+  CompraDetalheDomain,
+  CompraMetadadosInput,
+  CompraStatusDomain,
+  CriarCompraInput,
+  DashboardData,
+  FornecedorMetricaDomain,
+  ReceberCompraInput,
+  ReceberCompraItensInput,
+  ReceberCompraItensResult,
+  SaldosEstoqueLote,
+  VendaDetalheDomain,
+  VendaListItemDomain,
+  VendaMetricasDomain,
+  VendaMetricasPeriodoInput,
+  VendaStatusHistoricoDomain,
+  VendasListInput,
+} from "./extra-types";
 
 export interface ProdutosAdapter {
   /**
