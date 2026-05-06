@@ -14,6 +14,7 @@ import {
   CircleDollarSign,
   TrendingUp,
   CreditCard,
+  HandCoins,
   type LucideIcon,
 } from "lucide-react";
 
