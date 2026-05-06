@@ -900,14 +900,13 @@ function PDVPage() {
       }
       if (insuficientes.length > 0) {
         const msg = "Estoque insuficiente:\n• " + insuficientes.join("\n• ");
-        const ok = window.confirm(
-          msg + "\n\nDeseja continuar mesmo assim? O estoque ficará negativo.",
-        );
-        if (!ok) {
-          toast.warning("Venda não finalizada — estoque insuficiente.");
-          return;
-        }
-        toast.warning("Atenção: venda gerará estoque negativo.");
+        som.beep("error");
+        toast.error(msg, {
+          description:
+            "Reduza a quantidade no carrinho ou atualize o estoque antes de finalizar.",
+          duration: 6000,
+        });
+        return;
       }
     } catch (e) {
       toast.error(`Falha ao validar estoque: ${(e as Error).message}`);
