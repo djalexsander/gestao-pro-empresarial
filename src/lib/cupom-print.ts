@@ -16,6 +16,7 @@ import { formatBRL } from "@/lib/mock-data";
 import {
   getDefaultPrinter,
   printPdfBytes,
+  listPrinters,
 } from "@/integrations/desktop/printers";
 
 const FORMA_LABEL: Record<string, string> = {
