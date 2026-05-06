@@ -936,11 +936,18 @@ export function FinalizarVendaDialog({
                     </span>
                   </SummaryRow>
                   <SummaryRow label="Subtotal">{formatBRL(subtotal)}</SummaryRow>
-                  <SummaryRow label="Descontos">
+                  <SummaryRow label="Descontos itens">
                     <span className="text-warning">
                       {desconto > 0 ? `- ${formatBRL(desconto)}` : formatBRL(0)}
                     </span>
                   </SummaryRow>
+                  {descontoFinal > 0 && (
+                    <SummaryRow label="Desconto final">
+                      <span className="text-warning">
+                        - {formatBRL(Math.min(descontoFinal, total))}
+                      </span>
+                    </SummaryRow>
+                  )}
                 </div>
               </div>
 
@@ -949,8 +956,13 @@ export function FinalizarVendaDialog({
                   Total a pagar
                 </p>
                 <p className="font-mono text-3xl font-bold tabular-nums text-primary">
-                  {formatBRL(total)}
+                  {formatBRL(totalEfetivo)}
                 </p>
+                {descontoFinal > 0 && !descontoExcedeTotal && (
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    De {formatBRL(total)} com desconto de {formatBRL(Math.min(descontoFinal, total))}
+                  </p>
+                )}
               </div>
 
               <div className="rounded-lg border border-border bg-card/60 p-3 text-sm">
