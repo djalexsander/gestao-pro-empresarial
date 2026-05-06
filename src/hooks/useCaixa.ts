@@ -254,15 +254,8 @@ export function useExcluirCaixa() {
 export function useReabrirCaixa() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { caixa_id: string; motivo?: string | null }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase.rpc as any)("reabrir_caixa", {
-        _caixa_id: input.caixa_id,
-        _motivo: input.motivo ?? null,
-      });
-      if (error) throw error;
-      return data;
-    },
+    mutationFn: (input: { caixa_id: string; motivo?: string | null }) =>
+      dataClient.caixa.reabrir(input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["caixa"] });
       qc.invalidateQueries({ queryKey: ["vendas"] });
