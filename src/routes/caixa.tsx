@@ -529,7 +529,12 @@ function CaixaPage() {
                           </TableHeader>
                           <TableBody>
                             {grupo.caixas.map((c) => (
-                              <TableRow key={c.id}>
+                              <TableRow
+                                key={c.id}
+                                className="cursor-pointer hover:bg-muted/40"
+                                onClick={() => setCaixaRelatorio(c.id)}
+                                title="Abrir relatório do caixa"
+                              >
                                 <TableCell className="text-sm">
                                   {formatDateTime(c.data_abertura)}
                                 </TableCell>
