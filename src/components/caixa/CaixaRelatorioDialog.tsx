@@ -93,14 +93,6 @@ export function CaixaRelatorioDialog({ open, onOpenChange, caixaId }: Props) {
 
   const isLoading = loadingCaixa || loadingMovs;
 
-  async function handleExportPng() {
-    if (!printRef.current) return;
-    await downloadCanvasAsPng(printRef.current, {
-      filename: `relatorio-caixa-${caixaId?.slice(0, 8)}.png`,
-      backgroundColor: "#0b1220",
-    });
-  }
-
   function handlePrint() {
     if (!printRef.current) return;
     const win = window.open("", "_blank", "width=900,height=700");
