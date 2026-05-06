@@ -860,6 +860,51 @@ export function FinalizarVendaDialog({
               </div>
             )}
 
+            {/* Desconto na finalização */}
+            <div className="rounded-lg border border-border bg-card/50 p-3">
+              <Label
+                htmlFor="desconto-final"
+                className="mb-1.5 flex items-center justify-between text-xs"
+              >
+                <span className="flex items-center gap-1.5">
+                  Desconto adicional
+                  <Kbd>D</Kbd>
+                </span>
+                <span className="text-[11px] text-muted-foreground">
+                  Subtotal: {formatBRL(total)}
+                </span>
+              </Label>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">
+                  R$
+                </span>
+                <Input
+                  ref={descontoFinalRef}
+                  id="desconto-final"
+                  type="text"
+                  inputMode="decimal"
+                  value={descontoFinalStr}
+                  onChange={(e) => setDescontoFinalStr(e.target.value)}
+                  onFocus={(e) => e.currentTarget.select()}
+                  placeholder="0,00"
+                  className={cn(
+                    "h-10 pl-10 font-mono tabular-nums",
+                    descontoExcedeTotal && "border-destructive ring-1 ring-destructive",
+                  )}
+                />
+              </div>
+              {descontoExcedeTotal && (
+                <p className="mt-1 flex items-center gap-1 text-[11px] text-destructive">
+                  <AlertTriangle className="h-3 w-3" /> Desconto não pode ser maior que o total ({formatBRL(total)}).
+                </p>
+              )}
+              {!descontoExcedeTotal && descontoFinal > 0 && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Total final: <strong className="text-foreground">{formatBRL(totalEfetivo)}</strong>
+                </p>
+              )}
+            </div>
+
             {/* Observação */}
             <div>
               <Label htmlFor="obs-final" className="mb-1.5 block text-xs">
