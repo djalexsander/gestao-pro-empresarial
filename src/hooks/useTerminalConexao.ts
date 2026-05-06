@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data/client";
 
 /**
  * Estado de conexão do terminal cliente com o servidor (Lovable Cloud).
@@ -43,9 +43,7 @@ export function useTerminalConexao(): ConexaoInfo {
     }
     const t0 = performance.now();
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase as any).rpc("terminal_ping");
-      if (error) throw error;
+      await dataClient.terminalRuntime.ping();
       const dt = Math.round(performance.now() - t0);
       setLatenciaMs(dt);
       setUltimoSync(new Date());
