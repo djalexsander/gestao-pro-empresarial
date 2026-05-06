@@ -58,7 +58,6 @@ import { useCaixasHistorico } from "@/hooks/useCaixa";
 import { useProdutos, useCategorias } from "@/hooks/useProdutos";
 import { DetalheVendaDialog } from "@/components/vendas/DetalheVendaDialog";
 import { ModuloGate } from "@/components/saas/ModuloGate";
-import { RequirePermission } from "@/components/auth/RequirePermission";
 import { formatBRL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { exportarBlocoCSV, exportarBlocoPDF } from "@/lib/export-bloco";
