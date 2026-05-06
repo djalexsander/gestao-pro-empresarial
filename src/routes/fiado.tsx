@@ -465,7 +465,7 @@ function FiadoContent() {
           <Card>
             <CardContent className="flex flex-col items-center gap-2 py-12 text-center">
               <HandCoins className="h-10 w-10 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">Nenhum cliente devedor encontrado.</p>
+              <p className="text-sm text-muted-foreground">Nenhum cliente a receber encontrado.</p>
             </CardContent>
           </Card>
         ) : (
