@@ -155,8 +155,10 @@ export function FinalizarVendaDialog({
   const [obsFinal, setObsFinal] = useState("");
   const [hotkeyFlash, setHotkeyFlash] = useState<string | null>(null);
   const [vencimentoFiado, setVencimentoFiado] = useState<string>("");
+  const [descontoFinalStr, setDescontoFinalStr] = useState<string>("");
   const ultimoValorRef = useRef<HTMLInputElement>(null);
   const vencimentoInputRef = useRef<HTMLInputElement>(null);
+  const descontoFinalRef = useRef<HTMLInputElement>(null);
   const dialogContentRef = useRef<HTMLDivElement>(null);
 
   const finalizar = useFinalizarVendaPDV();
