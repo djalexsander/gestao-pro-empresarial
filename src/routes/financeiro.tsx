@@ -1506,7 +1506,15 @@ function FluxoCaixaPanel() {
                 </TableRow>
               ) : (
                 rowsComSaldo.map((r) => (
-                  <TableRow key={r.id} className={cn(r.operacional && "bg-muted/30")}>
+                  <TableRow
+                    key={r.id}
+                    className={cn(
+                      r.operacional && "bg-muted/30",
+                      r.caixaId && "cursor-pointer hover:bg-muted/50",
+                    )}
+                    onClick={r.caixaId ? () => setCaixaRelatorio(r.caixaId!) : undefined}
+                    title={r.caixaId ? "Abrir relatório do caixa" : undefined}
+                  >
                     <TableCell className="text-muted-foreground">
                       {formatDateTime(r.data)}
                     </TableCell>
