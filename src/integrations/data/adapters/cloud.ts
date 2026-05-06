@@ -1274,6 +1274,24 @@ const financeiro: DataAdapter["financeiro"] = {
     if (error) throw error;
     return (data ?? null) as import("../extra-types").CobrancaPendenteDomain | null;
   },
+
+  async listFiado() {
+    const { data, error } = await supabase
+      .from("financeiro_lancamentos")
+      .select(
+        `id, descricao, valor, valor_pago, data_vencimento, data_emissao, data_pagamento,
+         status, observacoes, cliente_id, venda_id, forma_pagamento,
+         cliente:clientes(id, nome, documento, telefone, celular, email),
+         venda:vendas(id, numero, data_finalizacao, total)`,
+      )
+      .eq("tipo", "receber")
+      .eq("forma_pagamento", "fiado")
+      .neq("status", "cancelado")
+      .order("data_vencimento", { ascending: true })
+      .limit(5000);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as unknown as import("../adapter").FiadoLancamentoDomain[];
+  },
 };
 
 // =====================================================================
