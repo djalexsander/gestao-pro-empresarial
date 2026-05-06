@@ -13,6 +13,7 @@ import {
   Phone,
   IdCard,
   ShoppingCart,
+  Truck,
   History,
   HandCoins,
   Trash2,
@@ -40,6 +41,7 @@ import { useHotkeys } from "@/hooks/useHotkeys";
 import { ConciliarIfoodDialog } from "./ConciliarIfoodDialog";
 import { RegistrarPagamentoDialog } from "./RegistrarPagamentoDialog";
 import { LancamentoFormDialog } from "./LancamentoFormDialog";
+import { CompraDetailDialog } from "@/components/compras/CompraDetailDialog";
 
 export type LancamentoDetalhe = {
   id: string;
@@ -65,6 +67,11 @@ export type LancamentoDetalhe = {
   venda_numero?: string | null;
   venda_data?: string | null;
   venda_total?: number | null;
+  compra_id?: string | null;
+  compra_numero?: string | null;
+  compra_data_emissao?: string | null;
+  compra_total?: number | null;
+  compra_status?: string | null;
   categoria_nome?: string | null;
   forma_pagamento?: string | null;
   created_at?: string | null;
@@ -145,6 +152,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
   const [pagamentoOpen, setPagamentoOpen] = useState(false);
   const [pagamentoModoTotal, setPagamentoModoTotal] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [compraOpen, setCompraOpen] = useState(false);
 
   // owner_id atual (usuário autenticado) para inserção do pagamento
   const { data: ownerId = "" } = useQuery({
@@ -321,11 +329,13 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
   const temAuditoriaRepasse = !!lancamento.conciliado_em;
   const temCliente = !!(lancamento.cliente_nome || lancamento.cliente_documento);
   const temVenda = !!(lancamento.venda_id || lancamento.venda_numero);
+  const temCompra = !!(lancamento.compra_id || lancamento.compra_numero);
   // Edição/Exclusão só fazem sentido em títulos avulsos sem baixa.
   // O banco também bloqueia — aqui escondemos para UX limpa.
-  const podeEditar = !jaResolvido && !temVenda && totalPago === 0;
+  const podeEditar = !jaResolvido && !temVenda && !temCompra && totalPago === 0;
   const podeExcluir =
     !temVenda &&
+    !temCompra &&
     totalPago === 0 &&
     (lancamento.status === "pendente" || lancamento.status === "cancelado");
 
@@ -457,6 +467,42 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
                     </Field>
                     <Field icon={Wallet} label="Total">
                       {formatBRL(Number(lancamento.venda_total ?? 0))}
+                    </Field>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Compra vinculada */}
+            {temCompra && (
+              <>
+                <Separator />
+                <div className="rounded-md border border-primary/20 bg-primary/5 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      <Truck className="h-3.5 w-3.5" />
+                      Compra vinculada
+                    </p>
+                    {lancamento.compra_id && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setCompraOpen(true)}
+                        className="h-7 gap-1.5 text-xs"
+                      >
+                        Ver compra
+                      </Button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <Field icon={FileText} label="Número">
+                      {lancamento.compra_numero ?? "—"}
+                    </Field>
+                    <Field icon={Calendar} label="Emissão">
+                      {formatDate(lancamento.compra_data_emissao ?? null)}
+                    </Field>
+                    <Field icon={Wallet} label="Total">
+                      {formatBRL(Number(lancamento.compra_total ?? 0))}
                     </Field>
                   </div>
                 </div>
@@ -675,6 +721,12 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <CompraDetailDialog
+        open={compraOpen}
+        onOpenChange={setCompraOpen}
+        compraId={lancamento.compra_id ?? null}
+      />
 
       <ConciliarIfoodDialog
         open={conciliarOpen}

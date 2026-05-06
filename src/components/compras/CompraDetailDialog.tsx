@@ -1,5 +1,7 @@
-import { useState } from "react";
-import { CheckCircle2, XCircle, PackageCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CheckCircle2, XCircle, PackageCheck, CalendarClock, Save } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -20,7 +22,7 @@ import {
 } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { useCompra, useUpdateCompraStatus } from "@/hooks/useCompras";
+import { useCompra, useUpdateCompraStatus, useUpdateCompraMetadados } from "@/hooks/useCompras";
 import { ReceberCompraDialog } from "./ReceberCompraDialog";
 
 interface Props {
@@ -38,7 +40,31 @@ const fmtNum = (n: number) =>
 export function CompraDetailDialog({ open, onOpenChange, compraId }: Props) {
   const { data: compra, isLoading } = useCompra(compraId ?? undefined);
   const updateStatus = useUpdateCompraStatus();
+  const updateMeta = useUpdateCompraMetadados();
   const [receberOpen, setReceberOpen] = useState(false);
+  const [editVenc, setEditVenc] = useState("");
+  const [editNf, setEditNf] = useState("");
+
+  useEffect(() => {
+    if (compra) {
+      setEditVenc(compra.data_vencimento ?? "");
+      setEditNf(compra.numero_nf ?? "");
+    }
+  }, [compra]);
+
+  const metaDirty =
+    !!compra &&
+    ((editVenc || null) !== (compra.data_vencimento ?? null) ||
+      (editNf || null) !== (compra.numero_nf ?? null));
+
+  async function handleSalvarMeta() {
+    if (!compraId) return;
+    await updateMeta.mutateAsync({
+      id: compraId,
+      data_vencimento: editVenc || null,
+      numero_nf: editNf || null,
+    });
+  }
 
   async function handleCancelar() {
     if (!compraId) return;
@@ -92,6 +118,47 @@ export function CompraDetailDialog({ open, onOpenChange, compraId }: Props) {
                       : "—"}
                   </p>
                 </div>
+              </div>
+
+              {/* Metadados financeiros editáveis */}
+              <div className="rounded-lg border border-border bg-muted/20 p-3">
+                <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <CalendarClock className="h-3.5 w-3.5" />
+                  Vencimento financeiro
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Data de vencimento</Label>
+                    <Input
+                      type="date"
+                      value={editVenc}
+                      onChange={(e) => setEditVenc(e.target.value)}
+                      disabled={compra.status === "cancelada"}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Nº NF</Label>
+                    <Input
+                      value={editNf}
+                      onChange={(e) => setEditNf(e.target.value)}
+                      disabled={compra.status === "cancelada"}
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <Button
+                      size="sm"
+                      onClick={handleSalvarMeta}
+                      disabled={!metaDirty || updateMeta.isPending || compra.status === "cancelada"}
+                      className="gap-1.5 w-full"
+                    >
+                      <Save className="h-3.5 w-3.5" />
+                      {updateMeta.isPending ? "Salvando..." : "Salvar"}
+                    </Button>
+                  </div>
+                </div>
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Alterar o vencimento sincroniza automaticamente o título em <strong>Contas a Pagar</strong>.
+                </p>
               </div>
 
               <div className="rounded-lg border border-border">

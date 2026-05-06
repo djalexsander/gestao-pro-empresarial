@@ -180,6 +180,7 @@ export function CompraDialog({ open, onOpenChange }: Props) {
         fornecedor_id: fornecedorId || null,
         data_emissao: dataEmissao,
         data_prevista: dataPrevista || null,
+        data_vencimento: dataVencimento || null,
         numero_nf: numeroNf || null,
         desconto,
         frete,
@@ -206,7 +207,7 @@ export function CompraDialog({ open, onOpenChange }: Props) {
 
         <div className="space-y-5">
           {/* Cabeçalho */}
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
             <div className="space-y-1.5">
               <Label>Número *</Label>
               <Input value={numero} onChange={(e) => setNumero(e.target.value)} />
@@ -220,10 +221,28 @@ export function CompraDialog({ open, onOpenChange }: Props) {
               <Input type="date" value={dataPrevista} onChange={(e) => setDataPrevista(e.target.value)} />
             </div>
             <div className="space-y-1.5">
+              <Label className="flex items-center gap-1.5">
+                Vencimento
+                <span className="text-[10px] font-normal text-muted-foreground">(opcional)</span>
+              </Label>
+              <Input
+                type="date"
+                value={dataVencimento}
+                onChange={(e) => setDataVencimento(e.target.value)}
+                placeholder="Boleto / prazo"
+              />
+            </div>
+            <div className="space-y-1.5">
               <Label>NF</Label>
               <Input value={numeroNf} onChange={(e) => setNumeroNf(e.target.value)} />
             </div>
           </div>
+          {dataVencimento && (
+            <p className="-mt-3 text-xs text-muted-foreground">
+              Será gerado um lançamento em <strong>Contas a Pagar</strong> com vencimento em{" "}
+              {new Date(dataVencimento + "T00:00:00").toLocaleDateString("pt-BR")}.
+            </p>
+          )}
 
           <div className="space-y-1.5">
             <Label>Fornecedor</Label>

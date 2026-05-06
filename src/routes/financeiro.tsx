@@ -201,10 +201,11 @@ function FinanceContent() {
           `id, descricao, valor, valor_pago, data_vencimento, data_pagamento, data_emissao,
            tipo, status, observacoes, numero_documento, forma_pagamento, created_at,
            conciliado_em, valor_repasse, taxa_repasse, numero_repasse, observacao_repasse,
-           cliente_id, venda_id,
+           cliente_id, venda_id, compra_id,
            fornecedor:fornecedores(razao_social, nome_fantasia, documento, telefone),
            cliente:clientes(nome, documento, telefone, celular, email),
            venda:vendas(numero, data_finalizacao, total),
+           compra:compras(numero, data_emissao, total, status),
            categoria:categorias_financeiras(nome)`,
         )
         .order("data_vencimento", { ascending: true });
@@ -230,6 +231,7 @@ function FinanceContent() {
         observacao_repasse: string | null;
         cliente_id: string | null;
         venda_id: string | null;
+        compra_id: string | null;
         fornecedor: {
           razao_social: string | null;
           nome_fantasia: string | null;
@@ -247,6 +249,12 @@ function FinanceContent() {
           numero: string | null;
           data_finalizacao: string | null;
           total: number | null;
+        } | null;
+        compra: {
+          numero: string | null;
+          data_emissao: string | null;
+          total: number | null;
+          status: string | null;
         } | null;
         categoria: { nome: string | null } | null;
       };
@@ -281,6 +289,11 @@ function FinanceContent() {
         venda_numero: r.venda?.numero ?? null,
         venda_data: r.venda?.data_finalizacao ?? null,
         venda_total: r.venda?.total ?? null,
+        compra_id: r.compra_id,
+        compra_numero: r.compra?.numero ?? null,
+        compra_data_emissao: r.compra?.data_emissao ?? null,
+        compra_total: r.compra?.total ?? null,
+        compra_status: r.compra?.status ?? null,
         categoria_nome: r.categoria?.nome ?? null,
       }));
     },
