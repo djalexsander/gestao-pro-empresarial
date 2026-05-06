@@ -404,38 +404,25 @@ export function LancamentoFormDialog(props: Props) {
           {tipo === "receber" ? (
             <div className="space-y-1.5">
               <Label>Cliente</Label>
-              <Select value={clienteId} onValueChange={setClienteId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="—" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE}>— sem cliente —</SelectItem>
-                  {clientes.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.nome}
-                      {c.documento ? ` · ${c.documento}` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <ClienteSearchSelect
+                value={clienteId}
+                clientes={clientes}
+                extraOptions={[{ value: NONE, label: "— sem cliente —" }]}
+                onChange={(v) => setClienteId(v)}
+                placeholder="—"
+              />
             </div>
           ) : (
             <div className="space-y-1.5">
               <Label>Fornecedor</Label>
-              <Select value={fornecedorId} onValueChange={setFornecedorId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="—" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE}>— sem fornecedor —</SelectItem>
-                  {fornecedores.map((f) => (
-                    <SelectItem key={f.id} value={f.id}>
-                      {f.nome_fantasia || f.razao_social}
-                      {f.documento ? ` · ${f.documento}` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <FornecedorSearchSelect
+                value={fornecedorId}
+                fornecedores={fornecedores}
+                filter={() => true}
+                extraOptions={[{ value: NONE, label: "— sem fornecedor —" }]}
+                onChange={(v) => setFornecedorId(v)}
+                placeholder="—"
+              />
             </div>
           )}
 
