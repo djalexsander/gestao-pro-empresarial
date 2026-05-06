@@ -75,13 +75,10 @@ export function useProduto(id: string | undefined) {
     queryKey: ["produto", id],
     enabled: !!id,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("produtos")
-        .select("*, variacoes:produto_variacoes(*)")
-        .eq("id", id!)
-        .maybeSingle();
-      if (error) throw error;
-      return data as (Produto & { variacoes: Variacao[] }) | null;
+      if (!id) return null;
+      return (await dataClient.produtos.get(id)) as unknown as
+        | (Produto & { variacoes: Variacao[] })
+        | null;
     },
   });
 }
@@ -124,9 +121,9 @@ function prettifyProdutoError(msg: string): string {
 }
 
 async function fetchProdutoRow(id: string) {
-  const { data, error } = await supabase.from("produtos").select("*").eq("id", id).single();
-  if (error) throw error;
-  return data;
+  const p = await dataClient.produtos.get(id);
+  if (!p) throw new Error("Produto não encontrado.");
+  return p;
 }
 
 function mapProdutoErr(e: unknown): Error {
