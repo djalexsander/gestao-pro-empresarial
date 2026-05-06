@@ -20,7 +20,6 @@ import {
   Sheet as SheetIcon,
   CheckCircle2,
   Phone,
-  Printer,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/shared/PageHeader";
