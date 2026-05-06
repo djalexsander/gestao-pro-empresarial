@@ -695,6 +695,12 @@ function PDVPage() {
             toast.error(calc.erro);
             return;
           }
+          const okSaldoPeso = await verificarSaldoAntesAdicionar(
+            prod.produto_id,
+            prod.nome,
+            calc.quantidade,
+          );
+          if (!okSaldoPeso) return;
           som.beep("ok");
           addItemFromProduto(
             {
