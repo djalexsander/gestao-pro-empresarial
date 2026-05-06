@@ -2649,4 +2649,3 @@ export const cloudAdapter: DataAdapter = {
   balanca,
   produtoCodigos,
 };
-};
