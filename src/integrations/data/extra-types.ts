@@ -248,3 +248,122 @@ export interface VendaMetricasPeriodoInput {
   data_inicio: string;
   data_fim: string;
 }
+
+// =============== Financeiro — indicadores e seções ===============
+export interface FinanceiroPeriodoDomain {
+  inicio: string;
+  fim: string;
+  inicioTs: string;
+  fimTs: string;
+  hoje: string;
+}
+
+export interface FinanceiroPeriodoRangeInput {
+  inicio: string;
+  fim: string;
+  inicioTs: string;
+  fimTs: string;
+}
+
+export interface FinanceiroVendaItemDetalheDomain {
+  venda_id: string;
+  venda_numero: string;
+  data: string;
+  produto_id: string;
+  produto_nome: string;
+  quantidade: number;
+  preco_unitario: number;
+  preco_custo: number;
+  total_venda: number;
+  total_custo: number;
+  lucro: number;
+  sem_custo: boolean;
+}
+
+export interface FinanceiroVendaResumoDomain {
+  id: string;
+  numero: string;
+  data: string;
+  cliente_nome: string | null;
+  forma_pagamento: string | null;
+  status_pagamento: string;
+  total: number;
+}
+
+export interface FinanceiroIndicadoresMesDomain {
+  periodo: FinanceiroPeriodoDomain;
+  totalVendido: number;
+  custoTotal: number;
+  lucroBruto: number;
+  margemPct: number;
+  qtdVendas: number;
+  qtdItensSemCusto: number;
+  qtdItens: number;
+  fiadoEmAberto: number;
+  qtdFiado: number;
+  ifoodAReceber: number;
+  qtdIfood: number;
+  recebidoHoje: number;
+  qtdRecebimentosHoje: number;
+  vencidosTotal: number;
+  qtdVencidos: number;
+  itensDetalhe: FinanceiroVendaItemDetalheDomain[];
+  vendasDetalhe: FinanceiroVendaResumoDomain[];
+}
+
+export interface PosicaoFinanceiraDomain {
+  totalReceber: number;
+  qtdReceber: number;
+  totalPagar: number;
+  qtdPagar: number;
+  saldo: number;
+}
+
+export interface PerformancePeriodoDomain {
+  totalVendido: number;
+  qtdVendas: number;
+  custoTotal: number;
+  qtdItens: number;
+  qtdItensSemCusto: number;
+  lucroBruto: number;
+  margemPct: number;
+}
+
+export type FinanceiroFormaFiltro = "todos" | "fiado" | "ifood" | string;
+
+export interface ReceberOrigemInput {
+  periodo: FinanceiroPeriodoRangeInput;
+  forma: FinanceiroFormaFiltro;
+}
+
+export interface ReceberOrigemDomain {
+  fiadoEmAberto: number;
+  qtdFiado: number;
+  ifoodAReceber: number;
+  qtdIfood: number;
+  recebidoPeriodo: number;
+  qtdRecebimentos: number;
+  vencidosTotal: number;
+  qtdVencidos: number;
+}
+
+export interface CobrancaPendenteItemDomain {
+  tipo: "plano" | "modulo";
+  plano_id: string | null;
+  modulo_id: string | null;
+  descricao: string | null;
+  valor: number;
+}
+
+export interface CobrancaPendenteDomain {
+  pagamento_id: string;
+  valor: number;
+  descricao: string | null;
+  data_vencimento: string | null;
+  asaas_payment_id: string | null;
+  invoice_url: string | null;
+  pix_qrcode: string | null;
+  pix_copia_cola: string | null;
+  created_at: string;
+  itens: CobrancaPendenteItemDomain[];
+}
