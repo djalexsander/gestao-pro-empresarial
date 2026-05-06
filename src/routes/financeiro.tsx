@@ -812,8 +812,10 @@ function BlocoModais({
           { key: "forma", header: "Forma" },
           { key: "total", header: "Total", format: "currency", align: "right" },
         ]}
+        vendaIdField="venda_id"
         rows={ind.vendasDetalhe.map((v) => ({
           id: v.id,
+          venda_id: v.id,
           numero: v.numero,
           data: v.data,
           cliente: v.cliente_nome ?? "Consumidor final",
