@@ -24,7 +24,7 @@ import { dataClient } from "@/integrations/data";
 import { formatBRL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import type { Caixa, CaixaMovimento } from "@/hooks/useCaixa";
-import { downloadCanvasAsPng } from "@/lib/export-png-canvas";
+
 
 interface Props {
   open: boolean;
