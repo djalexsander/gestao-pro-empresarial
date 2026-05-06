@@ -40,7 +40,31 @@ const fmtNum = (n: number) =>
 export function CompraDetailDialog({ open, onOpenChange, compraId }: Props) {
   const { data: compra, isLoading } = useCompra(compraId ?? undefined);
   const updateStatus = useUpdateCompraStatus();
+  const updateMeta = useUpdateCompraMetadados();
   const [receberOpen, setReceberOpen] = useState(false);
+  const [editVenc, setEditVenc] = useState("");
+  const [editNf, setEditNf] = useState("");
+
+  useEffect(() => {
+    if (compra) {
+      setEditVenc(compra.data_vencimento ?? "");
+      setEditNf(compra.numero_nf ?? "");
+    }
+  }, [compra]);
+
+  const metaDirty =
+    !!compra &&
+    ((editVenc || null) !== (compra.data_vencimento ?? null) ||
+      (editNf || null) !== (compra.numero_nf ?? null));
+
+  async function handleSalvarMeta() {
+    if (!compraId) return;
+    await updateMeta.mutateAsync({
+      id: compraId,
+      data_vencimento: editVenc || null,
+      numero_nf: editNf || null,
+    });
+  }
 
   async function handleCancelar() {
     if (!compraId) return;
