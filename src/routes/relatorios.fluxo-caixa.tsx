@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Download, Loader2, ArrowUpRight, ArrowDownRight, Wallet } from "lucide-react";
@@ -80,34 +80,14 @@ function Conteudo() {
     (async () => {
       setLoading(true);
       const { inicio, fim } = calcRange(periodo);
-      const { data, error } = await supabase
-        .from("financeiro_lancamentos")
-        .select(
-          "id, descricao, tipo, valor, valor_pago, data_emissao, data_vencimento, data_pagamento, status, forma_pagamento",
-        )
-        .gte("data_vencimento", inicio)
-        .lte("data_vencimento", fim)
-        .order("data_vencimento", { ascending: false })
-        .limit(1000);
-      if (cancelled) return;
-      if (error) {
-        toast.error(error.message);
+      try {
+        const data = await dataClient.relatorios.fluxoCaixa({ inicio, fim });
+        if (cancelled) return;
+        setRows(data);
+      } catch (e) {
+        if (cancelled) return;
+        toast.error(e instanceof Error ? e.message : "Falha ao carregar");
         setRows([]);
-      } else {
-        setRows(
-          (data ?? []).map((l: any) => ({
-            id: l.id,
-            descricao: l.descricao,
-            tipo: l.tipo,
-            valor: Number(l.valor) || 0,
-            valor_pago: Number(l.valor_pago) || 0,
-            emissao: l.data_emissao,
-            vencimento: l.data_vencimento,
-            pagamento: l.data_pagamento,
-            status: l.status,
-            forma: l.forma_pagamento,
-          })),
-        );
       }
       setLoading(false);
     })();
