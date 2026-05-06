@@ -2628,6 +2628,446 @@ const produtoCodigos: DataAdapter["produtoCodigos"] = {
   },
 };
 
+// =============================================================================
+// Onda 5: User roles
+// =============================================================================
+const userRoles: DataAdapter["userRoles"] = {
+  async listar(userId) {
+    const { data, error } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", userId);
+    if (error) return [];
+    return (data ?? []).map((r) => r.role as import("../extra-adapters").AppRoleDomain);
+  },
+};
+
+// =============================================================================
+// Onda 5: Admin (super admin global)
+// =============================================================================
+const admin: DataAdapter["admin"] = {
+  async isSuperAdmin(userId) {
+    const { data, error } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", userId)
+      .eq("role", "super_admin")
+      .maybeSingle();
+    if (error) return false;
+    return !!data;
+  },
+  async stats() {
+    const { data, error } = await supabase.rpc("admin_estatisticas_globais");
+    if (error) throw error;
+    return data as unknown as import("../extra-adapters").AdminStatsDomain;
+  },
+  async serieCrescimento(dias) {
+    const { data, error } = await supabase.rpc("admin_serie_crescimento", { _dias: dias });
+    if (error) throw error;
+    return (data ?? []) as import("../extra-adapters").SerieCrescimentoDomain[];
+  },
+  async listarUsuarios() {
+    const { data, error } = await supabase.rpc("admin_listar_usuarios");
+    if (error) throw error;
+    return (data ?? []) as import("../extra-adapters").AdminUserDomain[];
+  },
+  async setUserRole({ userId, role, grant }) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase as any).rpc("admin_set_user_role", {
+      _user_id: userId,
+      _role: role,
+      _grant: grant,
+    });
+    if (error) throw error;
+  },
+  async deleteUser(userId) {
+    const { error } = await supabase.rpc("admin_delete_user", { _user_id: userId });
+    if (error) throw error;
+  },
+  async listarEmpresas() {
+    const { data, error } = await supabase.rpc("admin_listar_empresas");
+    if (error) throw error;
+    return (data ?? []) as import("../extra-adapters").AdminEmpresaDomain[];
+  },
+  async upsertEmpresa(input) {
+    const { error } = await supabase.rpc("admin_upsert_empresa", {
+      _id: input.id,
+      _nome: input.nome,
+      _email: input.email ?? undefined,
+      _telefone: input.telefone ?? undefined,
+      _documento: input.documento ?? undefined,
+      _plano: input.plano ?? "free",
+      _observacoes: input.observacoes ?? undefined,
+    });
+    if (error) throw error;
+  },
+  async setEmpresaStatus(input) {
+    const { error } = await supabase.rpc("admin_set_empresa_status", {
+      _id: input.id,
+      _status: input.status,
+      _motivo: input.motivo ?? undefined,
+    });
+    if (error) throw error;
+  },
+  async deleteEmpresa(id) {
+    const { error } = await supabase.rpc("admin_delete_empresa", { _id: id });
+    if (error) throw error;
+  },
+  async auditLogs(limit) {
+    const { data, error } = await supabase.rpc("admin_listar_audit_logs", { _limit: limit });
+    if (error) throw error;
+    return (data ?? []) as import("../extra-adapters").AuditLogDomain[];
+  },
+  async registrarAuditLog(input) {
+    try {
+      await supabase.rpc("registrar_audit_log", {
+        _action: input.action,
+        _target_type: input.target_type ?? undefined,
+        _target_id: input.target_id ?? undefined,
+        _metadata: (input.metadata ?? {}) as never,
+      });
+    } catch {
+      /* silencioso */
+    }
+  },
+};
+
+// =============================================================================
+// Onda 5: SaaS Admin (planos / módulos / assinaturas / pagamentos / modos)
+// =============================================================================
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const rpc = (name: string, args?: Record<string, unknown>) => (supabase.rpc as any)(name, args);
+
+const saasAdmin: DataAdapter["saasAdmin"] = {
+  async listarPlanos() {
+    const { data, error } = await rpc("admin_listar_planos");
+    if (error) throw error;
+    return (data ?? []) as unknown[];
+  },
+  async upsertPlano(input) {
+    const { error } = await rpc("admin_upsert_plano", input);
+    if (error) throw error;
+  },
+  async deletePlano(id) {
+    const { error } = await rpc("admin_delete_plano", { _id: id });
+    if (error) throw error;
+  },
+  async listarModulos() {
+    const { data, error } = await rpc("admin_listar_modulos");
+    if (error) throw error;
+    return (data ?? []) as unknown[];
+  },
+  async upsertModulo(input) {
+    const { error } = await rpc("admin_upsert_modulo", input);
+    if (error) throw error;
+  },
+  async deleteModulo(id) {
+    const { error } = await rpc("admin_delete_modulo", { _id: id });
+    if (error) throw error;
+  },
+  async listarAssinaturas() {
+    const { data, error } = await rpc("admin_listar_assinaturas");
+    if (error) throw error;
+    return (data ?? []) as unknown[];
+  },
+  async setAssinatura(input) {
+    const { error } = await rpc("admin_set_assinatura", input);
+    if (error) throw error;
+  },
+  async listarEmpresaModulos(empresaId) {
+    const { data, error } = await rpc("admin_listar_empresa_modulos", { _empresa_id: empresaId });
+    if (error) throw error;
+    return (data ?? []) as unknown[];
+  },
+  async setEmpresaModulo(input) {
+    const { error } = await rpc("admin_set_empresa_modulo", input);
+    if (error) throw error;
+  },
+  async removerEmpresaModulo(id) {
+    const { error } = await rpc("admin_remover_empresa_modulo", { _id: id });
+    if (error) throw error;
+  },
+  async listarPagamentos(empresaId) {
+    const { data, error } = await rpc("admin_listar_pagamentos", { _empresa_id: empresaId });
+    if (error) throw error;
+    return (data ?? []) as unknown[];
+  },
+  async upsertPagamento(input) {
+    const { error } = await rpc("admin_registrar_pagamento", input);
+    if (error) throw error;
+  },
+  async deletePagamento(id) {
+    const { error } = await rpc("admin_delete_pagamento", { _id: id });
+    if (error) throw error;
+  },
+  async obterConfigComercial() {
+    const { data, error } = await rpc("admin_get_config_comercial");
+    if (error) throw error;
+    return data as unknown;
+  },
+  async setConfigComercial(input) {
+    const { error } = await rpc("admin_set_config_comercial", input);
+    if (error) throw error;
+  },
+  async minhaAssinatura() {
+    const { data, error } = await rpc("minha_assinatura_status");
+    if (error) throw error;
+    return data as unknown;
+  },
+  async meusModulos() {
+    const { data, error } = await rpc("meus_modulos");
+    if (error) throw error;
+    return (data ?? []) as unknown[];
+  },
+  async listarModos() {
+    const { data, error } = await rpc("admin_modos_listar");
+    if (error) throw error;
+    return (data ?? []) as unknown[];
+  },
+  async modosDisponiveis() {
+    const { data, error } = await rpc("modos_disponiveis");
+    if (error) throw error;
+    return (data ?? []) as unknown[];
+  },
+  async upsertModo(input) {
+    const { data, error } = await rpc("admin_modo_upsert", input);
+    if (error) throw error;
+    return data as string;
+  },
+  async deleteModo(id) {
+    const { error } = await rpc("admin_modo_deletar", { _id: id });
+    if (error) throw error;
+  },
+  async setModoModulos(input) {
+    const { error } = await rpc("admin_modo_set_modulos", {
+      _mode_id: input.mode_id,
+      _module_ids: input.module_ids,
+    });
+    if (error) throw error;
+  },
+};
+
+// =============================================================================
+// Onda 5: SaaS Cliente
+// =============================================================================
+async function extrairErroEdgeImpl(error: unknown, fallback: string): Promise<string> {
+  const ctx = (error as { context?: { response?: Response } })?.context;
+  const resp = ctx?.response;
+  if (resp) {
+    try {
+      const body = await resp.clone().json();
+      const msg =
+        (body as { error?: string; message?: string })?.error ??
+        (body as { error?: string; message?: string })?.message;
+      if (msg) return String(msg);
+    } catch {
+      try {
+        const txt = await resp.clone().text();
+        if (txt) return txt;
+      } catch {
+        /* ignora */
+      }
+    }
+  }
+  const msg = (error as { message?: string })?.message;
+  return msg && msg !== "Edge Function returned a non-2xx status code" ? msg : fallback;
+}
+
+async function criarCobrancaAsaasImpl(pagamento_id: string) {
+  const { data: cfg } = await supabase
+    .from("config_comercial")
+    .select("asaas_enabled")
+    .maybeSingle();
+  if (!cfg?.asaas_enabled) return null;
+
+  const { data, error } = await supabase.functions.invoke("asaas-criar-cobranca", {
+    body: { pagamento_id, billing_type: "PIX" },
+  });
+  if (error) {
+    const detalhe = await extrairErroEdgeImpl(
+      error,
+      "Não foi possível criar a cobrança Pix. Confira o CNPJ/CPF em Configurações → Empresa e tente novamente.",
+    );
+    throw new Error(detalhe);
+  }
+  return {
+    ...(data as Omit<import("../extra-adapters").CobrancaCriadaDomain, "pagamento_id">),
+    pagamento_id,
+  };
+}
+
+const saasCliente: DataAdapter["saasCliente"] = {
+  async planosDisponiveis() {
+    const { data, error } = await rpc("planos_disponiveis");
+    if (error) throw error;
+    return (data ?? []) as unknown[];
+  },
+  async modulosDisponiveisCliente() {
+    const { data, error } = await rpc("modulos_disponiveis_cliente");
+    if (error) throw error;
+    return (data ?? []) as unknown[];
+  },
+  async solicitarPlano(plano_id) {
+    const { data: pagamentoId, error } = await rpc("solicitar_contratacao_plano", { _plano_id: plano_id });
+    if (error) throw error;
+    const cobranca = await criarCobrancaAsaasImpl(pagamentoId as string);
+    return { pagamentoId: pagamentoId as string, cobranca };
+  },
+  async solicitarModulo(modulo_id) {
+    const { data: pagamentoId, error } = await rpc("solicitar_contratacao_modulo", { _modulo_id: modulo_id });
+    if (error) throw error;
+    const cobranca = await criarCobrancaAsaasImpl(pagamentoId as string);
+    return { pagamentoId: pagamentoId as string, cobranca };
+  },
+  async resetarDadosEmpresa() {
+    const { error } = await rpc("resetar_dados_empresa");
+    if (error) throw error;
+  },
+};
+
+// =============================================================================
+// Onda 5: QA
+// =============================================================================
+const qa: DataAdapter["qa"] = {
+  async listarModulos() {
+    const { data, error } = await supabase
+      .from("qa_modulos")
+      .select("*")
+      .eq("ativo", true)
+      .order("ordem");
+    if (error) throw error;
+    return (data ?? []) as import("../extra-adapters").QaModuloDomain[];
+  },
+  async listarItens() {
+    const { data, error } = await supabase
+      .from("qa_itens")
+      .select("*")
+      .eq("ativo", true)
+      .order("ordem");
+    if (error) throw error;
+    return (data ?? []) as import("../extra-adapters").QaItemDomain[];
+  },
+  async listarValidacoes() {
+    const { data, error } = await supabase
+      .from("qa_validacoes")
+      .select("*")
+      .order("iniciada_em", { ascending: false })
+      .limit(100);
+    if (error) throw error;
+    return (data ?? []) as import("../extra-adapters").QaValidacaoDomain[];
+  },
+  async validacaoAtiva() {
+    const { data, error } = await supabase
+      .from("qa_validacoes")
+      .select("*")
+      .eq("status", "em_andamento")
+      .order("iniciada_em", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return (data as import("../extra-adapters").QaValidacaoDomain | null) ?? null;
+  },
+  async listarAvaliacoes(validacaoId) {
+    const { data, error } = await supabase
+      .from("qa_avaliacoes")
+      .select("*")
+      .eq("validacao_id", validacaoId);
+    if (error) throw error;
+    return (data ?? []) as import("../extra-adapters").QaAvaliacaoDomain[];
+  },
+  async criarValidacao(input) {
+    const { data, error } = await supabase
+      .from("qa_validacoes")
+      .insert({
+        titulo: input.titulo,
+        responsavel_id: input.responsavel_id,
+        responsavel_nome: input.responsavel_nome,
+        status: "em_andamento",
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    return data as import("../extra-adapters").QaValidacaoDomain;
+  },
+  async finalizarValidacao(input) {
+    const { error } = await supabase
+      .from("qa_validacoes")
+      .update({
+        status: "finalizada",
+        finalizada_em: new Date().toISOString(),
+        observacao_final: input.observacao_final,
+        resumo: (input.resumo as never) ?? null,
+      })
+      .eq("id", input.id);
+    if (error) throw error;
+  },
+  async salvarAvaliacao(input) {
+    const payload = {
+      validacao_id: input.validacao_id,
+      item_id: input.item_id,
+      status: input.status,
+      observacao: input.observacao,
+      evidencia_url: input.evidencia_url,
+      testado_em: new Date().toISOString(),
+      testado_por: input.testado_por,
+      testado_por_nome: input.testado_por_nome,
+    };
+    const { error } = await supabase
+      .from("qa_avaliacoes")
+      .upsert(payload, { onConflict: "validacao_id,item_id" });
+    if (error) throw error;
+  },
+  async uploadEvidencia({ file, validacao_id }) {
+    const ext = (file.name.split(".").pop() || "png").toLowerCase();
+    const path = `${validacao_id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const { error } = await supabase.storage
+      .from("qa-evidencias")
+      .upload(path, file, { upsert: false, contentType: file.type });
+    if (error) throw error;
+    return path;
+  },
+  async signedUrlEvidencia(path) {
+    const { data, error } = await supabase.storage
+      .from("qa-evidencias")
+      .createSignedUrl(path, 60 * 60);
+    if (error) return null;
+    return data?.signedUrl ?? null;
+  },
+};
+
+// =============================================================================
+// Onda 5: Terminal Runtime
+// =============================================================================
+const terminalRuntime: DataAdapter["terminalRuntime"] = {
+  async heartbeat(input) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (supabase as any).rpc("terminal_heartbeat", {
+        _terminal_id: input.terminal_id,
+        _operador_id: input.operador_id,
+        _operador_nome: input.operador_nome,
+        _user_agent: input.user_agent,
+        _ip_local: input.ip_local,
+      });
+    } catch {
+      /* silencioso */
+    }
+  },
+  async limparOperador(terminalId) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (supabase as any).rpc("terminal_limpar_operador", { _terminal_id: terminalId });
+    } catch {
+      /* silencioso */
+    }
+  },
+  async ping() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase as any).rpc("terminal_ping");
+    if (error) throw error;
+  },
+};
+
 export const cloudAdapter: DataAdapter = {
   produtos,
   vendas,
@@ -2649,4 +3089,10 @@ export const cloudAdapter: DataAdapter = {
   configEmpresa,
   balanca,
   produtoCodigos,
+  userRoles,
+  admin,
+  saasAdmin,
+  saasCliente,
+  qa,
+  terminalRuntime,
 };
