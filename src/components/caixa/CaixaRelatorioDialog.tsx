@@ -1,6 +1,6 @@
 import { useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, Printer, Download, Wallet, Power, PowerOff } from "lucide-react";
+import { Loader2, Printer, Wallet, Power, PowerOff } from "lucide-react";
 import {
   Dialog,
   DialogContent,
