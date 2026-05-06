@@ -551,6 +551,50 @@ function PDVPage() {
     });
   }
 
+  /**
+   * Valida em tempo real se o produto ainda tem saldo suficiente para a
+   * quantidade pedida + o que já está no carrinho. Retorna `true` se a venda
+   * pode prosseguir; caso contrário, exibe toast e retorna `false`.
+   *
+   * A validação definitiva ocorre novamente em `finalizarVenda` e no backend
+   * (RPC), garantindo segurança em ambiente multi-caixa.
+   */
+  async function verificarSaldoAntesAdicionar(
+    produtoId: string,
+    nome: string,
+    qtdNova: number,
+  ): Promise<boolean> {
+    try {
+      const saldos = await saldosLote.mutateAsync([produtoId]);
+      const saldo = saldos.get(produtoId) ?? 0;
+      const noCarrinho = items
+        .filter((i) => i.produto_id === produtoId)
+        .reduce((s, i) => s + i.quantidade, 0);
+      const totalPedido = noCarrinho + qtdNova;
+      if (saldo < totalPedido) {
+        som.beep("error");
+        toast.error(
+          `Estoque insuficiente para "${nome}".`,
+          {
+            description: `Disponível: ${saldo}. ${
+              noCarrinho > 0
+                ? `Já no carrinho: ${noCarrinho}. Tentando adicionar: ${qtdNova}.`
+                : `Tentando adicionar: ${qtdNova}.`
+            } Reduza a quantidade ou atualize o estoque.`,
+            duration: 5000,
+          },
+        );
+        return false;
+      }
+      return true;
+    } catch (e) {
+      // Em caso de falha na consulta de saldo, NÃO bloqueia — o backend
+      // ainda fará a validação definitiva ao finalizar a venda.
+      console.warn("Falha ao consultar saldo para validação preventiva:", e);
+      return true;
+    }
+  }
+
   // ============ Balança / peso ============
   const { data: balancaCfg } = useBalancaConfig();
   const [pesoDialog, setPesoDialog] = useState<{
@@ -592,6 +636,15 @@ function PDVPage() {
           return;
         }
         const qtdAplicada = multiplicador > 1 ? multiplicador : 1;
+        const okSaldo = await verificarSaldoAntesAdicionar(
+          found.produto_id,
+          found.nome,
+          qtdAplicada,
+        );
+        if (!okSaldo) {
+          if (multiplicador > 1) setMultiplicador(1);
+          return;
+        }
         addItemFromProduto(
           {
             produto_id: found.produto_id,
@@ -642,6 +695,12 @@ function PDVPage() {
             toast.error(calc.erro);
             return;
           }
+          const okSaldoPeso = await verificarSaldoAntesAdicionar(
+            prod.produto_id,
+            prod.nome,
+            calc.quantidade,
+          );
+          if (!okSaldoPeso) return;
           som.beep("ok");
           addItemFromProduto(
             {
@@ -900,14 +959,13 @@ function PDVPage() {
       }
       if (insuficientes.length > 0) {
         const msg = "Estoque insuficiente:\n• " + insuficientes.join("\n• ");
-        const ok = window.confirm(
-          msg + "\n\nDeseja continuar mesmo assim? O estoque ficará negativo.",
-        );
-        if (!ok) {
-          toast.warning("Venda não finalizada — estoque insuficiente.");
-          return;
-        }
-        toast.warning("Atenção: venda gerará estoque negativo.");
+        som.beep("error");
+        toast.error(msg, {
+          description:
+            "Reduza a quantidade no carrinho ou atualize o estoque antes de finalizar.",
+          duration: 6000,
+        });
+        return;
       }
     } catch (e) {
       toast.error(`Falha ao validar estoque: ${(e as Error).message}`);
@@ -1363,8 +1421,17 @@ function PDVPage() {
                           <CommandItem
                             key={p.id}
                             value={p.id}
-                            onSelect={() => {
+                            onSelect={async () => {
                               const qtdAplicada = multiplicador > 1 ? multiplicador : 1;
+                              const okSaldo = await verificarSaldoAntesAdicionar(
+                                p.id,
+                                p.nome,
+                                qtdAplicada,
+                              );
+                              if (!okSaldo) {
+                                if (multiplicador > 1) setMultiplicador(1);
+                                return;
+                              }
                               addItemFromProduto(
                                 {
                                   produto_id: p.id,
@@ -1727,8 +1794,17 @@ function PDVPage() {
         produtoNome={pesoDialog?.nome ?? ""}
         precoPorKg={pesoDialog?.preco_venda ?? 0}
         casasDecimais={pesoDialog?.casas_decimais ?? 3}
-        onConfirm={(pesoKg) => {
+        onConfirm={async (pesoKg) => {
           if (!pesoDialog) return;
+          const okSaldo = await verificarSaldoAntesAdicionar(
+            pesoDialog.produto_id,
+            pesoDialog.nome,
+            pesoKg,
+          );
+          if (!okSaldo) {
+            setPesoDialog(null);
+            return;
+          }
           som.beep("ok");
           addItemFromProduto(
             {
