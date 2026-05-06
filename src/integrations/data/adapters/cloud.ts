@@ -939,10 +939,21 @@ const estoque: DataAdapter["estoque"] = {
     if (error) throw error;
     return (data ?? []) as unknown as import("../types").MovimentacaoEstoqueDomain[];
   },
-};
 
-// =====================================================================
-// Clientes
+  async saldosLote(produtoIds) {
+    const map = new Map<string, number>();
+    if (produtoIds.length === 0) return map;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("saldos_estoque_lote", {
+      _produto_ids: produtoIds,
+    });
+    if (error) throw error;
+    for (const row of (data ?? []) as { produto_id: string; saldo: number }[]) {
+      map.set(row.produto_id, Number(row.saldo) || 0);
+    }
+    return map;
+  },
+};
 // =====================================================================
 const clientes: DataAdapter["clientes"] = {
   async criar(input: CriarClienteInput): Promise<CriarClienteResult> {
