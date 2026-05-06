@@ -722,6 +722,12 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
         </DialogContent>
       </Dialog>
 
+      <CompraDetailDialog
+        open={compraOpen}
+        onOpenChange={setCompraOpen}
+        compraId={lancamento.compra_id ?? null}
+      />
+
       <ConciliarIfoodDialog
         open={conciliarOpen}
         onOpenChange={setConciliarOpen}
