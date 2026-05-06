@@ -896,8 +896,382 @@ const financeiro: DataAdapter["financeiro"] = {
     const d = (data ?? {}) as Record<string, unknown>;
     return {
       lancamento_id: String(d.lancamento_id ?? lancamentoId),
-      excluido: Boolean(d.excluido),
     };
+  },
+
+  // ---------------------------- Indicadores / leituras agregadas ----------------------------
+  async indicadoresMes() {
+    const today = new Date();
+    const inicio = new Date(today.getFullYear(), today.getMonth(), 1);
+    const ymd = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const inicioStr = ymd(inicio);
+    const fimStr = ymd(today);
+    const periodo = {
+      inicio: inicioStr,
+      fim: fimStr,
+      inicioTs: `${inicioStr}T00:00:00`,
+      fimTs: `${fimStr}T23:59:59.999`,
+      hoje: fimStr,
+    };
+
+    const { data: vendasData, error: errVendas } = await supabase
+      .from("vendas")
+      .select(
+        "id, numero, data_finalizacao, total, forma_pagamento, status_pagamento, cliente:clientes(nome)",
+      )
+      .gte("data_finalizacao", periodo.inicioTs)
+      .lte("data_finalizacao", periodo.fimTs)
+      .neq("status", "cancelada")
+      .limit(5000);
+    if (errVendas) throw errVendas;
+
+    const vendas = (vendasData ?? []) as Array<{
+      id: string;
+      numero: string;
+      data_finalizacao: string;
+      total: number;
+      forma_pagamento: string | null;
+      status_pagamento: string;
+      cliente: { nome: string | null } | null;
+    }>;
+
+    const vendaIds = vendas.map((v) => v.id);
+    let itens: import("../extra-types").FinanceiroVendaItemDetalheDomain[] = [];
+    let custoTotal = 0;
+    let qtdItens = 0;
+    let qtdItensSemCusto = 0;
+
+    if (vendaIds.length > 0) {
+      const { data: itensData, error: errItens } = await supabase
+        .from("venda_itens")
+        .select(
+          "venda_id, produto_id, quantidade, preco_unitario, total, produto:produtos(nome, preco_custo)",
+        )
+        .in("venda_id", vendaIds)
+        .limit(20000);
+      if (errItens) throw errItens;
+
+      const vendaMap = new Map(vendas.map((v) => [v.id, v] as const));
+      itens = (
+        (itensData ?? []) as Array<{
+          venda_id: string;
+          produto_id: string;
+          quantidade: number;
+          preco_unitario: number;
+          total: number;
+          produto: { nome: string | null; preco_custo: number | null } | null;
+        }>
+      ).map((it) => {
+        const v = vendaMap.get(it.venda_id);
+        const qtd = Number(it.quantidade) || 0;
+        const precoCusto = Number(it.produto?.preco_custo ?? 0) || 0;
+        const totalVenda = Number(it.total) || 0;
+        const totalCusto = precoCusto * qtd;
+        const semCusto = precoCusto <= 0;
+        qtdItens += 1;
+        if (semCusto) qtdItensSemCusto += 1;
+        custoTotal += totalCusto;
+        return {
+          venda_id: it.venda_id,
+          venda_numero: v?.numero ?? "—",
+          data: v?.data_finalizacao ?? "",
+          produto_id: it.produto_id,
+          produto_nome: it.produto?.nome ?? "Produto",
+          quantidade: qtd,
+          preco_unitario: Number(it.preco_unitario) || 0,
+          preco_custo: precoCusto,
+          total_venda: totalVenda,
+          total_custo: totalCusto,
+          lucro: totalVenda - totalCusto,
+          sem_custo: semCusto,
+        };
+      });
+    }
+
+    const totalVendido = vendas.reduce((s, v) => s + (Number(v.total) || 0), 0);
+    const lucroBruto = totalVendido - custoTotal;
+    const margemPct = totalVendido > 0 ? (lucroBruto / totalVendido) * 100 : 0;
+
+    const { data: lancsAR } = await supabase
+      .from("financeiro_lancamentos")
+      .select("id, valor, valor_pago, forma_pagamento, status, conciliado_em")
+      .eq("tipo", "receber")
+      .in("status", ["pendente"])
+      .limit(5000);
+
+    let fiadoEmAberto = 0;
+    let qtdFiado = 0;
+    let ifoodAReceber = 0;
+    let qtdIfood = 0;
+    for (const l of (lancsAR ?? []) as Array<{
+      valor: number;
+      valor_pago: number | null;
+      forma_pagamento: string | null;
+      conciliado_em: string | null;
+    }>) {
+      if (l.conciliado_em) continue;
+      const aberto = (Number(l.valor) || 0) - (Number(l.valor_pago) || 0);
+      if (aberto <= 0) continue;
+      if (l.forma_pagamento === "fiado") {
+        fiadoEmAberto += aberto;
+        qtdFiado += 1;
+      } else if (l.forma_pagamento === "ifood") {
+        ifoodAReceber += aberto;
+        qtdIfood += 1;
+      }
+    }
+
+    const { data: pagosHoje } = await supabase
+      .from("financeiro_lancamentos")
+      .select("id, valor_pago, valor, tipo")
+      .eq("data_pagamento", periodo.hoje)
+      .in("status", ["pago", "recebido"])
+      .eq("tipo", "receber")
+      .limit(2000);
+
+    const recebidoHoje = (pagosHoje ?? []).reduce(
+      (s, l) => s + (Number(l.valor_pago ?? l.valor) || 0),
+      0,
+    );
+    const qtdRecebimentosHoje = (pagosHoje ?? []).length;
+
+    const { data: vencidos } = await supabase
+      .from("financeiro_lancamentos")
+      .select("id, valor, valor_pago, tipo")
+      .in("status", ["pendente"])
+      .lt("data_vencimento", periodo.hoje)
+      .limit(5000);
+
+    let vencidosTotal = 0;
+    let qtdVencidos = 0;
+    for (const l of (vencidos ?? []) as Array<{ valor: number; valor_pago: number | null }>) {
+      const aberto = (Number(l.valor) || 0) - (Number(l.valor_pago) || 0);
+      if (aberto > 0) {
+        vencidosTotal += aberto;
+        qtdVencidos += 1;
+      }
+    }
+
+    const vendasDetalhe = vendas.map((v) => ({
+      id: v.id,
+      numero: v.numero,
+      data: v.data_finalizacao,
+      cliente_nome: v.cliente?.nome ?? null,
+      forma_pagamento: v.forma_pagamento,
+      status_pagamento: v.status_pagamento,
+      total: Number(v.total) || 0,
+    }));
+
+    return {
+      periodo,
+      totalVendido,
+      custoTotal,
+      lucroBruto,
+      margemPct,
+      qtdVendas: vendas.length,
+      qtdItensSemCusto,
+      qtdItens,
+      fiadoEmAberto,
+      qtdFiado,
+      ifoodAReceber,
+      qtdIfood,
+      recebidoHoje,
+      qtdRecebimentosHoje,
+      vencidosTotal,
+      qtdVencidos,
+      itensDetalhe: itens,
+      vendasDetalhe,
+    };
+  },
+
+  async posicaoPeriodo(periodo) {
+    const { data, error } = await supabase
+      .from("financeiro_lancamentos")
+      .select("id, tipo, valor, valor_pago, status, data_vencimento")
+      .gte("data_vencimento", periodo.inicio)
+      .lte("data_vencimento", periodo.fim)
+      .neq("status", "cancelado")
+      .limit(5000);
+    if (error) throw error;
+
+    let totalReceber = 0;
+    let qtdReceber = 0;
+    let totalPagar = 0;
+    let qtdPagar = 0;
+    for (const l of (data ?? []) as Array<{
+      tipo: string;
+      valor: number;
+      valor_pago: number | null;
+      status: string;
+    }>) {
+      if (l.status === "pago" || l.status === "recebido") continue;
+      const aberto = (Number(l.valor) || 0) - (Number(l.valor_pago) || 0);
+      if (aberto <= 0) continue;
+      if (l.tipo === "receber") {
+        totalReceber += aberto;
+        qtdReceber += 1;
+      } else if (l.tipo === "pagar") {
+        totalPagar += aberto;
+        qtdPagar += 1;
+      }
+    }
+    return {
+      totalReceber,
+      qtdReceber,
+      totalPagar,
+      qtdPagar,
+      saldo: totalReceber - totalPagar,
+    };
+  },
+
+  async performancePeriodo(periodo) {
+    const { data: vendasData, error } = await supabase
+      .from("vendas")
+      .select("id, total")
+      .gte("data_finalizacao", periodo.inicioTs)
+      .lte("data_finalizacao", periodo.fimTs)
+      .neq("status", "cancelada")
+      .limit(5000);
+    if (error) throw error;
+
+    const vendas = (vendasData ?? []) as Array<{ id: string; total: number }>;
+    const totalVendido = vendas.reduce((s, v) => s + (Number(v.total) || 0), 0);
+
+    let custoTotal = 0;
+    let qtdItens = 0;
+    let qtdItensSemCusto = 0;
+    const ids = vendas.map((v) => v.id);
+    if (ids.length > 0) {
+      const { data: itens } = await supabase
+        .from("venda_itens")
+        .select("quantidade, total, produto:produtos(preco_custo)")
+        .in("venda_id", ids)
+        .limit(20000);
+      for (const it of (itens ?? []) as Array<{
+        quantidade: number;
+        total: number;
+        produto: { preco_custo: number | null } | null;
+      }>) {
+        const qtd = Number(it.quantidade) || 0;
+        const pc = Number(it.produto?.preco_custo ?? 0) || 0;
+        qtdItens += 1;
+        if (pc <= 0) qtdItensSemCusto += 1;
+        custoTotal += pc * qtd;
+      }
+    }
+    const lucroBruto = totalVendido - custoTotal;
+    const margemPct = totalVendido > 0 ? (lucroBruto / totalVendido) * 100 : 0;
+    return {
+      totalVendido,
+      qtdVendas: vendas.length,
+      custoTotal,
+      qtdItens,
+      qtdItensSemCusto,
+      lucroBruto,
+      margemPct,
+    };
+  },
+
+  async receberOrigem(input) {
+    const { periodo, forma } = input;
+    const matchForma = (lanc: string | null) =>
+      forma === "todos" ? true : lanc === forma;
+
+    const { data: abertos } = await supabase
+      .from("financeiro_lancamentos")
+      .select("valor, valor_pago, forma_pagamento, conciliado_em, status")
+      .eq("tipo", "receber")
+      .in("status", ["pendente"])
+      .limit(5000);
+
+    let fiadoEmAberto = 0;
+    let qtdFiado = 0;
+    let ifoodAReceber = 0;
+    let qtdIfood = 0;
+    for (const l of (abertos ?? []) as Array<{
+      valor: number;
+      valor_pago: number | null;
+      forma_pagamento: string | null;
+      conciliado_em: string | null;
+    }>) {
+      if (l.conciliado_em) continue;
+      if (!matchForma(l.forma_pagamento)) continue;
+      const aberto = (Number(l.valor) || 0) - (Number(l.valor_pago) || 0);
+      if (aberto <= 0) continue;
+      if (l.forma_pagamento === "fiado") {
+        fiadoEmAberto += aberto;
+        qtdFiado += 1;
+      } else if (l.forma_pagamento === "ifood") {
+        ifoodAReceber += aberto;
+        qtdIfood += 1;
+      }
+    }
+
+    const { data: pagos } = await supabase
+      .from("financeiro_lancamentos")
+      .select("valor, valor_pago, forma_pagamento")
+      .eq("tipo", "receber")
+      .in("status", ["pago", "recebido"])
+      .gte("data_pagamento", periodo.inicio)
+      .lte("data_pagamento", periodo.fim)
+      .limit(5000);
+
+    let recebidoPeriodo = 0;
+    let qtdRecebimentos = 0;
+    for (const l of (pagos ?? []) as Array<{
+      valor: number;
+      valor_pago: number | null;
+      forma_pagamento: string | null;
+    }>) {
+      if (!matchForma(l.forma_pagamento)) continue;
+      recebidoPeriodo += Number(l.valor_pago ?? l.valor) || 0;
+      qtdRecebimentos += 1;
+    }
+
+    const hoje = new Date().toISOString().slice(0, 10);
+    const { data: vencidos } = await supabase
+      .from("financeiro_lancamentos")
+      .select("valor, valor_pago, forma_pagamento")
+      .eq("tipo", "receber")
+      .in("status", ["pendente"])
+      .gte("data_vencimento", periodo.inicio)
+      .lte("data_vencimento", periodo.fim < hoje ? periodo.fim : hoje)
+      .lt("data_vencimento", hoje)
+      .limit(5000);
+
+    let vencidosTotal = 0;
+    let qtdVencidos = 0;
+    for (const l of (vencidos ?? []) as Array<{
+      valor: number;
+      valor_pago: number | null;
+      forma_pagamento: string | null;
+    }>) {
+      if (!matchForma(l.forma_pagamento)) continue;
+      const aberto = (Number(l.valor) || 0) - (Number(l.valor_pago) || 0);
+      if (aberto > 0) {
+        vencidosTotal += aberto;
+        qtdVencidos += 1;
+      }
+    }
+
+    return {
+      fiadoEmAberto,
+      qtdFiado,
+      ifoodAReceber,
+      qtdIfood,
+      recebidoPeriodo,
+      qtdRecebimentos,
+      vencidosTotal,
+      qtdVencidos,
+    };
+  },
+
+  async cobrancaPendente() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("cobranca_pendente_atual");
+    if (error) throw error;
+    return (data ?? null) as import("../extra-types").CobrancaPendenteDomain | null;
   },
 };
 
