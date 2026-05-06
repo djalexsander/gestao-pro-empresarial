@@ -204,14 +204,9 @@ function CaixaPage() {
               </Button>
             </>
           ) : (
-            <>
-              <Badge variant="outline" className="text-muted-foreground">
-                <Circle className="mr-1 h-3 w-3" /> Nenhum caixa aberto
-              </Badge>
-              <Button onClick={() => setAbrirOpen(true)}>
-                <Power className="h-4 w-4" /> Abrir caixa
-              </Button>
-            </>
+            <Badge variant="outline" className="text-muted-foreground">
+              <Circle className="mr-1 h-3 w-3" /> Nenhum caixa aberto
+            </Badge>
           )
         }
       />
