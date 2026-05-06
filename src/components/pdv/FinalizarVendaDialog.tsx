@@ -364,7 +364,7 @@ export function FinalizarVendaDialog({
     if (dinheiroInsuficiente) return;
     if (pagamentos.length === 0) return;
     // Aceita pagar exatamente o total ou menos (parcial). Mais que o total só faz sentido em dinheiro (troco).
-    if (totalPago > total + 0.005 && valorDinheiroDevido === 0) {
+    if (totalPago > totalEfetivo + 0.005 && valorDinheiroDevido === 0) {
       return;
     }
 
