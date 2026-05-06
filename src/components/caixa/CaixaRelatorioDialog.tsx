@@ -67,6 +67,11 @@ const MOV_LABEL: Record<string, string> = {
 
 export function CaixaRelatorioDialog({ open, onOpenChange, caixaId }: Props) {
   const printRef = useRef<HTMLDivElement | null>(null);
+  const [reabrirOpen, setReabrirOpen] = useState(false);
+  const [motivoReabrir, setMotivoReabrir] = useState("");
+  const { papel } = useEmpresaAtual();
+  const podeReabrir = papel === "owner" || papel === "admin";
+  const reabrir = useReabrirCaixa();
 
   const { data: caixa, isLoading: loadingCaixa } = useQuery({
     queryKey: ["caixa", "detalhe", caixaId],
