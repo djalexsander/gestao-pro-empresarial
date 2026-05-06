@@ -636,6 +636,15 @@ function PDVPage() {
           return;
         }
         const qtdAplicada = multiplicador > 1 ? multiplicador : 1;
+        const okSaldo = await verificarSaldoAntesAdicionar(
+          found.produto_id,
+          found.nome,
+          qtdAplicada,
+        );
+        if (!okSaldo) {
+          if (multiplicador > 1) setMultiplicador(1);
+          return;
+        }
         addItemFromProduto(
           {
             produto_id: found.produto_id,
