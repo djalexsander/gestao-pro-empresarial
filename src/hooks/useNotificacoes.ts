@@ -1,12 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 import { useAuth } from "@/components/auth/AuthProvider";
 
-export type NotificacaoTipo = "estoque_baixo" | "conta_vencida" | "conta_vence_hoje" | "venda_pendente";
+export type NotificacaoTipo =
+  | "estoque_baixo"
+  | "conta_vencida"
+  | "conta_vence_hoje"
+  | "venda_pendente";
 export type NotificacaoSeveridade = "info" | "warning" | "danger";
 
 export type Notificacao = {
-  id: string; // == notificacao_key (estável entre recargas)
+  id: string;
   tipo: NotificacaoTipo;
   severidade: NotificacaoSeveridade;
   titulo: string;
@@ -17,10 +21,6 @@ export type Notificacao = {
   readAt: string | null;
 };
 
-function hojeISO() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 export function useNotificacoes() {
   const { user } = useAuth();
 
@@ -30,18 +30,15 @@ export function useNotificacoes() {
     refetchInterval: 60_000,
     queryFn: async (): Promise<Notificacao[]> => {
       const notifs: Notificacao[] = [];
-      const hoje = hojeISO();
 
-      // 1. Contas vencidas (a pagar e a receber)
-      const { data: vencidas } = await supabase
-        .from("financeiro_lancamentos")
-        .select("id, descricao, valor, data_vencimento, tipo")
-        .eq("status", "pendente")
-        .lt("data_vencimento", hoje)
-        .order("data_vencimento", { ascending: true })
-        .limit(20);
+      const [vencidas, hojeData, produtos, estados] = await Promise.all([
+        dataClient.notificacoes.vencidas(),
+        dataClient.notificacoes.vencendoHoje(),
+        dataClient.notificacoes.produtosEstoqueMinimo(),
+        dataClient.notificacoes.estadosUsuario(user!.id),
+      ]);
 
-      for (const c of vencidas ?? []) {
+      for (const c of vencidas) {
         notifs.push({
           id: `venc-${c.id}`,
           tipo: "conta_vencida",
@@ -55,15 +52,7 @@ export function useNotificacoes() {
         });
       }
 
-      // 2. Contas vencendo hoje
-      const { data: hojeData } = await supabase
-        .from("financeiro_lancamentos")
-        .select("id, descricao, valor, data_vencimento, tipo")
-        .eq("status", "pendente")
-        .eq("data_vencimento", hoje)
-        .limit(20);
-
-      for (const c of hojeData ?? []) {
+      for (const c of hojeData) {
         notifs.push({
           id: `hoje-${c.id}`,
           tipo: "conta_vence_hoje",
@@ -77,29 +66,21 @@ export function useNotificacoes() {
         });
       }
 
-      // 3. Estoque baixo
-      const { data: produtos } = await supabase
-        .from("produtos")
-        .select("id, nome, estoque_minimo")
-        .eq("status", "ativo")
-        .gt("estoque_minimo", 0);
-
-      if (produtos && produtos.length > 0) {
-        const { data: movs } = await supabase
-          .from("estoque_movimentacoes")
-          .select("produto_id, tipo, quantidade");
-
+      if (produtos.length > 0) {
+        const movs = await dataClient.notificacoes.movimentosEstoqueResumo();
         const saldos = new Map<string, number>();
-        for (const m of movs ?? []) {
+        for (const m of movs) {
           const sinal =
             m.tipo === "entrada" || m.tipo === "devolucao"
               ? 1
               : m.tipo === "saida" || m.tipo === "transferencia"
                 ? -1
                 : 1;
-          saldos.set(m.produto_id, (saldos.get(m.produto_id) ?? 0) + sinal * Number(m.quantidade));
+          saldos.set(
+            m.produto_id,
+            (saldos.get(m.produto_id) ?? 0) + sinal * Number(m.quantidade),
+          );
         }
-
         for (const p of produtos) {
           const saldo = saldos.get(p.id) ?? 0;
           if (saldo <= Number(p.estoque_minimo)) {
@@ -118,14 +99,8 @@ export function useNotificacoes() {
         }
       }
 
-      // 4. Mescla com estados persistidos (lida/excluída) do usuário
-      const { data: estados } = await supabase
-        .from("notificacao_estados")
-        .select("notificacao_key, read, read_at, deleted")
-        .eq("user_id", user!.id);
-
       const mapaEstado = new Map<string, { read: boolean; read_at: string | null; deleted: boolean }>();
-      for (const e of estados ?? []) {
+      for (const e of estados) {
         mapaEstado.set(e.notificacao_key, {
           read: e.read,
           read_at: e.read_at,
@@ -144,7 +119,6 @@ export function useNotificacoes() {
           return !est?.deleted;
         });
 
-      // Ordena: não lidas primeiro, depois por severidade
       const ordem: Record<NotificacaoSeveridade, number> = { danger: 0, warning: 1, info: 2 };
       visiveis.sort((a, b) => {
         if (a.read !== b.read) return a.read ? 1 : -1;
@@ -156,25 +130,16 @@ export function useNotificacoes() {
   });
 }
 
-/**
- * Marca uma notificação como lida (upsert por notificacao_key).
- */
 export function useMarcarNotificacaoLida() {
   const { user } = useAuth();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (notificacaoKey: string) => {
       if (!user) throw new Error("Não autenticado");
-      const { error } = await supabase.from("notificacao_estados").upsert(
-        {
-          user_id: user.id,
-          notificacao_key: notificacaoKey,
-          read: true,
-          read_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id,notificacao_key" },
-      );
-      if (error) throw error;
+      await dataClient.notificacoes.marcarLida({
+        user_id: user.id,
+        notificacao_key: notificacaoKey,
+      });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["notificacoes", user?.id] });
@@ -182,25 +147,16 @@ export function useMarcarNotificacaoLida() {
   });
 }
 
-/**
- * Exclui (soft-delete) uma notificação.
- */
 export function useExcluirNotificacao() {
   const { user } = useAuth();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (notificacaoKey: string) => {
       if (!user) throw new Error("Não autenticado");
-      const { error } = await supabase.from("notificacao_estados").upsert(
-        {
-          user_id: user.id,
-          notificacao_key: notificacaoKey,
-          deleted: true,
-          deleted_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id,notificacao_key" },
-      );
-      if (error) throw error;
+      await dataClient.notificacoes.excluir({
+        user_id: user.id,
+        notificacao_key: notificacaoKey,
+      });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["notificacoes", user?.id] });
@@ -208,27 +164,16 @@ export function useExcluirNotificacao() {
   });
 }
 
-/**
- * Marca todas as notificações visíveis como lidas.
- */
 export function useMarcarTodasLidas() {
   const { user } = useAuth();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (chaves: string[]) => {
       if (!user) throw new Error("Não autenticado");
-      if (chaves.length === 0) return;
-      const agora = new Date().toISOString();
-      const linhas = chaves.map((k) => ({
+      await dataClient.notificacoes.marcarVariasLidas({
         user_id: user.id,
-        notificacao_key: k,
-        read: true,
-        read_at: agora,
-      }));
-      const { error } = await supabase
-        .from("notificacao_estados")
-        .upsert(linhas, { onConflict: "user_id,notificacao_key" });
-      if (error) throw error;
+        chaves,
+      });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["notificacoes", user?.id] });
