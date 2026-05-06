@@ -69,6 +69,20 @@ export function CaixaRelatorioDialog({ open, onOpenChange, caixaId }: Props) {
     },
   });
 
+  const { data: operadorNome } = useQuery({
+    queryKey: ["caixa", "operador-nome", caixa?.operador_id],
+    enabled: !!caixa?.operador_id && open,
+    queryFn: async (): Promise<string | null> => {
+      if (!caixa?.operador_id) return null;
+      const { data } = await supabase
+        .from("funcionarios")
+        .select("nome")
+        .eq("id", caixa.operador_id)
+        .maybeSingle();
+      return data?.nome ?? null;
+    },
+  });
+
   const { data: movimentos = [], isLoading: loadingMovs } = useQuery({
     queryKey: ["caixa", "movimentos", caixaId],
     enabled: !!caixaId && open,
