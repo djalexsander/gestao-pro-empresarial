@@ -1,21 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import { dataClient } from "@/integrations/data";
 import type { CodigoTipo, ProdutoBuscaResult } from "@/integrations/data";
+import type { ProdutoCodigoDomain } from "@/integrations/data/extra-adapters";
 
 // Re-exports para preservar a API pública anterior do módulo.
-// Outros arquivos importam estes tipos daqui — manter compatível.
 export type { CodigoTipo, ProdutoBuscaResult };
 
 /**
  * Busca um produto por qualquer código (barras, QR, SKU, interno, alternativo)
  * dentro da empresa do usuário autenticado.
- *
- * Esta função é o ponto de entrada do scanner/PDV. Desde a Fase 1 da
- * arquitetura desktop, ela delega para a camada `@/integrations/data`,
- * que decide em runtime se a leitura vai para o Supabase cloud (atual)
- * ou para o servidor local da loja (futuro).
  */
 export async function buscarProdutoPorCodigo(codigo: string): Promise<ProdutoBuscaResult | null> {
   return dataClient.produtos.buscarPorCodigo(codigo);
@@ -33,30 +27,13 @@ export function useBuscarProdutoPorCodigo(codigo: string | null | undefined) {
 
 // ================ CRUD de códigos auxiliares ================
 
-export interface ProdutoCodigo {
-  id: string;
-  produto_id: string;
-  variacao_id: string | null;
-  tipo_codigo: CodigoTipo;
-  valor_codigo: string;
-  observacao: string | null;
-  created_at: string;
-}
+export type ProdutoCodigo = ProdutoCodigoDomain;
 
 export function useProdutoCodigos(produtoId: string | undefined) {
   return useQuery({
     queryKey: ["produto-codigos", produtoId],
     enabled: !!produtoId,
-    queryFn: async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any)
-        .from("produto_codigos")
-        .select("id, produto_id, variacao_id, tipo_codigo, valor_codigo, observacao, created_at")
-        .eq("produto_id", produtoId!)
-        .order("created_at", { ascending: true });
-      if (error) throw error;
-      return (data ?? []) as ProdutoCodigo[];
-    },
+    queryFn: () => dataClient.produtoCodigos.list(produtoId!),
   });
 }
 

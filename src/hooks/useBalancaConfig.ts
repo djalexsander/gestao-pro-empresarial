@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { DEFAULT_BALANCA_CONFIG, type BalancaConfig } from "@/lib/balanca";
 
@@ -21,13 +21,7 @@ export function useBalancaConfig() {
     queryKey: [...QK, user?.id ?? "anon"],
     enabled: !!user,
     queryFn: async (): Promise<BalancaConfigRow> => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any)
-        .from("balanca_config")
-        .select("*")
-        .eq("owner_id", user!.id)
-        .maybeSingle();
-      if (error) throw error;
+      const data = await dataClient.balanca.obter(user!.id);
       if (!data) {
         return {
           ...DEFAULT_BALANCA_CONFIG,
@@ -48,14 +42,8 @@ export function useSaveBalancaConfig() {
   return useMutation({
     mutationFn: async (input: Partial<BalancaConfigRow>) => {
       if (!user) throw new Error("Não autenticado");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any)
-        .from("balanca_config")
-        .upsert({ ...input, owner_id: user.id }, { onConflict: "owner_id" })
-        .select()
-        .single();
-      if (error) throw error;
-      return data as BalancaConfigRow;
+      const saved = await dataClient.balanca.salvar({ ...input, owner_id: user.id });
+      return saved as BalancaConfigRow;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QK });
