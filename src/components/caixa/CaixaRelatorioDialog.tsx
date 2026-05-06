@@ -1,6 +1,6 @@
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, Printer, Wallet, Power, PowerOff } from "lucide-react";
+import { Loader2, Printer, Wallet, Power, PowerOff, Unlock } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -9,8 +9,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -24,6 +36,8 @@ import { dataClient } from "@/integrations/data";
 import { formatBRL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import type { Caixa, CaixaMovimento } from "@/hooks/useCaixa";
+import { useReabrirCaixa } from "@/hooks/useCaixa";
+import { useEmpresaAtual } from "@/hooks/useEmpresa";
 
 
 interface Props {
@@ -53,6 +67,11 @@ const MOV_LABEL: Record<string, string> = {
 
 export function CaixaRelatorioDialog({ open, onOpenChange, caixaId }: Props) {
   const printRef = useRef<HTMLDivElement | null>(null);
+  const [reabrirOpen, setReabrirOpen] = useState(false);
+  const [motivoReabrir, setMotivoReabrir] = useState("");
+  const { papel } = useEmpresaAtual();
+  const podeReabrir = papel === "owner" || papel === "admin";
+  const reabrir = useReabrirCaixa();
 
   const { data: caixa, isLoading: loadingCaixa } = useQuery({
     queryKey: ["caixa", "detalhe", caixaId],
@@ -311,12 +330,75 @@ export function CaixaRelatorioDialog({ open, onOpenChange, caixaId }: Props) {
         )}
 
         <DialogFooter className="gap-2 sm:gap-2">
+          {caixa?.status === "fechado" && podeReabrir && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                setMotivoReabrir("");
+                setReabrirOpen(true);
+              }}
+              disabled={reabrir.isPending}
+            >
+              <Unlock className="h-4 w-4" /> Reabrir caixa
+            </Button>
+          )}
           <Button variant="outline" onClick={handlePrint} disabled={!caixa}>
             <Printer className="h-4 w-4" /> Imprimir
           </Button>
           <Button onClick={() => onOpenChange(false)}>Fechar</Button>
         </DialogFooter>
       </DialogContent>
+
+      <AlertDialog open={reabrirOpen} onOpenChange={setReabrirOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reabrir caixa?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O caixa voltará para o status <strong>aberto</strong> e você
+              poderá refazer o fechamento informando o valor correto em
+              dinheiro. Lançamentos automáticos do fechamento (iFood, fiado,
+              outros) que ainda não foram conciliados serão removidos e
+              recriados no novo fechamento.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="motivo-reabrir">Motivo (opcional)</Label>
+            <Textarea
+              id="motivo-reabrir"
+              value={motivoReabrir}
+              onChange={(e) => setMotivoReabrir(e.target.value)}
+              placeholder="Ex.: Dinheiro que faltava reapareceu — refazer fechamento."
+              rows={3}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={reabrir.isPending}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={reabrir.isPending || !caixaId}
+              onClick={async (e) => {
+                e.preventDefault();
+                if (!caixaId) return;
+                try {
+                  await reabrir.mutateAsync({
+                    caixa_id: caixaId,
+                    motivo: motivoReabrir.trim() || null,
+                  });
+                  setReabrirOpen(false);
+                  onOpenChange(false);
+                } catch {
+                  /* erro já exibido via toast */
+                }
+              }}
+            >
+              {reabrir.isPending ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Reabrindo...</>
+              ) : (
+                <><Unlock className="h-4 w-4" /> Reabrir caixa</>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

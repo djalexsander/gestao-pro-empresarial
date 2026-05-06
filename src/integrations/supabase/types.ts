@@ -3965,6 +3965,10 @@ export type Database = {
         Args: { _empresa_id: string; _user_id: string }
         Returns: boolean
       }
+      reabrir_caixa: {
+        Args: { _caixa_id: string; _motivo?: string }
+        Returns: Json
+      }
       reabrir_lancamento: { Args: { _lancamento_id: string }; Returns: Json }
       receber_compra: {
         Args: {

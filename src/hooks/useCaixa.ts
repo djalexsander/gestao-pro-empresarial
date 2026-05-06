@@ -246,3 +246,30 @@ export function useExcluirCaixa() {
     onError: (e: Error) => toast.error(e.message),
   });
 }
+
+/**
+ * Reabre um caixa fechado para refazer o fechamento (ex.: dinheiro que
+ * estava faltando reapareceu). Apenas dono ou membros admin/owner.
+ */
+export function useReabrirCaixa() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { caixa_id: string; motivo?: string | null }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase.rpc as any)("reabrir_caixa", {
+        _caixa_id: input.caixa_id,
+        _motivo: input.motivo ?? null,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["caixa"] });
+      qc.invalidateQueries({ queryKey: ["vendas"] });
+      qc.invalidateQueries({ queryKey: ["financeiro_lancamentos"] });
+      toast.success("Caixa reaberto. Refaça o fechamento com o valor correto.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
