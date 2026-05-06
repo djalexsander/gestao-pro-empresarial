@@ -49,7 +49,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { AbrirCaixaDialog } from "@/components/caixa/AbrirCaixaDialog";
+
 import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
 import { MovimentoCaixaDialog } from "@/components/caixa/MovimentoCaixaDialog";
 import { CaixaRelatorioDialog } from "@/components/caixa/CaixaRelatorioDialog";
@@ -112,7 +112,7 @@ function CaixaPage() {
     ? funcionarios.find((f) => f.id === caixaAberto.operador_id)?.nome ?? "Operador"
     : user?.email ?? "—";
 
-  const [abrirOpen, setAbrirOpen] = useState(false);
+  
   const [fecharOpen, setFecharOpen] = useState(false);
   const [movDialog, setMovDialog] = useState<null | "sangria" | "suprimento">(null);
   const [excluirCaixa, setExcluirCaixa] = useState<Caixa | null>(null);
@@ -204,14 +204,9 @@ function CaixaPage() {
               </Button>
             </>
           ) : (
-            <>
-              <Badge variant="outline" className="text-muted-foreground">
-                <Circle className="mr-1 h-3 w-3" /> Nenhum caixa aberto
-              </Badge>
-              <Button onClick={() => setAbrirOpen(true)}>
-                <Power className="h-4 w-4" /> Abrir caixa
-              </Button>
-            </>
+            <Badge variant="outline" className="text-muted-foreground">
+              <Circle className="mr-1 h-3 w-3" /> Nenhum caixa aberto
+            </Badge>
           )
         }
       />
@@ -222,10 +217,12 @@ function CaixaPage() {
             <EmptyState
               icon={Wallet}
               title="Nenhum caixa aberto"
-              description="Você precisa abrir o caixa antes de iniciar as vendas no PDV. O sistema vai bloquear a finalização de vendas enquanto não houver um caixa aberto."
+              description="Para abrir um caixa, saia do módulo Operacional e acesse o fluxo de abertura pelo PDV com PIN. Esta área serve apenas para consulta, histórico, conferência e fechamento."
               action={
-                <Button onClick={() => setAbrirOpen(true)}>
-                  <Power className="h-4 w-4" /> Abrir caixa agora
+                <Button asChild variant="outline">
+                  <Link to="/pdv">
+                    <Receipt className="h-4 w-4" /> Ir para o PDV
+                  </Link>
                 </Button>
               }
             />
@@ -664,7 +661,7 @@ function CaixaPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AbrirCaixaDialog open={abrirOpen} onOpenChange={setAbrirOpen} />
+      
       {caixaAberto && (
         <>
           <FecharCaixaDialog

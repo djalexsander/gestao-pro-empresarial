@@ -610,6 +610,7 @@ function ProdutosVendidosContent() {
                   </button>
 
                   {!fechado && (
+                    <div className="overflow-x-auto">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -668,6 +669,7 @@ function ProdutosVendidosContent() {
                         })}
                       </TableBody>
                     </Table>
+                    </div>
                   )}
                 </CardContent>
               </Card>
