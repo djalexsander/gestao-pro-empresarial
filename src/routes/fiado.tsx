@@ -99,7 +99,6 @@ interface LancamentoFiado {
     numero: string | null;
     data_finalizacao: string | null;
     total: number | null;
-    operador_nome: string | null;
   } | null;
 }
 
