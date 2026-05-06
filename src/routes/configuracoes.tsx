@@ -12,6 +12,7 @@ import { PlanosModulosTab } from "@/components/configuracoes/PlanosModulosTab";
 import { BalancaTab } from "@/components/configuracoes/BalancaTab";
 import { DesktopTab } from "@/components/configuracoes/DesktopTab";
 import { IntegracoesTab } from "@/components/configuracoes/IntegracoesTab";
+import { AutorizacoesTab } from "@/components/configuracoes/AutorizacoesTab";
 
 export const Route = createFileRoute("/configuracoes")({
   head: () => ({
@@ -42,6 +43,7 @@ function SettingsPage() {
           <TabsTrigger value="desktop">Desktop</TabsTrigger>
           <TabsTrigger value="prefs">Preferências</TabsTrigger>
           <TabsTrigger value="integracoes">Integrações</TabsTrigger>
+          <TabsTrigger value="autorizacoes">Autorizações</TabsTrigger>
         </TabsList>
 
         <TabsContent value="empresa" className="mt-4">
@@ -100,6 +102,10 @@ function SettingsPage() {
 
         <TabsContent value="integracoes" className="mt-4">
           <IntegracoesTab />
+        </TabsContent>
+
+        <TabsContent value="autorizacoes" className="mt-4">
+          <AutorizacoesTab />
         </TabsContent>
 
       </Tabs>

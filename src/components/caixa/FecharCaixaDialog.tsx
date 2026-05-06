@@ -17,6 +17,11 @@ import { useFecharCaixa, type CaixaResumo } from "@/hooks/useCaixa";
 import { formatBRL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { useHotkeys } from "@/hooks/useHotkeys";
+import { useAutorizacoesConfig } from "@/hooks/useAutorizacoes";
+import {
+  AutorizacaoGerencialDialog,
+  type AutorizacaoRequest,
+} from "@/components/autorizacoes/AutorizacaoGerencialDialog";
 
 interface Props {
   open: boolean;
@@ -57,6 +62,8 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
   const [observacao, setObservacao] = useState("");
   const fechar = useFecharCaixa();
   const valorRef = useRef<HTMLInputElement | null>(null);
+  const { data: cfgAuth } = useAutorizacoesConfig();
+  const [authReq, setAuthReq] = useState<AutorizacaoRequest | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -98,17 +105,46 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
     Math.abs(diferenca) >= LIMITE_JUSTIFICATIVA &&
     observacao.trim().length === 0;
 
+  async function executarFechamento(obsExtra?: string) {
+    const obsFinal = [observacao.trim(), obsExtra].filter(Boolean).join(" — ");
+    await fechar.mutateAsync({
+      caixa_id: caixaId,
+      valor_informado: informadoNum,
+      observacao: obsFinal || null,
+    });
+    onOpenChange(false);
+  }
+
   async function confirmar() {
     if (Number.isNaN(informadoNum) || informadoNum < 0) return;
     if (valorInformado === "") return;
     if (exigeJustificativa) return;
     if (fechar.isPending) return;
-    await fechar.mutateAsync({
-      caixa_id: caixaId,
-      valor_informado: informadoNum,
-      observacao: observacao.trim() || null,
-    });
-    onOpenChange(false);
+
+    // Se há divergência relevante e a empresa exige autorização gerencial,
+    // abre modal de autorização antes de fechar.
+    const exigeAutorizacao =
+      temDiferenca &&
+      (cfgAuth?.exigir_fechar_caixa_divergencia ?? true);
+
+    if (exigeAutorizacao && diferenca !== null) {
+      setAuthReq({
+        acao: "fechar_caixa_divergencia",
+        contexto: `Fechamento de caixa com ${tipoDiferenca === "sobra" ? "sobra" : "falta"} de ${formatBRL(Math.abs(diferenca))}`,
+        diferenca_caixa: diferenca,
+        valor_envolvido: informadoNum,
+        referencia_tipo: "caixa",
+        referencia_id: caixaId,
+        contexto_dados: {
+          valor_esperado: valorEsperado,
+          valor_informado: informadoNum,
+          tipo: tipoDiferenca,
+        },
+      });
+      return;
+    }
+
+    await executarFechamento();
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -134,6 +170,7 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
   );
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[90vh] max-w-lg flex-col p-0">
         <DialogHeader className="shrink-0 border-b border-border px-6 pb-4 pt-6">
@@ -309,5 +346,16 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
         </form>
       </DialogContent>
     </Dialog>
+    <AutorizacaoGerencialDialog
+      open={!!authReq}
+      onOpenChange={(o) => { if (!o) setAuthReq(null); }}
+      request={authReq}
+      onAutorizado={() => {
+        const nome = "autorizado";
+        setAuthReq(null);
+        void executarFechamento(`Fechamento ${nome} (gerencial)`);
+      }}
+    />
+    </>
   );
 }
