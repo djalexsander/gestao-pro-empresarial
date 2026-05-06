@@ -346,5 +346,16 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
         </form>
       </DialogContent>
     </Dialog>
+    <AutorizacaoGerencialDialog
+      open={!!authReq}
+      onOpenChange={(o) => { if (!o) setAuthReq(null); }}
+      request={authReq}
+      onAutorizado={() => {
+        const nome = "autorizado";
+        setAuthReq(null);
+        void executarFechamento(`Fechamento ${nome} (gerencial)`);
+      }}
+    />
+    </>
   );
 }
