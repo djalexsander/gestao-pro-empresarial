@@ -568,7 +568,7 @@ function Conteudo() {
           value={formatBRL(metricas.totalFaltas)}
           hint="Dinheiro a menos no fechamento"
           icon={ArrowDownRight}
-          iconTone="destructive"
+          iconTone="danger"
         />
         <StatCard
           label="Diferença líquida"
