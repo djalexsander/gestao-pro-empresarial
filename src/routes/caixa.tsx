@@ -120,6 +120,7 @@ function CaixaPage() {
   const [dataInicio, setDataInicio] = useState("");
   const [dataFim, setDataFim] = useState("");
   const [diasAbertos, setDiasAbertos] = useState<Record<string, boolean>>({});
+  const [caixaRelatorio, setCaixaRelatorio] = useState<string | null>(null);
 
   // Agrupamento do histórico por data (com filtros)
   const historicoFiltrado = useMemo(() => {
