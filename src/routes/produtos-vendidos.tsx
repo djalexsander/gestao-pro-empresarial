@@ -57,7 +57,7 @@ import { useFuncionariosAtivos } from "@/hooks/useFuncionarios";
 import { useCaixasHistorico } from "@/hooks/useCaixa";
 import { useProdutos, useCategorias } from "@/hooks/useProdutos";
 import { DetalheVendaDialog } from "@/components/vendas/DetalheVendaDialog";
-import { ModuloGate } from "@/components/saas/ModuloGate";
+
 import { formatBRL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { exportarBlocoCSV, exportarBlocoPDF } from "@/lib/export-bloco";
@@ -141,11 +141,8 @@ function formatDateLong(iso: string): string {
 }
 
 function ProdutosVendidosPage() {
-  return (
-    <ModuloGate chave="vendas" titulo="Produtos vendidos">
-      <ProdutosVendidosContent />
-    </ModuloGate>
-  );
+  // Faz parte do plano base (Operacional) — sem ModuloGate.
+  return <ProdutosVendidosContent />;
 }
 
 function ProdutosVendidosContent() {
