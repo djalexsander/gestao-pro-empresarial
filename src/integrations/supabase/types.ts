@@ -86,6 +86,141 @@ export type Database = {
         }
         Relationships: []
       }
+      autorizacoes_config: {
+        Row: {
+          codigo_qr_hash: string | null
+          codigo_qr_label: string | null
+          created_at: string
+          exigir_alterar_valor_confirmado: boolean
+          exigir_cancelar_compra: boolean
+          exigir_cancelar_venda: boolean
+          exigir_excluir_lancamento_financeiro: boolean
+          exigir_fechar_caixa_divergencia: boolean
+          exigir_fechar_caixa_qualquer: boolean
+          exigir_reabrir_caixa: boolean
+          exigir_remover_item_venda: boolean
+          metodo_codigo_qr_habilitado: boolean
+          metodo_pin_habilitado: boolean
+          metodo_senha_master_habilitado: boolean
+          owner_id: string
+          papeis_autorizadores: Database["public"]["Enums"]["app_role"][]
+          senha_master_hash: string | null
+          updated_at: string
+        }
+        Insert: {
+          codigo_qr_hash?: string | null
+          codigo_qr_label?: string | null
+          created_at?: string
+          exigir_alterar_valor_confirmado?: boolean
+          exigir_cancelar_compra?: boolean
+          exigir_cancelar_venda?: boolean
+          exigir_excluir_lancamento_financeiro?: boolean
+          exigir_fechar_caixa_divergencia?: boolean
+          exigir_fechar_caixa_qualquer?: boolean
+          exigir_reabrir_caixa?: boolean
+          exigir_remover_item_venda?: boolean
+          metodo_codigo_qr_habilitado?: boolean
+          metodo_pin_habilitado?: boolean
+          metodo_senha_master_habilitado?: boolean
+          owner_id: string
+          papeis_autorizadores?: Database["public"]["Enums"]["app_role"][]
+          senha_master_hash?: string | null
+          updated_at?: string
+        }
+        Update: {
+          codigo_qr_hash?: string | null
+          codigo_qr_label?: string | null
+          created_at?: string
+          exigir_alterar_valor_confirmado?: boolean
+          exigir_cancelar_compra?: boolean
+          exigir_cancelar_venda?: boolean
+          exigir_excluir_lancamento_financeiro?: boolean
+          exigir_fechar_caixa_divergencia?: boolean
+          exigir_fechar_caixa_qualquer?: boolean
+          exigir_reabrir_caixa?: boolean
+          exigir_remover_item_venda?: boolean
+          metodo_codigo_qr_habilitado?: boolean
+          metodo_pin_habilitado?: boolean
+          metodo_senha_master_habilitado?: boolean
+          owner_id?: string
+          papeis_autorizadores?: Database["public"]["Enums"]["app_role"][]
+          senha_master_hash?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      autorizacoes_log: {
+        Row: {
+          acao: Database["public"]["Enums"]["autorizacao_acao"]
+          autorizador_funcionario_id: string | null
+          autorizador_nome: string | null
+          autorizador_user_id: string | null
+          contexto: string
+          contexto_dados: Json
+          created_at: string
+          diferenca_caixa: number | null
+          id: string
+          ip_address: string | null
+          metodo: Database["public"]["Enums"]["autorizacao_metodo"]
+          motivo_negacao: string | null
+          owner_id: string
+          referencia_id: string | null
+          referencia_tipo: string | null
+          solicitante_funcionario_id: string | null
+          solicitante_user_id: string | null
+          status: Database["public"]["Enums"]["autorizacao_status"]
+          terminal_id: string | null
+          user_agent: string | null
+          valor_envolvido: number | null
+        }
+        Insert: {
+          acao: Database["public"]["Enums"]["autorizacao_acao"]
+          autorizador_funcionario_id?: string | null
+          autorizador_nome?: string | null
+          autorizador_user_id?: string | null
+          contexto: string
+          contexto_dados?: Json
+          created_at?: string
+          diferenca_caixa?: number | null
+          id?: string
+          ip_address?: string | null
+          metodo: Database["public"]["Enums"]["autorizacao_metodo"]
+          motivo_negacao?: string | null
+          owner_id: string
+          referencia_id?: string | null
+          referencia_tipo?: string | null
+          solicitante_funcionario_id?: string | null
+          solicitante_user_id?: string | null
+          status: Database["public"]["Enums"]["autorizacao_status"]
+          terminal_id?: string | null
+          user_agent?: string | null
+          valor_envolvido?: number | null
+        }
+        Update: {
+          acao?: Database["public"]["Enums"]["autorizacao_acao"]
+          autorizador_funcionario_id?: string | null
+          autorizador_nome?: string | null
+          autorizador_user_id?: string | null
+          contexto?: string
+          contexto_dados?: Json
+          created_at?: string
+          diferenca_caixa?: number | null
+          id?: string
+          ip_address?: string | null
+          metodo?: Database["public"]["Enums"]["autorizacao_metodo"]
+          motivo_negacao?: string | null
+          owner_id?: string
+          referencia_id?: string | null
+          referencia_tipo?: string | null
+          solicitante_funcionario_id?: string | null
+          solicitante_user_id?: string | null
+          status?: Database["public"]["Enums"]["autorizacao_status"]
+          terminal_id?: string | null
+          user_agent?: string | null
+          valor_envolvido?: number | null
+        }
+        Relationships: []
+      }
       balanca_config: {
         Row: {
           ativo: boolean
@@ -2827,6 +2962,7 @@ export type Database = {
       }
     }
     Functions: {
+      _auth_owner_id: { Args: never; Returns: string }
       _lote_tem_vinculo: { Args: { _lote_id: string }; Returns: boolean }
       _owner_atual_categorias_financeiras: { Args: never; Returns: string }
       _pode_gerenciar_categorias_financeiras: {
@@ -3316,6 +3452,81 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "compras"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      autorizacao_validar: {
+        Args: {
+          _acao: Database["public"]["Enums"]["autorizacao_acao"]
+          _contexto: string
+          _contexto_dados?: Json
+          _diferenca_caixa?: number
+          _metodo: Database["public"]["Enums"]["autorizacao_metodo"]
+          _payload: Json
+          _referencia_id?: string
+          _referencia_tipo?: string
+          _solicitante_funcionario_id?: string
+          _terminal_id?: string
+          _user_agent?: string
+          _valor_envolvido?: number
+        }
+        Returns: Json
+      }
+      autorizacoes_config_obter: {
+        Args: never
+        Returns: {
+          codigo_qr_hash: string | null
+          codigo_qr_label: string | null
+          created_at: string
+          exigir_alterar_valor_confirmado: boolean
+          exigir_cancelar_compra: boolean
+          exigir_cancelar_venda: boolean
+          exigir_excluir_lancamento_financeiro: boolean
+          exigir_fechar_caixa_divergencia: boolean
+          exigir_fechar_caixa_qualquer: boolean
+          exigir_reabrir_caixa: boolean
+          exigir_remover_item_venda: boolean
+          metodo_codigo_qr_habilitado: boolean
+          metodo_pin_habilitado: boolean
+          metodo_senha_master_habilitado: boolean
+          owner_id: string
+          papeis_autorizadores: Database["public"]["Enums"]["app_role"][]
+          senha_master_hash: string | null
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "autorizacoes_config"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      autorizacoes_config_salvar: {
+        Args: { _payload: Json }
+        Returns: {
+          codigo_qr_hash: string | null
+          codigo_qr_label: string | null
+          created_at: string
+          exigir_alterar_valor_confirmado: boolean
+          exigir_cancelar_compra: boolean
+          exigir_cancelar_venda: boolean
+          exigir_excluir_lancamento_financeiro: boolean
+          exigir_fechar_caixa_divergencia: boolean
+          exigir_fechar_caixa_qualquer: boolean
+          exigir_reabrir_caixa: boolean
+          exigir_remover_item_venda: boolean
+          metodo_codigo_qr_habilitado: boolean
+          metodo_pin_habilitado: boolean
+          metodo_senha_master_habilitado: boolean
+          owner_id: string
+          papeis_autorizadores: Database["public"]["Enums"]["app_role"][]
+          senha_master_hash: string | null
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "autorizacoes_config"
           isOneToOne: true
           isSetofReturn: false
         }
@@ -4136,6 +4347,17 @@ export type Database = {
         | "overdue"
         | "expired"
         | "canceled"
+      autorizacao_acao:
+        | "fechar_caixa_divergencia"
+        | "fechar_caixa_qualquer"
+        | "remover_item_venda"
+        | "cancelar_venda"
+        | "cancelar_compra"
+        | "excluir_lancamento_financeiro"
+        | "alterar_valor_confirmado"
+        | "reabrir_caixa"
+      autorizacao_metodo: "pin_funcionario" | "senha_master" | "codigo_qr"
+      autorizacao_status: "autorizado" | "negado"
       cadastro_status: "ativo" | "inativo"
       caixa_movimento_tipo:
         | "abertura"
@@ -4363,6 +4585,18 @@ export const Constants = {
         "expired",
         "canceled",
       ],
+      autorizacao_acao: [
+        "fechar_caixa_divergencia",
+        "fechar_caixa_qualquer",
+        "remover_item_venda",
+        "cancelar_venda",
+        "cancelar_compra",
+        "excluir_lancamento_financeiro",
+        "alterar_valor_confirmado",
+        "reabrir_caixa",
+      ],
+      autorizacao_metodo: ["pin_funcionario", "senha_master", "codigo_qr"],
+      autorizacao_status: ["autorizado", "negado"],
       cadastro_status: ["ativo", "inativo"],
       caixa_movimento_tipo: [
         "abertura",
