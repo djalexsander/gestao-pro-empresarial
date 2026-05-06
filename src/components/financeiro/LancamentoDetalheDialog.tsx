@@ -329,11 +329,13 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
   const temAuditoriaRepasse = !!lancamento.conciliado_em;
   const temCliente = !!(lancamento.cliente_nome || lancamento.cliente_documento);
   const temVenda = !!(lancamento.venda_id || lancamento.venda_numero);
+  const temCompra = !!(lancamento.compra_id || lancamento.compra_numero);
   // Edição/Exclusão só fazem sentido em títulos avulsos sem baixa.
   // O banco também bloqueia — aqui escondemos para UX limpa.
-  const podeEditar = !jaResolvido && !temVenda && totalPago === 0;
+  const podeEditar = !jaResolvido && !temVenda && !temCompra && totalPago === 0;
   const podeExcluir =
     !temVenda &&
+    !temCompra &&
     totalPago === 0 &&
     (lancamento.status === "pendente" || lancamento.status === "cancelado");
 
