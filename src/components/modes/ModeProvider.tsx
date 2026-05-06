@@ -26,7 +26,7 @@ function rotasDoModo(modoChave: string): string[] {
   if (modoChave === "pdv") return ["/pos", "/pdv"];
   if (modoChave === "erp") {
     return [
-      "/", "/produtos", "/estoque", "/compras", "/vendas", "/caixa",
+      "/", "/produtos-vendidos", "/produtos", "/estoque", "/compras", "/vendas", "/caixa",
       "/financeiro", "/fornecedores", "/clientes",
       "/relatorios", "/configuracoes",
     ];
