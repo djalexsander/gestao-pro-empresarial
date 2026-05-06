@@ -172,10 +172,11 @@ export function CaixaRelatorioDialog({ open, onOpenChange, caixaId }: Props) {
               </div>
 
               <div className="grid grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
+                <Linha label="Operador" value={operadorNome ?? "—"} />
+                <Linha label="Vendas no turno" value={String(caixa.qtd_vendas ?? 0)} />
                 <Linha label="Aberto em" value={fmt(caixa.data_abertura)} icon={Power} />
                 <Linha label="Fechado em" value={fmt(caixa.data_fechamento)} icon={PowerOff} />
                 <Linha label="Valor inicial" value={formatBRL(caixa.valor_inicial)} />
-                <Linha label="Vendas no turno" value={String(caixa.qtd_vendas ?? 0)} />
               </div>
 
               {/* Por forma de pagamento */}
