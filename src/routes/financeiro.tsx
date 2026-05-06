@@ -644,10 +644,9 @@ function FinanceContent() {
         </TabsContent>
 
         <TabsContent value="pagar" className="mt-4">
-          <LancamentosTable
+          <ContasPagarPanel
             items={pagar}
             loading={isLoading}
-            emptyMsg="Nenhuma conta a pagar."
             onSelect={setSelected}
           />
         </TabsContent>
