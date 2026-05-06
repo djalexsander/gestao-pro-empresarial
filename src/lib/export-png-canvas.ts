@@ -249,10 +249,19 @@ export async function renderReportCanvas(
   totalHeight += PADDING;
 
   // 4) Cria canvas final com pixel ratio para nitidez
-  const ratio = 2;
+  // Limites práticos por engine: Chrome ~32767, Safari/WebKit ~16384, alguns
+  // mobiles ~4096. Calculamos o maior `ratio` (até 2x) que ainda mantém o
+  // canvas dentro de um limite seguro — caso contrário a imagem é truncada
+  // ou `toDataURL` falha silenciosamente. Garante que TODAS as linhas saiam.
+  const MAX_DIM = 16000;
+  let ratio = 2;
+  while (ratio > 1 && (totalHeight * ratio > MAX_DIM || WIDTH * ratio > MAX_DIM)) {
+    ratio -= 0.25;
+  }
+  if (totalHeight * ratio > MAX_DIM) ratio = MAX_DIM / totalHeight;
   const canvas = document.createElement("canvas");
-  canvas.width = WIDTH * ratio;
-  canvas.height = totalHeight * ratio;
+  canvas.width = Math.floor(WIDTH * ratio);
+  canvas.height = Math.floor(totalHeight * ratio);
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D indisponível");
   ctx.scale(ratio, ratio);
