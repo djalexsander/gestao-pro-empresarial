@@ -398,18 +398,28 @@ export function FinalizarVendaDialog({
       };
     });
 
+    const operadorNomeAud = operador?.nome ?? operadorEmail ?? null;
+    const obsDesconto =
+      descontoFinal > 0
+        ? `Desconto aplicado na finalização: ${formatBRL(descontoFinal)}${
+            operadorNomeAud ? ` por ${operadorNomeAud}` : ""
+          } em ${new Date().toLocaleString("pt-BR")}`
+        : null;
+    const observacaoFinal =
+      [observacao, obsFinal, obsDesconto].filter(Boolean).join(" — ") || null;
+
     finalizar.mutate(
       {
         cliente_id: cliente?.id ?? null,
         subtotal,
-        desconto,
-        total,
+        desconto: descontoTotalEfetivo,
+        total: totalEfetivo,
         // Mantém compat. com a coluna `vendas.forma_pagamento` — usa a principal
         forma_pagamento: formaPrincipal,
         status_pagamento: statusPagamento,
         valor_recebido: totalRecebidoDinheiro || null,
         troco: trocoTotal || null,
-        observacao: [observacao, obsFinal].filter(Boolean).join(" — ") || null,
+        observacao: observacaoFinal,
         itens,
         pagamentos: pagamentosPayload,
         operador_id: operador?.id ?? null,
