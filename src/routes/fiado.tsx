@@ -402,8 +402,8 @@ function FiadoContent() {
   return (
     <div className="space-y-6 p-4 md:p-6">
       <PageHeader
-        title="Fiado"
-        description="Clientes devedores e controle de pagamentos."
+        title="Clientes a Receber"
+        description="Carteira de recebimentos pendentes."
         actions={
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
