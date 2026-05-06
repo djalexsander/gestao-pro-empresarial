@@ -170,6 +170,7 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
   );
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[90vh] max-w-lg flex-col p-0">
         <DialogHeader className="shrink-0 border-b border-border px-6 pb-4 pt-6">
