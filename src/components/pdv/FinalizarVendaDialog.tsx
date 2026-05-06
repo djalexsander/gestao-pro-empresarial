@@ -1086,6 +1086,11 @@ export function FinalizarVendaDialog({
           </div>
         </div>
 
+        {descontoExcedeTotal && (
+          <div className="border-t border-destructive/30 bg-destructive/10 px-6 py-2 text-center text-xs font-medium text-destructive">
+            Desconto adicional ({formatBRL(descontoFinal)}) é maior que o total ({formatBRL(total)}).
+          </div>
+        )}
         {dinheiroInsuficiente && (
           <div className="border-t border-destructive/30 bg-destructive/10 px-6 py-2 text-center text-xs font-medium text-destructive">
             Há pagamento em dinheiro com valor recebido menor que o devido. Ajuste
