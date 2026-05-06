@@ -412,27 +412,169 @@ function FiadoContent() {
     toast.success("CSV gerado.");
   }
 
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportEscopo, setExportEscopo] = useState<"todos" | "filtrados" | "cliente">("filtrados");
+  const [exportClienteId, setExportClienteId] = useState<string>("");
+  const [exportDetalhado, setExportDetalhado] = useState(true);
+  const [exportBusy, setExportBusy] = useState(false);
+
+  interface LinhaExport {
+    cliente: string;
+    documento: string;
+    telefone: string;
+    venda: string;
+    descricao: string;
+    emissao: string;
+    vencimento: string;
+    pagamento: string;
+    valor: number;
+    pago: number;
+    restante: number;
+    status: string;
+  }
+
+  function montarLinhasExport(): { linhas: LinhaExport[]; titulo: string; resumo: ClienteAgrupado[] } {
+    let base: ClienteAgrupado[] = [];
+    let titulo = "Clientes a receber";
+    if (exportEscopo === "todos") {
+      base = clientesAgrupados;
+      titulo = "Clientes a Receber — Todos";
+    } else if (exportEscopo === "filtrados") {
+      base = filtrados;
+      titulo = "Clientes a Receber — Filtrados";
+    } else {
+      base = clientesAgrupados.filter((c) => c.cliente_id === exportClienteId);
+      titulo = `Clientes a Receber — ${base[0]?.nome ?? "Cliente"}`;
+    }
+    const linhas: LinhaExport[] = [];
+    for (const c of base) {
+      if (exportDetalhado) {
+        for (const l of c.lancamentos) {
+          const restante = Math.max(0, Number(l.valor) - Number(l.valor_pago ?? 0));
+          linhas.push({
+            cliente: c.nome,
+            documento: c.documento ?? "",
+            telefone: c.telefone ?? "",
+            venda: l.venda?.numero ? `#${l.venda.numero}` : "",
+            descricao: l.descricao,
+            emissao: formatDate(l.data_emissao),
+            vencimento: formatDate(l.data_vencimento),
+            pagamento: formatDate(l.data_pagamento),
+            valor: Number(l.valor),
+            pago: Number(l.valor_pago ?? 0),
+            restante,
+            status: statusLanc(l).label,
+          });
+        }
+      } else {
+        linhas.push({
+          cliente: c.nome,
+          documento: c.documento ?? "",
+          telefone: c.telefone ?? "",
+          venda: "",
+          descricao: `${c.qtdTitulos} título(s)`,
+          emissao: "",
+          vencimento: "",
+          pagamento: formatDate(c.ultimoPagamento),
+          valor: c.totalGeral,
+          pago: c.totalPago,
+          restante: c.totalAberto,
+          status:
+            c.status === "vencido"
+              ? "Em atraso"
+              : c.status === "parcial"
+                ? "Parcial"
+                : c.status === "pago"
+                  ? "Quitado"
+                  : "Em aberto",
+        });
+      }
+    }
+    return { linhas, titulo, resumo: base };
+  }
+
+  async function executarExport(formato: ExportFormato) {
+    if (exportEscopo === "cliente" && !exportClienteId) {
+      toast.error("Selecione um cliente.");
+      return;
+    }
+    setExportBusy(true);
+    try {
+      const { linhas, titulo, resumo } = montarLinhasExport();
+      if (linhas.length === 0) {
+        toast.info("Nada para exportar.");
+        return;
+      }
+      const totais = resumo.reduce(
+        (acc, c) => {
+          acc.aberto += c.totalAberto;
+          acc.vencido += c.totalVencido;
+          acc.aVencer += c.totalAVencer;
+          acc.pago += c.totalPago;
+          return acc;
+        },
+        { aberto: 0, vencido: 0, aVencer: 0, pago: 0 },
+      );
+      const cols: CsvColumn<LinhaExport>[] = exportDetalhado
+        ? [
+            { header: "Cliente", accessor: (r) => r.cliente, type: "text" },
+            { header: "Documento", accessor: (r) => r.documento, type: "text" },
+            { header: "Telefone", accessor: (r) => r.telefone, type: "text" },
+            { header: "Venda", accessor: (r) => r.venda, type: "text" },
+            { header: "Descrição", accessor: (r) => r.descricao, type: "text" },
+            { header: "Emissão", accessor: (r) => r.emissao, type: "text" },
+            { header: "Vencimento", accessor: (r) => r.vencimento, type: "text" },
+            { header: "Pagamento", accessor: (r) => r.pagamento, type: "text" },
+            { header: "Valor", accessor: (r) => r.valor, type: "currency" },
+            { header: "Pago", accessor: (r) => r.pago, type: "currency" },
+            { header: "Restante", accessor: (r) => r.restante, type: "currency" },
+            { header: "Status", accessor: (r) => r.status, type: "text" },
+          ]
+        : [
+            { header: "Cliente", accessor: (r) => r.cliente, type: "text" },
+            { header: "Documento", accessor: (r) => r.documento, type: "text" },
+            { header: "Telefone", accessor: (r) => r.telefone, type: "text" },
+            { header: "Títulos", accessor: (r) => r.descricao, type: "text" },
+            { header: "Total geral", accessor: (r) => r.valor, type: "currency" },
+            { header: "Total pago", accessor: (r) => r.pago, type: "currency" },
+            { header: "Em aberto", accessor: (r) => r.restante, type: "currency" },
+            { header: "Último pagamento", accessor: (r) => r.pagamento, type: "text" },
+            { header: "Status", accessor: (r) => r.status, type: "text" },
+          ];
+
+      await exportarRelatorioCard(formato, {
+        prefix: "clientes_a_receber",
+        titulo,
+        periodo: `Status: ${statusFiltro === "todos" ? "Todos" : statusFiltro}${busca ? ` · Busca: ${busca}` : ""}`,
+        resumo: [
+          { label: "Total em aberto", valor: formatBRL(totais.aberto), tone: "warning" },
+          { label: "Vencido", valor: formatBRL(totais.vencido), tone: "danger" },
+          { label: "A vencer", valor: formatBRL(totais.aVencer), tone: "info" },
+          { label: "Total pago", valor: formatBRL(totais.pago), tone: "success" },
+          { label: "Clientes", valor: String(resumo.length) },
+          { label: "Linhas", valor: String(linhas.length) },
+        ],
+        rows: linhas,
+        columns: cols,
+      });
+      toast.success("Exportação concluída.");
+      setExportOpen(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao exportar.");
+    } finally {
+      setExportBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-6 p-4 md:p-6">
       <PageHeader
         title="Clientes a Receber"
         description="Carteira de recebimentos pendentes."
         actions={
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Download className="mr-2 h-4 w-4" /> Exportar
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={exportarCSV}>
-                <SheetIcon className="mr-2 h-4 w-4" /> CSV
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => window.print()}>
-                <FileText className="mr-2 h-4 w-4" /> Imprimir / PDF
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button variant="outline" size="sm" onClick={() => setExportOpen(true)}>
+            <Download className="mr-2 h-4 w-4" /> Exportar
+          </Button>
         }
       />
 
