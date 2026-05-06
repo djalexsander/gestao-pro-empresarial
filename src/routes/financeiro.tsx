@@ -1,3 +1,4 @@
+import { supabase } from "@/integrations/supabase/client";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import {
@@ -53,7 +54,6 @@ import {
 import { formatBRL } from "@/lib/mock-data";
 import { ModuloGate } from "@/components/saas/ModuloGate";
 import { RequirePermission } from "@/components/auth/RequirePermission";
-import { supabase } from "@/integrations/supabase/client";
 import {
   LancamentoDetalheDialog,
   type LancamentoDetalhe,

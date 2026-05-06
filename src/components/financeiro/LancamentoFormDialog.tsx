@@ -1,3 +1,4 @@
+import { supabase } from "@/integrations/supabase/client";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -21,7 +22,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { dataClient } from "@/integrations/data";
-import { supabase } from "@/integrations/supabase/client";
 import { useClientes } from "@/hooks/useClientes";
 import { useFornecedores } from "@/hooks/useFornecedores";
 import { ClienteSearchSelect } from "@/components/clientes/ClienteSearchSelect";
