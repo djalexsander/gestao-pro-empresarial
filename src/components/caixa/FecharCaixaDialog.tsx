@@ -84,7 +84,19 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
   }, [informadoNum, valorEsperado, valorInformado]);
 
   const temDiferenca = diferenca !== null && Math.abs(diferenca) > 0.009;
-  const exigeJustificativa = temDiferenca && observacao.trim().length === 0;
+  // Limite acima do qual a justificativa passa a ser obrigatória.
+  // Diferenças pequenas (centavos de troco) não bloqueiam o fechamento.
+  const LIMITE_JUSTIFICATIVA = 5;
+  const tipoDiferenca: "sobra" | "falta" | null =
+    diferenca === null || Math.abs(diferenca) < 0.009
+      ? null
+      : diferenca > 0
+        ? "sobra"
+        : "falta";
+  const exigeJustificativa =
+    diferenca !== null &&
+    Math.abs(diferenca) >= LIMITE_JUSTIFICATIVA &&
+    observacao.trim().length === 0;
 
   async function confirmar() {
     if (Number.isNaN(informadoNum) || informadoNum < 0) return;
