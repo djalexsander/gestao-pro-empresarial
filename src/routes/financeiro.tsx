@@ -857,8 +857,10 @@ function BlocoModais({
           { key: "custo", header: "Custo", format: "currency", align: "right" },
           { key: "lucro", header: "Lucro", format: "currency", align: "right" },
         ]}
+        vendaIdField="venda_id"
         rows={ind.itensDetalhe.map((it, idx) => ({
           id: `${it.venda_id}-${idx}`,
+          venda_id: it.venda_id,
           numero: it.venda_numero,
           produto: it.sem_custo ? `${it.produto_nome} ⚠` : it.produto_nome,
           qtd: it.quantidade,
