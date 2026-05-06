@@ -7,16 +7,20 @@ import type { AreaTerminal } from "@/components/auth/RequireTerminalPermissao";
  */
 export function areaTerminalDoPath(pathname: string): AreaTerminal | null {
   if (pathname === "/pos" || pathname === "/pdv") return "pdv";
-  if (pathname.startsWith("/admin")) return "erp";
-  if (pathname.startsWith("/financeiro")) return "financeiro";
-  if (pathname.startsWith("/configuracoes")) return "configuracoes";
-  if (pathname.startsWith("/relatorios")) return "relatorios";
+  const startsWithSeg = (seg: string) =>
+    pathname === seg || pathname.startsWith(seg + "/");
+  if (startsWithSeg("/admin")) return "erp";
+  if (startsWithSeg("/financeiro")) return "financeiro";
+  if (startsWithSeg("/configuracoes")) return "configuracoes";
+  if (startsWithSeg("/relatorios")) return "relatorios";
+  // /produtos-vendidos é relatório de vendas, não cadastro — não aplica restrição de cadastros
+  if (startsWithSeg("/produtos-vendidos")) return null;
   if (
-    pathname.startsWith("/produtos") ||
-    pathname.startsWith("/clientes") ||
-    pathname.startsWith("/fornecedores") ||
-    pathname.startsWith("/estoque") ||
-    pathname.startsWith("/compras")
+    startsWithSeg("/produtos") ||
+    startsWithSeg("/clientes") ||
+    startsWithSeg("/fornecedores") ||
+    startsWithSeg("/estoque") ||
+    startsWithSeg("/compras")
   )
     return "cadastros";
   // index, hub, auth, vendas, caixa → sem restrição extra de terminal
