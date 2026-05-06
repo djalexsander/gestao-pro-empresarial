@@ -128,24 +128,6 @@ import type {
   ProdutosListInput,
 } from "./types";
 
-import type {
-  CompraComFornecedorDomain,
-  CompraDetalheDomain,
-  CompraMetadadosInput,
-  CompraStatusDomain,
-  CriarCompraInput,
-  DashboardData,
-  FornecedorMetricaDomain,
-  ReceberCompraInput,
-  ReceberCompraItensInput,
-  ReceberCompraItensResult,
-  SaldosEstoqueLote,
-  VendaDetalheDomain,
-  VendaListItemDomain,
-  VendaMetricasDomain,
-  VendaStatusHistoricoDomain,
-} from "./extra-types";
-
 export interface ProdutosAdapter {
   /**
    * Busca um produto por qualquer código (barras, QR, SKU, interno,
