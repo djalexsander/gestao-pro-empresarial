@@ -112,7 +112,7 @@ function CaixaPage() {
     ? funcionarios.find((f) => f.id === caixaAberto.operador_id)?.nome ?? "Operador"
     : user?.email ?? "—";
 
-  const [abrirOpen, setAbrirOpen] = useState(false);
+  
   const [fecharOpen, setFecharOpen] = useState(false);
   const [movDialog, setMovDialog] = useState<null | "sangria" | "suprimento">(null);
   const [excluirCaixa, setExcluirCaixa] = useState<Caixa | null>(null);
