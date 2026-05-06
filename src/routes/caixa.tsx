@@ -52,6 +52,7 @@ import {
 import { AbrirCaixaDialog } from "@/components/caixa/AbrirCaixaDialog";
 import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
 import { MovimentoCaixaDialog } from "@/components/caixa/MovimentoCaixaDialog";
+import { CaixaRelatorioDialog } from "@/components/caixa/CaixaRelatorioDialog";
 import {
   useQualquerCaixaAberto,
   useCaixaResumo,
