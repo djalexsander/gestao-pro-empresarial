@@ -1583,6 +1583,11 @@ function FluxoCaixaPanel() {
         onOpenChange={setConciliarLoteOpen}
         mode="lote"
       />
+      <CaixaRelatorioDialog
+        open={!!caixaRelatorio}
+        onOpenChange={(o) => !o && setCaixaRelatorio(null)}
+        caixaId={caixaRelatorio}
+      />
     </div>
   );
 }
