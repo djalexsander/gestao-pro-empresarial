@@ -57,7 +57,7 @@ import {
   type PersistedTerminal,
   type ServerConnStatus,
 } from "@/integrations/desktop/serverConnection";
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 import { BackupSeguranca } from "./BackupSeguranca";
 import { AtualizacoesTab } from "./AtualizacoesTab";
 import { ImpressoraConfigCard } from "./ImpressoraConfigCard";
@@ -142,8 +142,8 @@ export function DesktopTab() {
     if (!localCfg) return;
     setFlushing(true);
     try {
-      const { data } = await supabase.auth.getSession();
-      await flushOutbox(localCfg, data.session?.access_token ?? null);
+      const { access_token } = await dataClient.auth.getSession();
+      await flushOutbox(localCfg, access_token);
       setOutbox(await fetchOutboxStats(localCfg));
     } finally {
       setFlushing(false);
@@ -160,8 +160,8 @@ export function DesktopTab() {
     if (!localCfg) return;
     setFlushingVendas(true);
     try {
-      const { data } = await supabase.auth.getSession();
-      await flushOutboxVendas(localCfg, data.session?.access_token ?? null);
+      const { access_token } = await dataClient.auth.getSession();
+      await flushOutboxVendas(localCfg, access_token);
       setOutboxVendas(await fetchOutboxVendasStats(localCfg));
     } finally {
       setFlushingVendas(false);
@@ -178,8 +178,8 @@ export function DesktopTab() {
     if (!localCfg) return;
     setFlushingCaixa(true);
     try {
-      const { data } = await supabase.auth.getSession();
-      await flushOutboxCaixa(localCfg, data.session?.access_token ?? null);
+      const { access_token } = await dataClient.auth.getSession();
+      await flushOutboxCaixa(localCfg, access_token);
       setOutboxCaixa(await fetchOutboxCaixaStats(localCfg));
     } finally {
       setFlushingCaixa(false);
@@ -196,8 +196,8 @@ export function DesktopTab() {
     if (!localCfg) return;
     setFlushingCancel(true);
     try {
-      const { data } = await supabase.auth.getSession();
-      await flushOutboxCancelamentos(localCfg, data.session?.access_token ?? null);
+      const { access_token } = await dataClient.auth.getSession();
+      await flushOutboxCancelamentos(localCfg, access_token);
       setOutboxCancel(await fetchOutboxCancelamentosStats(localCfg));
     } finally {
       setFlushingCancel(false);
@@ -214,8 +214,8 @@ export function DesktopTab() {
     if (!localCfg) return;
     setFlushingFin(true);
     try {
-      const { data } = await supabase.auth.getSession();
-      await flushOutboxFinanceiro(localCfg, data.session?.access_token ?? null);
+      const { access_token } = await dataClient.auth.getSession();
+      await flushOutboxFinanceiro(localCfg, access_token);
       setOutboxFin(await fetchOutboxFinanceiroStats(localCfg));
     } finally {
       setFlushingFin(false);
