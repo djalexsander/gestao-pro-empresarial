@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import { dataClient } from "@/integrations/data";
 
 // =============== Tipos ===============
@@ -161,13 +160,7 @@ function mapError(e: unknown): Error {
 }
 
 async function fetchClienteById(id: string): Promise<Cliente> {
-  const { data, error } = await supabase
-    .from("clientes")
-    .select("*")
-    .eq("id", id)
-    .single();
-  if (error) throw error;
-  return data as Cliente;
+  return (await dataClient.clientes.get(id)) as unknown as Cliente;
 }
 
 export function useCreateCliente() {
