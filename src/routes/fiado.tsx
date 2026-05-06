@@ -16,6 +16,7 @@ import {
   Receipt,
   Download,
   FileText,
+  Image as ImageIcon,
   Sheet as SheetIcon,
   CheckCircle2,
   Phone,
@@ -36,12 +37,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
@@ -56,7 +51,18 @@ import {
   type LancamentoDetalhe,
 } from "@/components/financeiro/LancamentoDetalheDialog";
 import { DetalheVendaDialog } from "@/components/vendas/DetalheVendaDialog";
-import { exportRowsToCSV, type CsvColumn } from "@/lib/export-csv";
+import { exportarRelatorioCard, type ExportFormato } from "@/lib/export-relatorio-card";
+import type { CsvColumn } from "@/lib/export-csv";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
 export const Route = createFileRoute("/fiado")({
   head: () => ({
@@ -380,23 +386,159 @@ function FiadoContent() {
     }
   }
 
-  async function exportarCSV() {
-    const cols: CsvColumn<ClienteAgrupado>[] = [
-      { header: "Cliente", accessor: (r) => r.nome },
-      { header: "Documento", accessor: (r) => r.documento ?? "" },
-      { header: "Telefone", accessor: (r) => r.telefone ?? "" },
-      { header: "Total em aberto", accessor: (r) => r.totalAberto, type: "currency" },
-      { header: "Vencido", accessor: (r) => r.totalVencido, type: "currency" },
-      { header: "A vencer", accessor: (r) => r.totalAVencer, type: "currency" },
-      { header: "Total pago", accessor: (r) => r.totalPago, type: "currency" },
-      { header: "Qtd títulos", accessor: (r) => r.qtdTitulos, type: "integer" },
-      { header: "Última compra", accessor: (r) => r.ultimaCompra ?? "" },
-      { header: "Status", accessor: (r) => r.status },
-    ];
-    await exportRowsToCSV("clientes_a_receber", filtrados, cols, {
-      relatorio: "Clientes a receber",
-    });
-    toast.success("CSV gerado.");
+
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportEscopo, setExportEscopo] = useState<"todos" | "filtrados" | "cliente">("filtrados");
+  const [exportClienteId, setExportClienteId] = useState<string>("");
+  const [exportDetalhado, setExportDetalhado] = useState(true);
+  const [exportBusy, setExportBusy] = useState(false);
+
+  interface LinhaExport {
+    cliente: string;
+    documento: string;
+    telefone: string;
+    venda: string;
+    descricao: string;
+    emissao: string;
+    vencimento: string;
+    pagamento: string;
+    valor: number;
+    pago: number;
+    restante: number;
+    status: string;
+  }
+
+  function montarLinhasExport(): { linhas: LinhaExport[]; titulo: string; resumo: ClienteAgrupado[] } {
+    let base: ClienteAgrupado[] = [];
+    let titulo = "Clientes a receber";
+    if (exportEscopo === "todos") {
+      base = clientesAgrupados;
+      titulo = "Clientes a Receber — Todos";
+    } else if (exportEscopo === "filtrados") {
+      base = filtrados;
+      titulo = "Clientes a Receber — Filtrados";
+    } else {
+      base = clientesAgrupados.filter((c) => c.cliente_id === exportClienteId);
+      titulo = `Clientes a Receber — ${base[0]?.nome ?? "Cliente"}`;
+    }
+    const linhas: LinhaExport[] = [];
+    for (const c of base) {
+      if (exportDetalhado) {
+        for (const l of c.lancamentos) {
+          const restante = Math.max(0, Number(l.valor) - Number(l.valor_pago ?? 0));
+          linhas.push({
+            cliente: c.nome,
+            documento: c.documento ?? "",
+            telefone: c.telefone ?? "",
+            venda: l.venda?.numero ? `#${l.venda.numero}` : "",
+            descricao: l.descricao,
+            emissao: formatDate(l.data_emissao),
+            vencimento: formatDate(l.data_vencimento),
+            pagamento: formatDate(l.data_pagamento),
+            valor: Number(l.valor),
+            pago: Number(l.valor_pago ?? 0),
+            restante,
+            status: statusLanc(l).label,
+          });
+        }
+      } else {
+        linhas.push({
+          cliente: c.nome,
+          documento: c.documento ?? "",
+          telefone: c.telefone ?? "",
+          venda: "",
+          descricao: `${c.qtdTitulos} título(s)`,
+          emissao: "",
+          vencimento: "",
+          pagamento: formatDate(c.ultimoPagamento),
+          valor: c.totalGeral,
+          pago: c.totalPago,
+          restante: c.totalAberto,
+          status:
+            c.status === "vencido"
+              ? "Em atraso"
+              : c.status === "parcial"
+                ? "Parcial"
+                : c.status === "pago"
+                  ? "Quitado"
+                  : "Em aberto",
+        });
+      }
+    }
+    return { linhas, titulo, resumo: base };
+  }
+
+  async function executarExport(formato: ExportFormato) {
+    if (exportEscopo === "cliente" && !exportClienteId) {
+      toast.error("Selecione um cliente.");
+      return;
+    }
+    setExportBusy(true);
+    try {
+      const { linhas, titulo, resumo } = montarLinhasExport();
+      if (linhas.length === 0) {
+        toast.info("Nada para exportar.");
+        return;
+      }
+      const totais = resumo.reduce(
+        (acc, c) => {
+          acc.aberto += c.totalAberto;
+          acc.vencido += c.totalVencido;
+          acc.aVencer += c.totalAVencer;
+          acc.pago += c.totalPago;
+          return acc;
+        },
+        { aberto: 0, vencido: 0, aVencer: 0, pago: 0 },
+      );
+      const cols: CsvColumn<LinhaExport>[] = exportDetalhado
+        ? [
+            { header: "Cliente", accessor: (r) => r.cliente, type: "text" },
+            { header: "Documento", accessor: (r) => r.documento, type: "text" },
+            { header: "Telefone", accessor: (r) => r.telefone, type: "text" },
+            { header: "Venda", accessor: (r) => r.venda, type: "text" },
+            { header: "Descrição", accessor: (r) => r.descricao, type: "text" },
+            { header: "Emissão", accessor: (r) => r.emissao, type: "text" },
+            { header: "Vencimento", accessor: (r) => r.vencimento, type: "text" },
+            { header: "Pagamento", accessor: (r) => r.pagamento, type: "text" },
+            { header: "Valor", accessor: (r) => r.valor, type: "currency" },
+            { header: "Pago", accessor: (r) => r.pago, type: "currency" },
+            { header: "Restante", accessor: (r) => r.restante, type: "currency" },
+            { header: "Status", accessor: (r) => r.status, type: "text" },
+          ]
+        : [
+            { header: "Cliente", accessor: (r) => r.cliente, type: "text" },
+            { header: "Documento", accessor: (r) => r.documento, type: "text" },
+            { header: "Telefone", accessor: (r) => r.telefone, type: "text" },
+            { header: "Títulos", accessor: (r) => r.descricao, type: "text" },
+            { header: "Total geral", accessor: (r) => r.valor, type: "currency" },
+            { header: "Total pago", accessor: (r) => r.pago, type: "currency" },
+            { header: "Em aberto", accessor: (r) => r.restante, type: "currency" },
+            { header: "Último pagamento", accessor: (r) => r.pagamento, type: "text" },
+            { header: "Status", accessor: (r) => r.status, type: "text" },
+          ];
+
+      await exportarRelatorioCard(formato, {
+        prefix: "clientes_a_receber",
+        titulo,
+        periodo: `Status: ${statusFiltro === "todos" ? "Todos" : statusFiltro}${busca ? ` · Busca: ${busca}` : ""}`,
+        resumo: [
+          { label: "Total em aberto", valor: formatBRL(totais.aberto), tone: "warning" },
+          { label: "Vencido", valor: formatBRL(totais.vencido), tone: "danger" },
+          { label: "A vencer", valor: formatBRL(totais.aVencer), tone: "info" },
+          { label: "Total pago", valor: formatBRL(totais.pago), tone: "success" },
+          { label: "Clientes", valor: String(resumo.length) },
+          { label: "Linhas", valor: String(linhas.length) },
+        ],
+        rows: linhas,
+        columns: cols,
+      });
+      toast.success("Exportação concluída.");
+      setExportOpen(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao exportar.");
+    } finally {
+      setExportBusy(false);
+    }
   }
 
   return (
@@ -405,21 +547,9 @@ function FiadoContent() {
         title="Clientes a Receber"
         description="Carteira de recebimentos pendentes."
         actions={
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Download className="mr-2 h-4 w-4" /> Exportar
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={exportarCSV}>
-                <SheetIcon className="mr-2 h-4 w-4" /> CSV
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => window.print()}>
-                <FileText className="mr-2 h-4 w-4" /> Imprimir / PDF
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button variant="outline" size="sm" onClick={() => setExportOpen(true)}>
+            <Download className="mr-2 h-4 w-4" /> Exportar
+          </Button>
         }
       />
 
@@ -506,6 +636,87 @@ function FiadoContent() {
       />
 
       <DetalheVendaDialog open={vendaOpen} onOpenChange={setVendaOpen} vendaId={vendaIdSel} />
+
+      <Dialog open={exportOpen} onOpenChange={setExportOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Exportar Clientes a Receber</DialogTitle>
+            <DialogDescription>
+              Escolha o escopo, o nível de detalhe e o formato de saída.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Escopo</Label>
+              <RadioGroup value={exportEscopo} onValueChange={(v) => setExportEscopo(v as typeof exportEscopo)}>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="filtrados" id="esc-filt" />
+                  <Label htmlFor="esc-filt" className="font-normal">
+                    Apenas clientes filtrados ({filtrados.length})
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="todos" id="esc-todos" />
+                  <Label htmlFor="esc-todos" className="font-normal">
+                    Todos os clientes ({clientesAgrupados.length})
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="cliente" id="esc-cliente" />
+                  <Label htmlFor="esc-cliente" className="font-normal">
+                    Um cliente específico
+                  </Label>
+                </div>
+              </RadioGroup>
+              {exportEscopo === "cliente" && (
+                <Select value={exportClienteId} onValueChange={setExportClienteId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o cliente" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clientesAgrupados.map((c) => (
+                      <SelectItem key={c.cliente_id} value={c.cliente_id}>
+                        {c.nome} — {formatBRL(c.totalAberto)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Detalhamento</Label>
+              <RadioGroup value={exportDetalhado ? "det" : "res"} onValueChange={(v) => setExportDetalhado(v === "det")}>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="det" id="det-sim" />
+                  <Label htmlFor="det-sim" className="font-normal">
+                    Detalhado (todos os títulos por cliente)
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="res" id="det-nao" />
+                  <Label htmlFor="det-nao" className="font-normal">
+                    Resumido (totais por cliente)
+                  </Label>
+                </div>
+              </RadioGroup>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" disabled={exportBusy} onClick={() => executarExport("csv")}>
+              <SheetIcon className="mr-2 h-4 w-4" /> CSV
+            </Button>
+            <Button variant="outline" disabled={exportBusy} onClick={() => executarExport("png")}>
+              <ImageIcon className="mr-2 h-4 w-4" /> PNG
+            </Button>
+            <Button disabled={exportBusy} onClick={() => executarExport("pdf")}>
+              <FileText className="mr-2 h-4 w-4" /> PDF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
