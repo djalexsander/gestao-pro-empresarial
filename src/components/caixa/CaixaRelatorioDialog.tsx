@@ -31,7 +31,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { supabase } from "@/integrations/supabase/client";
 import { dataClient } from "@/integrations/data";
 import { formatBRL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";

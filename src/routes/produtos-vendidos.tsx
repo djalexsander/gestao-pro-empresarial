@@ -51,7 +51,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { supabase } from "@/integrations/supabase/client";
 import { useClientesFull } from "@/hooks/useClientes";
 import { useFuncionariosAtivos } from "@/hooks/useFuncionarios";
 import { useCaixasHistorico } from "@/hooks/useCaixa";
