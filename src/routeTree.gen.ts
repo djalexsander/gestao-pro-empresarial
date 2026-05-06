@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as VendasRouteImport } from './routes/vendas'
 import { Route as RelatoriosRouteImport } from './routes/relatorios'
+import { Route as ProdutosVendidosRouteImport } from './routes/produtos-vendidos'
 import { Route as ProdutosRouteImport } from './routes/produtos'
 import { Route as PosRouteImport } from './routes/pos'
 import { Route as PlanosRouteImport } from './routes/planos'
@@ -59,6 +60,11 @@ const VendasRoute = VendasRouteImport.update({
 const RelatoriosRoute = RelatoriosRouteImport.update({
   id: '/relatorios',
   path: '/relatorios',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProdutosVendidosRoute = ProdutosVendidosRouteImport.update({
+  id: '/produtos-vendidos',
+  path: '/produtos-vendidos',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProdutosRoute = ProdutosRouteImport.update({
@@ -275,6 +281,7 @@ export interface FileRoutesByFullPath {
   '/planos': typeof PlanosRoute
   '/pos': typeof PosRoute
   '/produtos': typeof ProdutosRoute
+  '/produtos-vendidos': typeof ProdutosVendidosRoute
   '/relatorios': typeof RelatoriosRouteWithChildren
   '/vendas': typeof VendasRoute
   '/admin/assinaturas': typeof AdminAssinaturasRoute
@@ -317,6 +324,7 @@ export interface FileRoutesByTo {
   '/planos': typeof PlanosRoute
   '/pos': typeof PosRoute
   '/produtos': typeof ProdutosRoute
+  '/produtos-vendidos': typeof ProdutosVendidosRoute
   '/relatorios': typeof RelatoriosRouteWithChildren
   '/vendas': typeof VendasRoute
   '/admin/assinaturas': typeof AdminAssinaturasRoute
@@ -361,6 +369,7 @@ export interface FileRoutesById {
   '/planos': typeof PlanosRoute
   '/pos': typeof PosRoute
   '/produtos': typeof ProdutosRoute
+  '/produtos-vendidos': typeof ProdutosVendidosRoute
   '/relatorios': typeof RelatoriosRouteWithChildren
   '/vendas': typeof VendasRoute
   '/admin/assinaturas': typeof AdminAssinaturasRoute
@@ -406,6 +415,7 @@ export interface FileRouteTypes {
     | '/planos'
     | '/pos'
     | '/produtos'
+    | '/produtos-vendidos'
     | '/relatorios'
     | '/vendas'
     | '/admin/assinaturas'
@@ -448,6 +458,7 @@ export interface FileRouteTypes {
     | '/planos'
     | '/pos'
     | '/produtos'
+    | '/produtos-vendidos'
     | '/relatorios'
     | '/vendas'
     | '/admin/assinaturas'
@@ -491,6 +502,7 @@ export interface FileRouteTypes {
     | '/planos'
     | '/pos'
     | '/produtos'
+    | '/produtos-vendidos'
     | '/relatorios'
     | '/vendas'
     | '/admin/assinaturas'
@@ -535,6 +547,7 @@ export interface RootRouteChildren {
   PlanosRoute: typeof PlanosRoute
   PosRoute: typeof PosRoute
   ProdutosRoute: typeof ProdutosRoute
+  ProdutosVendidosRoute: typeof ProdutosVendidosRoute
   RelatoriosRoute: typeof RelatoriosRouteWithChildren
   VendasRoute: typeof VendasRoute
   ApiPublicWebhooksAsaasRoute: typeof ApiPublicWebhooksAsaasRoute
@@ -554,6 +567,13 @@ declare module '@tanstack/react-router' {
       path: '/relatorios'
       fullPath: '/relatorios'
       preLoaderRoute: typeof RelatoriosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/produtos-vendidos': {
+      id: '/produtos-vendidos'
+      path: '/produtos-vendidos'
+      fullPath: '/produtos-vendidos'
+      preLoaderRoute: typeof ProdutosVendidosRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/produtos': {
@@ -910,6 +930,7 @@ const rootRouteChildren: RootRouteChildren = {
   PlanosRoute: PlanosRoute,
   PosRoute: PosRoute,
   ProdutosRoute: ProdutosRoute,
+  ProdutosVendidosRoute: ProdutosVendidosRoute,
   RelatoriosRoute: RelatoriosRouteWithChildren,
   VendasRoute: VendasRoute,
   ApiPublicWebhooksAsaasRoute: ApiPublicWebhooksAsaasRoute,
