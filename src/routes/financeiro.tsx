@@ -16,7 +16,10 @@ import {
   Download,
   FileText,
   Sheet as SheetIcon,
+  Search,
+  CalendarClock,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
