@@ -498,6 +498,18 @@ export function FinalizarVendaDialog({
         },
       },
       {
+        key: "d",
+        allowInInputs: false, // só dispara quando o foco NÃO está em input/textarea
+        handler: (e) => {
+          e.preventDefault();
+          const el = descontoFinalRef.current;
+          if (!el) return;
+          el.focus();
+          el.select();
+          flashHotkey("D");
+        },
+      },
+      {
         key: "Backspace",
         allowInInputs: false,
         handler: () => {
