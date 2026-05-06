@@ -289,6 +289,11 @@ function FinanceContent() {
         venda_numero: r.venda?.numero ?? null,
         venda_data: r.venda?.data_finalizacao ?? null,
         venda_total: r.venda?.total ?? null,
+        compra_id: r.compra_id,
+        compra_numero: r.compra?.numero ?? null,
+        compra_data_emissao: r.compra?.data_emissao ?? null,
+        compra_total: r.compra?.total ?? null,
+        compra_status: r.compra?.status ?? null,
         categoria_nome: r.categoria?.nome ?? null,
       }));
     },
