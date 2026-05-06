@@ -49,7 +49,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { AbrirCaixaDialog } from "@/components/caixa/AbrirCaixaDialog";
+
 import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
 import { MovimentoCaixaDialog } from "@/components/caixa/MovimentoCaixaDialog";
 import { CaixaRelatorioDialog } from "@/components/caixa/CaixaRelatorioDialog";
