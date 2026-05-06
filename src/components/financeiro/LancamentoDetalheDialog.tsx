@@ -65,6 +65,11 @@ export type LancamentoDetalhe = {
   venda_numero?: string | null;
   venda_data?: string | null;
   venda_total?: number | null;
+  compra_id?: string | null;
+  compra_numero?: string | null;
+  compra_data_emissao?: string | null;
+  compra_total?: number | null;
+  compra_status?: string | null;
   categoria_nome?: string | null;
   forma_pagamento?: string | null;
   created_at?: string | null;
