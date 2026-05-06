@@ -43,6 +43,7 @@ function SettingsPage() {
           <TabsTrigger value="desktop">Desktop</TabsTrigger>
           <TabsTrigger value="prefs">Preferências</TabsTrigger>
           <TabsTrigger value="integracoes">Integrações</TabsTrigger>
+          <TabsTrigger value="autorizacoes">Autorizações</TabsTrigger>
         </TabsList>
 
         <TabsContent value="empresa" className="mt-4">
