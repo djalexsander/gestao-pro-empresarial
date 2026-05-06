@@ -1097,6 +1097,7 @@ interface FluxoRow {
   descricao: string;
   valor: number; // positivo = entrada, negativo = saída
   status?: string | null;
+  caixaId?: string | null;
   // Operacional = não conta como receita/despesa real (fundo de troco,
   // encerramento). Apenas informativo no extrato.
   operacional?: boolean;
