@@ -20,6 +20,7 @@ const TERMINAL_ROTAS_PERMITIDAS = [
   "/hub",
   "/pos",
   "/pdv",
+  "/produtos-vendidos",
   "/produtos",
   "/estoque",
   "/clientes",
