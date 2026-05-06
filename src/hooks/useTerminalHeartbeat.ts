@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data/client";
 import { useTerminal } from "@/components/auth/TerminalProvider";
 import { useOperador } from "@/components/auth/OperadorProvider";
 
@@ -22,23 +22,18 @@ export function useTerminalHeartbeat() {
   useEffect(() => {
     if (!terminal) return;
 
-    async function ping() {
+    function ping() {
       if (!terminal) return;
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (supabase as any).rpc("terminal_heartbeat", {
-          _terminal_id: terminal.id,
-          _operador_id: operador?.id ?? null,
-          _operador_nome: operador?.nome ?? null,
-          _user_agent:
-            typeof navigator !== "undefined"
-              ? navigator.userAgent.slice(0, 240)
-              : null,
-          _ip_local: null,
-        });
-      } catch {
-        /* silencioso — não atrapalha operação */
-      }
+      void dataClient.terminalRuntime.heartbeat({
+        terminal_id: terminal.id,
+        operador_id: operador?.id ?? null,
+        operador_nome: operador?.nome ?? null,
+        user_agent:
+          typeof navigator !== "undefined"
+            ? navigator.userAgent.slice(0, 240)
+            : null,
+        ip_local: null,
+      });
     }
 
     // Primeiro ping imediato
@@ -53,12 +48,5 @@ export function useTerminalHeartbeat() {
 
 /** Limpa o operador atual no terminal (chamar no logout do operador). */
 export async function limparOperadorAtual(terminalId: string) {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase as any).rpc("terminal_limpar_operador", {
-      _terminal_id: terminalId,
-    });
-  } catch {
-    /* silencioso */
-  }
+  await dataClient.terminalRuntime.limparOperador(terminalId);
 }
