@@ -1562,6 +1562,347 @@ const lotes: DataAdapter["lotes"] = {
   },
 };
 
+// =====================================================================
+// Compras
+// =====================================================================
+const compras: DataAdapter["compras"] = {
+  async list(input) {
+    const { data, error } = await supabase
+      .from("compras")
+      .select("*, fornecedor:fornecedores(id, razao_social, nome_fantasia)")
+      .order("data_emissao", { ascending: false })
+      .limit(input?.limit ?? 500);
+    if (error) throw error;
+    return (data ?? []) as unknown as import("../extra-types").CompraComFornecedorDomain[];
+  },
+
+  async get(compraId) {
+    const { data, error } = await supabase
+      .from("compras")
+      .select(
+        "*, fornecedor:fornecedores(id, razao_social, nome_fantasia), itens:compra_itens(*, produto:produtos(id, sku, nome))",
+      )
+      .eq("id", compraId)
+      .maybeSingle();
+    if (error) throw error;
+    return (data ?? null) as unknown as import("../extra-types").CompraDetalheDomain | null;
+  },
+
+  async criar(input) {
+    const { data: uid } = await supabase.auth.getUser();
+    if (!uid.user) throw new Error("Não autenticado");
+    if (input.itens.length === 0) throw new Error("Adicione pelo menos um item à compra.");
+    const subtotal = input.itens.reduce(
+      (a, it) => a + it.quantidade * it.preco_unitario - (it.desconto ?? 0),
+      0,
+    );
+    const total = Math.max(
+      0,
+      subtotal - (input.desconto ?? 0) + (input.frete ?? 0) + (input.outros ?? 0),
+    );
+    const { data: compra, error } = await supabase
+      .from("compras")
+      .insert({
+        owner_id: uid.user.id,
+        numero: input.numero,
+        fornecedor_id: input.fornecedor_id,
+        data_emissao: input.data_emissao,
+        data_prevista: input.data_prevista ?? null,
+        data_vencimento: input.data_vencimento ?? null,
+        numero_nf: input.numero_nf ?? null,
+        serie_nf: input.serie_nf ?? null,
+        desconto: input.desconto ?? 0,
+        frete: input.frete ?? 0,
+        outros: input.outros ?? 0,
+        observacoes: input.observacoes ?? null,
+        subtotal,
+        total,
+        status: "pendente",
+      })
+      .select("*, fornecedor:fornecedores(id, razao_social, nome_fantasia)")
+      .single();
+    if (error) throw error;
+    const itensPayload = input.itens.map((it) => ({
+      owner_id: uid.user!.id,
+      compra_id: compra.id,
+      produto_id: it.produto_id,
+      variacao_id: it.variacao_id ?? null,
+      descricao: it.descricao ?? null,
+      quantidade: it.quantidade,
+      preco_unitario: it.preco_unitario,
+      desconto: it.desconto ?? 0,
+      total: it.quantidade * it.preco_unitario - (it.desconto ?? 0),
+    }));
+    const { error: itensErr } = await supabase.from("compra_itens").insert(itensPayload);
+    if (itensErr) {
+      await supabase.from("compras").delete().eq("id", compra.id);
+      throw itensErr;
+    }
+    return compra as unknown as import("../extra-types").CompraComFornecedorDomain;
+  },
+
+  async atualizarStatus(input) {
+    const { error } = await supabase
+      .from("compras")
+      .update({ status: input.status })
+      .eq("id", input.id);
+    if (error) throw error;
+  },
+
+  async atualizarMetadados(input) {
+    const args: Record<string, unknown> = { _compra_id: input.id };
+    args._patch_data_vencimento = "data_vencimento" in input;
+    if ("data_vencimento" in input) args._data_vencimento = input.data_vencimento ?? null;
+    args._patch_data_prevista = "data_prevista" in input;
+    if ("data_prevista" in input) args._data_prevista = input.data_prevista ?? null;
+    args._patch_fornecedor_id = "fornecedor_id" in input;
+    if ("fornecedor_id" in input) args._fornecedor_id = input.fornecedor_id ?? null;
+    args._patch_numero_nf = "numero_nf" in input;
+    if ("numero_nf" in input) args._numero_nf = input.numero_nf ?? null;
+    args._patch_serie_nf = "serie_nf" in input;
+    if ("serie_nf" in input) args._serie_nf = input.serie_nf ?? null;
+    args._patch_observacoes = "observacoes" in input;
+    if ("observacoes" in input) args._observacoes = input.observacoes ?? null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase as any).rpc("atualizar_compra_metadados", args);
+    if (error) throw error;
+  },
+
+  async receber(input) {
+    const args: Record<string, unknown> = {
+      _compra_id: input.id,
+      _data_recebimento: input.data_recebimento ?? new Date().toISOString().slice(0, 10),
+      _gerar_financeiro: input.gerar_financeiro ?? true,
+    };
+    if (input.data_vencimento) args._data_vencimento = input.data_vencimento;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("receber_compra", args);
+    if (error) throw error;
+    return data;
+  },
+
+  async receberItens(input) {
+    const itensValidos = input.itens.filter((i) => i.quantidade > 0);
+    if (itensValidos.length === 0) {
+      throw new Error("Informe ao menos uma quantidade para receber.");
+    }
+    const args: Record<string, unknown> = {
+      _compra_id: input.compra_id,
+      _itens: itensValidos,
+      _data_recebimento: input.data_recebimento ?? new Date().toISOString().slice(0, 10),
+      _gerar_financeiro: input.gerar_financeiro ?? true,
+    };
+    if (input.data_vencimento) args._data_vencimento = input.data_vencimento;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("receber_compra_itens", args);
+    if (error) throw error;
+    return data as import("../extra-types").ReceberCompraItensResult;
+  },
+
+  async excluir(compraId) {
+    const { error } = await supabase.from("compras").delete().eq("id", compraId);
+    if (error) throw error;
+  },
+
+  async fornecedorMetricas() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("fornecedor_metricas");
+    if (error) throw error;
+    const map = new Map<string, import("../extra-types").FornecedorMetricaDomain>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of (data ?? []) as any[]) {
+      map.set(r.fornecedor_id, {
+        fornecedor_id: r.fornecedor_id,
+        total_compras: Number(r.total_compras ?? 0),
+        valor_total: Number(r.valor_total ?? 0),
+        ultima_compra: r.ultima_compra ?? null,
+        compras_em_aberto: Number(r.compras_em_aberto ?? 0),
+      });
+    }
+    return map;
+  },
+};
+
+// =====================================================================
+// Dashboard
+// =====================================================================
+const MESES_PT_DASH = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+
+const dashboard: DataAdapter["dashboard"] = {
+  async carregar() {
+    const hoje = new Date();
+    const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+    const inicioMesAnt = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1);
+    const inicio6Meses = new Date(hoje.getFullYear(), hoje.getMonth() - 5, 1);
+
+    const { data: vendas } = await supabase
+      .from("vendas")
+      .select("id, numero, total, status, data_emissao, cliente_id")
+      .gte("data_emissao", inicio6Meses.toISOString().slice(0, 10))
+      .neq("status", "cancelada")
+      .order("data_emissao", { ascending: false });
+
+    const { data: compras } = await supabase
+      .from("compras")
+      .select("id, numero, total, status, data_emissao, fornecedor_id")
+      .gte("data_emissao", inicio6Meses.toISOString().slice(0, 10))
+      .order("data_emissao", { ascending: false });
+
+    const clienteIds = [...new Set((vendas ?? []).map((v) => v.cliente_id).filter(Boolean) as string[])];
+    const fornecedorIds = [...new Set((compras ?? []).map((c) => c.fornecedor_id).filter(Boolean) as string[])];
+
+    const [clientesRes, fornRes] = await Promise.all([
+      clienteIds.length > 0
+        ? supabase.from("clientes").select("id, nome").in("id", clienteIds)
+        : Promise.resolve({ data: [] as Array<{ id: string; nome: string }> }),
+      fornecedorIds.length > 0
+        ? supabase.from("fornecedores").select("id, razao_social, nome_fantasia").in("id", fornecedorIds)
+        : Promise.resolve({ data: [] as Array<{ id: string; razao_social: string; nome_fantasia: string | null }> }),
+    ]);
+    const clientesMap = new Map((clientesRes.data ?? []).map((c) => [c.id, c.nome]));
+    const fornMap = new Map(
+      (fornRes.data ?? []).map((f) => [f.id, f.nome_fantasia || f.razao_social]),
+    );
+
+    const sumIf = <T extends { data_emissao: string; total: number | string | null }>(
+      arr: T[],
+      from: Date,
+      to?: Date,
+    ) =>
+      arr
+        .filter((x) => {
+          const d = new Date(x.data_emissao);
+          return d >= from && (!to || d < to);
+        })
+        .reduce((s, x) => s + Number(x.total ?? 0), 0);
+
+    const vendasMes = sumIf(vendas ?? [], inicioMes);
+    const vendasMesAnterior = sumIf(vendas ?? [], inicioMesAnt, inicioMes);
+    const comprasMes = sumIf(compras ?? [], inicioMes);
+    const comprasMesAnterior = sumIf(compras ?? [], inicioMesAnt, inicioMes);
+    const lucroMes = vendasMes - comprasMes;
+    const margem = vendasMes > 0 ? (lucroMes / vendasMes) * 100 : 0;
+
+    const seriesMap = new Map<string, { vendas: number; compras: number }>();
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(hoje.getFullYear(), hoje.getMonth() - 5 + i, 1);
+      seriesMap.set(`${d.getFullYear()}-${d.getMonth()}`, { vendas: 0, compras: 0 });
+    }
+    for (const v of vendas ?? []) {
+      const d = new Date(v.data_emissao);
+      const ref = seriesMap.get(`${d.getFullYear()}-${d.getMonth()}`);
+      if (ref) ref.vendas += Number(v.total ?? 0);
+    }
+    for (const c of compras ?? []) {
+      const d = new Date(c.data_emissao);
+      const ref = seriesMap.get(`${d.getFullYear()}-${d.getMonth()}`);
+      if (ref) ref.compras += Number(c.total ?? 0);
+    }
+    const vendasPorMes = Array.from(seriesMap.entries()).map(([key, val]) => {
+      const [, m] = key.split("-").map(Number);
+      return { month: MESES_PT_DASH[m], vendas: val.vendas, compras: val.compras };
+    });
+
+    const { data: lancamentos } = await supabase
+      .from("financeiro_lancamentos")
+      .select("id, tipo, valor, valor_pago, status, data_vencimento, data_pagamento");
+
+    const contasPagarLancs = (lancamentos ?? []).filter(
+      (l) => l.tipo === "despesa" && l.status !== "pago" && l.status !== "cancelado",
+    );
+    const contasReceberLancs = (lancamentos ?? []).filter(
+      (l) => l.tipo === "receita" && l.status !== "pago" && l.status !== "cancelado",
+    );
+    const contasPagar = contasPagarLancs.reduce(
+      (s, l) => s + (Number(l.valor) - Number(l.valor_pago ?? 0)),
+      0,
+    );
+    const contasReceber = contasReceberLancs.reduce(
+      (s, l) => s + (Number(l.valor) - Number(l.valor_pago ?? 0)),
+      0,
+    );
+
+    const fluxoMap = new Map<number, { entrada: number; saida: number }>();
+    const diasNoMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
+    for (let d = 1; d <= diasNoMes; d++) fluxoMap.set(d, { entrada: 0, saida: 0 });
+    for (const l of lancamentos ?? []) {
+      if (!l.data_pagamento) continue;
+      const dp = new Date(l.data_pagamento);
+      if (dp < inicioMes) continue;
+      const ref = fluxoMap.get(dp.getDate());
+      if (!ref) continue;
+      if (l.tipo === "receita") ref.entrada += Number(l.valor_pago ?? 0);
+      else if (l.tipo === "despesa") ref.saida += Number(l.valor_pago ?? 0);
+    }
+    const fluxoCaixa = Array.from(fluxoMap.entries()).map(([dia, val]) => ({
+      day: String(dia).padStart(2, "0"),
+      entrada: val.entrada,
+      saida: val.saida,
+    }));
+
+    const { data: produtos: produtosBaixo } = await supabase
+      .from("produtos")
+      .select("id, estoque_minimo")
+      .eq("status", "ativo")
+      .gt("estoque_minimo", 0);
+    let estoqueBaixo = 0;
+    if (produtosBaixo && produtosBaixo.length > 0) {
+      const { data: movs } = await supabase
+        .from("estoque_movimentacoes")
+        .select("produto_id, tipo, quantidade");
+      const saldos = new Map<string, number>();
+      for (const m of movs ?? []) {
+        const sinal =
+          m.tipo === "entrada" || m.tipo === "devolucao"
+            ? 1
+            : m.tipo === "saida" || m.tipo === "transferencia"
+              ? -1
+              : 1;
+        saldos.set(m.produto_id, (saldos.get(m.produto_id) ?? 0) + sinal * Number(m.quantidade));
+      }
+      for (const p of produtosBaixo) {
+        const saldo = saldos.get(p.id) ?? 0;
+        if (saldo <= Number(p.estoque_minimo)) estoqueBaixo++;
+      }
+    }
+
+    const ultimasVendas = (vendas ?? []).slice(0, 5).map((v) => ({
+      id: v.id,
+      numero: v.numero,
+      cliente: v.cliente_id ? (clientesMap.get(v.cliente_id) ?? "—") : "Consumidor",
+      valor: Number(v.total ?? 0),
+      status: v.status,
+      data: v.data_emissao,
+    }));
+    const ultimasCompras = (compras ?? []).slice(0, 5).map((c) => ({
+      id: c.id,
+      numero: c.numero,
+      fornecedor: c.fornecedor_id ? (fornMap.get(c.fornecedor_id) ?? "—") : "—",
+      valor: Number(c.total ?? 0),
+      status: c.status,
+      data: c.data_emissao,
+    }));
+
+    return {
+      vendasMes,
+      vendasMesAnterior,
+      comprasMes,
+      comprasMesAnterior,
+      lucroMes,
+      margem,
+      contasPagar,
+      qtdContasPagar: contasPagarLancs.length,
+      contasReceber,
+      qtdContasReceber: contasReceberLancs.length,
+      estoqueBaixo,
+      vendasPorMes,
+      fluxoCaixa,
+      ultimasVendas,
+      ultimasCompras,
+    };
+  },
+};
+
 export const cloudAdapter: DataAdapter = {
   produtos,
   vendas,
@@ -1574,4 +1915,6 @@ export const cloudAdapter: DataAdapter = {
   categoriasProduto,
   categoriasFinanceiras,
   lotes,
+  compras,
+  dashboard,
 };
