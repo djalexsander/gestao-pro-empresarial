@@ -585,6 +585,7 @@ export type Database = {
           data_emissao: string
           data_prevista: string | null
           data_recebimento: string | null
+          data_vencimento: string | null
           desconto: number
           fornecedor_id: string | null
           frete: number
@@ -605,6 +606,7 @@ export type Database = {
           data_emissao?: string
           data_prevista?: string | null
           data_recebimento?: string | null
+          data_vencimento?: string | null
           desconto?: number
           fornecedor_id?: string | null
           frete?: number
@@ -625,6 +627,7 @@ export type Database = {
           data_emissao?: string
           data_prevista?: string | null
           data_recebimento?: string | null
+          data_vencimento?: string | null
           desconto?: number
           fornecedor_id?: string | null
           frete?: number
@@ -3273,6 +3276,50 @@ export type Database = {
         Args: { _empresa_id: string }
         Returns: Json
       }
+      atualizar_compra_metadados: {
+        Args: {
+          _compra_id: string
+          _data_prevista?: string
+          _data_vencimento?: string
+          _fornecedor_id?: string
+          _numero_nf?: string
+          _observacoes?: string
+          _patch_data_prevista?: boolean
+          _patch_data_vencimento?: boolean
+          _patch_fornecedor_id?: boolean
+          _patch_numero_nf?: boolean
+          _patch_observacoes?: boolean
+          _patch_serie_nf?: boolean
+          _serie_nf?: string
+        }
+        Returns: {
+          created_at: string
+          data_emissao: string
+          data_prevista: string | null
+          data_recebimento: string | null
+          data_vencimento: string | null
+          desconto: number
+          fornecedor_id: string | null
+          frete: number
+          id: string
+          numero: string
+          numero_nf: string | null
+          observacoes: string | null
+          outros: number
+          owner_id: string
+          serie_nf: string | null
+          status: Database["public"]["Enums"]["compra_status"]
+          subtotal: number
+          total: number
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "compras"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       buscar_produto_por_codigo: {
         Args: { _codigo: string }
         Returns: {
@@ -3985,6 +4032,10 @@ export type Database = {
           produto_id: string
           saldo: number
         }[]
+      }
+      sincronizar_lancamento_compra: {
+        Args: { _compra_id: string }
+        Returns: string
       }
       solicitar_carrinho: {
         Args: { _modulos?: string[]; _planos?: string[] }

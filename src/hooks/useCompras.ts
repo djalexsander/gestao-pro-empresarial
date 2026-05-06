@@ -30,6 +30,7 @@ export type Compra = {
   fornecedor_id: string | null;
   data_emissao: string;
   data_prevista: string | null;
+  data_vencimento: string | null;
   data_recebimento: string | null;
   numero_nf: string | null;
   serie_nf: string | null;
@@ -67,6 +68,7 @@ export type CompraInput = {
   fornecedor_id: string | null;
   data_emissao: string;
   data_prevista?: string | null;
+  data_vencimento?: string | null;
   numero_nf?: string | null;
   serie_nf?: string | null;
   desconto?: number;
@@ -140,6 +142,7 @@ export function useCreateCompra() {
           fornecedor_id: input.fornecedor_id,
           data_emissao: input.data_emissao,
           data_prevista: input.data_prevista ?? null,
+          data_vencimento: input.data_vencimento ?? null,
           numero_nf: input.numero_nf ?? null,
           serie_nf: input.serie_nf ?? null,
           desconto: input.desconto ?? 0,
@@ -206,7 +209,61 @@ export function useUpdateCompraStatus() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["compras"] });
       qc.invalidateQueries({ queryKey: ["compra"] });
+      qc.invalidateQueries({ queryKey: ["financeiro_lancamentos"] });
       toast.success("Status atualizado.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export type CompraMetadadosInput = {
+  id: string;
+  data_vencimento?: string | null;
+  data_prevista?: string | null;
+  fornecedor_id?: string | null;
+  numero_nf?: string | null;
+  serie_nf?: string | null;
+  observacoes?: string | null;
+};
+
+export function useUpdateCompraMetadados() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: CompraMetadadosInput) => {
+      const args: Record<string, unknown> = { _compra_id: input.id };
+      if ("data_vencimento" in input) {
+        args._data_vencimento = input.data_vencimento ?? null;
+        args._patch_data_vencimento = true;
+      } else args._patch_data_vencimento = false;
+      if ("data_prevista" in input) {
+        args._data_prevista = input.data_prevista ?? null;
+        args._patch_data_prevista = true;
+      } else args._patch_data_prevista = false;
+      if ("fornecedor_id" in input) {
+        args._fornecedor_id = input.fornecedor_id ?? null;
+        args._patch_fornecedor_id = true;
+      } else args._patch_fornecedor_id = false;
+      if ("numero_nf" in input) {
+        args._numero_nf = input.numero_nf ?? null;
+        args._patch_numero_nf = true;
+      } else args._patch_numero_nf = false;
+      if ("serie_nf" in input) {
+        args._serie_nf = input.serie_nf ?? null;
+        args._patch_serie_nf = true;
+      } else args._patch_serie_nf = false;
+      if ("observacoes" in input) {
+        args._observacoes = input.observacoes ?? null;
+        args._patch_observacoes = true;
+      } else args._patch_observacoes = false;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabase as any).rpc("atualizar_compra_metadados", args);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["compras"] });
+      qc.invalidateQueries({ queryKey: ["compra"] });
+      qc.invalidateQueries({ queryKey: ["financeiro_lancamentos"] });
+      toast.success("Compra atualizada — Contas a Pagar sincronizado.");
     },
     onError: (e: Error) => toast.error(e.message),
   });
