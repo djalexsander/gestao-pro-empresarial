@@ -142,11 +142,9 @@ function formatDateLong(iso: string): string {
 
 function ProdutosVendidosPage() {
   return (
-    <RequirePermission permission="vendas">
-      <ModuloGate chave="vendas" titulo="Produtos vendidos">
-        <ProdutosVendidosContent />
-      </ModuloGate>
-    </RequirePermission>
+    <ModuloGate chave="vendas" titulo="Produtos vendidos">
+      <ProdutosVendidosContent />
+    </ModuloGate>
   );
 }
 
