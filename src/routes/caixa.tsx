@@ -217,10 +217,12 @@ function CaixaPage() {
             <EmptyState
               icon={Wallet}
               title="Nenhum caixa aberto"
-              description="Você precisa abrir o caixa antes de iniciar as vendas no PDV. O sistema vai bloquear a finalização de vendas enquanto não houver um caixa aberto."
+              description="Para abrir um caixa, saia do módulo Operacional e acesse o fluxo de abertura pelo PDV com PIN. Esta área serve apenas para consulta, histórico, conferência e fechamento."
               action={
-                <Button onClick={() => setAbrirOpen(true)}>
-                  <Power className="h-4 w-4" /> Abrir caixa agora
+                <Button asChild variant="outline">
+                  <Link to="/pdv">
+                    <Receipt className="h-4 w-4" /> Ir para o PDV
+                  </Link>
                 </Button>
               }
             />
