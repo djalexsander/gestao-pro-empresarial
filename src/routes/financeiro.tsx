@@ -812,8 +812,10 @@ function BlocoModais({
           { key: "forma", header: "Forma" },
           { key: "total", header: "Total", format: "currency", align: "right" },
         ]}
+        vendaIdField="venda_id"
         rows={ind.vendasDetalhe.map((v) => ({
           id: v.id,
+          venda_id: v.id,
           numero: v.numero,
           data: v.data,
           cliente: v.cliente_nome ?? "Consumidor final",
@@ -855,8 +857,10 @@ function BlocoModais({
           { key: "custo", header: "Custo", format: "currency", align: "right" },
           { key: "lucro", header: "Lucro", format: "currency", align: "right" },
         ]}
+        vendaIdField="venda_id"
         rows={ind.itensDetalhe.map((it, idx) => ({
           id: `${it.venda_id}-${idx}`,
+          venda_id: it.venda_id,
           numero: it.venda_numero,
           produto: it.sem_custo ? `${it.produto_nome} ⚠` : it.produto_nome,
           qtd: it.quantidade,
@@ -886,8 +890,10 @@ function BlocoModais({
           { key: "vencimento", header: "Vencimento", format: "date" },
           { key: "valor", header: "Valor", format: "currency", align: "right" },
         ]}
+        vendaIdField="venda_id"
         rows={fiadosLanc.map((l) => ({
           id: l.id,
+          venda_id: l.venda_id,
           descricao: l.descricao,
           cliente: l.cliente_nome ?? "—",
           vencimento: l.data_vencimento,
@@ -914,8 +920,10 @@ function BlocoModais({
           { key: "vencimento", header: "Vencimento", format: "date" },
           { key: "valor", header: "Valor", format: "currency", align: "right" },
         ]}
+        vendaIdField="venda_id"
         rows={ifoodLanc.map((l) => ({
           id: l.id,
+          venda_id: l.venda_id,
           descricao: l.descricao,
           vencimento: l.data_vencimento,
           valor: Number(l.valor) - Number(l.valor_pago ?? 0),
@@ -970,8 +978,10 @@ function BlocoModais({
           { key: "vencimento", header: "Vencimento", format: "date" },
           { key: "valor", header: "Valor", format: "currency", align: "right" },
         ]}
+        vendaIdField="venda_id"
         rows={vencidosLanc.map((l) => ({
           id: l.id,
+          venda_id: l.venda_id,
           descricao: l.descricao,
           tipo: l.tipo === "receber" ? "A receber" : "A pagar",
           vencimento: l.data_vencimento,
