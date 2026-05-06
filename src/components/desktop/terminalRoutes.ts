@@ -5,7 +5,7 @@
  *
  * Quando a máquina é `desktop-terminal`, restringimos a navegação a:
  *  - PDV (/pos, /pdv)
- *  - Consultas operacionais: /produtos, /estoque, /clientes
+ *  - Consultas operacionais: /produtos-vendidos, /produtos, /estoque, /clientes
  *  - Configurações apenas do próprio terminal (/configuracoes — a aba Desktop)
  *  - Auth/hub (sempre liberados)
  *
