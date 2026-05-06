@@ -249,8 +249,8 @@ export function FinalizarVendaDialog({
   );
 
   const restante = useMemo(
-    () => Number((total - totalPago).toFixed(2)),
-    [total, totalPago],
+    () => Number((totalEfetivo - totalPago).toFixed(2)),
+    [totalEfetivo, totalPago],
   );
 
   const dinheiroInsuficiente = useMemo(() => {
