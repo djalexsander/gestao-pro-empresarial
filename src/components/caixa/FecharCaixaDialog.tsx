@@ -263,7 +263,11 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
           {/* Justificativa */}
           <div className="space-y-2">
             <Label htmlFor="fech-obs" className="flex items-center gap-2">
-              Observação {temDiferenca && <Badge variant="destructive" className="text-[10px]">obrigatória</Badge>}
+              Observação
+              {exigeJustificativa && <Badge variant="destructive" className="text-[10px]">obrigatória</Badge>}
+              {temDiferenca && !exigeJustificativa && (
+                <Badge variant="secondary" className="text-[10px]">recomendada</Badge>
+              )}
             </Label>
             <Textarea
               id="fech-obs"
@@ -274,7 +278,7 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
             />
             {exigeJustificativa && (
               <p className="flex items-center gap-1 text-xs text-destructive">
-                <AlertTriangle className="h-3 w-3" /> Justificativa obrigatória quando há diferença.
+                <AlertTriangle className="h-3 w-3" /> Justificativa obrigatória para diferenças acima de {formatBRL(LIMITE_JUSTIFICATIVA)}.
               </p>
             )}
           </div>
