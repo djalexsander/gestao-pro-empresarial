@@ -890,8 +890,10 @@ function BlocoModais({
           { key: "vencimento", header: "Vencimento", format: "date" },
           { key: "valor", header: "Valor", format: "currency", align: "right" },
         ]}
+        vendaIdField="venda_id"
         rows={fiadosLanc.map((l) => ({
           id: l.id,
+          venda_id: l.venda_id,
           descricao: l.descricao,
           cliente: l.cliente_nome ?? "—",
           vencimento: l.data_vencimento,
