@@ -208,8 +208,6 @@ export function PurchasesPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Select value={fornecedorFiltro} onValueChange={setFornecedorFiltro}>
-              <SelectTrigger>
             <FornecedorSearchSelect
               value={fornecedorFiltro}
               fornecedores={fornecedores}
