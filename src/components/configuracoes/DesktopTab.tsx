@@ -143,7 +143,7 @@ export function DesktopTab() {
     setFlushing(true);
     try {
       const { access_token } = await dataClient.auth.getSession();
-      await flushOutbox(localCfg, data.session?.access_token ?? null);
+      await flushOutbox(localCfg, access_token);
       setOutbox(await fetchOutboxStats(localCfg));
     } finally {
       setFlushing(false);
@@ -161,7 +161,7 @@ export function DesktopTab() {
     setFlushingVendas(true);
     try {
       const { access_token } = await dataClient.auth.getSession();
-      await flushOutboxVendas(localCfg, data.session?.access_token ?? null);
+      await flushOutboxVendas(localCfg, access_token);
       setOutboxVendas(await fetchOutboxVendasStats(localCfg));
     } finally {
       setFlushingVendas(false);
@@ -179,7 +179,7 @@ export function DesktopTab() {
     setFlushingCaixa(true);
     try {
       const { access_token } = await dataClient.auth.getSession();
-      await flushOutboxCaixa(localCfg, data.session?.access_token ?? null);
+      await flushOutboxCaixa(localCfg, access_token);
       setOutboxCaixa(await fetchOutboxCaixaStats(localCfg));
     } finally {
       setFlushingCaixa(false);
@@ -197,7 +197,7 @@ export function DesktopTab() {
     setFlushingCancel(true);
     try {
       const { access_token } = await dataClient.auth.getSession();
-      await flushOutboxCancelamentos(localCfg, data.session?.access_token ?? null);
+      await flushOutboxCancelamentos(localCfg, access_token);
       setOutboxCancel(await fetchOutboxCancelamentosStats(localCfg));
     } finally {
       setFlushingCancel(false);
@@ -215,7 +215,7 @@ export function DesktopTab() {
     setFlushingFin(true);
     try {
       const { access_token } = await dataClient.auth.getSession();
-      await flushOutboxFinanceiro(localCfg, data.session?.access_token ?? null);
+      await flushOutboxFinanceiro(localCfg, access_token);
       setOutboxFin(await fetchOutboxFinanceiroStats(localCfg));
     } finally {
       setFlushingFin(false);
