@@ -2322,7 +2322,8 @@ const terminais: DataAdapter["terminais"] = {
     if (input.descricao !== undefined) patch.descricao = input.descricao;
     if (input.identificador_dispositivo !== undefined)
       patch.identificador_dispositivo = input.identificador_dispositivo;
-    const { error } = await supabase.from("terminais").update(patch).eq("id", input.id);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await supabase.from("terminais").update(patch as any).eq("id", input.id);
     if (error) throw error;
   },
   async alterarStatus(input) {
