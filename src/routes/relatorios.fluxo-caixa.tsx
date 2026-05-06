@@ -83,7 +83,7 @@ function Conteudo() {
       try {
         const data = await dataClient.relatorios.fluxoCaixa({ inicio, fim });
         if (cancelled) return;
-        setRows(data);
+        setRows(data.map((d) => ({ ...d, descricao: d.descricao ?? "" })));
       } catch (e) {
         if (cancelled) return;
         toast.error(e instanceof Error ? e.message : "Falha ao carregar");
