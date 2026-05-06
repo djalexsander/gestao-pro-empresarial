@@ -3087,6 +3087,7 @@ const terminalRuntime: DataAdapter["terminalRuntime"] = {
 };
 
 import { cloudAuthAdapter } from "./cloud-auth";
+import { cloudRelatoriosAdapter } from "./cloud-relatorios";
 
 export const cloudAdapter: DataAdapter = {
   produtos,
@@ -3116,4 +3117,5 @@ export const cloudAdapter: DataAdapter = {
   qa,
   terminalRuntime,
   auth: cloudAuthAdapter,
+  relatorios: cloudRelatoriosAdapter,
 };

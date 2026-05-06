@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Download, Loader2, ShoppingCart, Receipt, TrendingUp } from "lucide-react";
@@ -78,28 +78,14 @@ function Conteudo() {
     (async () => {
       setLoading(true);
       const { inicio, fim } = calcRange(periodo);
-      const { data, error } = await supabase
-        .from("compras")
-        .select("id, numero, data_emissao, total, status, fornecedor:fornecedores(razao_social)")
-        .gte("data_emissao", inicio)
-        .lte("data_emissao", fim)
-        .order("data_emissao", { ascending: false })
-        .limit(500);
-      if (cancelled) return;
-      if (error) {
-        toast.error(error.message);
+      try {
+        const data = await dataClient.relatorios.compras({ inicio, fim });
+        if (cancelled) return;
+        setRows(data);
+      } catch (e) {
+        if (cancelled) return;
+        toast.error(e instanceof Error ? e.message : "Falha ao carregar");
         setRows([]);
-      } else {
-        setRows(
-          (data ?? []).map((c: any) => ({
-            id: c.id,
-            numero: c.numero,
-            data: c.data_emissao,
-            fornecedor: c.fornecedor?.razao_social ?? "—",
-            total: Number(c.total) || 0,
-            status: c.status,
-          })),
-        );
       }
       setLoading(false);
     })();

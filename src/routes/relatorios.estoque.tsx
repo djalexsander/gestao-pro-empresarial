@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Download, Loader2, Boxes, AlertTriangle, Package } from "lucide-react";
@@ -57,45 +57,34 @@ function Conteudo() {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const [prodRes, movRes] = await Promise.all([
-        supabase
-          .from("produtos")
-          .select("id, sku, nome, unidade, preco_custo, preco_venda, estoque_minimo")
-          .eq("status", "ativo")
-          .order("nome", { ascending: true })
-          .limit(2000),
-        supabase
-          .from("estoque_movimentacoes")
-          .select("produto_id, tipo, quantidade"),
-      ]);
-      if (cancelled) return;
-      if (prodRes.error) {
-        toast.error(prodRes.error.message);
-        setLoading(false);
-        return;
+      try {
+        const { produtos, movimentos } = await dataClient.relatorios.estoqueBase();
+        if (cancelled) return;
+        const saldos = new Map<string, number>();
+        for (const m of movimentos) {
+          const sinal =
+            m.tipo === "entrada" || m.tipo === "devolucao"
+              ? 1
+              : m.tipo === "saida" || m.tipo === "transferencia"
+                ? -1
+                : 1;
+          saldos.set(m.produto_id, (saldos.get(m.produto_id) ?? 0) + sinal * m.quantidade);
+        }
+        setRows(
+          produtos.map((p) => ({
+            id: p.id,
+            sku: p.sku ?? "",
+            nome: p.nome,
+            unidade: p.unidade ?? "",
+            custo: p.preco_custo,
+            venda: p.preco_venda,
+            minimo: p.estoque_minimo,
+            saldo: saldos.get(p.id) ?? 0,
+          })),
+        );
+      } catch (e) {
+        if (!cancelled) toast.error(e instanceof Error ? e.message : "Falha");
       }
-      const saldos = new Map<string, number>();
-      for (const m of movRes.data ?? []) {
-        const sinal =
-          m.tipo === "entrada" || m.tipo === "devolucao"
-            ? 1
-            : m.tipo === "saida" || m.tipo === "transferencia"
-              ? -1
-              : 1;
-        saldos.set(m.produto_id, (saldos.get(m.produto_id) ?? 0) + sinal * Number(m.quantidade));
-      }
-      setRows(
-        (prodRes.data ?? []).map((p: any) => ({
-          id: p.id,
-          sku: p.sku,
-          nome: p.nome,
-          unidade: p.unidade,
-          custo: Number(p.preco_custo) || 0,
-          venda: Number(p.preco_venda) || 0,
-          minimo: Number(p.estoque_minimo) || 0,
-          saldo: saldos.get(p.id) ?? 0,
-        })),
-      );
       setLoading(false);
     })();
     return () => {

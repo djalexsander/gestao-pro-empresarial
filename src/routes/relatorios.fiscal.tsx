@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Download, Loader2, FileText } from "lucide-react";
@@ -76,30 +76,14 @@ function Conteudo() {
     (async () => {
       setLoading(true);
       const { inicio, fim } = calcRange(periodo);
-      const { data, error } = await supabase
-        .from("vendas")
-        .select("id, numero, numero_nf, serie_nf, data_emissao, total, status")
-        .not("numero_nf", "is", null)
-        .gte("data_emissao", inicio)
-        .lte("data_emissao", fim)
-        .order("data_emissao", { ascending: false })
-        .limit(1000);
-      if (cancelled) return;
-      if (error) {
-        toast.error(error.message);
+      try {
+        const data = await dataClient.relatorios.notasFiscais({ inicio, fim });
+        if (cancelled) return;
+        setRows(data);
+      } catch (e) {
+        if (cancelled) return;
+        toast.error(e instanceof Error ? e.message : "Falha ao carregar");
         setRows([]);
-      } else {
-        setRows(
-          (data ?? []).map((v: any) => ({
-            id: v.id,
-            numero: v.numero,
-            nf: v.numero_nf,
-            serie: v.serie_nf ?? "",
-            data: v.data_emissao,
-            total: Number(v.total) || 0,
-            status: v.status,
-          })),
-        );
       }
       setLoading(false);
     })();
