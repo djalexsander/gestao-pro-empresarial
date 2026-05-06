@@ -1,106 +1,32 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/components/auth/AuthProvider";
+import { dataClient } from "@/integrations/data";
+import type {
+  CompraComFornecedorDomain,
+  CompraDetalheDomain,
+  CompraStatusDomain,
+  CriarCompraInput,
+  FornecedorMetricaDomain,
+  ReceberCompraItensInput,
+  ReceberCompraItensResult,
+  CompraMetadadosInput as DataCompraMetadadosInput,
+  ReceberItemCompraInput,
+} from "@/integrations/data/extra-types";
 
-export type CompraStatus =
-  | "rascunho"
-  | "pendente"
-  | "aprovada"
-  | "recebida_parcial"
-  | "recebida"
-  | "cancelada";
-
-export type CompraItem = {
-  id: string;
-  compra_id: string;
-  produto_id: string;
-  variacao_id: string | null;
-  descricao: string | null;
-  quantidade: number;
-  quantidade_recebida: number;
-  preco_unitario: number;
-  desconto: number;
-  total: number;
-};
-
-export type Compra = {
-  id: string;
-  numero: string;
-  fornecedor_id: string | null;
-  data_emissao: string;
-  data_prevista: string | null;
-  data_vencimento: string | null;
-  data_recebimento: string | null;
-  numero_nf: string | null;
-  serie_nf: string | null;
-  subtotal: number;
-  desconto: number;
-  frete: number;
-  outros: number;
-  total: number;
-  status: CompraStatus;
-  observacoes: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-export type CompraComFornecedor = Compra & {
-  fornecedor: { id: string; razao_social: string; nome_fantasia: string | null } | null;
-};
-
-export type CompraDetalhe = Compra & {
-  fornecedor: { id: string; razao_social: string; nome_fantasia: string | null } | null;
-  itens: Array<CompraItem & { produto: { id: string; sku: string; nome: string } | null }>;
-};
-
-export type CompraItemInput = {
-  produto_id: string;
-  variacao_id?: string | null;
-  descricao?: string | null;
-  quantidade: number;
-  preco_unitario: number;
-  desconto?: number;
-};
-
-export type CompraInput = {
-  numero: string;
-  fornecedor_id: string | null;
-  data_emissao: string;
-  data_prevista?: string | null;
-  data_vencimento?: string | null;
-  numero_nf?: string | null;
-  serie_nf?: string | null;
-  desconto?: number;
-  frete?: number;
-  outros?: number;
-  observacoes?: string | null;
-  itens: CompraItemInput[];
-};
-
-function calcularTotais(input: CompraInput) {
-  const subtotal = input.itens.reduce(
-    (acc, it) => acc + it.quantidade * it.preco_unitario - (it.desconto ?? 0),
-    0
-  );
-  const total = subtotal - (input.desconto ?? 0) + (input.frete ?? 0) + (input.outros ?? 0);
-  return { subtotal, total: Math.max(0, total) };
-}
-
-// ================= QUERIES =================
+export type CompraStatus = CompraStatusDomain;
+export type Compra = CompraComFornecedorDomain;
+export type CompraComFornecedor = CompraComFornecedorDomain;
+export type CompraDetalhe = CompraDetalheDomain;
+export type CompraInput = CriarCompraInput;
+export type CompraItemInput = CriarCompraInput["itens"][number];
+export type CompraMetadadosInput = DataCompraMetadadosInput;
+export type ReceberItemInput = ReceberItemCompraInput;
+export type FornecedorMetrica = FornecedorMetricaDomain;
 
 export function useCompras() {
   return useQuery({
     queryKey: ["compras"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("compras")
-        .select("*, fornecedor:fornecedores(id, razao_social, nome_fantasia)")
-        .order("data_emissao", { ascending: false })
-        .limit(500);
-      if (error) throw error;
-      return (data ?? []) as CompraComFornecedor[];
-    },
+    queryFn: () => dataClient.compras.list({ limit: 500 }),
   });
 }
 
@@ -108,86 +34,14 @@ export function useCompra(id: string | undefined) {
   return useQuery({
     queryKey: ["compra", id],
     enabled: !!id,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("compras")
-        .select(
-          "*, fornecedor:fornecedores(id, razao_social, nome_fantasia), itens:compra_itens(*, produto:produtos(id, sku, nome))"
-        )
-        .eq("id", id!)
-        .maybeSingle();
-      if (error) throw error;
-      return data as CompraDetalhe | null;
-    },
+    queryFn: () => (id ? dataClient.compras.get(id) : null),
   });
 }
 
-// ================= MUTATIONS =================
-
 export function useCreateCompra() {
   const qc = useQueryClient();
-  const { user } = useAuth();
   return useMutation({
-    mutationFn: async (input: CompraInput) => {
-      if (!user) throw new Error("Não autenticado");
-      if (input.itens.length === 0) throw new Error("Adicione pelo menos um item à compra.");
-
-      const { subtotal, total } = calcularTotais(input);
-
-      const { data: compra, error } = await supabase
-        .from("compras")
-        .insert({
-          owner_id: user.id,
-          numero: input.numero,
-          fornecedor_id: input.fornecedor_id,
-          data_emissao: input.data_emissao,
-          data_prevista: input.data_prevista ?? null,
-          data_vencimento: input.data_vencimento ?? null,
-          numero_nf: input.numero_nf ?? null,
-          serie_nf: input.serie_nf ?? null,
-          desconto: input.desconto ?? 0,
-          frete: input.frete ?? 0,
-          outros: input.outros ?? 0,
-          observacoes: input.observacoes ?? null,
-          subtotal,
-          total,
-          status: "pendente",
-        })
-        .select()
-        .single();
-      if (error) throw error;
-
-      const itensPayload: Array<{
-        owner_id: string;
-        compra_id: string;
-        produto_id: string;
-        variacao_id: string | null;
-        descricao: string | null;
-        quantidade: number;
-        preco_unitario: number;
-        desconto: number;
-        total: number;
-      }> = input.itens.map((it) => ({
-        owner_id: user.id,
-        compra_id: compra.id,
-        produto_id: it.produto_id,
-        variacao_id: it.variacao_id ?? null,
-        descricao: it.descricao ?? null,
-        quantidade: it.quantidade,
-        preco_unitario: it.preco_unitario,
-        desconto: it.desconto ?? 0,
-        total: it.quantidade * it.preco_unitario - (it.desconto ?? 0),
-      }));
-
-      const { error: itensErr } = await supabase.from("compra_itens").insert(itensPayload);
-      if (itensErr) {
-        // rollback manual da compra para não deixar lixo
-        await supabase.from("compras").delete().eq("id", compra.id);
-        throw itensErr;
-      }
-
-      return compra;
-    },
+    mutationFn: (input: CompraInput) => dataClient.compras.criar(input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["compras"] });
       toast.success("Compra registrada.");
@@ -199,13 +53,8 @@ export function useCreateCompra() {
 export function useUpdateCompraStatus() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: CompraStatus }) => {
-      const { error } = await supabase
-        .from("compras")
-        .update({ status })
-        .eq("id", id);
-      if (error) throw error;
-    },
+    mutationFn: ({ id, status }: { id: string; status: CompraStatus }) =>
+      dataClient.compras.atualizarStatus({ id, status }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["compras"] });
       qc.invalidateQueries({ queryKey: ["compra"] });
@@ -216,49 +65,11 @@ export function useUpdateCompraStatus() {
   });
 }
 
-export type CompraMetadadosInput = {
-  id: string;
-  data_vencimento?: string | null;
-  data_prevista?: string | null;
-  fornecedor_id?: string | null;
-  numero_nf?: string | null;
-  serie_nf?: string | null;
-  observacoes?: string | null;
-};
-
 export function useUpdateCompraMetadados() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: CompraMetadadosInput) => {
-      const args: Record<string, unknown> = { _compra_id: input.id };
-      if ("data_vencimento" in input) {
-        args._data_vencimento = input.data_vencimento ?? null;
-        args._patch_data_vencimento = true;
-      } else args._patch_data_vencimento = false;
-      if ("data_prevista" in input) {
-        args._data_prevista = input.data_prevista ?? null;
-        args._patch_data_prevista = true;
-      } else args._patch_data_prevista = false;
-      if ("fornecedor_id" in input) {
-        args._fornecedor_id = input.fornecedor_id ?? null;
-        args._patch_fornecedor_id = true;
-      } else args._patch_fornecedor_id = false;
-      if ("numero_nf" in input) {
-        args._numero_nf = input.numero_nf ?? null;
-        args._patch_numero_nf = true;
-      } else args._patch_numero_nf = false;
-      if ("serie_nf" in input) {
-        args._serie_nf = input.serie_nf ?? null;
-        args._patch_serie_nf = true;
-      } else args._patch_serie_nf = false;
-      if ("observacoes" in input) {
-        args._observacoes = input.observacoes ?? null;
-        args._patch_observacoes = true;
-      } else args._patch_observacoes = false;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase as any).rpc("atualizar_compra_metadados", args);
-      if (error) throw error;
-    },
+    mutationFn: (input: CompraMetadadosInput) =>
+      dataClient.compras.atualizarMetadados(input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["compras"] });
       qc.invalidateQueries({ queryKey: ["compra"] });
@@ -272,7 +83,7 @@ export function useUpdateCompraMetadados() {
 export function useReceberCompra() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({
+    mutationFn: ({
       id,
       data_recebimento,
       gerar_financeiro,
@@ -282,22 +93,13 @@ export function useReceberCompra() {
       data_recebimento?: string;
       gerar_financeiro?: boolean;
       data_vencimento?: string | null;
-    }) => {
-      const args: {
-        _compra_id: string;
-        _data_recebimento: string;
-        _gerar_financeiro: boolean;
-        _data_vencimento?: string;
-      } = {
-        _compra_id: id,
-        _data_recebimento: data_recebimento ?? new Date().toISOString().slice(0, 10),
-        _gerar_financeiro: gerar_financeiro ?? true,
-      };
-      if (data_vencimento) args._data_vencimento = data_vencimento;
-      const { data, error } = await supabase.rpc("receber_compra", args);
-      if (error) throw error;
-      return data;
-    },
+    }) =>
+      dataClient.compras.receber({
+        id,
+        data_recebimento,
+        gerar_financeiro,
+        data_vencimento,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["compras"] });
       qc.invalidateQueries({ queryKey: ["compra"] });
@@ -313,10 +115,7 @@ export function useReceberCompra() {
 export function useDeleteCompra() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("compras").delete().eq("id", id);
-      if (error) throw error;
-    },
+    mutationFn: (id: string) => dataClient.compras.excluir(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["compras"] });
       toast.success("Compra excluída.");
@@ -325,50 +124,15 @@ export function useDeleteCompra() {
   });
 }
 
-// ============ Recebimento parcial / item-a-item ============
-
-export type ReceberItemInput = {
-  item_id: string;
-  quantidade: number;
-};
-
 export function useReceberCompraItens() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (params: {
-      compra_id: string;
-      itens: ReceberItemInput[];
-      data_recebimento?: string;
-      gerar_financeiro?: boolean;
-      data_vencimento?: string | null;
-    }) => {
+    mutationFn: async (params: ReceberCompraItensInput): Promise<ReceberCompraItensResult> => {
       const itensValidos = params.itens.filter((i) => i.quantidade > 0);
       if (itensValidos.length === 0) {
         throw new Error("Informe ao menos uma quantidade para receber.");
       }
-      const args: {
-        _compra_id: string;
-        _itens: ReceberItemInput[];
-        _data_recebimento: string;
-        _gerar_financeiro: boolean;
-        _data_vencimento?: string;
-      } = {
-        _compra_id: params.compra_id,
-        _itens: itensValidos,
-        _data_recebimento: params.data_recebimento ?? new Date().toISOString().slice(0, 10),
-        _gerar_financeiro: params.gerar_financeiro ?? true,
-      };
-      if (params.data_vencimento) args._data_vencimento = params.data_vencimento;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any).rpc("receber_compra_itens", args);
-      if (error) throw error;
-      return data as {
-        compra_id: string;
-        status: CompraStatus;
-        pendente_total: number;
-        recebido_total: number;
-        itens_recebidos: number;
-      };
+      return dataClient.compras.receberItens({ ...params, itens: itensValidos });
     },
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["compras"] });
@@ -387,40 +151,14 @@ export function useReceberCompraItens() {
   });
 }
 
-// ============ Métricas por fornecedor ============
-
-export type FornecedorMetrica = {
-  fornecedor_id: string;
-  total_compras: number;
-  valor_total: number;
-  ultima_compra: string | null;
-  compras_em_aberto: number;
-};
-
 export function useFornecedorMetricas() {
   return useQuery({
     queryKey: ["fornecedor-metricas"],
-    queryFn: async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any).rpc("fornecedor_metricas");
-      if (error) throw error;
-      const rows = (data ?? []) as FornecedorMetrica[];
-      const map = new Map<string, FornecedorMetrica>();
-      for (const r of rows) {
-        map.set(r.fornecedor_id, {
-          ...r,
-          total_compras: Number(r.total_compras ?? 0),
-          valor_total: Number(r.valor_total ?? 0),
-          compras_em_aberto: Number(r.compras_em_aberto ?? 0),
-        });
-      }
-      return map;
-    },
+    queryFn: () => dataClient.compras.fornecedorMetricas(),
     staleTime: 30_000,
   });
 }
 
-// helper para gerar próximo número
 export function gerarNumeroCompra() {
   const d = new Date();
   const yymm = `${d.getFullYear().toString().slice(2)}${String(d.getMonth() + 1).padStart(2, "0")}`;
