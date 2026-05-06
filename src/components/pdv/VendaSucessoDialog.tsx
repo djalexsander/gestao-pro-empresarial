@@ -118,6 +118,11 @@ export function VendaSucessoDialog({
       }
       return;
     }
+    if (res.noPrinters) {
+      setNoPrinterMsg(res.warning ?? null);
+      setNoPrinterOpen(true);
+      return;
+    }
     if (res.needsPicker) {
       setPickerWarning(res.warning ?? null);
       setPickerOpen(true);
