@@ -166,7 +166,7 @@ export function ProdutoSearchSelect({
                       <div className="truncate text-xs text-muted-foreground">
                         SKU {p.sku}
                         {codigo ? ` · ${codigo}` : ""}
-                        {p.categoria_nome ? ` · ${p.categoria_nome}` : ""}
+                        {p.categoria?.nome ? ` · ${p.categoria.nome}` : ""}
                       </div>
                     </div>
                   </CommandItem>
