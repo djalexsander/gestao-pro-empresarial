@@ -21,7 +21,7 @@ import {
   CheckCircle2,
   Phone,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -179,8 +179,8 @@ function FiadoContent() {
   const { data: ownerId = "" } = useQuery({
     queryKey: ["auth_uid"],
     queryFn: async () => {
-      const { data } = await supabase.auth.getUser();
-      return data.user?.id ?? "";
+      const { user } = await dataClient.auth.getUser();
+      return user?.id ?? "";
     },
     staleTime: 60_000,
   });
@@ -189,21 +189,8 @@ function FiadoContent() {
     queryKey: ["fiado_lancamentos"],
     staleTime: 30_000,
     queryFn: async (): Promise<LancamentoFiado[]> => {
-      const { data, error } = await supabase
-        .from("financeiro_lancamentos")
-        .select(
-          `id, descricao, valor, valor_pago, data_vencimento, data_emissao, data_pagamento,
-           status, observacoes, cliente_id, venda_id, forma_pagamento,
-           cliente:clientes(id, nome, documento, telefone, celular, email),
-           venda:vendas(id, numero, data_finalizacao, total)`
-        )
-        .eq("tipo", "receber")
-        .eq("forma_pagamento", "fiado")
-        .neq("status", "cancelado")
-        .order("data_vencimento", { ascending: true })
-        .limit(5000);
-      if (error) throw new Error(error.message);
-      return (data ?? []) as unknown as LancamentoFiado[];
+      const data = await dataClient.financeiro.listFiado();
+      return data as unknown as LancamentoFiado[];
     },
   });
 
