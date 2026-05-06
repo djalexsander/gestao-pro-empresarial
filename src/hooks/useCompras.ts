@@ -30,6 +30,7 @@ export type Compra = {
   fornecedor_id: string | null;
   data_emissao: string;
   data_prevista: string | null;
+  data_vencimento: string | null;
   data_recebimento: string | null;
   numero_nf: string | null;
   serie_nf: string | null;
@@ -67,6 +68,7 @@ export type CompraInput = {
   fornecedor_id: string | null;
   data_emissao: string;
   data_prevista?: string | null;
+  data_vencimento?: string | null;
   numero_nf?: string | null;
   serie_nf?: string | null;
   desconto?: number;
