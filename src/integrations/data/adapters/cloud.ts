@@ -484,10 +484,141 @@ const vendas: DataAdapter["vendas"] = {
       raw: d,
     };
   },
-};
 
-// =====================================================================
-// Caixa
+  // ---------------------------- Reads ----------------------------
+  async list(input) {
+    const { data, error } = await supabase
+      .from("vendas")
+      .select(
+        "id, numero, cliente_id, data_emissao, data_finalizacao, total, status, status_pagamento, forma_pagamento, caixa_id, operador_id, terminal_id, cliente:clientes(nome)",
+      )
+      .order("created_at", { ascending: false })
+      .limit(input?.limit ?? 500);
+    if (error) throw error;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (data ?? []).map((v: any) => ({
+      id: v.id,
+      numero: v.numero,
+      cliente_id: v.cliente_id,
+      cliente_nome: v.cliente?.nome ?? null,
+      data_emissao: v.data_emissao,
+      data_finalizacao: v.data_finalizacao,
+      total: Number(v.total) || 0,
+      status: v.status,
+      status_pagamento: v.status_pagamento,
+      forma_pagamento: v.forma_pagamento,
+      caixa_id: v.caixa_id ?? null,
+      operador_id: v.operador_id ?? null,
+      terminal_id: v.terminal_id ?? null,
+    }));
+  },
+
+  async detalhe(vendaId) {
+    const { data: v, error } = await supabase
+      .from("vendas")
+      .select(
+        "id, numero, data_emissao, data_finalizacao, subtotal, desconto, total, valor_recebido, troco, status, status_pagamento, forma_pagamento, observacoes, cliente:clientes(nome)",
+      )
+      .eq("id", vendaId)
+      .single();
+    if (error) throw error;
+    const { data: itens, error: e2 } = await supabase
+      .from("venda_itens")
+      .select(
+        "id, produto_id, descricao, quantidade, preco_unitario, desconto, total, produto:produtos(nome, sku)",
+      )
+      .eq("venda_id", vendaId);
+    if (e2) throw e2;
+    const { data: pagamentos, error: e3 } = await supabase
+      .from("venda_pagamentos")
+      .select("id, forma_pagamento, valor, valor_recebido, troco, parcelas, observacao")
+      .eq("venda_id", vendaId)
+      .order("created_at", { ascending: true });
+    if (e3) throw e3;
+    const { data: lancs } = await supabase
+      .from("financeiro_lancamentos")
+      .select("valor_pago, status")
+      .eq("venda_id", vendaId);
+    const valor_pago_total = (lancs ?? [])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .filter((l: any) => l.status !== "cancelado")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .reduce((s: number, l: any) => s + (Number(l.valor_pago) || 0), 0);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const vAny = v as any;
+    const total = Number(vAny.total) || 0;
+    return {
+      id: vAny.id,
+      numero: vAny.numero,
+      cliente_nome: vAny.cliente?.nome ?? null,
+      data_emissao: vAny.data_emissao,
+      data_finalizacao: vAny.data_finalizacao,
+      subtotal: Number(vAny.subtotal) || 0,
+      desconto: Number(vAny.desconto) || 0,
+      total,
+      valor_recebido: vAny.valor_recebido,
+      troco: vAny.troco,
+      valor_pago_total,
+      valor_restante: Math.max(0, total - valor_pago_total),
+      status: vAny.status,
+      status_pagamento: vAny.status_pagamento,
+      forma_pagamento: vAny.forma_pagamento,
+      observacoes: vAny.observacoes,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      itens: (itens ?? []).map((i: any) => ({
+        id: i.id,
+        produto_id: i.produto_id,
+        descricao: i.descricao,
+        quantidade: Number(i.quantidade) || 0,
+        preco_unitario: Number(i.preco_unitario) || 0,
+        desconto: Number(i.desconto) || 0,
+        total: Number(i.total) || 0,
+        produto_nome: i.produto?.nome ?? null,
+        sku: i.produto?.sku ?? null,
+      })),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      pagamentos: (pagamentos ?? []).map((p: any) => ({
+        id: p.id,
+        forma_pagamento: p.forma_pagamento,
+        valor: Number(p.valor) || 0,
+        valor_recebido: p.valor_recebido != null ? Number(p.valor_recebido) : null,
+        troco: p.troco != null ? Number(p.troco) : null,
+        parcelas: p.parcelas != null ? Number(p.parcelas) : null,
+        observacao: p.observacao,
+      })),
+    };
+  },
+
+  async historico(vendaId) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any)
+      .from("vendas_status_historico")
+      .select("id, status_anterior, status_novo, origem, alterado_por, motivo, created_at")
+      .eq("venda_id", vendaId)
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return (data ?? []) as import("../extra-types").VendaStatusHistoricoDomain[];
+  },
+
+  async metricasPeriodo(input) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("venda_metricas_periodo", {
+      _data_inicio: input.data_inicio,
+      _data_fim: input.data_fim,
+    });
+    if (error) throw error;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const d = (data ?? {}) as any;
+    return {
+      qtd_vendas: Number(d.qtd_vendas) || 0,
+      qtd_canceladas: Number(d.qtd_canceladas) || 0,
+      total_vendido: Number(d.total_vendido) || 0,
+      ticket_medio: Number(d.ticket_medio) || 0,
+      qtd_pendentes: Number(d.qtd_pendentes) || 0,
+      valor_pendente: Number(d.valor_pendente) || 0,
+    };
+  },
+};
 // =====================================================================
 const caixa: DataAdapter["caixa"] = {
   async abrir(input: AbrirCaixaInput): Promise<string> {
