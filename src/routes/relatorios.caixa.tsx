@@ -288,20 +288,46 @@ function Conteudo() {
     let saldoFinal = 0;
     let entradas = 0;
     let saidas = 0;
-    let divergencia = 0;
+    let totalSobras = 0;
+    let totalFaltas = 0;
+    let qtdComDivergencia = 0;
     for (const r of rows) {
-      // Entradas: vendas + suprimentos + valor inicial
       entradas += r.total_vendas + r.total_suprimentos + r.valor_inicial;
-      // Saídas: sangrias
       saidas += r.total_sangrias;
-      // Saldo final = valor esperado se já tivermos, senão entradas - saídas
       saldoFinal += r.valor_esperado ?? r.valor_inicial + r.total_vendas + r.total_suprimentos - r.total_sangrias;
-      // Divergência total
-      if (r.status === "fechado" && r.diferenca != null) {
-        divergencia += r.diferenca;
+      if (r.status === "fechado" && r.diferenca != null && Math.abs(r.diferenca) > 0.009) {
+        qtdComDivergencia += 1;
+        if (r.diferenca > 0) totalSobras += r.diferenca;
+        else totalFaltas += Math.abs(r.diferenca);
       }
     }
-    return { saldoFinal, entradas, saidas, divergencia };
+    const divergencia = totalSobras - totalFaltas;
+    return { saldoFinal, entradas, saidas, divergencia, totalSobras, totalFaltas, qtdComDivergencia };
+  }, [rows]);
+
+  // Quebra de diferenças por operador (apenas caixas fechados com divergência)
+  const porOperador = useMemo(() => {
+    const map = new Map<
+      string,
+      { operador_nome: string; sobras: number; faltas: number; qtd: number; liquido: number }
+    >();
+    for (const r of rows) {
+      if (r.status !== "fechado" || r.diferenca == null || Math.abs(r.diferenca) < 0.009) continue;
+      const key = r.operador_id ?? "_sem";
+      const cur = map.get(key) ?? {
+        operador_nome: r.operador_nome,
+        sobras: 0,
+        faltas: 0,
+        qtd: 0,
+        liquido: 0,
+      };
+      cur.qtd += 1;
+      if (r.diferenca > 0) cur.sobras += r.diferenca;
+      else cur.faltas += Math.abs(r.diferenca);
+      cur.liquido += r.diferenca;
+      map.set(key, cur);
+    }
+    return Array.from(map.values()).sort((a, b) => Math.abs(b.liquido) - Math.abs(a.liquido));
   }, [rows]);
 
   /* ---------- Ações ---------- */
