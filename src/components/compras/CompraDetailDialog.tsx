@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, XCircle, PackageCheck, CalendarClock, Save } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useUpdateCompraMetadados } from "@/hooks/useCompras";
 import {
   Dialog,
   DialogContent,
