@@ -379,7 +379,7 @@ export function FinalizarVendaDialog({
       setTimeout(() => vencimentoInputRef.current?.focus(), 30);
       return;
     }
-    if (totalPago < total - 0.005) {
+    if (totalPago < totalEfetivo - 0.005) {
       // Parcial — segue normalmente, mas o sistema gera lançamento pendente
     }
 
