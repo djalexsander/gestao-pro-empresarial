@@ -654,8 +654,80 @@ pub fn init() -> DbResult<()> {
         [],
     );
 
+    // v18: backfill — clientes vindos de snapshots têm local_uuid = id e
+    // remote_id = id (já existem na nuvem). Idempotente: só preenche quando NULL.
+    let _ = conn.execute(
+        "UPDATE clientes_local SET local_uuid = id WHERE local_uuid IS NULL",
+        [],
+    );
+    let _ = conn.execute(
+        "UPDATE clientes_local SET remote_id = id WHERE remote_id IS NULL AND sync_status='synced'",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_clientes_local_uuid ON clientes_local(local_uuid)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_clientes_remote_id ON clientes_local(remote_id) WHERE remote_id IS NOT NULL",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_clientes_sync_status ON clientes_local(sync_status)",
+        [],
+    );
+
     // ------------------------------------------------------------------
-    // v10 — Outbox de cancelamentos de venda.
+    // v18 — Outbox de clientes (cadastro offline-first).
+    //
+    // Cada item carrega `action` ∈ ('criar','editar','alterar_status','excluir')
+    // e `payload` (JSON do request à RPC correspondente). `cliente_local_uuid`
+    // é a FK lógica para `clientes_local`. `cliente_remote_id` é resolvido em
+    // tempo de envio para `editar/alterar_status/excluir` quando a criação
+    // ainda estava na fila (ordem causal: criar → editar → excluir).
+    //
+    // Colapso (idempotência local):
+    //   * `criar` + `editar(s)` ainda pendentes → o `editar` mais recente
+    //     PATCHa o payload do `criar` (não envia novo item).
+    //   * `criar` + `excluir` ainda pendentes → ambos removidos (no-op).
+    //   * `editar` + `editar` synced → mantém o último.
+    //   * `excluir` cancela qualquer `editar`/`alterar_status` pendente.
+    //
+    // Idempotência ponta-a-ponta:
+    //   * `criar` usa `_client_uuid = local_uuid` (RPC `criar_cliente`).
+    //   * Demais ações são naturalmente idempotentes pelo `_cliente_id`.
+    // ------------------------------------------------------------------
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS outbox_clientes (
+            local_uuid           TEXT PRIMARY KEY,
+            client_uuid          TEXT,
+            cliente_local_uuid   TEXT NOT NULL,
+            cliente_remote_id    TEXT,
+            action               TEXT NOT NULL,
+            payload              TEXT NOT NULL,
+            status               TEXT NOT NULL DEFAULT 'pending',
+            attempts             INTEGER NOT NULL DEFAULT 0,
+            last_error           TEXT,
+            remote_id            TEXT,
+            remote_response      TEXT,
+            created_at_ms        INTEGER NOT NULL,
+            updated_at_ms        INTEGER NOT NULL,
+            sent_at_ms           INTEGER,
+            next_attempt_at_ms   INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_outbox_clientes_status
+            ON outbox_clientes(status, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_clientes_status_next
+            ON outbox_clientes(status, next_attempt_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_clientes_cli
+            ON outbox_clientes(cliente_local_uuid, status);
+        CREATE INDEX IF NOT EXISTS idx_outbox_clientes_action
+            ON outbox_clientes(action, status);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_clientes_client_uuid
+            ON outbox_clientes(client_uuid) WHERE client_uuid IS NOT NULL;
+        "#,
+    )?;
     //
     // Mesmo padrão das outboxes de estoque/vendas/caixa. Cada item carrega
     // o `venda_local_uuid` (FK lógica para vendas_local) e o `remote_id` da
