@@ -15,6 +15,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { unlockErp } from "@/lib/erpUnlock";
+import {
+  findOfflineEntry,
+  hasAnyOfflineEntry,
+  isNetworkAuthError,
+  saveOfflineCredential,
+  verifyOfflineCredential,
+  withAuthTimeout,
+} from "@/lib/erpOfflineCache";
+import { isDesktop } from "@/integrations/data/mode";
 
 interface Props {
   open: boolean;
