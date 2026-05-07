@@ -2268,6 +2268,7 @@ pub fn domain_has_rows(domain: &str) -> DbResult<bool> {
             "clientes_lite" => "clientes_local",
             "fornecedores" => "fornecedores_local",
             "compras" => "compras_local",
+            "vendas_remote" => "vendas_remote_cache",
             "financeiro_lancamentos_completo" => "financeiro_lancamentos_local",
             "estoque_saldos" => "estoque_saldos_local",
             "estoque_movimentacoes" => "estoque_movimentacoes_local",
