@@ -32,7 +32,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { dataClient } from "@/integrations/data";
 import { formatBRL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import type { Caixa, CaixaMovimento } from "@/hooks/useCaixa";
@@ -78,13 +77,7 @@ export function CaixaRelatorioDialog({ open, onOpenChange, caixaId }: Props) {
     enabled: !!caixaId && open,
     queryFn: async (): Promise<Caixa | null> => {
       if (!caixaId) return null;
-      const { data, error } = await supabase
-        .from("caixas")
-        .select("*")
-        .eq("id", caixaId)
-        .maybeSingle();
-      if (error) throw error;
-      return (data as Caixa | null) ?? null;
+      return (await dataClient.caixa.obterPorId(caixaId)) as Caixa | null;
     },
   });
 
@@ -93,12 +86,7 @@ export function CaixaRelatorioDialog({ open, onOpenChange, caixaId }: Props) {
     enabled: !!caixa?.operador_id && open,
     queryFn: async (): Promise<string | null> => {
       if (!caixa?.operador_id) return null;
-      const { data } = await supabase
-        .from("funcionarios")
-        .select("nome")
-        .eq("id", caixa.operador_id)
-        .maybeSingle();
-      return data?.nome ?? null;
+      return await dataClient.funcionarios.nomePorId(caixa.operador_id);
     },
   });
 
