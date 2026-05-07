@@ -41,6 +41,39 @@ export function useAutorizacoesLog(limit = 100) {
   });
 }
 
+export function useAutorizacaoCartoes() {
+  return useQuery({
+    queryKey: ["autorizacao_cartoes"],
+    queryFn: () => dataClient.autorizacoes.listarCartoes(),
+  });
+}
+
+export function useCriarCartaoAutorizacao() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CriarCartaoAutorizacaoInput) =>
+      dataClient.autorizacoes.criarCartao(input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["autorizacao_cartoes"] }),
+  });
+}
+
+export function useSetCartaoAtivo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; ativo: boolean }) =>
+      dataClient.autorizacoes.setCartaoAtivo(input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["autorizacao_cartoes"] }),
+  });
+}
+
+export function useExcluirCartaoAutorizacao() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => dataClient.autorizacoes.excluirCartao(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["autorizacao_cartoes"] }),
+  });
+}
+
 export async function validarAutorizacao(
   input: ValidarAutorizacaoInput,
 ): Promise<ValidarAutorizacaoResultDomain> {
