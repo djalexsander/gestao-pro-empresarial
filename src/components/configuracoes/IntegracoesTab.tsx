@@ -20,6 +20,7 @@ import { useEmpresaAtual } from "@/hooks/useEmpresa";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { WhatsAppConfigForm } from "./WhatsAppConfigForm";
 import { PixConfigForm } from "./PixConfigForm";
+import { MarketplaceConfigForm } from "./MarketplaceConfigForm";
 
 type TipoIntegracao = "ifood" | "mercado_livre" | "shopee" | "whatsapp" | "pix";
 type StatusIntegracao = "disconnected" | "configuring" | "connected" | "error" | "disabled";
@@ -201,22 +202,9 @@ function ConfigDialog({ tipo, atual, open, onOpenChange, onSalvar, salvando }: C
   const cfg = atual?.configuracoes ?? {};
   const { empresaAtual } = useEmpresaAtual();
 
-  // Marketplaces
-  const [mktToken, setMktToken] = useState<string>(cfg.token ?? "");
-
-  const handleSalvarMarketplace = () => {
-    onSalvar({
-      tipo_integracao: tipo,
-      status: mktToken ? "configuring" : "disconnected",
-      ativo: false,
-      nome_exibicao: meta.titulo,
-      configuracoes: { token: mktToken },
-    });
-  };
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <meta.Icon className="h-5 w-5" /> {meta.titulo}
@@ -244,25 +232,14 @@ function ConfigDialog({ tipo, atual, open, onOpenChange, onSalvar, salvando }: C
           </>
         )}
 
-        {(tipo === "ifood" || tipo === "mercado_livre" || tipo === "shopee") && (
-          <>
-            <div className="space-y-3">
-              <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
-                A conexão oficial com {meta.titulo} será habilitada em breve. Você pode salvar um
-                token/identificador para ativar a integração assim que disponível.
-              </div>
-              <div className="space-y-1.5">
-                <Label>Token / Identificador</Label>
-                <Input value={mktToken} onChange={(e) => setMktToken(e.target.value)} placeholder="opcional" />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-              <Button onClick={handleSalvarMarketplace} disabled={salvando}>
-                {salvando ? "Salvando..." : "Salvar"}
-              </Button>
-            </DialogFooter>
-          </>
+        {(tipo === "ifood" || tipo === "mercado_livre" || tipo === "shopee") && empresaAtual && (
+          <MarketplaceConfigForm
+            tipo={tipo}
+            empresaId={empresaAtual.id}
+            atual={atual}
+            onSalvar={onSalvar}
+            salvando={salvando}
+          />
         )}
       </DialogContent>
     </Dialog>
