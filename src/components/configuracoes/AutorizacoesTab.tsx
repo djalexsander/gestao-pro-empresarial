@@ -6,28 +6,23 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { ShieldCheck, Loader2, History, KeyRound, Eye } from "lucide-react";
+import { ShieldCheck, Loader2, History, Plus, Ban, RotateCcw, Trash2, IdCard } from "lucide-react";
 import { toast } from "sonner";
 import {
   useAutorizacoesConfig,
   useSalvarAutorizacoesConfig,
   useAutorizacoesLog,
+  useAutorizacaoCartoes,
+  useSetCartaoAtivo,
+  useExcluirCartaoAutorizacao,
   ACAO_LABELS,
   type AutorizacoesConfig,
 } from "@/hooks/useAutorizacoes";
 import { formatBRL } from "@/lib/mock-data";
 import { CartaoAutorizacaoDialog } from "./CartaoAutorizacaoDialog";
+import { NovoCartaoAutorizacaoDialog } from "./NovoCartaoAutorizacaoDialog";
 import { useEmpresaAtual } from "@/hooks/useEmpresa";
 import { useConfigEmpresa } from "@/hooks/useConfigEmpresa";
-import { supabase } from "@/integrations/supabase/client";
-
-function gerarCodigoSeguro(): string {
-  // 24 chars alfanuméricos sem ambíguos — compatível com leitor de barras CODE128
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const arr = new Uint32Array(24);
-  crypto.getRandomValues(arr);
-  return Array.from(arr, (n) => alphabet[n % alphabet.length]).join("");
-}
 
 const ACOES: Array<{ key: keyof AutorizacoesConfig; label: string; desc: string }> = [
   { key: "exigir_fechar_caixa_divergencia", label: "Fechar caixa com divergência", desc: "Quando o valor contado difere do esperado." },
@@ -46,25 +41,23 @@ export function AutorizacoesTab() {
   const { data: cfg, isLoading } = useAutorizacoesConfig();
   const salvar = useSalvarAutorizacoesConfig();
   const { data: logs = [] } = useAutorizacoesLog(50);
-  const { papel, empresaAtual } = useEmpresaAtual();
+  const { papel } = useEmpresaAtual();
   const { data: empresaCfg } = useConfigEmpresa();
+  const { data: cartoes = [], isLoading: loadingCartoes } = useAutorizacaoCartoes();
+  const setAtivo = useSetCartaoAtivo();
+  const excluirCartao = useExcluirCartaoAutorizacao();
 
   const podeGerenciarCartao = papel === "owner" || papel === "admin";
   const empresaNome =
-    empresaCfg?.nome_fantasia || empresaCfg?.razao_social || empresaAtual?.nome || "";
+    empresaCfg?.nome_fantasia || empresaCfg?.razao_social || "";
 
   const [local, setLocal] = useState<Partial<AutorizacoesConfig>>({});
   const [senhaNova, setSenhaNova] = useState("");
-  const [codigoNovo, setCodigoNovo] = useState("");
-  const [labelQR, setLabelQR] = useState("");
-  const [codigoGerado, setCodigoGerado] = useState<string | null>(null);
-  const [showCartao, setShowCartao] = useState(false);
+  const [showNovoCartao, setShowNovoCartao] = useState(false);
+  const [cartaoRecemCriado, setCartaoRecemCriado] = useState<{ codigo: string; rotulo: string } | null>(null);
 
   useEffect(() => {
-    if (cfg) {
-      setLocal(cfg);
-      setLabelQR(cfg.codigo_qr_label ?? "");
-    }
+    if (cfg) setLocal(cfg);
   }, [cfg]);
 
   if (isLoading || !cfg) {
@@ -80,39 +73,32 @@ export function AutorizacoesTab() {
     set("papeis_autorizadores", Array.from(atuais) as AutorizacoesConfig["papeis_autorizadores"]);
   };
 
-  function handleGerarCodigo() {
-    if (!podeGerenciarCartao) {
-      toast.error("Apenas dono ou admin pode gerar o cartão.");
-      return;
-    }
-    const novo = gerarCodigoSeguro();
-    setCodigoGerado(novo);
-    setCodigoNovo(novo);
-    setShowCartao(true);
-    toast.success("Código gerado. Salve as configurações para ativá-lo.");
-  }
-
   async function handleSalvar() {
-    const payload: Record<string, unknown> = { ...local, codigo_qr_label: labelQR };
+    const payload: Record<string, unknown> = { ...local };
     if (senhaNova) payload.senha_master_nova = senhaNova;
-    if (codigoNovo) payload.codigo_qr_novo = codigoNovo;
-    const codigoAlterado = !!codigoNovo;
     try {
       await salvar.mutateAsync(payload);
-      setSenhaNova(""); setCodigoNovo("");
+      setSenhaNova("");
       toast.success("Autorizações atualizadas.");
-      if (codigoAlterado) {
-        try {
-          const { data: u } = await supabase.auth.getUser();
-          await supabase.from("audit_logs").insert({
-            actor_id: u.user?.id ?? null,
-            actor_email: u.user?.email ?? null,
-            action: "autorizacoes.codigo_qr.alterado",
-            target_type: "autorizacoes_config",
-            metadata: { label: labelQR, empresa: empresaNome },
-          });
-        } catch {/* noop */}
-      }
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function handleRevogar(id: string, ativo: boolean) {
+    try {
+      await setAtivo.mutateAsync({ id, ativo: !ativo });
+      toast.success(ativo ? "Cartão revogado." : "Cartão reativado.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function handleExcluirCartao(id: string) {
+    if (!confirm("Excluir cartão definitivamente? Essa ação não pode ser desfeita.")) return;
+    try {
+      await excluirCartao.mutateAsync(id);
+      toast.success("Cartão excluído.");
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -153,50 +139,69 @@ export function AutorizacoesTab() {
             )}
             {local.metodo_codigo_qr_habilitado && (
               <div className="space-y-3 rounded-md border border-border bg-muted/30 p-3">
-                <div className="grid gap-2 sm:grid-cols-2">
+                <div className="flex items-center justify-between gap-2">
                   <div>
-                    <Label className="text-xs">Rótulo do código (ex: "Cartão Gerente")</Label>
-                    <Input value={labelQR} onChange={(e) => setLabelQR(e.target.value)} className="mt-1" disabled={!podeGerenciarCartao} />
-                  </div>
-                  <div>
-                    <Label className="text-xs">
-                      Código de autorização{" "}
-                      {(cfg.codigo_qr_hash || codigoNovo) && (
-                        <Badge variant="secondary" className="ml-1 text-[10px]">já definido</Badge>
-                      )}
-                    </Label>
-                    <Input
-                      value={codigoNovo}
-                      onChange={(e) => setCodigoNovo(e.target.value)}
-                      placeholder={cfg.codigo_qr_hash ? "Use 'Gerar código' ou cole um novo" : "Gere ou cole um código"}
-                      className="mt-1 font-mono"
-                      disabled={!podeGerenciarCartao}
-                      type={codigoNovo ? "text" : "text"}
-                    />
-                  </div>
-                </div>
-                {podeGerenciarCartao ? (
-                  <div className="flex flex-wrap gap-2">
-                    <Button type="button" variant="secondary" size="sm" onClick={handleGerarCodigo}>
-                      <KeyRound className="mr-2 h-4 w-4" /> Gerar código
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={!codigoNovo && !codigoGerado}
-                      onClick={() => setShowCartao(true)}
-                      title={!codigoNovo && !codigoGerado ? "Gere um código primeiro" : undefined}
-                    >
-                      <Eye className="mr-2 h-4 w-4" /> Visualizar cartão
-                    </Button>
-                    <p className="w-full text-[11px] text-muted-foreground">
-                      Após salvar, o código fica armazenado de forma segura (hash) e não pode ser visualizado novamente — apenas regerado.
+                    <p className="text-sm font-medium flex items-center gap-2">
+                      <IdCard className="h-4 w-4" /> Cartões de autorização
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Cada cartão tem código único vinculado a um autorizador específico. O código completo só é exibido uma vez.
                     </p>
                   </div>
+                  {podeGerenciarCartao && (
+                    <Button type="button" size="sm" onClick={() => setShowNovoCartao(true)}>
+                      <Plus className="mr-2 h-4 w-4" /> Novo cartão
+                    </Button>
+                  )}
+                </div>
+
+                {loadingCartoes ? (
+                  <div className="flex justify-center py-4"><Loader2 className="h-5 w-5 animate-spin" /></div>
+                ) : cartoes.length === 0 ? (
+                  <p className="text-xs text-muted-foreground py-2">Nenhum cartão cadastrado ainda.</p>
                 ) : (
+                  <div className="space-y-2">
+                    {cartoes.map((c) => (
+                      <div key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-border bg-background p-2 text-sm">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{c.rotulo}</span>
+                            {c.ativo ? (
+                              <Badge variant="default" className="text-[10px]">ativo</Badge>
+                            ) : (
+                              <Badge variant="destructive" className="text-[10px]">revogado</Badge>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-muted-foreground">
+                            {c.funcionario_nome
+                              ? `Funcionário: ${c.funcionario_nome}`
+                              : c.user_id
+                              ? "Membro vinculado"
+                              : "Genérico (sem vínculo)"}
+                            {c.funcao && ` · ${c.funcao}`}
+                            {" · criado em "}
+                            {new Date(c.created_at).toLocaleDateString("pt-BR")}
+                            {c.usado_em && ` · último uso ${new Date(c.usado_em).toLocaleDateString("pt-BR")}`}
+                          </p>
+                        </div>
+                        {podeGerenciarCartao && (
+                          <div className="flex gap-1">
+                            <Button size="sm" variant="ghost" onClick={() => handleRevogar(c.id, c.ativo)} title={c.ativo ? "Revogar" : "Reativar"}>
+                              {c.ativo ? <Ban className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => handleExcluirCartao(c.id)} title="Excluir">
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {!podeGerenciarCartao && (
                   <p className="text-[11px] text-muted-foreground">
-                    Apenas dono ou admin pode gerar, visualizar ou imprimir o cartão de autorização.
+                    Apenas dono ou admin pode gerenciar cartões de autorização.
                   </p>
                 )}
               </div>
@@ -285,11 +290,17 @@ export function AutorizacoesTab() {
         </CardContent>
       </Card>
 
+      <NovoCartaoAutorizacaoDialog
+        open={showNovoCartao}
+        onOpenChange={setShowNovoCartao}
+        onCriado={(d) => setCartaoRecemCriado(d)}
+      />
+
       <CartaoAutorizacaoDialog
-        open={showCartao}
-        onOpenChange={setShowCartao}
-        codigo={codigoGerado ?? codigoNovo}
-        label={labelQR || "Cartão Gerente"}
+        open={!!cartaoRecemCriado}
+        onOpenChange={(v) => { if (!v) setCartaoRecemCriado(null); }}
+        codigo={cartaoRecemCriado?.codigo ?? ""}
+        label={cartaoRecemCriado?.rotulo ?? "Cartão"}
         empresaNome={empresaNome}
       />
     </div>

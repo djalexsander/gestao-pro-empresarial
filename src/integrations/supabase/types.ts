@@ -86,6 +86,68 @@ export type Database = {
         }
         Relationships: []
       }
+      autorizacao_cartoes: {
+        Row: {
+          ativo: boolean
+          codigo_hash: string
+          created_at: string
+          criado_por: string | null
+          funcao: string | null
+          funcionario_id: string | null
+          id: string
+          observacoes: string | null
+          owner_id: string
+          revogado_em: string | null
+          revogado_por: string | null
+          rotulo: string
+          updated_at: string
+          usado_em: string | null
+          user_id: string | null
+        }
+        Insert: {
+          ativo?: boolean
+          codigo_hash: string
+          created_at?: string
+          criado_por?: string | null
+          funcao?: string | null
+          funcionario_id?: string | null
+          id?: string
+          observacoes?: string | null
+          owner_id: string
+          revogado_em?: string | null
+          revogado_por?: string | null
+          rotulo: string
+          updated_at?: string
+          usado_em?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          ativo?: boolean
+          codigo_hash?: string
+          created_at?: string
+          criado_por?: string | null
+          funcao?: string | null
+          funcionario_id?: string | null
+          id?: string
+          observacoes?: string | null
+          owner_id?: string
+          revogado_em?: string | null
+          revogado_por?: string | null
+          rotulo?: string
+          updated_at?: string
+          usado_em?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "autorizacao_cartoes_funcionario_id_fkey"
+            columns: ["funcionario_id"]
+            isOneToOne: false
+            referencedRelation: "funcionarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       autorizacoes_config: {
         Row: {
           codigo_qr_hash: string | null
@@ -3456,6 +3518,23 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      autorizacao_cartao_criar: {
+        Args: {
+          _codigo: string
+          _funcao?: string
+          _funcionario_id?: string
+          _observacoes?: string
+          _rotulo: string
+          _user_id?: string
+        }
+        Returns: string
+      }
+      autorizacao_cartao_excluir: { Args: { _id: string }; Returns: undefined }
+      autorizacao_cartao_set_ativo: {
+        Args: { _ativo: boolean; _id: string }
+        Returns: undefined
+      }
+      autorizacao_resolver_owner: { Args: never; Returns: string }
       autorizacao_validar: {
         Args: {
           _acao: Database["public"]["Enums"]["autorizacao_acao"]

@@ -170,11 +170,40 @@ export interface ValidarAutorizacaoResultDomain {
   autorizador_nome: string | null;
 }
 
+export interface AutorizacaoCartaoDomain {
+  id: string;
+  rotulo: string;
+  funcao: string | null;
+  funcionario_id: string | null;
+  funcionario_nome: string | null;
+  user_id: string | null;
+  user_email: string | null;
+  ativo: boolean;
+  criado_por: string | null;
+  usado_em: string | null;
+  revogado_em: string | null;
+  observacoes: string | null;
+  created_at: string;
+}
+
+export interface CriarCartaoAutorizacaoInput {
+  rotulo: string;
+  codigo: string;
+  funcionario_id?: string | null;
+  user_id?: string | null;
+  funcao?: string | null;
+  observacoes?: string | null;
+}
+
 export interface AutorizacoesAdapter {
   obterConfig(): Promise<AutorizacoesConfigDomain>;
   salvarConfig(payload: Record<string, unknown>): Promise<AutorizacoesConfigDomain>;
   log(limit?: number): Promise<AutorizacaoLogDomain[]>;
   validar(input: ValidarAutorizacaoInputDomain): Promise<ValidarAutorizacaoResultDomain>;
+  listarCartoes(): Promise<AutorizacaoCartaoDomain[]>;
+  criarCartao(input: CriarCartaoAutorizacaoInput): Promise<string>;
+  setCartaoAtivo(input: { id: string; ativo: boolean }): Promise<void>;
+  excluirCartao(id: string): Promise<void>;
 }
 
 // =============== Empresa (multi-empresa) ===============
