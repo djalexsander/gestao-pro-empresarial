@@ -55,6 +55,8 @@ export function MovimentoCaixaDialog({ open, onOpenChange, caixaId, tipo }: Prop
 
   const [valor, setValor] = useState("");
   const [motivo, setMotivo] = useState("");
+  const [autReq, setAutReq] = useState<AutorizacaoRequest | null>(null);
+  const [autorizadorNome, setAutorizadorNome] = useState<string | null>(null);
   // UUID estável por abertura do modal — cobre duplo clique, Enter repetido,
   // retry de rede e qualquer reenvio da mesma operação. Reset a cada abertura.
   const [clientUuid, setClientUuid] = useState<string>(() =>
@@ -63,11 +65,18 @@ export function MovimentoCaixaDialog({ open, onOpenChange, caixaId, tipo }: Prop
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   const registrar = useRegistrarMovimentoCaixa();
+  const { data: cfgAut } = useAutorizacoesConfig();
+
+  const exigeAutorizacao =
+    tipo === "sangria"
+      ? !!cfgAut?.exigir_sangria_caixa
+      : !!cfgAut?.exigir_suprimento_caixa;
 
   useEffect(() => {
     if (open) {
       setValor("");
       setMotivo("");
+      setAutorizadorNome(null);
       setClientUuid(
         typeof crypto !== "undefined" && "randomUUID" in crypto
           ? crypto.randomUUID()
@@ -76,18 +85,41 @@ export function MovimentoCaixaDialog({ open, onOpenChange, caixaId, tipo }: Prop
     }
   }, [open]);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function persistir(autorizadoPor: string | null) {
     const v = Number(valor.replace(",", "."));
-    if (Number.isNaN(v) || v <= 0) return;
     await registrar.mutateAsync({
       caixa_id: caixaId,
       tipo,
       valor: v,
-      motivo: motivo.trim() || null,
+      motivo:
+        (motivo.trim() ||
+          (autorizadoPor ? `Autorizado por ${autorizadoPor}` : null)) ?? null,
       client_uuid: clientUuid,
     });
     onOpenChange(false);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const v = Number(valor.replace(",", "."));
+    if (Number.isNaN(v) || v <= 0) {
+      toast.error("Informe um valor válido.");
+      return;
+    }
+    if (exigeAutorizacao && !autorizadorNome) {
+      const acao = tipo === "sangria" ? "sangria_caixa" : "suprimento_caixa";
+      const verbo = tipo === "sangria" ? "Sangria" : "Suplemento";
+      setAutReq({
+        acao,
+        contexto: `${verbo} de caixa no valor de ${formatBRL(v)}`,
+        contexto_dados: { caixa_id: caixaId, valor: v, tipo },
+        valor_envolvido: v,
+        referencia_tipo: "caixa",
+        referencia_id: caixaId,
+      });
+      return;
+    }
+    await persistir(autorizadorNome);
   }
 
   return (
