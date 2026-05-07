@@ -15,6 +15,7 @@ import {
   TrendingUp,
   CreditCard,
   HandCoins,
+  ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
 
