@@ -725,6 +725,16 @@ const caixa: DataAdapter["caixa"] = {
     if (error) throw error;
     return (data ?? []) as unknown as import("../types").CaixaMovimentoDomain[];
   },
+
+  async obterPorId(caixaId) {
+    const { data, error } = await supabase
+      .from("caixas")
+      .select("*")
+      .eq("id", caixaId)
+      .maybeSingle();
+    if (error) throw error;
+    return (data as unknown as import("../types").CaixaDomain | null) ?? null;
+  },
 };
 
 // =====================================================================
