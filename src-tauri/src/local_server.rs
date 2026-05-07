@@ -556,6 +556,13 @@ async fn proxy_with_incremental_sync(
                             eprintln!("[gestao-pro] ingest clientes falhou: {e}");
                         }
                     },
+                    "fornecedores" => match db::ingest_fornecedores(text, now, strategy) {
+                        Ok((n, _)) => delta = n as i64,
+                        Err(e) => {
+                            let _ = db::record_sync_error(domain, now, &e.to_string());
+                            eprintln!("[gestao-pro] ingest fornecedores falhou: {e}");
+                        }
+                    },
                     "estoque_movimentacoes" => {
                         match db::ingest_movimentacoes(text, now, strategy) {
                             Ok((n, _)) => delta = n as i64,
@@ -710,6 +717,7 @@ fn read_typed(domain: &str, query: &[(&str, String)]) -> Result<String, db::DbEr
             })
         }
         "clientes_lite" => db::read_clientes(None),
+        "fornecedores" => db::read_fornecedores(None),
         "estoque_saldos" => db::read_saldos(),
         "estoque_movimentacoes" => {
             let produto_id = query
@@ -960,11 +968,21 @@ async fn db_sync_handler(
         }
         "clientes_lite" => {
             let params: Vec<(&str, String)> = vec![
-                ("select", "id,nome,nome_fantasia,documento,status,updated_at".into()),
+                ("select", "*".into()),
                 ("order", "nome.asc".into()),
             ];
             proxy_with_incremental_sync(
                 &ctx, &headers, "clientes_lite", "/rest/v1/clientes", &params, true,
+            )
+            .await
+        }
+        "fornecedores" => {
+            let params: Vec<(&str, String)> = vec![
+                ("select", "*".into()),
+                ("order", "razao_social.asc".into()),
+            ];
+            proxy_with_incremental_sync(
+                &ctx, &headers, "fornecedores", "/rest/v1/fornecedores", &params, true,
             )
             .await
         }
@@ -1765,6 +1783,34 @@ async fn caixa_local_aberto_handler(
     Ok(Json(row))
 }
 
+// ---------- /api/fornecedores (v13) ----------
+//
+// Mesma filosofia do clientes/lite: ingere `*` no `fornecedores_local` e
+// devolve a lista lida do SQLite, com cursor incremental por `updated_at`
+// e tombstone por status.
+
+async fn fornecedores_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let mut params: Vec<(&str, String)> = vec![
+        ("select", "*".into()),
+        ("order", "razao_social.asc".into()),
+    ];
+    // status vazio = todos; ausente = "ativo" (default)
+    let status_opt = q.get("status").map(|s| s.as_str());
+    let status_val = match status_opt {
+        None => Some("ativo"),
+        Some("") => None,
+        Some(other) => Some(other),
+    };
+    if let Some(s) = status_val {
+        params.push(("status", format!("eq.{s}")));
+    }
+    let q_owned: Vec<(&str, String)> = params.iter().map(|(k, v)| (*k, v.clone())).collect();
+    proxy_with_incremental_sync(&ctx, &headers, "fornecedores", "/rest/v1/fornecedores", &q_owned, false).await
+}
 
 /// GET `/api/caixa/resumo?caixa_id=...` ou `?operador_id=...` para o aberto.
 /// Retorna o resumo local do caixa: totais por forma de pagamento, vendas,
@@ -2186,6 +2232,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/db/outbox/financeiro/flush", post(outbox_fin_flush_handler))
         .route("/db/outbox/financeiro/retry-errors", post(outbox_fin_retry_errors_handler))
         .route("/api/clientes/lite", get(clientes_lite_handler))
+        .route("/api/fornecedores", get(fornecedores_handler))
         .route("/backup/status", get(backup_status_handler))
         .route("/backup/list", get(backup_list_handler))
         .route("/backup/log", get(backup_log_handler))
