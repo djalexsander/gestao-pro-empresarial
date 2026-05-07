@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -154,13 +154,10 @@ export function LancamentoFormDialog(props: Props) {
   const { data: categorias = [] } = useQuery({
     queryKey: ["categorias_financeiras_ativas"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("categorias_financeiras")
-        .select("id, nome, tipo, ativo")
-        .eq("ativo", true)
-        .order("nome");
-      if (error) throw error;
-      return (data ?? []) as CategoriaFinanceiraLite[];
+      const data = await dataClient.categoriasFinanceiras.list({});
+      return (data ?? []).filter((c) => c.ativo).map((c) => ({
+        id: c.id, nome: c.nome, tipo: c.tipo, ativo: c.ativo,
+      })) as CategoriaFinanceiraLite[];
     },
     enabled: open,
   });

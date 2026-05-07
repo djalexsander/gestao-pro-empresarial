@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data/client";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import {
@@ -199,107 +199,8 @@ function FinanceContent() {
   const { data: lancamentos = [], isLoading } = useQuery({
     queryKey: ["financeiro_lancamentos"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("financeiro_lancamentos")
-        .select(
-          `id, descricao, valor, valor_pago, data_vencimento, data_pagamento, data_emissao,
-           tipo, status, observacoes, numero_documento, forma_pagamento, created_at,
-           conciliado_em, valor_repasse, taxa_repasse, numero_repasse, observacao_repasse,
-           cliente_id, venda_id, compra_id,
-           fornecedor:fornecedores(razao_social, nome_fantasia, documento, telefone),
-           cliente:clientes(nome, documento, telefone, celular, email),
-           venda:vendas(numero, data_finalizacao, total),
-           compra:compras(numero, data_emissao, total, status),
-           categoria:categorias_financeiras(nome)`,
-        )
-        .order("data_vencimento", { ascending: true });
-      if (error) throw error;
-      type Row = {
-        id: string;
-        descricao: string;
-        valor: number;
-        valor_pago: number | null;
-        data_vencimento: string;
-        data_pagamento: string | null;
-        data_emissao: string | null;
-        tipo: "receber" | "pagar";
-        status: Lancamento["status"];
-        observacoes: string | null;
-        numero_documento: string | null;
-        forma_pagamento: string | null;
-        created_at: string | null;
-        conciliado_em: string | null;
-        valor_repasse: number | null;
-        taxa_repasse: number | null;
-        numero_repasse: string | null;
-        observacao_repasse: string | null;
-        cliente_id: string | null;
-        venda_id: string | null;
-        compra_id: string | null;
-        fornecedor: {
-          razao_social: string | null;
-          nome_fantasia: string | null;
-          documento: string | null;
-          telefone: string | null;
-        } | null;
-        cliente: {
-          nome: string | null;
-          documento: string | null;
-          telefone: string | null;
-          celular: string | null;
-          email: string | null;
-        } | null;
-        venda: {
-          numero: string | null;
-          data_finalizacao: string | null;
-          total: number | null;
-        } | null;
-        compra: {
-          numero: string | null;
-          data_emissao: string | null;
-          total: number | null;
-          status: string | null;
-        } | null;
-        categoria: { nome: string | null } | null;
-      };
-      return ((data ?? []) as Row[]).map<Lancamento>((r) => ({
-        id: r.id,
-        descricao: r.descricao,
-        valor: r.valor,
-        valor_pago: r.valor_pago,
-        data_vencimento: r.data_vencimento,
-        data_pagamento: r.data_pagamento,
-        data_emissao: r.data_emissao,
-        tipo: r.tipo,
-        status: r.status,
-        observacoes: r.observacoes,
-        numero_documento: r.numero_documento,
-        forma_pagamento: r.forma_pagamento,
-        created_at: r.created_at,
-        conciliado_em: r.conciliado_em,
-        valor_repasse: r.valor_repasse,
-        taxa_repasse: r.taxa_repasse,
-        numero_repasse: r.numero_repasse,
-        observacao_repasse: r.observacao_repasse,
-        cliente_id: r.cliente_id,
-        venda_id: r.venda_id,
-        fornecedor_nome: r.fornecedor?.nome_fantasia ?? r.fornecedor?.razao_social ?? null,
-        fornecedor_documento: r.fornecedor?.documento ?? null,
-        fornecedor_telefone: r.fornecedor?.telefone ?? null,
-        cliente_nome: r.cliente?.nome ?? null,
-        cliente_documento: r.cliente?.documento ?? null,
-        cliente_telefone: r.cliente?.telefone ?? r.cliente?.celular ?? null,
-        cliente_email: r.cliente?.email ?? null,
-        venda_numero: r.venda?.numero ?? null,
-        venda_data: r.venda?.data_finalizacao ?? null,
-        venda_total: r.venda?.total ?? null,
-        compra_id: r.compra_id,
-        compra_numero: r.compra?.numero ?? null,
-        compra_data_emissao: r.compra?.data_emissao ?? null,
-        compra_total: r.compra?.total ?? null,
-        compra_status: r.compra?.status ?? null,
-        categoria_nome: r.categoria?.nome ?? null,
-      }));
+      const data = await dataClient.financeiro.listLancamentosCompleto();
+      return data as Lancamento[];
     },
   });
 
@@ -1420,176 +1321,35 @@ function FluxoCaixaPanel() {
   // Breakdown por forma de pagamento das vendas no período
   const { data: porForma = [] } = useQuery({
     queryKey: ["financeiro", "fluxo-por-forma", inicio, fim],
-    queryFn: async () => {
-      const inicioTs = `${inicio}T00:00:00`;
-      const fimTs = `${fim}T23:59:59.999`;
-
-      // 1) Buscar vendas finalizadas no período (não canceladas)
-      const { data: vendasData, error: errVendas } = await supabase
-        .from("vendas")
-        .select("id, status, status_pagamento")
-        .gte("data_finalizacao", inicioTs)
-        .lte("data_finalizacao", fimTs)
-        .neq("status", "cancelada")
-        .limit(5000);
-      if (errVendas) throw errVendas;
-
-      const vendaIds = (vendasData ?? []).map((v) => v.id);
-      if (vendaIds.length === 0) {
-        return [] as { forma: string; recebido: number; aReceber: number }[];
-      }
-      const vendaMap = new Map((vendasData ?? []).map((v) => [v.id, v] as const));
-
-      // 2) Buscar pagamentos dessas vendas
-      const { data: pagamentos, error: errPag } = await supabase
-        .from("venda_pagamentos")
-        .select("forma_pagamento, valor, valor_recebido, venda_id")
-        .in("venda_id", vendaIds)
-        .limit(10000);
-      if (errPag) throw errPag;
-
-      // 2.1) Buscar lançamentos financeiros vinculados a essas vendas
-      // (para saber quanto de iFood/Fiado/Outros já foi efetivamente recebido)
-      const { data: lancsVinc, error: errLanc } = await supabase
-        .from("financeiro_lancamentos")
-        .select("venda_id, forma_pagamento, valor, valor_pago, status, conciliado_em")
-        .in("venda_id", vendaIds)
-        .eq("tipo", "receber")
-        .limit(20000);
-      if (errLanc) throw errLanc;
-
-      // Mapa: (venda_id|forma) -> { recebido, total }
-      const lancMap = new Map<string, { recebido: number; total: number }>();
-      for (const l of lancsVinc ?? []) {
-        if (!l.venda_id || !l.forma_pagamento) continue;
-        const key = `${l.venda_id}|${l.forma_pagamento}`;
-        const cur = lancMap.get(key) ?? { recebido: 0, total: 0 };
-        const valor = Number(l.valor) || 0;
-        const pago = Number(l.valor_pago) || 0;
-        cur.total += valor;
-        // Considera recebido se status pago/recebido OU iFood conciliado.
-        // Quando efetivado, o valor cheio do lançamento conta como recebido —
-        // a diferença entre valor e valor_pago é taxa (iFood), não pendência.
-        const efetivado = l.status === "pago" || l.status === "recebido" || !!l.conciliado_em;
-        cur.recebido += efetivado ? valor : pago;
-        lancMap.set(key, cur);
-      }
-
-      const totals = new Map<string, { recebido: number; aReceber: number }>();
-      for (const r of pagamentos ?? []) {
-        const venda = vendaMap.get(r.venda_id);
-        if (!venda) continue;
-        const forma = r.forma_pagamento;
-        const cur = totals.get(forma) ?? { recebido: 0, aReceber: 0 };
-        const valorBruto = Number(r.valor) || 0;
-
-        // Para iFood/Fiado/Outro: usar lançamento financeiro como fonte da verdade
-        // (esses são "a receber" e podem ser quitados depois)
-        if (forma === "ifood" || forma === "fiado" || forma === "outro") {
-          const key = `${r.venda_id}|${forma}`;
-          const lanc = lancMap.get(key);
-          if (lanc) {
-            // Proporcional caso haja múltiplos pagamentos com a mesma forma
-            const recLanc = Math.min(lanc.recebido, valorBruto);
-            cur.recebido += recLanc;
-            cur.aReceber += Math.max(valorBruto - recLanc, 0);
-          } else {
-            // Sem lançamento -> ainda não recebido
-            cur.aReceber += valorBruto;
-          }
-        } else {
-          // Dinheiro / PIX / Cartão: já entram como recebido conforme status da venda
-          const recebido =
-            venda.status_pagamento === "pago"
-              ? valorBruto
-              : venda.status_pagamento === "parcial"
-                ? Number(r.valor_recebido ?? 0)
-                : 0;
-          cur.recebido += recebido;
-          cur.aReceber += valorBruto - recebido;
-        }
-        totals.set(forma, cur);
-      }
-      return Array.from(totals.entries())
-        .map(([forma, v]) => ({ forma, ...v }))
-        .filter((e) => e.recebido > 0 || e.aReceber > 0)
-        .sort((a, b) => b.recebido + b.aReceber - (a.recebido + a.aReceber));
-    },
+    queryFn: () => dataClient.financeiro.fluxoPorForma({ inicio, fim }),
     staleTime: 15_000,
   });
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["financeiro", "fluxo-caixa", inicio, fim],
     queryFn: async (): Promise<FluxoRow[]> => {
-      // Range em timestamp para cobrir o dia inteiro do "fim".
-      const inicioTs = `${inicio}T00:00:00`;
-      const fimTs = `${fim}T23:59:59.999`;
+      const movs = await dataClient.financeiro.movimentosCaixaPeriodo({ inicio, fim });
+      const movRows: FluxoRow[] = movs.map((m) => {
+        const tipo = m.tipo as FluxoTipo;
+        const bruto = Number(m.valor) || 0;
+        let valor = bruto;
+        if (tipo === "sangria" || tipo === "fechamento") valor = -Math.abs(bruto);
+        else valor = Math.abs(bruto);
+        const operacional = tipo === "abertura" || tipo === "fechamento";
+        return {
+          id: `mov-${m.id}`,
+          data: m.created_at,
+          tipo,
+          origem: "caixa",
+          descricao: m.motivo ?? TIPO_LABEL[tipo] ?? "Movimento de caixa",
+          valor,
+          operacional,
+          caixaId: m.caixa_id,
+        };
+      });
 
-      // 1) Movimentos do caixa (abertura, sangria, suprimento, fechamento, venda)
-      const { data: movs, error: errMovs } = await supabase
-        .from("caixa_movimentos")
-        .select("id, tipo, valor, motivo, created_at, caixa_id, venda_id")
-        .gte("created_at", inicioTs)
-        .lte("created_at", fimTs)
-        .order("created_at", { ascending: false })
-        .limit(2000);
-      if (errMovs) throw errMovs;
-
-      const movRows: FluxoRow[] = (movs ?? []).map(
-        (m: {
-          id: string;
-          tipo: string;
-          valor: number;
-          motivo: string | null;
-          created_at: string;
-          caixa_id: string | null;
-        }) => {
-          const tipo = m.tipo as FluxoTipo;
-          const bruto = Number(m.valor) || 0;
-          // Sinal: entrada (+) ou saída (-)
-          let valor = bruto;
-          if (tipo === "sangria" || tipo === "fechamento") valor = -Math.abs(bruto);
-          else valor = Math.abs(bruto);
-          const operacional = tipo === "abertura" || tipo === "fechamento";
-          return {
-            id: `mov-${m.id}`,
-            data: m.created_at,
-            tipo,
-            origem: "caixa",
-            descricao: m.motivo ?? TIPO_LABEL[tipo] ?? "Movimento de caixa",
-            valor,
-            operacional,
-            caixaId: m.caixa_id,
-          };
-        },
-      );
-
-      // 2) Lançamentos financeiros pagos/recebidos NÃO vinculados a caixa
-      //    (evita duplicar vendas que já entram via caixa_movimentos).
-      const { data: lancs, error: errLancs } = await supabase
-        .from("financeiro_lancamentos")
-        .select(
-          "id, descricao, tipo, valor, valor_pago, data_pagamento, status, caixa_id, venda_id",
-        )
-        .in("status", ["pago", "recebido"])
-        .is("caixa_id", null)
-        .is("venda_id", null)
-        .gte("data_pagamento", inicio)
-        .lte("data_pagamento", fim)
-        .order("data_pagamento", { ascending: false })
-        .limit(2000);
-      if (errLancs) throw errLancs;
-
-      type LancRowDb = {
-        id: string;
-        descricao: string;
-        tipo: "receber" | "pagar" | "receita" | "despesa";
-        valor: number;
-        valor_pago: number | null;
-        data_pagamento: string | null;
-        status: string;
-      };
-      const lancRows: FluxoRow[] = ((lancs ?? []) as LancRowDb[]).map((l) => {
+      const lancs = await dataClient.financeiro.lancamentosAvulsosPagos({ inicio, fim });
+      const lancRows: FluxoRow[] = lancs.map((l) => {
         const v = Number(l.valor_pago ?? l.valor) || 0;
         const isReceita = l.tipo === "receber" || l.tipo === "receita";
         return {

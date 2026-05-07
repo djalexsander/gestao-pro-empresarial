@@ -274,4 +274,30 @@ export interface RelatoriosAdapter {
   caixasSessoes(input: CaixaSessoesFiltro): Promise<CaixaSessaoDomain[]>;
   caixaMovimentos(caixaId: string): Promise<CaixaMovimentoDomain[]>;
   atualizarObservacaoCaixa(caixaId: string, observacao: string | null): Promise<void>;
+
+  // Onda 11 — produtos vendidos / KPIs
+  produtosVendidosPeriodo(input: RelatorioRangeInput): Promise<ProdutoVendidoLinhaDomain[]>;
+  clientesPorIds(ids: string[]): Promise<OpcaoNomeDomain[]>;
+}
+
+export interface ProdutoVendidoLinhaDomain {
+  itemId: string;
+  vendaId: string;
+  vendaNumero: string;
+  dataEmissao: string;
+  vendaStatus: string;
+  vendaStatusPagamento: string | null;
+  formaPagamento: string | null;
+  clienteId: string | null;
+  clienteNome: string | null;
+  operadorId: string | null;
+  caixaId: string | null;
+  produtoId: string | null;
+  produtoNome: string;
+  produtoSku: string;
+  categoriaId: string | null;
+  precoCusto: number;
+  quantidade: number;
+  precoUnitario: number;
+  total: number;
 }

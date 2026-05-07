@@ -502,6 +502,63 @@ export const cloudRelatoriosAdapter: RelatoriosAdapter = {
       .eq("id", caixaId);
     if (error) throw error;
   },
+  async produtosVendidosPeriodo({ inicio, fim }) {
+    const { data, error } = await supabase
+      .from("vendas")
+      .select(
+        `id, numero, data_emissao, status, status_pagamento, forma_pagamento,
+         cliente_id, operador_id, caixa_id,
+         cliente:clientes(nome),
+         itens:venda_itens(
+           id, produto_id, descricao, quantidade, preco_unitario, total,
+           produto:produtos(nome, sku, categoria_id, preco_custo)
+         )`,
+      )
+      .gte("data_emissao", inicio)
+      .lte("data_emissao", fim)
+      .neq("status", "cancelada")
+      .order("data_emissao", { ascending: false })
+      .limit(2000);
+    if (error) throw error;
+    const out: import("../relatorios-adapter").ProdutoVendidoLinhaDomain[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const v of (data ?? []) as any[]) {
+      const itens = (v.itens ?? []) as any[]; // eslint-disable-line
+      for (const it of itens) {
+        out.push({
+          itemId: it.id,
+          vendaId: v.id,
+          vendaNumero: v.numero,
+          dataEmissao: v.data_emissao,
+          vendaStatus: v.status,
+          vendaStatusPagamento: v.status_pagamento,
+          formaPagamento: v.forma_pagamento,
+          clienteId: v.cliente_id,
+          clienteNome: v.cliente?.nome ?? null,
+          operadorId: v.operador_id,
+          caixaId: v.caixa_id,
+          produtoId: it.produto_id,
+          produtoNome: it.produto?.nome ?? it.descricao ?? "—",
+          produtoSku: it.produto?.sku ?? "",
+          categoriaId: it.produto?.categoria_id ?? null,
+          precoCusto: Number(it.produto?.preco_custo) || 0,
+          quantidade: Number(it.quantidade) || 0,
+          precoUnitario: Number(it.preco_unitario) || 0,
+          total: Number(it.total) || 0,
+        });
+      }
+    }
+    return out;
+  },
+  async clientesPorIds(ids) {
+    if (!ids.length) return [];
+    const { data, error } = await supabase
+      .from("clientes")
+      .select("id, nome")
+      .in("id", ids);
+    if (error) throw error;
+    return (data ?? []) as import("../relatorios-adapter").OpcaoNomeDomain[];
+  },
 };
 
 /* ===================== mappers ===================== */
