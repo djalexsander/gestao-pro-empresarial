@@ -908,7 +908,7 @@ export const localTerminalAdapter: DataAdapter = {
           compra_id: input.id,
           data_recebimento: input.data_recebimento,
           gerar_financeiro: input.gerar_financeiro,
-          data_vencimento: input.data_vencimento,
+          data_vencimento: input.data_vencimento ?? undefined,
         }, token);
         if (r) {
           reportDataSource({ source: "local-server", domain: "compras", method: "receber", fallback: false });
