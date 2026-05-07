@@ -1524,6 +1524,8 @@ const financeiro: DataAdapter["financeiro"] = {
     if (error) throw new Error(error.message);
   },
 };
+// =====================================================================
+const estoque: DataAdapter["estoque"] = {
   async registrarMovimento(
     input: RegistrarMovimentoEstoqueInput,
   ): Promise<RegistrarMovimentoEstoqueResult> {
