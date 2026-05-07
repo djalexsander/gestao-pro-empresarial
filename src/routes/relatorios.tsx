@@ -60,21 +60,7 @@ const reports: Report[] = [
     route: "/relatorios/vendas",
     filenamePrefix: "vendas",
     exporter: async () => {
-      const { data, error } = await supabase
-        .from("vendas")
-        .select("numero, data_emissao, total, status, status_pagamento, forma_pagamento, cliente:clientes(nome)")
-        .order("data_emissao", { ascending: false })
-        .limit(1000);
-      if (error) throw error;
-      const rows = (data ?? []).map((v: any) => ({
-        numero: v.numero,
-        data: v.data_emissao,
-        cliente: v.cliente?.nome ?? "Consumidor",
-        forma: v.forma_pagamento ?? "",
-        total: Number(v.total) || 0,
-        status: v.status,
-        pagamento: v.status_pagamento,
-      }));
+      const rows = await dataClient.relatorios.cardVendas();
       const columns: CsvColumn<typeof rows[number]>[] = [
         { header: "Numero", accessor: (r) => r.numero, type: "text" },
         { header: "Data", accessor: (r) => r.data, type: "datetime" },
@@ -96,19 +82,7 @@ const reports: Report[] = [
     route: "/relatorios/compras",
     filenamePrefix: "compras",
     exporter: async () => {
-      const { data, error } = await supabase
-        .from("compras")
-        .select("numero, data_emissao, total, status, fornecedor:fornecedores(razao_social)")
-        .order("data_emissao", { ascending: false })
-        .limit(1000);
-      if (error) throw error;
-      const rows = (data ?? []).map((c: any) => ({
-        numero: c.numero,
-        data: c.data_emissao,
-        fornecedor: c.fornecedor?.razao_social ?? "—",
-        total: Number(c.total) || 0,
-        status: c.status,
-      }));
+      const rows = await dataClient.relatorios.cardCompras();
       const columns: CsvColumn<typeof rows[number]>[] = [
         { header: "Numero", accessor: (r) => r.numero, type: "text" },
         { header: "Data", accessor: (r) => r.data, type: "date" },
@@ -128,56 +102,30 @@ const reports: Report[] = [
     route: "/relatorios/estoque",
     filenamePrefix: "estoque",
     exporter: async () => {
-      const { data: produtos, error } = await supabase
-        .from("produtos")
-        .select("sku, nome, unidade, preco_custo, preco_venda, estoque_minimo, status")
-        .eq("status", "ativo")
-        .order("nome", { ascending: true })
-        .limit(1000);
-      if (error) throw error;
-      const { data: movs } = await supabase
-        .from("estoque_movimentacoes")
-        .select("produto_id, tipo, quantidade");
-      const saldoPorProd = new Map<string, number>();
-      for (const m of movs ?? []) {
-        const sinal =
-          m.tipo === "entrada" || m.tipo === "devolucao"
-            ? 1
-            : m.tipo === "saida" || m.tipo === "transferencia"
-              ? -1
-              : 1;
-        // saldo agregado vai precisar do produto_id; produtos não traz id aqui — vamos buscar com id
-      }
-      // Refaz buscando id
-      const { data: produtosFull } = await supabase
-        .from("produtos")
-        .select("id, sku, nome, unidade, preco_custo, preco_venda, estoque_minimo, status")
-        .eq("status", "ativo")
-        .order("nome", { ascending: true })
-        .limit(1000);
+      const { produtos, movimentos } = await dataClient.relatorios.estoqueBase();
       const saldos = new Map<string, number>();
-      for (const m of movs ?? []) {
+      for (const m of movimentos) {
         const sinal =
           m.tipo === "entrada" || m.tipo === "devolucao"
             ? 1
             : m.tipo === "saida" || m.tipo === "transferencia"
               ? -1
               : 1;
-        saldos.set(m.produto_id, (saldos.get(m.produto_id) ?? 0) + sinal * Number(m.quantidade));
+        saldos.set(m.produto_id, (saldos.get(m.produto_id) ?? 0) + sinal * m.quantidade);
       }
-      const rows = (produtosFull ?? []).map((p: any) => ({
+      const rows = produtos.map((p) => ({
         sku: p.sku,
         nome: p.nome,
         unidade: p.unidade,
-        custo: Number(p.preco_custo) || 0,
-        venda: Number(p.preco_venda) || 0,
-        minimo: Number(p.estoque_minimo) || 0,
+        custo: p.preco_custo,
+        venda: p.preco_venda,
+        minimo: p.estoque_minimo,
         saldo: saldos.get(p.id) ?? 0,
       }));
       const columns: CsvColumn<typeof rows[number]>[] = [
-        { header: "SKU", accessor: (r) => r.sku, type: "text" },
+        { header: "SKU", accessor: (r) => r.sku ?? "", type: "text" },
         { header: "Produto", accessor: (r) => r.nome, type: "text" },
-        { header: "Unidade", accessor: (r) => r.unidade, type: "text" },
+        { header: "Unidade", accessor: (r) => r.unidade ?? "", type: "text" },
         { header: "Saldo", accessor: (r) => r.saldo, type: "number" },
         { header: "Minimo", accessor: (r) => r.minimo, type: "number" },
         { header: "Custo", accessor: (r) => r.custo, type: "currency" },
@@ -195,25 +143,20 @@ const reports: Report[] = [
     route: "/relatorios/fluxo-caixa",
     filenamePrefix: "fluxo-caixa",
     exporter: async () => {
-      const { data, error } = await supabase
-        .from("financeiro_lancamentos")
-        .select("descricao, tipo, valor, valor_pago, data_emissao, data_vencimento, data_pagamento, status, forma_pagamento")
-        .order("data_vencimento", { ascending: false })
-        .limit(1000);
-      if (error) throw error;
-      const rows = (data ?? []).map((l: any) => ({
+      const data = await dataClient.relatorios.cardFluxoCaixa();
+      const rows = data.map((l) => ({
         descricao: l.descricao,
         tipo: l.tipo,
-        valor: Number(l.valor) || 0,
-        valor_pago: Number(l.valor_pago) || 0,
-        emissao: l.data_emissao,
-        vencimento: l.data_vencimento,
-        pagamento: l.data_pagamento ?? "",
+        valor: l.valor,
+        valor_pago: l.valor_pago,
+        emissao: l.emissao,
+        vencimento: l.vencimento,
+        pagamento: l.pagamento ?? "",
         status: l.status,
-        forma: l.forma_pagamento ?? "",
+        forma: l.forma ?? "",
       }));
       const columns: CsvColumn<typeof rows[number]>[] = [
-        { header: "Descricao", accessor: (r) => r.descricao, type: "text" },
+        { header: "Descricao", accessor: (r) => r.descricao ?? "", type: "text" },
         { header: "Tipo", accessor: (r) => r.tipo, type: "text" },
         { header: "Valor", accessor: (r) => r.valor, type: "currency" },
         { header: "Valor pago", accessor: (r) => r.valor_pago, type: "currency" },
@@ -235,24 +178,16 @@ const reports: Report[] = [
     route: "/relatorios/financeiro",
     filenamePrefix: "financeiro",
     exporter: async () => {
-      const { data, error } = await supabase
-        .from("financeiro_lancamentos")
-        .select(
-          "descricao, tipo, valor, valor_pago, data_emissao, data_vencimento, data_pagamento, status, forma_pagamento, categoria:categorias_financeiras(nome), cliente:clientes(nome), fornecedor:fornecedores(razao_social, nome_fantasia)",
-        )
-        .neq("status", "cancelado")
-        .order("data_vencimento", { ascending: false })
-        .limit(2000);
-      if (error) throw error;
-      const rows = (data ?? []).map((l: any) => ({
+      const data = await dataClient.relatorios.cardFinanceiro();
+      const rows = data.map((l) => ({
         vencimento: l.data_vencimento,
         pagamento: l.data_pagamento ?? "",
         tipo: l.tipo,
-        categoria: l.categoria?.nome ?? "",
+        categoria: l.categoria_nome ?? "",
         descricao: l.descricao,
-        pessoa: l.cliente?.nome ?? l.fornecedor?.nome_fantasia ?? l.fornecedor?.razao_social ?? "",
-        valor: Number(l.valor) || 0,
-        valor_pago: Number(l.valor_pago) || 0,
+        pessoa: l.cliente_nome ?? l.fornecedor_nome ?? "",
+        valor: l.valor,
+        valor_pago: l.valor_pago,
         forma: l.forma_pagamento ?? "",
         status: l.status,
       }));
@@ -280,37 +215,22 @@ const reports: Report[] = [
     route: "/relatorios/contas-receber",
     filenamePrefix: "contas-receber",
     exporter: async () => {
-      const { data, error } = await supabase
-        .from("financeiro_lancamentos")
-        .select(
-          "descricao, valor, valor_pago, data_emissao, data_vencimento, data_pagamento, status, forma_pagamento, numero_documento, cliente:clientes(nome, nome_fantasia, documento, telefone, celular), venda:vendas(numero)",
-        )
-        .eq("tipo", "receber")
-        .neq("status", "cancelado")
-        .order("data_vencimento", { ascending: false })
-        .limit(2000);
-      if (error) throw error;
-      const rows = (data ?? []).map((l: Record<string, unknown>) => {
-        const valor = Number(l.valor) || 0;
-        const pago = Number(l.valor_pago) || 0;
-        const cli = l.cliente as Record<string, unknown> | null;
-        const ven = l.venda as Record<string, unknown> | null;
-        return {
-          vencimento: l.data_vencimento as string,
-          emissao: (l.data_emissao as string) ?? "",
-          pagamento: (l.data_pagamento as string) ?? "",
-          cliente: cli ? ((cli.nome_fantasia as string) || (cli.nome as string)) : "",
-          documento: cli ? ((cli.documento as string) ?? "") : "",
-          telefone: cli ? ((cli.telefone as string) ?? (cli.celular as string) ?? "") : "",
-          venda: ven ? ((ven.numero as string) ?? "") : "",
-          descricao: l.descricao as string,
-          valor,
-          valor_pago: pago,
-          saldo: Math.max(0, valor - pago),
-          status: l.status as string,
-          forma: (l.forma_pagamento as string) ?? "",
-        };
-      });
+      const data = await dataClient.relatorios.cardContasReceber();
+      const rows = data.map((l) => ({
+        vencimento: l.data_vencimento,
+        emissao: l.data_emissao ?? "",
+        pagamento: l.data_pagamento ?? "",
+        cliente: l.cliente_nome ?? "",
+        documento: l.cliente_documento ?? "",
+        telefone: l.cliente_telefone ?? l.cliente_celular ?? "",
+        venda: l.venda_numero ?? "",
+        descricao: l.descricao,
+        valor: l.valor,
+        valor_pago: l.valor_pago,
+        saldo: Math.max(0, l.valor - l.valor_pago),
+        status: l.status,
+        forma: l.forma_pagamento ?? "",
+      }));
       const columns: CsvColumn<typeof rows[number]>[] = [
         { header: "Vencimento", accessor: (r) => r.vencimento, type: "date" },
         { header: "Emissao", accessor: (r) => r.emissao, type: "date" },
@@ -338,24 +258,17 @@ const reports: Report[] = [
     route: "/relatorios/caixa",
     filenamePrefix: "caixa",
     exporter: async () => {
-      const { data, error } = await supabase
-        .from("caixas")
-        .select(
-          "data_abertura, data_fechamento, valor_inicial, total_vendas, total_sangrias, total_suprimentos, valor_esperado, valor_informado, diferenca, status",
-        )
-        .order("data_abertura", { ascending: false })
-        .limit(1000);
-      if (error) throw error;
-      const rows = (data ?? []).map((c: any) => ({
-        abertura: c.data_abertura,
-        fechamento: c.data_fechamento ?? "",
-        inicial: Number(c.valor_inicial) || 0,
-        vendas: Number(c.total_vendas) || 0,
-        sangrias: Number(c.total_sangrias) || 0,
-        suprimentos: Number(c.total_suprimentos) || 0,
-        esperado: c.valor_esperado != null ? Number(c.valor_esperado) : "",
-        informado: c.valor_informado != null ? Number(c.valor_informado) : "",
-        diferenca: c.diferenca != null ? Number(c.diferenca) : "",
+      const data = await dataClient.relatorios.cardCaixas();
+      const rows = data.map((c) => ({
+        abertura: c.abertura,
+        fechamento: c.fechamento ?? "",
+        inicial: c.inicial,
+        vendas: c.vendas,
+        sangrias: c.sangrias,
+        suprimentos: c.suprimentos,
+        esperado: c.esperado ?? "",
+        informado: c.informado ?? "",
+        diferenca: c.diferenca ?? "",
         status: c.status,
       }));
       const columns: CsvColumn<typeof rows[number]>[] = [
@@ -385,18 +298,12 @@ const reports: Report[] = [
       const today = new Date();
       const inicio = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
       const fim = today.toISOString().slice(0, 10);
-      const [{ data: vendas }, { data: lanc }] = await Promise.all([
-        supabase.from("vendas").select("total").gte("data_emissao", inicio).lte("data_emissao", fim).neq("status", "cancelada"),
-        supabase.from("financeiro_lancamentos").select("tipo, valor_pago").gte("data_pagamento", inicio).lte("data_pagamento", fim).eq("status", "pago"),
-      ]);
-      const receita = (vendas ?? []).reduce((a: number, v: any) => a + (Number(v.total) || 0), 0);
-      const despesas = (lanc ?? []).filter((l: any) => l.tipo === "despesa").reduce((a: number, l: any) => a + (Number(l.valor_pago) || 0), 0);
-      const outras_receitas = (lanc ?? []).filter((l: any) => l.tipo === "receita").reduce((a: number, l: any) => a + (Number(l.valor_pago) || 0), 0);
+      const t = await dataClient.relatorios.dreTotais({ inicio, fim });
       const rows = [
-        { conta: "Receita de vendas", valor: receita },
-        { conta: "Outras receitas", valor: outras_receitas },
-        { conta: "Despesas", valor: -despesas },
-        { conta: "Resultado", valor: receita + outras_receitas - despesas },
+        { conta: "Receita de vendas", valor: t.receita_vendas },
+        { conta: "Outras receitas", valor: t.outras_receitas },
+        { conta: "Despesas", valor: -t.despesas },
+        { conta: "Resultado", valor: t.receita_vendas + t.outras_receitas - t.despesas },
       ];
       const columns: CsvColumn<typeof rows[number]>[] = [
         { header: "Conta", accessor: (r) => r.conta, type: "text" },
@@ -414,21 +321,7 @@ const reports: Report[] = [
     route: "/relatorios/fiscal",
     filenamePrefix: "fiscal",
     exporter: async () => {
-      const { data, error } = await supabase
-        .from("vendas")
-        .select("numero, numero_nf, serie_nf, data_emissao, total, status")
-        .not("numero_nf", "is", null)
-        .order("data_emissao", { ascending: false })
-        .limit(1000);
-      if (error) throw error;
-      const rows = (data ?? []).map((v: any) => ({
-        venda: v.numero,
-        nf: v.numero_nf,
-        serie: v.serie_nf ?? "",
-        data: v.data_emissao,
-        total: Number(v.total) || 0,
-        status: v.status,
-      }));
+      const rows = await dataClient.relatorios.cardNotasFiscais();
       const columns: CsvColumn<typeof rows[number]>[] = [
         { header: "Venda", accessor: (r) => r.venda, type: "text" },
         { header: "NF", accessor: (r) => r.nf, type: "text" },
