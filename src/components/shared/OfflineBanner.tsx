@@ -28,9 +28,13 @@ export function OfflineBanner() {
     <div
       role="status"
       aria-live="polite"
-      className="fixed bottom-3 left-1/2 z-[60] -translate-x-1/2 flex items-center gap-2 rounded-full border border-amber-500/40 bg-amber-500/10 px-4 py-1.5 text-xs font-medium text-amber-700 shadow-md backdrop-blur dark:text-amber-300"
+      className="fixed bottom-4 right-4 z-[60] flex max-w-sm items-center gap-2 rounded-lg border border-amber-500/50 bg-amber-500/15 px-3 py-2 text-xs font-semibold text-amber-800 shadow-lg backdrop-blur dark:bg-amber-500/20 dark:text-amber-200"
     >
-      <WifiOff className="h-3.5 w-3.5" aria-hidden />
+      <span className="relative flex h-2 w-2">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-500 opacity-75" />
+        <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-500" />
+      </span>
+      <WifiOff className="h-4 w-4 shrink-0" aria-hidden />
       <span>{mensagem}</span>
     </div>
   );
