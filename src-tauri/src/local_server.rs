@@ -1773,6 +1773,34 @@ async fn caixa_local_aberto_handler(
     Ok(Json(row))
 }
 
+// ---------- /api/fornecedores (v13) ----------
+//
+// Mesma filosofia do clientes/lite: ingere `*` no `fornecedores_local` e
+// devolve a lista lida do SQLite, com cursor incremental por `updated_at`
+// e tombstone por status.
+
+async fn fornecedores_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let mut params: Vec<(&str, String)> = vec![
+        ("select", "*".into()),
+        ("order", "razao_social.asc".into()),
+    ];
+    // status vazio = todos; ausente = "ativo" (default)
+    let status_opt = q.get("status").map(|s| s.as_str());
+    let status_val = match status_opt {
+        None => Some("ativo"),
+        Some("") => None,
+        Some(other) => Some(other),
+    };
+    if let Some(s) = status_val {
+        params.push(("status", format!("eq.{s}")));
+    }
+    let q_owned: Vec<(&str, String)> = params.iter().map(|(k, v)| (*k, v.clone())).collect();
+    proxy_with_incremental_sync(&ctx, &headers, "fornecedores", "/rest/v1/fornecedores", &q_owned, false).await
+}
 
 /// GET `/api/caixa/resumo?caixa_id=...` ou `?operador_id=...` para o aberto.
 /// Retorna o resumo local do caixa: totais por forma de pagamento, vendas,
