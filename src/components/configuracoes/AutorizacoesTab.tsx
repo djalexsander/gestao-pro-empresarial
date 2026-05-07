@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { ShieldCheck, Loader2, History, Plus, Eye, Ban, RotateCcw, Trash2, IdCard } from "lucide-react";
+import { ShieldCheck, Loader2, History, Plus, Ban, RotateCcw, Trash2, IdCard } from "lucide-react";
 import { toast } from "sonner";
 import {
   useAutorizacoesConfig,
