@@ -36,10 +36,11 @@ export function useSalvarAutorizacoesConfig() {
   });
 }
 
-export function useAutorizacoesLog(limit = 100) {
+export function useAutorizacoesLog(filtro?: AutorizacaoLogFiltro | number) {
+  const key = typeof filtro === "number" || filtro == null ? { limit: filtro ?? 100 } : filtro;
   return useQuery({
-    queryKey: ["autorizacoes_log", limit],
-    queryFn: () => dataClient.autorizacoes.log(limit),
+    queryKey: ["autorizacoes_log", key],
+    queryFn: () => dataClient.autorizacoes.log(filtro),
   });
 }
 
