@@ -27,7 +27,7 @@ import {
   type ExportFormato,
 } from "@/lib/export-relatorio-card";
 import type { CsvColumn } from "@/lib/export-csv";
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 import { useAuth } from "@/components/auth/AuthProvider";
 
 const formatBRL = (v: number) =>
