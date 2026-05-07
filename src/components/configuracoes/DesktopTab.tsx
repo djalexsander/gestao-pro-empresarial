@@ -32,6 +32,7 @@ import {
   fetchOutboxCancelamentosStats,
   fetchOutboxClientesStats,
   fetchOutboxFinanceiroStats,
+  fetchOutboxFornecedoresStats,
   fetchOutboxStats,
   fetchOutboxVendasStats,
   flushOutbox,
@@ -39,6 +40,7 @@ import {
   flushOutboxCancelamentos,
   flushOutboxClientes,
   flushOutboxFinanceiro,
+  flushOutboxFornecedores,
   flushOutboxVendas,
   regenerarLancamentosCaixaLocal,
   retryOutboxCaixaErrors,
@@ -46,6 +48,7 @@ import {
   retryOutboxClientesErrors,
   retryOutboxErrors,
   retryOutboxFinanceiroErrors,
+  retryOutboxFornecedoresErrors,
   retryOutboxVendasErrors,
   runDbSync,
   type CaixaLocalAbertoRow,
@@ -96,6 +99,8 @@ export function DesktopTab() {
   const [flushingFin, setFlushingFin] = useState(false);
   const [outboxClientes, setOutboxClientes] = useState<OutboxStats | null>(null);
   const [flushingClientes, setFlushingClientes] = useState(false);
+  const [outboxFornecedores, setOutboxFornecedores] = useState<OutboxStats | null>(null);
+  const [flushingFornecedores, setFlushingFornecedores] = useState(false);
   const [caixaAberto, setCaixaAberto] = useState<CaixaLocalAbertoRow | null>(null);
   const [caixaResumo, setCaixaResumo] = useState<CaixaResumoLocal | null>(null);
   const [caixaLancamentos, setCaixaLancamentos] = useState<LancamentoLocalRow[]>([]);
@@ -251,6 +256,24 @@ export function DesktopTab() {
     setOutboxClientes(await fetchOutboxClientesStats(localCfg));
   };
 
+  const handleFlushFornecedores = async () => {
+    if (!localCfg) return;
+    setFlushingFornecedores(true);
+    try {
+      const { access_token } = await dataClient.auth.getSession();
+      await flushOutboxFornecedores(localCfg, access_token);
+      setOutboxFornecedores(await fetchOutboxFornecedoresStats(localCfg));
+    } finally {
+      setFlushingFornecedores(false);
+    }
+  };
+
+  const handleRetryErrorsFornecedores = async () => {
+    if (!localCfg) return;
+    await retryOutboxFornecedoresErrors(localCfg);
+    setOutboxFornecedores(await fetchOutboxFornecedoresStats(localCfg));
+  };
+
   const handleRegenerarLancamentos = async () => {
     if (!localCfg || !caixaAberto?.local_uuid) return;
     setRegenerandoLanc(true);
@@ -284,7 +307,7 @@ export function DesktopTab() {
 
     let alive = true;
     const carregar = async () => {
-      const [info, terms, stats, ob, obv, obc, occ, obf, obcli, ca] = await Promise.all([
+      const [info, terms, stats, ob, obv, obc, occ, obf, obcli, obforn, ca] = await Promise.all([
         fetchDbInfo(cfg),
         fetchKnownTerminals(cfg),
         fetchDomainStats(cfg),
@@ -294,6 +317,7 @@ export function DesktopTab() {
         fetchOutboxCancelamentosStats(cfg),
         fetchOutboxFinanceiroStats(cfg),
         fetchOutboxClientesStats(cfg),
+        fetchOutboxFornecedoresStats(cfg),
         fetchCaixaLocalAberto(cfg),
       ]);
       if (!alive) return;
@@ -306,6 +330,7 @@ export function DesktopTab() {
       setOutboxCancel(occ);
       setOutboxFin(obf);
       setOutboxClientes(obcli);
+      setOutboxFornecedores(obforn);
       setCaixaAberto(ca);
       setCaixaAberto(ca);
 
@@ -336,13 +361,14 @@ export function DesktopTab() {
     void carregar();
     const tFull = setInterval(() => void carregar(), 30_000);
     const tOutbox = setInterval(async () => {
-      const [ob, obv, obc, occ, obf, obcli] = await Promise.all([
+      const [ob, obv, obc, occ, obf, obcli, obforn] = await Promise.all([
         fetchOutboxStats(cfg),
         fetchOutboxVendasStats(cfg),
         fetchOutboxCaixaStats(cfg),
         fetchOutboxCancelamentosStats(cfg),
         fetchOutboxFinanceiroStats(cfg),
         fetchOutboxClientesStats(cfg),
+        fetchOutboxFornecedoresStats(cfg),
       ]);
       if (!alive) return;
       setOutbox(ob);
@@ -351,6 +377,7 @@ export function DesktopTab() {
       setOutboxCancel(occ);
       setOutboxFin(obf);
       setOutboxClientes(obcli);
+      setOutboxFornecedores(obforn);
     }, 5_000);
     return () => {
       alive = false;
@@ -748,7 +775,7 @@ export function DesktopTab() {
         )}
 
         {role !== "unset" &&
-          (outbox || outboxVendas || outboxCaixa || outboxCancel || outboxFin || outboxClientes) && (
+          (outbox || outboxVendas || outboxCaixa || outboxCancel || outboxFin || outboxClientes || outboxFornecedores) && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -779,6 +806,7 @@ export function DesktopTab() {
                           ["Cancelamentos", outboxCancel],
                           ["Financeiro", outboxFin],
                           ["Clientes", outboxClientes],
+                          ["Fornecedores", outboxFornecedores],
                         ] as const
                       ).map(([nome, st]) => {
                         if (!st) return null;
@@ -1380,6 +1408,86 @@ export function DesktopTab() {
           </Card>
         )}
 
+        {role !== "unset" && outboxFornecedores && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Fila offline — fornecedores
+              </CardTitle>
+              <div className="flex gap-2">
+                {outboxFornecedores.error > 0 && (
+                  <Button size="sm" variant="outline" onClick={() => void handleRetryErrorsFornecedores()}>
+                    Reenfileirar erros
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={flushingFornecedores || outboxFornecedores.pending === 0}
+                  onClick={() => void handleFlushFornecedores()}
+                >
+                  {flushingFornecedores ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                  )}
+                  Sincronizar agora
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 text-sm sm:grid-cols-4">
+                <Field label="Pendentes" value={String(outboxFornecedores.pending)} />
+                <Field label="Enviando" value={String(outboxFornecedores.sending)} />
+                <Field label="Prontas / Pendentes" value={`${outboxFornecedores.due_now} / ${outboxFornecedores.pending}`} />
+                <Field label="Enviadas" value={String(outboxFornecedores.sent)} />
+                <Field label="Com erro" value={String(outboxFornecedores.error)} />
+                <Field
+                  label="Próx. tentativa auto"
+                  value={
+                    outboxFornecedores.next_attempt_at_ms
+                      ? new Date(outboxFornecedores.next_attempt_at_ms).toLocaleString("pt-BR")
+                      : "—"
+                  }
+                />
+                <Field
+                  label="Último auto-flush"
+                  value={
+                    outboxFornecedores.last_auto_flush_ms
+                      ? `${new Date(outboxFornecedores.last_auto_flush_ms).toLocaleTimeString("pt-BR")}` +
+                        (outboxFornecedores.last_auto_attempted != null
+                          ? ` · ${outboxFornecedores.last_auto_sent ?? 0}/${outboxFornecedores.last_auto_attempted} ok`
+                          : "")
+                      : "—"
+                  }
+                />
+                <Field
+                  label="Último envio"
+                  value={
+                    outboxFornecedores.last_sent_at_ms
+                      ? new Date(outboxFornecedores.last_sent_at_ms).toLocaleString("pt-BR")
+                      : "—"
+                  }
+                />
+                {outboxFornecedores.last_error && (
+                  <div className="sm:col-span-4">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">Último erro</div>
+                    <div className="mt-0.5 break-all text-xs text-destructive">{outboxFornecedores.last_error}</div>
+                  </div>
+                )}
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Cadastros de fornecedores (criar/editar/status/excluir) são
+                gravados primeiro no banco local e empurrados ao upstream.
+                Operações no mesmo fornecedor offline são colapsadas e o
+                <code> remote_id</code> é propagado às compras/lançamentos
+                pendentes assim que a nuvem confirma.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         {role !== "unset" && caixaResumo && (
           <Card>
             <CardHeader>
@@ -1687,6 +1795,7 @@ export function DesktopTab() {
             cancelamentos: outboxCancel,
             financeiro: outboxFin,
             clientes: outboxClientes,
+            fornecedores: outboxFornecedores,
           }}
         />
 
