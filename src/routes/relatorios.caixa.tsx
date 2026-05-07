@@ -192,13 +192,13 @@ function Conteudo() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [{ data: funcs }, { data: terms }] = await Promise.all([
-        supabase.from("funcionarios").select("id, nome").eq("ativo", true).order("nome"),
-        supabase.from("terminais").select("id, nome").eq("ativo", true).order("nome"),
+      const [funcs, terms] = await Promise.all([
+        dataClient.relatorios.funcionariosAtivos(),
+        dataClient.relatorios.terminaisAtivos(),
       ]);
       if (cancelled) return;
-      setOperadores(funcs ?? []);
-      setTerminais(terms ?? []);
+      setOperadores(funcs);
+      setTerminais(terms);
     })();
     return () => {
       cancelled = true;
