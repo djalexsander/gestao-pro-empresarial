@@ -3015,6 +3015,53 @@ const autorizacoes: DataAdapter["autorizacoes"] = {
     if (error) throw error;
     return data as import("../extra-adapters").ValidarAutorizacaoResultDomain;
   },
+  async listarCartoes() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any)
+      .from("autorizacao_cartoes")
+      .select("id, rotulo, funcao, funcionario_id, user_id, ativo, criado_por, usado_em, revogado_em, observacoes, created_at, funcionario:funcionarios(nome)")
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return ((data ?? []) as any[]).map((r) => ({
+      id: r.id,
+      rotulo: r.rotulo,
+      funcao: r.funcao,
+      funcionario_id: r.funcionario_id,
+      funcionario_nome: r.funcionario?.nome ?? null,
+      user_id: r.user_id,
+      user_email: null,
+      ativo: r.ativo,
+      criado_por: r.criado_por,
+      usado_em: r.usado_em,
+      revogado_em: r.revogado_em,
+      observacoes: r.observacoes,
+      created_at: r.created_at,
+    })) as import("../extra-adapters").AutorizacaoCartaoDomain[];
+  },
+  async criarCartao(input) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("autorizacao_cartao_criar", {
+      _rotulo: input.rotulo,
+      _codigo: input.codigo,
+      _funcionario_id: input.funcionario_id ?? null,
+      _user_id: input.user_id ?? null,
+      _funcao: input.funcao ?? null,
+      _observacoes: input.observacoes ?? null,
+    });
+    if (error) throw error;
+    return data as string;
+  },
+  async setCartaoAtivo({ id, ativo }) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase as any).rpc("autorizacao_cartao_set_ativo", { _id: id, _ativo: ativo });
+    if (error) throw error;
+  },
+  async excluirCartao(id) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase as any).rpc("autorizacao_cartao_excluir", { _id: id });
+    if (error) throw error;
+  },
 };
 
 const empresa: DataAdapter["empresa"] = {
