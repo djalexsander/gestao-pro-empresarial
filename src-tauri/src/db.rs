@@ -2725,6 +2725,8 @@ pub fn domain_has_rows(domain: &str) -> DbResult<bool> {
             "caixa_movimentos_remote" => "caixa_movimentos_remote_cache",
             "funcionarios_remote" => "funcionarios_remote_cache",
             "terminais_remote" => "terminais_remote_cache",
+            "pagamentos_empresa_remote" => "pagamentos_empresa_remote_cache",
+            "venda_itens_remote" => "venda_itens_remote_cache",
             _ => return Ok(false),
         };
         let sql = format!("SELECT COUNT(*) FROM {table}");
