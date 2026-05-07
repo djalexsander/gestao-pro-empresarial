@@ -152,17 +152,53 @@ export function AutorizacoesTab() {
               </div>
             )}
             {local.metodo_codigo_qr_habilitado && (
-              <div className="grid gap-2 rounded-md border border-border bg-muted/30 p-3 sm:grid-cols-2">
-                <div>
-                  <Label className="text-xs">Rótulo do código (ex: "Cartão Gerente")</Label>
-                  <Input value={labelQR} onChange={(e) => setLabelQR(e.target.value)} className="mt-1" />
+              <div className="space-y-3 rounded-md border border-border bg-muted/30 p-3">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div>
+                    <Label className="text-xs">Rótulo do código (ex: "Cartão Gerente")</Label>
+                    <Input value={labelQR} onChange={(e) => setLabelQR(e.target.value)} className="mt-1" disabled={!podeGerenciarCartao} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">
+                      Código de autorização{" "}
+                      {(cfg.codigo_qr_hash || codigoNovo) && (
+                        <Badge variant="secondary" className="ml-1 text-[10px]">já definido</Badge>
+                      )}
+                    </Label>
+                    <Input
+                      value={codigoNovo}
+                      onChange={(e) => setCodigoNovo(e.target.value)}
+                      placeholder={cfg.codigo_qr_hash ? "Use 'Gerar código' ou cole um novo" : "Gere ou cole um código"}
+                      className="mt-1 font-mono"
+                      disabled={!podeGerenciarCartao}
+                      type={codigoNovo ? "text" : "text"}
+                    />
+                  </div>
                 </div>
-                <div>
-                  <Label className="text-xs">Código de autorização {cfg.codigo_qr_hash && <Badge variant="secondary" className="ml-1 text-[10px]">já definido</Badge>}</Label>
-                  <Input value={codigoNovo} onChange={(e) => setCodigoNovo(e.target.value)}
-                    placeholder={cfg.codigo_qr_hash ? "Deixe em branco para manter" : "Cole/digite o código"}
-                    className="mt-1 font-mono" />
-                </div>
+                {podeGerenciarCartao ? (
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" variant="secondary" size="sm" onClick={handleGerarCodigo}>
+                      <KeyRound className="mr-2 h-4 w-4" /> Gerar código
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!codigoNovo && !codigoGerado}
+                      onClick={() => setShowCartao(true)}
+                      title={!codigoNovo && !codigoGerado ? "Gere um código primeiro" : undefined}
+                    >
+                      <Eye className="mr-2 h-4 w-4" /> Visualizar cartão
+                    </Button>
+                    <p className="w-full text-[11px] text-muted-foreground">
+                      Após salvar, o código fica armazenado de forma segura (hash) e não pode ser visualizado novamente — apenas regerado.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">
+                    Apenas dono ou admin pode gerar, visualizar ou imprimir o cartão de autorização.
+                  </p>
+                )}
               </div>
             )}
           </section>
