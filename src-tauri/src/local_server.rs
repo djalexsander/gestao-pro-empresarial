@@ -57,6 +57,8 @@ struct ServerState {
     cancel_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     /// Sinaliza o scheduler de background (outbox financeira) para parar.
     fin_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
+    /// Sinaliza o scheduler de background (outbox de clientes) para parar.
+    cli_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     /// Sinaliza o scheduler de backup automático para parar.
     backup_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     upstream: Option<UpstreamConfig>,
@@ -2618,6 +2620,14 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/db/outbox/financeiro/stats", get(outbox_fin_stats_handler))
         .route("/db/outbox/financeiro/flush", post(outbox_fin_flush_handler))
         .route("/db/outbox/financeiro/retry-errors", post(outbox_fin_retry_errors_handler))
+        .route("/db/outbox/clientes", get(outbox_cli_list_handler))
+        .route("/db/outbox/clientes/stats", get(outbox_cli_stats_handler))
+        .route("/db/outbox/clientes/flush", post(outbox_cli_flush_handler))
+        .route("/db/outbox/clientes/retry-errors", post(outbox_cli_retry_errors_handler))
+        .route("/api/clientes/criar", post(cliente_criar_handler))
+        .route("/api/clientes/editar", post(cliente_editar_handler))
+        .route("/api/clientes/alterar-status", post(cliente_alterar_status_handler))
+        .route("/api/clientes/excluir", post(cliente_excluir_handler))
         .route("/api/clientes/lite", get(clientes_lite_handler))
         .route("/api/fornecedores", get(fornecedores_handler))
         .route("/api/financeiro/lancamentos-completo", get(financeiro_lancamentos_completo_handler))
@@ -2812,6 +2822,19 @@ pub async fn start(
         run_outbox_financeiro_scheduler(fin_ctx, fin_scheduler_rx).await;
     });
 
+    // Scheduler paralelo para a outbox de CLIENTES (cadastro offline-first v18).
+    let (cli_scheduler_tx, cli_scheduler_rx) = oneshot::channel::<()>();
+    let cli_ctx = AppCtx {
+        upstream: upstream.clone(),
+        http: reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .map_err(|e| format!("Falha ao criar HTTP client (cli scheduler): {e}"))?,
+    };
+    handle.spawn(async move {
+        run_outbox_clientes_scheduler(cli_ctx, cli_scheduler_rx).await;
+    });
+
     // Scheduler de backup automático local. Roda 1× por dia, no máximo,
     // controlado por timestamp em meta. Não depende de upstream.
     let (backup_scheduler_tx, backup_scheduler_rx) = oneshot::channel::<()>();
@@ -2833,6 +2856,7 @@ pub async fn start(
         s.caixa_scheduler_shutdown_tx = Some(caixa_scheduler_tx);
         s.cancel_scheduler_shutdown_tx = Some(cancel_scheduler_tx);
         s.fin_scheduler_shutdown_tx = Some(fin_scheduler_tx);
+        s.cli_scheduler_shutdown_tx = Some(cli_scheduler_tx);
         s.backup_scheduler_shutdown_tx = Some(backup_scheduler_tx);
         s.upstream = upstream;
         s.terminals.clear();
@@ -2842,7 +2866,7 @@ pub async fn start(
 }
 
 pub fn stop() -> Result<LocalServerStatus, String> {
-    let (tx_opt, sched_opt, vendas_sched_opt, caixa_sched_opt, cancel_sched_opt, fin_sched_opt, backup_sched_opt) = {
+    let (tx_opt, sched_opt, vendas_sched_opt, caixa_sched_opt, cancel_sched_opt, fin_sched_opt, cli_sched_opt, backup_sched_opt) = {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = false;
         s.port = None;
@@ -2856,6 +2880,7 @@ pub fn stop() -> Result<LocalServerStatus, String> {
             s.caixa_scheduler_shutdown_tx.take(),
             s.cancel_scheduler_shutdown_tx.take(),
             s.fin_scheduler_shutdown_tx.take(),
+            s.cli_scheduler_shutdown_tx.take(),
             s.backup_scheduler_shutdown_tx.take(),
         )
     };
@@ -2865,6 +2890,7 @@ pub fn stop() -> Result<LocalServerStatus, String> {
     if let Some(tx) = caixa_sched_opt { let _ = tx.send(()); }
     if let Some(tx) = cancel_sched_opt { let _ = tx.send(()); }
     if let Some(tx) = fin_sched_opt { let _ = tx.send(()); }
+    if let Some(tx) = cli_sched_opt { let _ = tx.send(()); }
     if let Some(tx) = backup_sched_opt { let _ = tx.send(()); }
     Ok(current_status())
 }
@@ -3323,4 +3349,357 @@ async fn backup_restore_cancel_handler() -> Result<Json<serde_json::Value>, (Sta
     let cancelled = backup::cancel_restore()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))?;
     Ok(Json(serde_json::json!({ "cancelled": cancelled })))
+}
+
+// ============================================================================
+// OUTBOX CLIENTES — handlers + scheduler (v18)
+// ============================================================================
+
+#[derive(Deserialize)]
+struct ClienteCriarRequest {
+    #[serde(flatten)]
+    payload: serde_json::Value,
+}
+
+#[derive(Serialize)]
+struct ClienteCriarResponse {
+    cliente_id: String,
+    cliente_local_uuid: String,
+    cliente_remote_id: Option<String>,
+    idempotente: bool,
+    outbox_status: String,
+    remote_response: Option<String>,
+}
+
+async fn cliente_criar_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<ClienteCriarRequest>,
+) -> Result<Json<ClienteCriarResponse>, (StatusCode, String)> {
+    let r = db::cliente_criar_local(req.payload)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let mut outbox_status = "pending".to_string();
+    let mut remote_response: Option<String> = None;
+    let mut cliente_remote_id = r.cliente_remote_id.clone();
+    if !r.idempotente && ctx.upstream.is_some() {
+        // tenta entregar imediatamente. Pega o item mais recente do cliente.
+        if let Ok(items) = db::outbox_clientes_list(20, Some("pending")) {
+            if let Some(it) = items.into_iter().find(|i| i.cliente_local_uuid == r.cliente_local_uuid && i.action == "criar") {
+                if let Ok(rid) = push_one_outbox_clientes(&ctx, &headers, &it.local_uuid).await {
+                    outbox_status = "sent".to_string();
+                    cliente_remote_id = Some(rid);
+                    if let Ok(Some(it2)) = db::outbox_clientes_get(&it.local_uuid) {
+                        remote_response = Some(it2.remote_id.unwrap_or_default());
+                    }
+                }
+            }
+        }
+    }
+    let cliente_id = cliente_remote_id.clone().unwrap_or_else(|| r.cliente_local_uuid.clone());
+    Ok(Json(ClienteCriarResponse {
+        cliente_id,
+        cliente_local_uuid: r.cliente_local_uuid,
+        cliente_remote_id,
+        idempotente: r.idempotente,
+        outbox_status,
+        remote_response,
+    }))
+}
+
+#[derive(Deserialize)]
+struct ClienteEditarRequest {
+    cliente_id: String,
+    #[serde(flatten)]
+    payload: serde_json::Value,
+}
+
+#[derive(Serialize)]
+struct ClienteSimpleResponse {
+    cliente_id: String,
+    cliente_local_uuid: String,
+    cliente_remote_id: Option<String>,
+    idempotente: bool,
+    outbox_status: String,
+}
+
+async fn cliente_editar_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<ClienteEditarRequest>,
+) -> Result<Json<ClienteSimpleResponse>, (StatusCode, String)> {
+    let lid = db::cliente_resolve_local_uuid(&req.cliente_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "cliente não encontrado".to_string()))?;
+    // Limpa cliente_id do payload (vai como _cliente_id pelo helper local).
+    let mut payload = req.payload;
+    if let Some(o) = payload.as_object_mut() {
+        o.remove("cliente_id");
+        o.remove("_cliente_id");
+    }
+    let r = db::cliente_editar_local(&lid, payload)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let mut outbox_status = "pending".to_string();
+    if !r.idempotente && ctx.upstream.is_some() {
+        if let Ok(items) = db::outbox_clientes_list(20, Some("pending")) {
+            if let Some(it) = items.into_iter().find(|i| i.cliente_local_uuid == r.cliente_local_uuid && i.action == "editar") {
+                if push_one_outbox_clientes(&ctx, &headers, &it.local_uuid).await.is_ok() {
+                    outbox_status = "sent".to_string();
+                }
+            }
+        }
+    }
+    Ok(Json(ClienteSimpleResponse {
+        cliente_id: r.cliente_remote_id.clone().unwrap_or_else(|| r.cliente_local_uuid.clone()),
+        cliente_local_uuid: r.cliente_local_uuid,
+        cliente_remote_id: r.cliente_remote_id,
+        idempotente: r.idempotente,
+        outbox_status,
+    }))
+}
+
+#[derive(Deserialize)]
+struct ClienteAlterarStatusRequest {
+    cliente_id: String,
+    status: String,
+}
+
+async fn cliente_alterar_status_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<ClienteAlterarStatusRequest>,
+) -> Result<Json<ClienteSimpleResponse>, (StatusCode, String)> {
+    let lid = db::cliente_resolve_local_uuid(&req.cliente_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "cliente não encontrado".to_string()))?;
+    let r = db::cliente_alterar_status_local(&lid, &req.status)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let mut outbox_status = "pending".to_string();
+    if !r.idempotente && ctx.upstream.is_some() {
+        if let Ok(items) = db::outbox_clientes_list(20, Some("pending")) {
+            if let Some(it) = items.into_iter().find(|i| i.cliente_local_uuid == r.cliente_local_uuid && i.action == "alterar_status") {
+                if push_one_outbox_clientes(&ctx, &headers, &it.local_uuid).await.is_ok() {
+                    outbox_status = "sent".to_string();
+                }
+            }
+        }
+    }
+    Ok(Json(ClienteSimpleResponse {
+        cliente_id: r.cliente_remote_id.clone().unwrap_or_else(|| r.cliente_local_uuid.clone()),
+        cliente_local_uuid: r.cliente_local_uuid,
+        cliente_remote_id: r.cliente_remote_id,
+        idempotente: r.idempotente,
+        outbox_status,
+    }))
+}
+
+#[derive(Deserialize)]
+struct ClienteExcluirRequest {
+    cliente_id: String,
+}
+
+async fn cliente_excluir_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<ClienteExcluirRequest>,
+) -> Result<Json<ClienteSimpleResponse>, (StatusCode, String)> {
+    let lid = db::cliente_resolve_local_uuid(&req.cliente_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "cliente não encontrado".to_string()))?;
+    let r = db::cliente_excluir_local(&lid)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let mut outbox_status = "pending".to_string();
+    if !r.idempotente && ctx.upstream.is_some() {
+        if let Ok(items) = db::outbox_clientes_list(20, Some("pending")) {
+            if let Some(it) = items.into_iter().find(|i| i.cliente_local_uuid == r.cliente_local_uuid && i.action == "excluir") {
+                if push_one_outbox_clientes(&ctx, &headers, &it.local_uuid).await.is_ok() {
+                    outbox_status = "sent".to_string();
+                }
+            }
+        }
+    } else if r.idempotente {
+        // criar+excluir colapsados — nada vai pro servidor.
+        outbox_status = "skipped".to_string();
+    }
+    Ok(Json(ClienteSimpleResponse {
+        cliente_id: r.cliente_remote_id.clone().unwrap_or_else(|| r.cliente_local_uuid.clone()),
+        cliente_local_uuid: r.cliente_local_uuid,
+        cliente_remote_id: r.cliente_remote_id,
+        idempotente: r.idempotente,
+        outbox_status,
+    }))
+}
+
+async fn push_one_outbox_clientes(
+    ctx: &AppCtx,
+    headers: &HeaderMap,
+    local_uuid: &str,
+) -> Result<String, String> {
+    let upstream = ctx.upstream.as_ref().ok_or("upstream não configurado")?;
+    let now = now_ms();
+
+    let item = db::outbox_clientes_get(local_uuid)
+        .map_err(|e| e.to_string())?
+        .ok_or("item não encontrado na outbox de clientes")?;
+    if item.status == "sent" { return Ok(item.remote_id.unwrap_or_default()); }
+
+    // Bloqueio de causalidade: editar/alterar_status/excluir só vão se já houver
+    // remote_id resolvido (criar enviado antes).
+    if item.action != "criar" && item.cliente_remote_id.is_none() {
+        let resolved = db::cliente_remote_id_for(&item.cliente_local_uuid).ok().flatten();
+        if resolved.is_none() {
+            return Err("aguardando criar do cliente sincronizar".to_string());
+        }
+    }
+
+    let payload: serde_json::Value =
+        serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
+
+    db::outbox_clientes_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
+
+    let rpc_name = match item.action.as_str() {
+        "criar" => "criar_cliente",
+        "editar" => "editar_cliente",
+        "alterar_status" => "alterar_status_cliente",
+        "excluir" => "excluir_cliente",
+        _ => {
+            let msg = format!("ação desconhecida: {}", item.action);
+            let _ = db::outbox_clientes_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
+
+    let auth = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+
+    let url = format!(
+        "{}/rest/v1/rpc/{}",
+        upstream.base_url.trim_end_matches('/'),
+        rpc_name,
+    );
+    let resp = ctx.http.post(&url)
+        .header("apikey", &upstream.anon_key)
+        .header(axum::http::header::AUTHORIZATION, auth)
+        .header(axum::http::header::CONTENT_TYPE, "application/json")
+        .header(axum::http::header::ACCEPT, "application/json")
+        .json(&payload)
+        .send().await
+        .map_err(|e| {
+            let msg = format!("rede: {e}");
+            let _ = db::outbox_clientes_mark_error(local_uuid, &msg, now);
+            msg
+        })?;
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        let msg = format!("HTTP {}: {}", status.as_u16(), text);
+        let _ = db::outbox_clientes_mark_error(local_uuid, &msg, now);
+        return Err(msg);
+    }
+    let parsed: serde_json::Value =
+        serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+    let remote_id = parsed.get("cliente_id").and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| parsed.as_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| text.trim().trim_matches('"').to_string());
+    db::outbox_clientes_mark_sent(local_uuid, &remote_id, &text, now)
+        .map_err(|e| e.to_string())?;
+    Ok(remote_id)
+}
+
+async fn outbox_cli_stats_handler(
+) -> Result<Json<db::OutboxClientesStats>, (StatusCode, String)> {
+    db::outbox_clientes_stats().map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+#[derive(Serialize)]
+struct OutboxCliListResponse {
+    total: usize,
+    items: Vec<db::OutboxClientesItem>,
+}
+
+async fn outbox_cli_list_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<OutboxCliListResponse>, (StatusCode, String)> {
+    let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(200);
+    let status = q.get("status").map(|s| s.as_str());
+    let items = db::outbox_clientes_list(limit, status)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(OutboxCliListResponse { total: items.len(), items }))
+}
+
+async fn outbox_cli_flush_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<Json<FlushResponse>, (StatusCode, String)> {
+    let pending = db::outbox_clientes_pending_batch_all(100)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let mut sent = 0usize;
+    let mut failed = 0usize;
+    let mut errors: Vec<String> = Vec::new();
+    for it in &pending {
+        match push_one_outbox_clientes(&ctx, &headers, &it.local_uuid).await {
+            Ok(_) => sent += 1,
+            Err(e) => { failed += 1; errors.push(format!("{}: {}", it.local_uuid, e)); }
+        }
+    }
+    let _ = db::outbox_clientes_record_flush_round(
+        "manual", now_ms(), pending.len() as i64, sent as i64, failed as i64,
+    );
+    Ok(Json(FlushResponse { attempted: pending.len(), sent, failed, errors }))
+}
+
+async fn outbox_cli_retry_errors_handler() -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
+    let n = db::outbox_clientes_reset_errors(now_ms())
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(RetryErrorsResponse { requeued: n }))
+}
+
+async fn run_outbox_clientes_scheduler(
+    ctx: AppCtx,
+    mut shutdown_rx: oneshot::Receiver<()>,
+) {
+    eprintln!("[gestao-pro] outbox clientes scheduler: iniciado");
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_millis(SCHEDULER_TICK_MS)) => {}
+            _ = &mut shutdown_rx => {
+                eprintln!("[gestao-pro] outbox clientes scheduler: parado");
+                break;
+            }
+        }
+        if ctx.upstream.is_none() {
+            let _ = db::outbox_clientes_record_flush_round("auto", now_ms(), 0, 0, 0);
+            continue;
+        }
+        let pending = match db::outbox_clientes_pending_batch(SCHEDULER_BATCH) {
+            Ok(p) => p,
+            Err(e) => { eprintln!("[gestao-pro] outbox clientes: batch err: {e}"); continue; }
+        };
+        if pending.is_empty() {
+            let _ = db::outbox_clientes_record_flush_round("auto", now_ms(), 0, 0, 0);
+            continue;
+        }
+        let empty = HeaderMap::new();
+        let mut sent = 0i64;
+        let mut failed = 0i64;
+        for it in &pending {
+            match push_one_outbox_clientes(&ctx, &empty, &it.local_uuid).await {
+                Ok(_) => sent += 1,
+                Err(_) => failed += 1,
+            }
+        }
+        let _ = db::outbox_clientes_record_flush_round(
+            "auto", now_ms(), pending.len() as i64, sent, failed,
+        );
+        if sent > 0 || failed > 0 {
+            eprintln!(
+                "[gestao-pro] outbox clientes auto-flush: attempted={} sent={} failed={}",
+                pending.len(), sent, failed,
+            );
+        }
+    }
 }
