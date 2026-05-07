@@ -2627,6 +2627,8 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/relatorios/caixa-movimentos", get(relatorios_caixa_movimentos_handler))
         .route("/api/relatorios/funcionarios-ativos", get(relatorios_funcionarios_ativos_handler))
         .route("/api/relatorios/terminais-ativos", get(relatorios_terminais_ativos_handler))
+        .route("/api/relatorios/pagamentos-empresa", get(relatorios_pagamentos_empresa_handler))
+        .route("/api/relatorios/venda-itens", get(relatorios_venda_itens_handler))
         .route("/backup/status", get(backup_status_handler))
         .route("/backup/list", get(backup_list_handler))
         .route("/backup/log", get(backup_log_handler))
