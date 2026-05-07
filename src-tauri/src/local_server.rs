@@ -2870,6 +2870,19 @@ pub async fn start(
         run_outbox_fornecedores_scheduler(forn_ctx, forn_scheduler_rx).await;
     });
 
+    // Scheduler paralelo para a outbox de COMPRAS (offline-first v18 pt.5).
+    let (compras_scheduler_tx, compras_scheduler_rx) = oneshot::channel::<()>();
+    let compras_ctx = AppCtx {
+        upstream: upstream.clone(),
+        http: reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .map_err(|e| format!("Falha ao criar HTTP client (compras scheduler): {e}"))?,
+    };
+    handle.spawn(async move {
+        run_outbox_compras_scheduler(compras_ctx, compras_scheduler_rx).await;
+    });
+
     // Scheduler de backup automático local. Roda 1× por dia, no máximo,
     // controlado por timestamp em meta. Não depende de upstream.
     let (backup_scheduler_tx, backup_scheduler_rx) = oneshot::channel::<()>();
