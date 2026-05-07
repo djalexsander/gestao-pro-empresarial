@@ -2569,6 +2569,47 @@ const empresa: DataAdapter["empresa"] = {
     }
     return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome));
   },
+  async listarMembros(empresaId) {
+    const { data, error } = await supabase.rpc("listar_membros_empresa", {
+      _empresa_id: empresaId,
+    });
+    if (error) throw error;
+    return (data ?? []) as import("../extra-adapters").EmpresaMembroDomain[];
+  },
+  async criarSocio(input) {
+    const { data, error } = await supabase.functions.invoke("criar-socio", {
+      body: {
+        empresa_id: input.empresa_id,
+        nome: input.nome,
+        email: input.email,
+        telefone: input.telefone,
+        senha: input.senha,
+        papel: input.papel,
+      },
+    });
+    if (error) throw new Error(error.message);
+    return data as { ok: boolean; erro?: string };
+  },
+  async removerMembro(membroId) {
+    const { data, error } = await supabase.rpc("remover_membro", { _membro_id: membroId });
+    if (error) throw error;
+    return data as { ok: boolean; erro?: string };
+  },
+  async listarIntegracoes(empresaId) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.from as any)("empresa_integracoes")
+      .select("*")
+      .eq("empresa_id", empresaId);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as import("../extra-adapters").EmpresaIntegracaoDomain[];
+  },
+  async upsertIntegracao(input) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase.from as any)("empresa_integracoes").upsert(input, {
+      onConflict: "empresa_id,tipo_integracao",
+    });
+    if (error) throw new Error(error.message);
+  },
 };
 
 const configEmpresa: DataAdapter["configEmpresa"] = {
