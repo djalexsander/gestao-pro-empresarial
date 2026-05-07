@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { History, Loader2, Filter as FilterIcon, Download } from "lucide-react";
+import { Loader2, Filter as FilterIcon, Download } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
