@@ -40,6 +40,7 @@ import { Route as RelatoriosDreRouteImport } from './routes/relatorios.dre'
 import { Route as RelatoriosContasReceberRouteImport } from './routes/relatorios.contas-receber'
 import { Route as RelatoriosComprasRouteImport } from './routes/relatorios.compras'
 import { Route as RelatoriosCaixaRouteImport } from './routes/relatorios.caixa'
+import { Route as CobrancasWhatsappLogsRouteImport } from './routes/cobrancas.whatsapp-logs'
 import { Route as AutorizacoesHistoricoRouteImport } from './routes/autorizacoes.historico'
 import { Route as AdminUsuariosRouteImport } from './routes/admin.usuarios'
 import { Route as AdminQaRouteImport } from './routes/admin.qa'
@@ -211,6 +212,11 @@ const RelatoriosCaixaRoute = RelatoriosCaixaRouteImport.update({
   path: '/caixa',
   getParentRoute: () => RelatoriosRoute,
 } as any)
+const CobrancasWhatsappLogsRoute = CobrancasWhatsappLogsRouteImport.update({
+  id: '/whatsapp-logs',
+  path: '/whatsapp-logs',
+  getParentRoute: () => CobrancasRoute,
+} as any)
 const AutorizacoesHistoricoRoute = AutorizacoesHistoricoRouteImport.update({
   id: '/autorizacoes/historico',
   path: '/autorizacoes/historico',
@@ -294,7 +300,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/caixa': typeof CaixaRoute
   '/clientes': typeof ClientesRoute
-  '/cobrancas': typeof CobrancasRoute
+  '/cobrancas': typeof CobrancasRouteWithChildren
   '/compras': typeof ComprasRoute
   '/configuracoes': typeof ConfiguracoesRoute
   '/estoque': typeof EstoqueRoute
@@ -322,6 +328,7 @@ export interface FileRoutesByFullPath {
   '/admin/qa': typeof AdminQaRoute
   '/admin/usuarios': typeof AdminUsuariosRoute
   '/autorizacoes/historico': typeof AutorizacoesHistoricoRoute
+  '/cobrancas/whatsapp-logs': typeof CobrancasWhatsappLogsRoute
   '/relatorios/caixa': typeof RelatoriosCaixaRoute
   '/relatorios/compras': typeof RelatoriosComprasRoute
   '/relatorios/contas-receber': typeof RelatoriosContasReceberRoute
@@ -341,7 +348,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/caixa': typeof CaixaRoute
   '/clientes': typeof ClientesRoute
-  '/cobrancas': typeof CobrancasRoute
+  '/cobrancas': typeof CobrancasRouteWithChildren
   '/compras': typeof ComprasRoute
   '/configuracoes': typeof ConfiguracoesRoute
   '/estoque': typeof EstoqueRoute
@@ -369,6 +376,7 @@ export interface FileRoutesByTo {
   '/admin/qa': typeof AdminQaRoute
   '/admin/usuarios': typeof AdminUsuariosRoute
   '/autorizacoes/historico': typeof AutorizacoesHistoricoRoute
+  '/cobrancas/whatsapp-logs': typeof CobrancasWhatsappLogsRoute
   '/relatorios/caixa': typeof RelatoriosCaixaRoute
   '/relatorios/compras': typeof RelatoriosComprasRoute
   '/relatorios/contas-receber': typeof RelatoriosContasReceberRoute
@@ -390,7 +398,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/caixa': typeof CaixaRoute
   '/clientes': typeof ClientesRoute
-  '/cobrancas': typeof CobrancasRoute
+  '/cobrancas': typeof CobrancasRouteWithChildren
   '/compras': typeof ComprasRoute
   '/configuracoes': typeof ConfiguracoesRoute
   '/estoque': typeof EstoqueRoute
@@ -418,6 +426,7 @@ export interface FileRoutesById {
   '/admin/qa': typeof AdminQaRoute
   '/admin/usuarios': typeof AdminUsuariosRoute
   '/autorizacoes/historico': typeof AutorizacoesHistoricoRoute
+  '/cobrancas/whatsapp-logs': typeof CobrancasWhatsappLogsRoute
   '/relatorios/caixa': typeof RelatoriosCaixaRoute
   '/relatorios/compras': typeof RelatoriosComprasRoute
   '/relatorios/contas-receber': typeof RelatoriosContasReceberRoute
@@ -468,6 +477,7 @@ export interface FileRouteTypes {
     | '/admin/qa'
     | '/admin/usuarios'
     | '/autorizacoes/historico'
+    | '/cobrancas/whatsapp-logs'
     | '/relatorios/caixa'
     | '/relatorios/compras'
     | '/relatorios/contas-receber'
@@ -515,6 +525,7 @@ export interface FileRouteTypes {
     | '/admin/qa'
     | '/admin/usuarios'
     | '/autorizacoes/historico'
+    | '/cobrancas/whatsapp-logs'
     | '/relatorios/caixa'
     | '/relatorios/compras'
     | '/relatorios/contas-receber'
@@ -563,6 +574,7 @@ export interface FileRouteTypes {
     | '/admin/qa'
     | '/admin/usuarios'
     | '/autorizacoes/historico'
+    | '/cobrancas/whatsapp-logs'
     | '/relatorios/caixa'
     | '/relatorios/compras'
     | '/relatorios/contas-receber'
@@ -584,7 +596,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   CaixaRoute: typeof CaixaRoute
   ClientesRoute: typeof ClientesRoute
-  CobrancasRoute: typeof CobrancasRoute
+  CobrancasRoute: typeof CobrancasRouteWithChildren
   ComprasRoute: typeof ComprasRoute
   ConfiguracoesRoute: typeof ConfiguracoesRoute
   EstoqueRoute: typeof EstoqueRoute
@@ -825,6 +837,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RelatoriosCaixaRouteImport
       parentRoute: typeof RelatoriosRoute
     }
+    '/cobrancas/whatsapp-logs': {
+      id: '/cobrancas/whatsapp-logs'
+      path: '/whatsapp-logs'
+      fullPath: '/cobrancas/whatsapp-logs'
+      preLoaderRoute: typeof CobrancasWhatsappLogsRouteImport
+      parentRoute: typeof CobrancasRoute
+    }
     '/autorizacoes/historico': {
       id: '/autorizacoes/historico'
       path: '/autorizacoes/historico'
@@ -965,6 +984,18 @@ const AdminRouteChildren: AdminRouteChildren = {
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
+interface CobrancasRouteChildren {
+  CobrancasWhatsappLogsRoute: typeof CobrancasWhatsappLogsRoute
+}
+
+const CobrancasRouteChildren: CobrancasRouteChildren = {
+  CobrancasWhatsappLogsRoute: CobrancasWhatsappLogsRoute,
+}
+
+const CobrancasRouteWithChildren = CobrancasRoute._addFileChildren(
+  CobrancasRouteChildren,
+)
+
 interface RelatoriosRouteChildren {
   RelatoriosCaixaRoute: typeof RelatoriosCaixaRoute
   RelatoriosComprasRoute: typeof RelatoriosComprasRoute
@@ -999,7 +1030,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   CaixaRoute: CaixaRoute,
   ClientesRoute: ClientesRoute,
-  CobrancasRoute: CobrancasRoute,
+  CobrancasRoute: CobrancasRouteWithChildren,
   ComprasRoute: ComprasRoute,
   ConfiguracoesRoute: ConfiguracoesRoute,
   EstoqueRoute: EstoqueRoute,
