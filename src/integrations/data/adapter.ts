@@ -496,6 +496,16 @@ export interface FinanceiroAdapter {
   listFiado(): Promise<FiadoLancamentoDomain[]>;
   /** Lista títulos pendentes da forma `ifood` (modo lote da conciliação). */
   listIfoodPendentes(): Promise<IfoodPendenteDomain[]>;
+
+  // Onda 11 — hub /financeiro
+  /** Lista todos os lançamentos com joins (cliente/fornecedor/venda/compra/categoria). */
+  listLancamentosCompleto(): Promise<LancamentoCompletoDomain[]>;
+  /** Breakdown por forma de pagamento dentro de um período (vendas + lancs vinculados). */
+  fluxoPorForma(periodo: { inicio: string; fim: string }): Promise<FluxoPorFormaDomain[]>;
+  /** Movimentos de caixa em um período. */
+  movimentosCaixaPeriodo(periodo: { inicio: string; fim: string }): Promise<MovimentoCaixaPeriodoDomain[]>;
+  /** Lançamentos pagos/recebidos AVULSOS (sem caixa, sem venda) em um período. */
+  lancamentosAvulsosPagos(periodo: { inicio: string; fim: string }): Promise<LancamentoAvulsoPagoDomain[]>;
 }
 
 export interface IfoodPendenteDomain {
@@ -504,6 +514,71 @@ export interface IfoodPendenteDomain {
   valor: number;
   data_emissao: string;
   cliente_nome: string | null;
+}
+
+export interface LancamentoCompletoDomain {
+  id: string;
+  descricao: string;
+  valor: number;
+  valor_pago: number | null;
+  data_vencimento: string;
+  data_pagamento: string | null;
+  data_emissao: string | null;
+  tipo: "receber" | "pagar";
+  status: string;
+  observacoes: string | null;
+  numero_documento: string | null;
+  forma_pagamento: string | null;
+  created_at: string | null;
+  conciliado_em: string | null;
+  valor_repasse: number | null;
+  taxa_repasse: number | null;
+  numero_repasse: string | null;
+  observacao_repasse: string | null;
+  cliente_id: string | null;
+  venda_id: string | null;
+  compra_id: string | null;
+  fornecedor_nome: string | null;
+  fornecedor_documento: string | null;
+  fornecedor_telefone: string | null;
+  cliente_nome: string | null;
+  cliente_documento: string | null;
+  cliente_telefone: string | null;
+  cliente_email: string | null;
+  venda_numero: string | null;
+  venda_data: string | null;
+  venda_total: number | null;
+  compra_numero: string | null;
+  compra_data_emissao: string | null;
+  compra_total: number | null;
+  compra_status: string | null;
+  categoria_nome: string | null;
+}
+
+export interface FluxoPorFormaDomain {
+  forma: string;
+  recebido: number;
+  aReceber: number;
+}
+
+export interface MovimentoCaixaPeriodoDomain {
+  id: string;
+  tipo: string;
+  valor: number;
+  motivo: string | null;
+  created_at: string;
+  caixa_id: string | null;
+  venda_id: string | null;
+}
+
+export interface LancamentoAvulsoPagoDomain {
+  id: string;
+  descricao: string;
+  tipo: "receber" | "pagar" | "receita" | "despesa";
+  valor: number;
+  valor_pago: number | null;
+  data_pagamento: string | null;
+  status: string;
 }
 
 export interface FiadoLancamentoDomain {
