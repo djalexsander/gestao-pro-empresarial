@@ -290,11 +290,17 @@ export function AutorizacoesTab() {
         </CardContent>
       </Card>
 
+      <NovoCartaoAutorizacaoDialog
+        open={showNovoCartao}
+        onOpenChange={setShowNovoCartao}
+        onCriado={(d) => setCartaoRecemCriado(d)}
+      />
+
       <CartaoAutorizacaoDialog
-        open={showCartao}
-        onOpenChange={setShowCartao}
-        codigo={codigoGerado ?? codigoNovo}
-        label={labelQR || "Cartão Gerente"}
+        open={!!cartaoRecemCriado}
+        onOpenChange={(v) => { if (!v) setCartaoRecemCriado(null); }}
+        codigo={cartaoRecemCriado?.codigo ?? ""}
+        label={cartaoRecemCriado?.rotulo ?? "Cartão"}
         empresaNome={empresaNome}
       />
     </div>
