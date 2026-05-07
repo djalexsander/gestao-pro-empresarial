@@ -15,6 +15,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { unlockErp } from "@/lib/erpUnlock";
+import {
+  findOfflineEntry,
+  hasAnyOfflineEntry,
+  isNetworkAuthError,
+  saveOfflineCredential,
+  verifyOfflineCredential,
+  withAuthTimeout,
+} from "@/lib/erpOfflineCache";
+import { isDesktop } from "@/integrations/data/mode";
 
 interface Props {
   open: boolean;
@@ -67,19 +76,96 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
     if (!email.trim() || !password) return;
     setBusy(true);
 
+    const desktop = isDesktop();
+    const navigatorOnline =
+      typeof navigator !== "undefined" ? navigator.onLine : true;
+
+    async function entrarOffline(motivo: "offline" | "rede"): Promise<boolean> {
+      if (!desktop) return false;
+      const entry = await verifyOfflineCredential(email.trim(), password);
+      if (!entry) {
+        if (!hasAnyOfflineEntry() || !findOfflineEntry(email.trim())) {
+          toast.error(
+            "Primeiro acesso precisa de internet para validar esta máquina.",
+          );
+        } else {
+          toast.error("E-mail ou senha inválidos (modo offline).");
+        }
+        return false;
+      }
+      const allowed =
+        entry.roles.length === 0 ||
+        entry.roles.includes("super_admin") ||
+        entry.roles.includes("admin") ||
+        entry.roles.includes("gerente");
+      if (!allowed) {
+        toast.error(
+          "Acesso negado. Esta conta não tem permissão para acessar o ERP.",
+        );
+        return false;
+      }
+      try {
+        localStorage.setItem(REMEMBER_EMAIL_KEY, email.trim());
+      } catch {
+        /* noop */
+      }
+      setPassword("");
+      unlockErp(entry.userId);
+      toast.success(
+        motivo === "offline"
+          ? "Modo offline: acesso validado localmente."
+          : "Sem conexão com a internet. Usando modo offline local.",
+      );
+      onOpenChange(false);
+      navigate({ to: "/" });
+      return true;
+    }
+
     try {
-      // 1) Reautenticação obrigatória (não confia na sessão existente).
-      const { user: authedUser, error: signInError } =
-        await dataClient.auth.signInWithPassword({
-          email: email.trim(),
-          password,
-        });
+      // Desktop offline: nem tenta a nuvem, vai direto pro cache local.
+      if (desktop && !navigatorOnline) {
+        const ok = await entrarOffline("offline");
+        if (!ok) setBusy(false);
+        return;
+      }
+
+      // 1) Reautenticação online com timeout curto (evita loading infinito).
+      type SignInResult = { user: { id: string } | null; error: { message?: string } | null };
+      let res: SignInResult;
+      try {
+        res = (await withAuthTimeout(
+          dataClient.auth.signInWithPassword({
+            email: email.trim(),
+            password,
+          }),
+          desktop ? 6000 : 15000,
+        )) as SignInResult;
+      } catch (netErr) {
+        if (desktop && isNetworkAuthError(netErr)) {
+          const ok = await entrarOffline("rede");
+          if (!ok) setBusy(false);
+          return;
+        }
+        toast.error("Sem conexão com o servidor. Tente novamente.");
+        setBusy(false);
+        return;
+      }
+
+      const signInError = res.error;
+      const authedUser = res.user;
+
+      if (signInError && desktop && isNetworkAuthError(signInError)) {
+        const ok = await entrarOffline("rede");
+        if (!ok) setBusy(false);
+        return;
+      }
 
       if (signInError || !authedUser) {
+        const msg = signInError?.message;
         toast.error(
-          signInError?.message === "Invalid login credentials"
+          msg === "Invalid login credentials"
             ? "E-mail ou senha inválidos."
-            : signInError?.message ?? "Não foi possível autenticar.",
+            : msg ?? "Não foi possível autenticar.",
         );
         setBusy(false);
         return;
@@ -90,14 +176,21 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
       // 2) Verifica papel: somente admin/gerente/super_admin entram no ERP.
       let roleList: string[] = [];
       try {
-        roleList = await dataClient.userRoles.listar(authedUserId);
-      } catch {
+        roleList = await withAuthTimeout(
+          dataClient.userRoles.listar(authedUserId),
+          desktop ? 6000 : 15000,
+        );
+      } catch (e) {
+        if (desktop && isNetworkAuthError(e)) {
+          const ok = await entrarOffline("rede");
+          if (!ok) setBusy(false);
+          return;
+        }
         toast.error("Falha ao validar permissões.");
         setBusy(false);
         return;
       }
 
-      // (já populado acima)
       const hasErpAccess =
         roleList.length === 0 || // primeiro usuário (sem roles) é tratado como admin
         roleList.includes("super_admin") ||
@@ -122,6 +215,19 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
       } catch {
         /* noop */
       }
+      // Atualiza/cria cache offline (apenas no desktop) com hash seguro.
+      if (desktop) {
+        try {
+          await saveOfflineCredential({
+            email: email.trim(),
+            password,
+            userId: authedUserId,
+            roles: roleList,
+          });
+        } catch {
+          /* noop — não bloqueia o acesso online */
+        }
+      }
       // Garante que a senha digitada não permanece em memória após sucesso.
       setPassword("");
       unlockErp(authedUserId);
@@ -129,8 +235,16 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
       onOpenChange(false);
       navigate({ to: "/" });
     } catch (err) {
+      if (desktop && isNetworkAuthError(err)) {
+        const ok = await entrarOffline("rede");
+        if (!ok) setBusy(false);
+        return;
+      }
+      const msg = err instanceof Error ? err.message : "";
       toast.error(
-        err instanceof Error ? err.message : "Erro inesperado ao autenticar.",
+        isNetworkAuthError(err)
+          ? "Sem conexão com a internet."
+          : msg || "Erro inesperado ao autenticar.",
       );
     } finally {
       setBusy(false);
