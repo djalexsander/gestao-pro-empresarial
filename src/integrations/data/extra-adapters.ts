@@ -113,7 +113,9 @@ export type AutorizacaoAcaoDomain =
   | "cancelar_compra"
   | "excluir_lancamento_financeiro"
   | "alterar_valor_confirmado"
-  | "reabrir_caixa";
+  | "reabrir_caixa"
+  | "sangria_caixa"
+  | "suprimento_caixa";
 
 export type AutorizacaoMetodoDomain = "pin_funcionario" | "senha_master" | "codigo_qr";
 
@@ -127,6 +129,8 @@ export interface AutorizacoesConfigDomain {
   exigir_excluir_lancamento_financeiro: boolean;
   exigir_alterar_valor_confirmado: boolean;
   exigir_reabrir_caixa: boolean;
+  exigir_sangria_caixa: boolean;
+  exigir_suprimento_caixa: boolean;
   metodo_pin_habilitado: boolean;
   metodo_senha_master_habilitado: boolean;
   metodo_codigo_qr_habilitado: boolean;
