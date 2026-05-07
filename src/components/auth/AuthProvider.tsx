@@ -40,12 +40,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    dataClient.auth.getSession().then(({ session: sess }) => {
-      setSession(sess);
-      setUser(sess?.user ?? null);
-      setLoading(false);
-      if (sess?.user) lastEventUserRef.current = sess.user.id;
-    });
+    // Boot resiliente: nunca bloquear a UI esperando a rede.
+    // Se a sessão demorar > 4s (offline / DNS travado), seguimos como
+    // "sem sessão" e o RequireAuth/RequireErpUnlock decidem o caminho
+    // (cache local no desktop, login no web).
+    withTimeout(dataClient.auth.getSession(), 4000, "auth.getSession")
+      .then(({ session: sess }) => {
+        setSession(sess);
+        setUser(sess?.user ?? null);
+        if (sess?.user) lastEventUserRef.current = sess.user.id;
+      })
+      .catch((err) => {
+        if (err instanceof TimeoutError) {
+          console.warn("[AuthProvider] getSession timeout — seguindo sem sessão (modo offline?)");
+        } else {
+          console.warn("[AuthProvider] getSession falhou:", err);
+        }
+      })
+      .finally(() => {
+        setLoading(false);
+      });
 
     return () => subscription.unsubscribe();
   }, []);
