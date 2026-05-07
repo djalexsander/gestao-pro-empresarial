@@ -866,6 +866,44 @@ export interface ComprasAdapter {
 /** Dashboard agregado — uma única chamada que monta todos os KPIs. */
 export interface DashboardAdapter {
   carregar(): Promise<DashboardData>;
+  /**
+   * Detalhe de um KPI (vendas/compras/lucro/contas-pagar/contas-receber/estoque-baixo)
+   * para um período. Centraliza as queries que antes estavam no KpiDetailDialog.
+   */
+  kpiDetalhe(input: KpiDetalheInput): Promise<KpiDetalheResult>;
+}
+
+export type KpiTipoDomain =
+  | "vendas"
+  | "compras"
+  | "lucro"
+  | "contas-pagar"
+  | "contas-receber"
+  | "estoque-baixo";
+
+export interface KpiDetalheInput {
+  tipo: KpiTipoDomain;
+  inicio: string;
+  fim: string;
+}
+
+export interface KpiDetalheRow {
+  identificador: string;
+  data: string | null;
+  descricao: string;
+  valor: number;
+  status: string;
+}
+
+export interface KpiDetalheResumoItem {
+  label: string;
+  valor: string;
+  tone?: "success" | "danger" | "warning" | "info" | "muted";
+}
+
+export interface KpiDetalheResult {
+  rows: KpiDetalheRow[];
+  resumo: KpiDetalheResumoItem[];
 }
 
 import type {
