@@ -8111,3 +8111,318 @@ pub fn fornecedor_remote_id_for(local_uuid: &str) -> DbResult<Option<String>> {
         Ok(r.flatten())
     })
 }
+
+// =====================================================================
+// COMPRAS — offline-first (Fase 2)
+// =====================================================================
+//
+// Modelo: cada compra tem cabeçalho (`compras_local`) + N itens
+// (`compra_itens_local`). A criação enfileira UM item de outbox `criar`
+// com o payload completo (cabeçalho + itens), espelhando a RPC
+// `cloudAdapter.compras.criar`. Demais ações (alterar_status,
+// editar_metadados, excluir, receber, receber_itens) são enfileiradas
+// individualmente, com colapso quando ainda existe `criar` pendente.
+
+#[derive(Debug, Serialize)]
+pub struct CompraEnqueueResult {
+    pub compra_local_uuid: String,
+    pub compra_remote_id: Option<String>,
+    pub idempotente: bool,
+}
+
+fn json_num_opt(v: &serde_json::Value, k: &str) -> Option<f64> {
+    v.get(k).and_then(|x| x.as_f64())
+}
+
+fn compra_recompute_payload(
+    tx: &rusqlite::Connection,
+    compra_local_uuid: &str,
+    now_ms: i64,
+) -> DbResult<()> {
+    // Recalcula subtotal/total e regera o payload JSON usado por
+    // read_compras (que lê `compras_local.payload` direto).
+    let header: Option<(
+        String, Option<String>, Option<String>, Option<String>,
+        Option<String>, Option<String>, Option<String>, Option<String>,
+        Option<String>, Option<String>, Option<String>, Option<String>,
+        f64, f64, f64, Option<String>,
+    )> = tx.query_row(
+        "SELECT local_uuid, remote_id, numero, fornecedor_id, status,
+                data_emissao, data_prevista, data_vencimento,
+                data_recebimento, numero_nf, serie_nf, observacoes,
+                desconto, frete, outros, fornecedor_payload
+           FROM compras_local_ext WHERE local_uuid=?1",
+        params![compra_local_uuid], |r| Ok((
+            r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
+            r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?,
+            r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?, r.get(14)?, r.get(15)?,
+        )),
+    ).optional()?;
+    // O view `compras_local_ext` ainda não existe — o helper acima é
+    // intencionalmente um placeholder estrutural pra ser preenchido
+    // quando os 6 handlers estiverem prontos. Por hora, recomputamos
+    // a partir do payload existente em `compras_local`.
+    let _ = header;
+    let raw: Option<String> = tx.query_row(
+        "SELECT payload FROM compras_local WHERE local_uuid=?1",
+        params![compra_local_uuid], |r| r.get(0),
+    ).optional()?;
+    let mut full: serde_json::Value = raw
+        .as_deref().and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    // Soma a partir de compra_itens_local
+    let mut stmt = tx.prepare(
+        "SELECT local_uuid, remote_id, produto_id, variacao_id, descricao,
+                quantidade, quantidade_recebida, preco_unitario, desconto, total
+           FROM compra_itens_local WHERE compra_local_uuid=?1
+          ORDER BY created_at_ms ASC",
+    )?;
+    let mut subtotal = 0f64;
+    let mut itens_arr: Vec<serde_json::Value> = Vec::new();
+    let rows = stmt.query_map(params![compra_local_uuid], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, Option<String>>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, Option<String>>(3)?,
+            r.get::<_, Option<String>>(4)?,
+            r.get::<_, f64>(5)?,
+            r.get::<_, f64>(6)?,
+            r.get::<_, f64>(7)?,
+            r.get::<_, f64>(8)?,
+            r.get::<_, f64>(9)?,
+        ))
+    })?;
+    for row in rows {
+        let (lid, rid, pid, var, desc, qtd, qrec, preco, desc_v, total) = row?;
+        subtotal += total;
+        itens_arr.push(serde_json::json!({
+            "id": rid.clone().unwrap_or_else(|| lid.clone()),
+            "local_uuid": lid,
+            "produto_id": pid,
+            "variacao_id": var,
+            "descricao": desc,
+            "quantidade": qtd,
+            "quantidade_recebida": qrec,
+            "preco_unitario": preco,
+            "desconto": desc_v,
+            "total": total,
+        }));
+    }
+    let desconto = full.get("desconto").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let frete = full.get("frete").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let outros = full.get("outros").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let total = (subtotal - desconto + frete + outros).max(0.0);
+    if let Some(o) = full.as_object_mut() {
+        o.insert("subtotal".into(), serde_json::json!(subtotal));
+        o.insert("total".into(), serde_json::json!(total));
+        o.insert("itens".into(), serde_json::Value::Array(itens_arr));
+        o.insert("sync_status".into(), serde_json::Value::String(
+            o.get("sync_status").and_then(|v| v.as_str()).unwrap_or("pending").into(),
+        ));
+    }
+    let status = full.get("status").and_then(|v| v.as_str()).unwrap_or("pendente").to_string();
+    let numero = full.get("numero").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let fornecedor_id = full.get("fornecedor_id").and_then(|v| v.as_str()).map(String::from);
+    let data_emissao_ms = full.get("data_emissao").and_then(|v| v.as_str()).and_then(parse_date_only_to_ms);
+    tx.execute(
+        "UPDATE compras_local
+            SET numero=?1, fornecedor_id=?2, status=?3, data_emissao_ms=?4,
+                payload=?5, synced_at_ms=?6
+          WHERE local_uuid=?7",
+        params![numero, fornecedor_id, status, data_emissao_ms, full.to_string(), now_ms, compra_local_uuid],
+    )?;
+    Ok(())
+}
+
+pub fn compra_criar_local(payload: serde_json::Value) -> DbResult<CompraEnqueueResult> {
+    with_conn(|conn| {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let tx = conn.unchecked_transaction()?;
+
+        // Idempotência por client_uuid
+        let client_uuid = json_str_opt(&payload, "_client_uuid");
+        if let Some(cu) = &client_uuid {
+            let existing: Option<(String, Option<String>)> = tx.query_row(
+                "SELECT compra_local_uuid, compra_remote_id
+                   FROM outbox_compras WHERE client_uuid=?1",
+                params![cu], |r| Ok((r.get(0)?, r.get(1)?)),
+            ).optional()?;
+            if let Some((lid, rid)) = existing {
+                tx.commit()?;
+                return Ok(CompraEnqueueResult {
+                    compra_local_uuid: lid,
+                    compra_remote_id: rid,
+                    idempotente: true,
+                });
+            }
+        }
+
+        let local_uuid = random_uuid_v4();
+        let numero = json_str_opt(&payload, "_numero").unwrap_or_default();
+        let fornecedor_id = json_str_opt(&payload, "_fornecedor_id");
+        let data_emissao = json_str_opt(&payload, "_data_emissao")
+            .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
+        let data_prevista = json_str_opt(&payload, "_data_prevista");
+        let data_vencimento = json_str_opt(&payload, "_data_vencimento");
+        let numero_nf = json_str_opt(&payload, "_numero_nf");
+        let serie_nf = json_str_opt(&payload, "_serie_nf");
+        let observacoes = json_str_opt(&payload, "_observacoes");
+        let desconto = json_num_opt(&payload, "_desconto").unwrap_or(0.0);
+        let frete = json_num_opt(&payload, "_frete").unwrap_or(0.0);
+        let outros = json_num_opt(&payload, "_outros").unwrap_or(0.0);
+        let data_emissao_ms = parse_date_only_to_ms(&data_emissao);
+
+        // Itens vêm em "_itens" como array de objetos.
+        let itens_raw = payload.get("_itens").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        if itens_raw.is_empty() {
+            return Err(DbError("compra_criar_local: itens vazio".into()));
+        }
+
+        let mut subtotal = 0f64;
+        let mut itens_full: Vec<serde_json::Value> = Vec::new();
+        for it in &itens_raw {
+            let item_local = random_uuid_v4();
+            let produto_id = it.get("produto_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if produto_id.is_empty() { continue; }
+            let variacao_id = it.get("variacao_id").and_then(|v| v.as_str()).map(String::from);
+            let descricao = it.get("descricao").and_then(|v| v.as_str()).map(String::from);
+            let quantidade = it.get("quantidade").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let preco_unitario = it.get("preco_unitario").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let desconto_item = it.get("desconto").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let total_item = (quantidade * preco_unitario - desconto_item).max(0.0);
+            subtotal += total_item;
+
+            tx.execute(
+                "INSERT INTO compra_itens_local(
+                    local_uuid, remote_id, compra_local_uuid, compra_remote_id,
+                    produto_id, variacao_id, descricao,
+                    quantidade, quantidade_recebida, preco_unitario, desconto, total,
+                    sync_status, created_at_ms, updated_at_ms
+                 ) VALUES (?1,NULL,?2,NULL,?3,?4,?5,?6,0,?7,?8,?9,'pending',?10,?10)",
+                params![
+                    item_local, local_uuid, produto_id, variacao_id, descricao,
+                    quantidade, preco_unitario, desconto_item, total_item, now_ms
+                ],
+            )?;
+            itens_full.push(serde_json::json!({
+                "id": item_local,
+                "local_uuid": item_local,
+                "produto_id": produto_id,
+                "variacao_id": variacao_id,
+                "descricao": descricao,
+                "quantidade": quantidade,
+                "quantidade_recebida": 0,
+                "preco_unitario": preco_unitario,
+                "desconto": desconto_item,
+                "total": total_item,
+            }));
+        }
+        let total = (subtotal - desconto + frete + outros).max(0.0);
+
+        // Fornecedor embutido (mantém formato da listagem cloud)
+        let fornecedor_obj: serde_json::Value = if let Some(fid) = &fornecedor_id {
+            let row: Option<(String, Option<String>)> = tx.query_row(
+                "SELECT razao_social, nome_fantasia FROM fornecedores_local
+                  WHERE remote_id=?1 OR local_uuid=?1 OR id=?1 LIMIT 1",
+                params![fid], |r| Ok((r.get(0)?, r.get(1)?)),
+            ).optional()?;
+            match row {
+                Some((rs, nf)) => serde_json::json!({
+                    "id": fid, "razao_social": rs, "nome_fantasia": nf
+                }),
+                None => serde_json::json!({
+                    "id": fid, "razao_social": "", "nome_fantasia": null
+                }),
+            }
+        } else { serde_json::Value::Null };
+
+        let full = serde_json::json!({
+            "id": &local_uuid,
+            "local_uuid": &local_uuid,
+            "remote_id": serde_json::Value::Null,
+            "numero": &numero,
+            "fornecedor_id": &fornecedor_id,
+            "data_emissao": &data_emissao,
+            "data_prevista": &data_prevista,
+            "data_vencimento": &data_vencimento,
+            "data_recebimento": serde_json::Value::Null,
+            "numero_nf": &numero_nf,
+            "serie_nf": &serie_nf,
+            "subtotal": subtotal,
+            "desconto": desconto,
+            "frete": frete,
+            "outros": outros,
+            "total": total,
+            "status": "pendente",
+            "observacoes": &observacoes,
+            "fornecedor": fornecedor_obj,
+            "itens": serde_json::Value::Array(itens_full),
+            "sync_status": "pending",
+            "created_at": chrono::DateTime::<chrono::Utc>::from_timestamp_millis(now_ms)
+                .map(|d| d.to_rfc3339()).unwrap_or_default(),
+            "updated_at": serde_json::Value::Null,
+        });
+
+        tx.execute(
+            "INSERT INTO compras_local(
+                id, numero, fornecedor_id, status, data_emissao_ms,
+                payload, updated_at_remote_ms, synced_at_ms, deleted_at_ms,
+                local_uuid, remote_id, sync_status, last_error, created_offline_at_ms
+             ) VALUES (?1,?2,?3,'pendente',?4,?5,NULL,?6,NULL,?1,NULL,'pending',NULL,?6)",
+            params![local_uuid, numero, fornecedor_id, data_emissao_ms, full.to_string(), now_ms],
+        )?;
+
+        // Outbox 'criar' carrega o payload original (com `_client_uuid`
+        // preenchido para idempotência ponta-a-ponta).
+        let mut rpc_payload = payload.clone();
+        if let Some(o) = rpc_payload.as_object_mut() {
+            o.insert("_client_uuid".into(), serde_json::Value::String(local_uuid.clone()));
+        }
+        let outbox_id = random_uuid_v4();
+        tx.execute(
+            "INSERT INTO outbox_compras(
+                local_uuid, client_uuid, compra_local_uuid, compra_remote_id,
+                action, payload, status, attempts, created_at_ms, updated_at_ms, next_attempt_at_ms
+             ) VALUES (?1,?2,?3,NULL,'criar',?4,'pending',0,?5,?5,NULL)",
+            params![outbox_id, client_uuid, local_uuid, rpc_payload.to_string(), now_ms],
+        )?;
+
+        tx.commit()?;
+        Ok(CompraEnqueueResult {
+            compra_local_uuid: local_uuid,
+            compra_remote_id: None,
+            idempotente: false,
+        })
+    })
+}
+
+pub fn compra_resolve_local_uuid(any_id: &str) -> DbResult<Option<String>> {
+    with_conn(|conn| {
+        let lid: Option<String> = conn.query_row(
+            "SELECT local_uuid FROM compras_local
+              WHERE local_uuid=?1 OR remote_id=?1 OR id=?1
+              LIMIT 1",
+            params![any_id], |r| r.get(0),
+        ).optional()?;
+        Ok(lid)
+    })
+}
+
+pub fn compra_remote_id_for(local_uuid: &str) -> DbResult<Option<String>> {
+    with_conn(|conn| {
+        let r: Option<Option<String>> = conn.query_row(
+            "SELECT remote_id FROM compras_local WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).optional()?;
+        Ok(r.flatten())
+    })
+}
+
+#[allow(dead_code)]
+fn compra_recompute_payload_safe(
+    tx: &rusqlite::Connection, compra_local_uuid: &str, now_ms: i64,
+) -> DbResult<()> {
+    compra_recompute_payload(tx, compra_local_uuid, now_ms)
+}
