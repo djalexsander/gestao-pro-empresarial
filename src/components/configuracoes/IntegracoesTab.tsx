@@ -76,10 +76,7 @@ export function IntegracoesTab() {
     queryKey: ["empresa_integracoes", empresaAtual?.id],
     enabled: !!empresaAtual?.id,
     queryFn: async (): Promise<Integracao[]> => {
-      const { data, error } = await (supabase.from as any)("empresa_integracoes")
-        .select("*")
-        .eq("empresa_id", empresaAtual!.id);
-      if (error) throw new Error(error.message);
+      const data = await dataClient.empresa.listarIntegracoes(empresaAtual!.id);
       return (data ?? []) as Integracao[];
     },
   });
@@ -94,10 +91,7 @@ export function IntegracoesTab() {
         empresa_id: empresaAtual.id,
         owner_id: empresaAtual.owner_id,
       };
-      const { error } = await (supabase.from as any)("empresa_integracoes").upsert(row, {
-        onConflict: "empresa_id,tipo_integracao",
-      });
-      if (error) throw new Error(error.message);
+      await dataClient.empresa.upsertIntegracao(row);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["empresa_integracoes"] });
