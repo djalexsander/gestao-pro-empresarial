@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -70,20 +70,7 @@ export function TerminalPermissoesDialog({
   const salvar = useMutation({
     mutationFn: async () => {
       if (!terminal) throw new Error("Terminal inválido");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase as any).rpc(
-        "terminal_atualizar_permissoes",
-        {
-          _terminal_id: terminal.id,
-          _pode_pdv: perms.pode_pdv,
-          _pode_erp: perms.pode_erp,
-          _pode_financeiro: perms.pode_financeiro,
-          _pode_configuracoes: perms.pode_configuracoes,
-          _pode_relatorios: perms.pode_relatorios,
-          _pode_cadastros: perms.pode_cadastros,
-        },
-      );
-      if (error) throw error;
+      await dataClient.terminais.atualizarPermissoes({ id: terminal.id, ...perms });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["terminais"] });
