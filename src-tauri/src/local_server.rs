@@ -717,6 +717,7 @@ fn read_typed(domain: &str, query: &[(&str, String)]) -> Result<String, db::DbEr
             })
         }
         "clientes_lite" => db::read_clientes(None),
+        "fornecedores" => db::read_fornecedores(None),
         "estoque_saldos" => db::read_saldos(),
         "estoque_movimentacoes" => {
             let produto_id = query
