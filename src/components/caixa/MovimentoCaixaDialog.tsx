@@ -176,6 +176,20 @@ export function MovimentoCaixaDialog({ open, onOpenChange, caixaId, tipo }: Prop
             {meta.hint}
           </div>
 
+          {exigeAutorizacao && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+              <div>
+                <p className="font-medium text-amber-700 dark:text-amber-400">Requer autorização gerencial</p>
+                <p className="text-amber-700/80 dark:text-amber-400/80">
+                  {autorizadorNome
+                    ? `Autorizado por ${autorizadorNome}.`
+                    : "Após confirmar o valor, um gerente/admin precisa autorizar com cartão, PIN ou senha."}
+                </p>
+              </div>
+            </div>
+          )}
+
           <DialogFooter>
             <Button
               type="button"
@@ -188,6 +202,8 @@ export function MovimentoCaixaDialog({ open, onOpenChange, caixaId, tipo }: Prop
             <Button type="submit" disabled={registrar.isPending}>
               {registrar.isPending ? (
                 <><Loader2 className="h-4 w-4 animate-spin" /> Registrando...</>
+              ) : exigeAutorizacao && !autorizadorNome ? (
+                <><ShieldAlert className="mr-1 h-4 w-4" /> Solicitar autorização</>
               ) : (
                 meta.button
               )}
@@ -195,6 +211,21 @@ export function MovimentoCaixaDialog({ open, onOpenChange, caixaId, tipo }: Prop
           </DialogFooter>
         </form>
       </DialogContent>
+
+      <AutorizacaoGerencialDialog
+        open={!!autReq}
+        onOpenChange={(v) => { if (!v) setAutReq(null); }}
+        request={autReq}
+        onAutorizado={async (info) => {
+          setAutorizadorNome(info.autorizador_nome);
+          setAutReq(null);
+          try {
+            await persistir(info.autorizador_nome);
+          } catch (e) {
+            toast.error((e as Error).message ?? "Erro ao registrar movimento.");
+          }
+        }}
+      />
     </Dialog>
   );
 }
