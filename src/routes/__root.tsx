@@ -9,6 +9,7 @@ import { QueryProvider } from "@/components/providers/QueryProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { UpdateBanner } from "@/components/shared/UpdateBanner";
+import { OfflineBanner } from "@/components/shared/OfflineBanner";
 
 import { CartProvider } from "@/components/saas/CartContext";
 import { DesktopRoleProvider } from "@/components/desktop/DesktopRoleProvider";
