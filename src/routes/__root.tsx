@@ -102,6 +102,7 @@ function RootComponent() {
                     <CartProvider>
                       <AppLayout />
                       <UpdateBanner />
+                      <OfflineBanner />
                       <Toaster richColors position="top-right" />
                     </CartProvider>
                   </DesktopRoleProvider>
