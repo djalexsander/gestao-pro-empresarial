@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -123,19 +123,7 @@ function useMeusPagamentos(empresaId?: string | null) {
     enabled: !!empresaId,
     staleTime: 30_000,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("pagamentos")
-        .select(
-          `id, referencia_tipo, descricao, valor, status, forma_pagamento,
-           data_vencimento, data_pagamento, created_at,
-           plano:plano_id (nome),
-           modulo:modulo_id (nome)`,
-        )
-        .eq("empresa_id", empresaId!)
-        .order("created_at", { ascending: false })
-        .limit(50);
-      if (error) throw error;
-      return (data ?? []) as unknown as PagamentoCliente[];
+      return (await dataClient.saasCliente.meusPagamentos(empresaId!)) as unknown as PagamentoCliente[];
     },
   });
 }
