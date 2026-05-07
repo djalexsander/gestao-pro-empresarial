@@ -191,6 +191,25 @@ pub fn init() -> DbResult<()> {
         CREATE INDEX IF NOT EXISTS idx_fornecedores_nome ON fornecedores_local(razao_social);
         CREATE INDEX IF NOT EXISTS idx_fornecedores_doc ON fornecedores_local(documento);
 
+        -- v14: Lançamentos financeiros (cache "completo" para a tela
+        -- /financeiro). Guardamos o payload já com joins que a UI consome
+        -- (fornecedor, cliente, venda, compra, categoria), exatamente como
+        -- vem do PostgREST. Filtros (tipo/status/período) são aplicados
+        -- client-side em cima da leitura local.
+        CREATE TABLE IF NOT EXISTS financeiro_lancamentos_local (
+            id                   TEXT PRIMARY KEY,
+            tipo                 TEXT,
+            status               TEXT,
+            data_vencimento_ms   INTEGER,
+            payload              TEXT NOT NULL,
+            updated_at_remote_ms INTEGER,
+            synced_at_ms         INTEGER NOT NULL,
+            deleted_at_ms        INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_fin_lancs_status ON financeiro_lancamentos_local(status);
+        CREATE INDEX IF NOT EXISTS idx_fin_lancs_tipo ON financeiro_lancamentos_local(tipo);
+        CREATE INDEX IF NOT EXISTS idx_fin_lancs_venc ON financeiro_lancamentos_local(data_vencimento_ms);
+
         -- Saldos: agregados por (produto_id, variacao_id). A chave única
         -- evita duplicatas quando o snapshot é re-ingerido.
         CREATE TABLE IF NOT EXISTS estoque_saldos_local (
