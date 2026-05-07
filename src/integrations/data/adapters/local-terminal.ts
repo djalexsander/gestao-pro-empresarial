@@ -421,12 +421,106 @@ export const localTerminalAdapter: DataAdapter = {
 
   clientes: {
     ...cloudAdapter.clientes,
+  clientes: {
+    ...cloudAdapter.clientes,
+    /**
+     * Writes (Fase 2): vão PRIMEIRO ao servidor local. Lá geram um
+     * `local_uuid` estável, gravam no `clientes_local`, enfileiram na
+     * `outbox_clientes` e tentam push imediato à nuvem. Se o servidor
+     * local não responde, caímos no cloudAdapter (legado).
+     */
+    criar: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await criarClienteLocal(cfg, input as unknown as Record<string, unknown>, token);
+        if (r) {
+          reportDataSource({
+            source: "local-server",
+            domain: "clientes",
+            method: "criar",
+            fallback: false,
+          });
+          return { cliente_id: r.cliente_id, idempotente: r.idempotente };
+        }
+      }
+      const result = await cloudAdapter.clientes.criar(input);
+      reportDataSource({ source: "cloud", domain: "clientes", method: "criar", fallback: true });
+      return result;
+    },
+    editar: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await editarClienteLocal(
+          cfg,
+          input as unknown as Record<string, unknown> & { cliente_id: string },
+          token,
+        );
+        if (r) {
+          reportDataSource({
+            source: "local-server",
+            domain: "clientes",
+            method: "editar",
+            fallback: false,
+          });
+          return { cliente_id: r.cliente_id };
+        }
+      }
+      const result = await cloudAdapter.clientes.editar(input);
+      reportDataSource({ source: "cloud", domain: "clientes", method: "editar", fallback: true });
+      return result;
+    },
+    alterarStatus: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await alterarStatusClienteLocal(
+          cfg,
+          { cliente_id: input.cliente_id, status: input.status },
+          token,
+        );
+        if (r) {
+          reportDataSource({
+            source: "local-server",
+            domain: "clientes",
+            method: "alterarStatus",
+            fallback: false,
+          });
+          return { cliente_id: r.cliente_id, status: input.status };
+        }
+      }
+      const result = await cloudAdapter.clientes.alterarStatus(input);
+      reportDataSource({ source: "cloud", domain: "clientes", method: "alterarStatus", fallback: true });
+      return result;
+    },
+    excluir: async (clienteId) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await excluirClienteLocal(cfg, { cliente_id: clienteId }, token);
+        if (r) {
+          reportDataSource({
+            source: "local-server",
+            domain: "clientes",
+            method: "excluir",
+            fallback: false,
+          });
+          return { cliente_id: r.cliente_id, excluido: true };
+        }
+      }
+      const result = await cloudAdapter.clientes.excluir(clienteId);
+      reportDataSource({ source: "cloud", domain: "clientes", method: "excluir", fallback: true });
+      return result;
+    },
     /**
      * Leitura completa do cadastro de clientes. Lê do `clientes_local`
      * (payload completo armazenado pelo `ingest_clientes`). Filtros
      * `status` / `busca` são aplicados client-side sobre o resultado local.
-     * Para o volume típico de Clientes (centenas a poucos milhares por
-     * loja) isso é trivial e mantém a tela 100% disponível offline.
      */
     list: (input) =>
       withFallback(
@@ -439,7 +533,6 @@ export const localTerminalAdapter: DataAdapter = {
             "clientes",
             "list",
             "/api/clientes/lite",
-            // status vazio = todos os status; o filtro real é aplicado abaixo.
             { status: "" },
           );
           if (!Array.isArray(all)) return all;
