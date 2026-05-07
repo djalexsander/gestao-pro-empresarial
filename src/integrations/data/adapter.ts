@@ -384,6 +384,8 @@ export interface CaixaAdapter {
   historico(input?: { limit?: number }): Promise<CaixaDomain[]>;
   /** Movimentos de um caixa específico (cronológico). */
   movimentos(caixaId: string): Promise<CaixaMovimentoDomain[]>;
+  /** Caixa por id, retornando todos os campos da view (totais, etc). */
+  obterPorId(caixaId: string): Promise<CaixaDomain | null>;
 }
 
 /**
@@ -689,8 +691,10 @@ export interface FuncionariosAdapter {
   desbloquearPin(input: DesbloquearPinOperadorInput): Promise<DesbloquearPinOperadorResult>;
 
   // ---------------------------- Reads (Bloco 15) ----------------------------
-  /** Lista funcionários do tenant. RPC `funcionarios_listar`. */
+  /** Lista funcionários do tenant. RPC `funcionarios_listar`. */>
   list(input?: FuncionariosListInput): Promise<FuncionarioDomain[]>;
+  /** Retorna apenas o nome do funcionário, ou null. */
+  nomePorId(funcionarioId: string): Promise<string | null>;
 }
 
 /**
