@@ -50,6 +50,7 @@ import { useFornecedores } from "@/hooks/useFornecedores";
 import { CompraDialog } from "@/components/compras/CompraDialog";
 import { FornecedorSearchSelect } from "@/components/fornecedores/FornecedorSearchSelect";
 import { CompraDetailDialog } from "@/components/compras/CompraDetailDialog";
+import { usePdvQuickAccess } from "@/contexts/PdvQuickAccessContext";
 
 export const Route = createFileRoute("/compras")({
   head: () => ({
@@ -67,6 +68,7 @@ const fmtBRL = (n: number) =>
 const STATUS_EM_ABERTO: CompraStatus[] = ["rascunho", "pendente", "aprovada", "recebida_parcial"];
 
 export function PurchasesPage() {
+  const pdvQuick = usePdvQuickAccess();
   const { data: compras = [], isLoading } = useCompras();
   const { data: fornecedores = [] } = useFornecedores();
   const deleteMut = useDeleteCompra();
@@ -158,10 +160,12 @@ export function PurchasesPage() {
         title="Compras"
         description="Pedidos de compra, recebimento parcial e atualização automática de estoque."
         actions={
-          <Button size="sm" className="gap-1.5" onClick={() => setNovaOpen(true)}>
-            <Plus className="h-4 w-4" />
-            Nova compra
-          </Button>
+          pdvQuick ? null : (
+            <Button size="sm" className="gap-1.5" onClick={() => setNovaOpen(true)}>
+              <Plus className="h-4 w-4" />
+              Nova compra
+            </Button>
+          )
         }
       />
 
@@ -339,7 +343,8 @@ export function PurchasesPage() {
                                     >
                                       <Eye className="h-3.5 w-3.5" />
                                     </Button>
-                                    {c.status !== "recebida" &&
+                                    {!pdvQuick &&
+                                      c.status !== "recebida" &&
                                       c.status !== "recebida_parcial" && (
                                         <Button
                                           variant="ghost"
