@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import {
+  Copy,
   Database,
   DownloadCloud,
+  FolderOpen,
   HardDrive,
   History,
   Loader2,
@@ -14,7 +16,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
+import { isDesktop } from "@/integrations/data/mode";
+import {
+  copyToClipboard,
+  dirnameOf,
+  pickDbFile,
+  pickSaveFile,
+  revealInExplorer,
+} from "@/integrations/desktop/nativeDialogs";
 import {
   agendarRestauracao,
   cancelarRestauracao,
