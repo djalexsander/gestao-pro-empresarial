@@ -845,16 +845,13 @@ function CobrancaActions({ lancamento, saldoRestante }: CobrancaActionsProps) {
     // Registra log
     if (wa?.empresa_id) {
       try {
-        await (supabase.from as any)("cobranca_whatsapp_logs").insert({
+        await dataClient.financeiro.registrarCobrancaWhatsapp({
           empresa_id: wa.empresa_id,
           owner_id: wa.owner_id,
           cliente_id: lancamento.cliente_id ?? null,
           lancamento_id: lancamento.id,
           telefone: telFull,
           mensagem: msg,
-          status: "manual",
-          tipo: "manual",
-          sent_at: new Date().toISOString(),
         });
         qc.invalidateQueries({ queryKey: ["cobranca_whatsapp_logs"] });
       } catch {
