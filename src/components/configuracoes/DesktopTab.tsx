@@ -233,6 +233,24 @@ export function DesktopTab() {
     setOutboxFin(await fetchOutboxFinanceiroStats(localCfg));
   };
 
+  const handleFlushClientes = async () => {
+    if (!localCfg) return;
+    setFlushingClientes(true);
+    try {
+      const { access_token } = await dataClient.auth.getSession();
+      await flushOutboxClientes(localCfg, access_token);
+      setOutboxClientes(await fetchOutboxClientesStats(localCfg));
+    } finally {
+      setFlushingClientes(false);
+    }
+  };
+
+  const handleRetryErrorsClientes = async () => {
+    if (!localCfg) return;
+    await retryOutboxClientesErrors(localCfg);
+    setOutboxClientes(await fetchOutboxClientesStats(localCfg));
+  };
+
   const handleRegenerarLancamentos = async () => {
     if (!localCfg || !caixaAberto?.local_uuid) return;
     setRegenerandoLanc(true);
