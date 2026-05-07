@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { realtimeClient } from "@/integrations/data/realtime-client";
 import { dataClient } from "@/integrations/data";
 
 export type CaixaStatus = "aberto" | "fechado";
