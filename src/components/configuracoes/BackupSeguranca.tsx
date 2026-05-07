@@ -308,10 +308,10 @@ export function BackupSeguranca({ cfg }: Props) {
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => setRestorePath(f.path)}
-                              title="Usar este caminho na restauração"
+                              onClick={() => handleOpenFolder(dirnameOf(f.path))}
+                              title="Abrir pasta deste backup"
                             >
-                              <DownloadCloud className="h-3 w-3" />
+                              <FolderOpen className="h-3 w-3" />
                             </Button>
                           </div>
                         </td>
