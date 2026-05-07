@@ -157,8 +157,8 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
   const { data: ownerId = "" } = useQuery({
     queryKey: ["auth_uid"],
     queryFn: async () => {
-      const { data } = await supabase.auth.getUser();
-      return data.user?.id ?? "";
+      const { user } = await dataClient.auth.getUser();
+      return user?.id ?? "";
     },
     staleTime: 60_000,
   });
@@ -169,26 +169,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
     enabled: open && !!lancamento?.id,
     queryFn: async (): Promise<PagamentoHist[]> => {
       if (!lancamento?.id) return [];
-      const { data, error } = await (
-        supabase.from as unknown as (t: string) => {
-          select: (cols: string) => {
-            eq: (
-              col: string,
-              val: string,
-            ) => {
-              order: (
-                col: string,
-                opts?: { ascending?: boolean },
-              ) => Promise<{ data: PagamentoHist[] | null; error: { message: string } | null }>;
-            };
-          };
-        }
-      )("lancamento_pagamentos")
-        .select("id, valor, data_pagamento, forma_pagamento, observacao, created_at")
-        .eq("lancamento_id", lancamento.id)
-        .order("data_pagamento", { ascending: false });
-      if (error) throw new Error(error.message);
-      return data ?? [];
+      return await dataClient.financeiro.pagamentosPorLancamento(lancamento.id);
     },
   });
 
