@@ -1940,7 +1940,7 @@ async fn vendas_historico_handler(
     let mut params: Vec<(&str, String)> = vec![
         (
             "select",
-            "id,numero,cliente_id,data_emissao,data_finalizacao,total,status,status_pagamento,forma_pagamento,caixa_id,operador_id,terminal_id,created_at,updated_at,cliente:clientes(nome)".into(),
+            "id,numero,numero_nf,serie_nf,cliente_id,data_emissao,data_finalizacao,total,status,status_pagamento,forma_pagamento,caixa_id,operador_id,terminal_id,created_at,updated_at,cliente:clientes(nome)".into(),
         ),
         ("order", "created_at.desc".into()),
         ("limit", limit.to_string()),
