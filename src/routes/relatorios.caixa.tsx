@@ -797,27 +797,14 @@ function DetalheCaixaDialog({
     let cancelled = false;
     (async () => {
       setLoadingMovs(true);
-      const { data, error } = await supabase
-        .from("caixa_movimentos")
-        .select("id, caixa_id, tipo, valor, motivo, created_at")
-        .eq("caixa_id", caixa.id)
-        .order("created_at", { ascending: false })
-        .limit(500);
-      if (cancelled) return;
-      if (error) {
-        toast.error(error.message);
+      try {
+        const data = await dataClient.relatorios.caixaMovimentos(caixa.id);
+        if (cancelled) return;
+        setMovs(data);
+      } catch (e) {
+        if (cancelled) return;
+        toast.error(e instanceof Error ? e.message : "Falha ao carregar movimentos");
         setMovs([]);
-      } else {
-        setMovs(
-          (data ?? []).map((m: any) => ({
-            id: m.id,
-            caixa_id: m.caixa_id,
-            tipo: m.tipo,
-            valor: Number(m.valor) || 0,
-            motivo: m.motivo,
-            created_at: m.created_at,
-          })),
-        );
       }
       setLoadingMovs(false);
     })();
@@ -829,17 +816,15 @@ function DetalheCaixaDialog({
   async function salvarObservacao() {
     if (!caixa) return;
     setSalvando(true);
-    const { error } = await supabase
-      .from("caixas")
-      .update({ observacao_fechamento: obs.trim() || null })
-      .eq("id", caixa.id);
-    setSalvando(false);
-    if (error) {
-      toast.error(error.message);
-      return;
+    try {
+      await dataClient.relatorios.atualizarObservacaoCaixa(caixa.id, obs.trim() || null);
+      toast.success("Observação salva.");
+      onUpdate({ ...caixa, observacao_fechamento: obs.trim() || null });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao salvar");
+    } finally {
+      setSalvando(false);
     }
-    toast.success("Observação salva.");
-    onUpdate({ ...caixa, observacao_fechamento: obs.trim() || null });
   }
 
   if (!caixa) return null;
