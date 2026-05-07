@@ -593,6 +593,34 @@ async fn proxy_with_incremental_sync(
                             }
                         }
                     }
+                    "caixas_remote" => match db::ingest_caixas_remote(text, now, strategy) {
+                        Ok((n, _)) => delta = n as i64,
+                        Err(e) => {
+                            let _ = db::record_sync_error(domain, now, &e.to_string());
+                            eprintln!("[gestao-pro] ingest caixas_remote falhou: {e}");
+                        }
+                    },
+                    "caixa_movimentos_remote" => match db::ingest_caixa_movimentos_remote(text, now, strategy) {
+                        Ok((n, _)) => delta = n as i64,
+                        Err(e) => {
+                            let _ = db::record_sync_error(domain, now, &e.to_string());
+                            eprintln!("[gestao-pro] ingest caixa_movimentos_remote falhou: {e}");
+                        }
+                    },
+                    "funcionarios_remote" => match db::ingest_funcionarios_remote(text, now, strategy) {
+                        Ok((n, _)) => delta = n as i64,
+                        Err(e) => {
+                            let _ = db::record_sync_error(domain, now, &e.to_string());
+                            eprintln!("[gestao-pro] ingest funcionarios_remote falhou: {e}");
+                        }
+                    },
+                    "terminais_remote" => match db::ingest_terminais_remote(text, now, strategy) {
+                        Ok((n, _)) => delta = n as i64,
+                        Err(e) => {
+                            let _ = db::record_sync_error(domain, now, &e.to_string());
+                            eprintln!("[gestao-pro] ingest terminais_remote falhou: {e}");
+                        }
+                    },
                     _ => {}
                 }
                 let _ = db::cache_put(domain, &key, "{\"_marker\":1}", now, CACHE_TTL_MS);
