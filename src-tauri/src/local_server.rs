@@ -621,6 +621,20 @@ async fn proxy_with_incremental_sync(
                             eprintln!("[gestao-pro] ingest terminais_remote falhou: {e}");
                         }
                     },
+                    "pagamentos_empresa_remote" => match db::ingest_pagamentos_empresa_remote(text, now, strategy) {
+                        Ok((n, _)) => delta = n as i64,
+                        Err(e) => {
+                            let _ = db::record_sync_error(domain, now, &e.to_string());
+                            eprintln!("[gestao-pro] ingest pagamentos_empresa falhou: {e}");
+                        }
+                    },
+                    "venda_itens_remote" => match db::ingest_venda_itens_remote(text, now, strategy) {
+                        Ok((n, _)) => delta = n as i64,
+                        Err(e) => {
+                            let _ = db::record_sync_error(domain, now, &e.to_string());
+                            eprintln!("[gestao-pro] ingest venda_itens_remote falhou: {e}");
+                        }
+                    },
                     _ => {}
                 }
                 let _ = db::cache_put(domain, &key, "{\"_marker\":1}", now, CACHE_TTL_MS);
