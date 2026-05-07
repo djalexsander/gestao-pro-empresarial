@@ -520,6 +520,74 @@ export const localTerminalAdapter: DataAdapter = {
       ),
   },
 
+  /**
+   * Financeiro (v14): a tela /financeiro lista TODOS os lançamentos com
+   * joins (cliente, fornecedor, venda, compra, categoria). Cacheamos o
+   * payload completo do PostgREST em `financeiro_lancamentos_local` e
+   * reaplicamos o mapeamento do cloudAdapter para que a UI receba
+   * `LancamentoCompletoDomain[]` sem perceber a origem. Writes do
+   * financeiro continuam direto na nuvem nesta fase.
+   */
+  financeiro: {
+    ...cloudAdapter.financeiro,
+    listLancamentosCompleto: () =>
+      withFallback(
+        "financeiro",
+        "listLancamentosCompleto",
+        async () => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const raw = await tryLocal<any[]>(
+            "financeiro_lancamentos_completo",
+            "listLancamentosCompleto",
+            "/api/financeiro/lancamentos-completo",
+          );
+          if (!Array.isArray(raw)) return null;
+          return raw.map(
+            (r): import("../adapter").LancamentoCompletoDomain => ({
+              id: r.id,
+              descricao: r.descricao,
+              valor: r.valor,
+              valor_pago: r.valor_pago,
+              data_vencimento: r.data_vencimento,
+              data_pagamento: r.data_pagamento,
+              data_emissao: r.data_emissao,
+              tipo: r.tipo,
+              status: r.status,
+              observacoes: r.observacoes,
+              numero_documento: r.numero_documento,
+              forma_pagamento: r.forma_pagamento,
+              created_at: r.created_at,
+              conciliado_em: r.conciliado_em,
+              valor_repasse: r.valor_repasse,
+              taxa_repasse: r.taxa_repasse,
+              numero_repasse: r.numero_repasse,
+              observacao_repasse: r.observacao_repasse,
+              cliente_id: r.cliente_id,
+              venda_id: r.venda_id,
+              compra_id: r.compra_id,
+              fornecedor_nome:
+                r.fornecedor?.nome_fantasia ?? r.fornecedor?.razao_social ?? null,
+              fornecedor_documento: r.fornecedor?.documento ?? null,
+              fornecedor_telefone: r.fornecedor?.telefone ?? null,
+              cliente_nome: r.cliente?.nome ?? null,
+              cliente_documento: r.cliente?.documento ?? null,
+              cliente_telefone: r.cliente?.telefone ?? r.cliente?.celular ?? null,
+              cliente_email: r.cliente?.email ?? null,
+              venda_numero: r.venda?.numero ?? null,
+              venda_data: r.venda?.data_finalizacao ?? null,
+              venda_total: r.venda?.total ?? null,
+              compra_numero: r.compra?.numero ?? null,
+              compra_data_emissao: r.compra?.data_emissao ?? null,
+              compra_total: r.compra?.total ?? null,
+              compra_status: r.compra?.status ?? null,
+              categoria_nome: r.categoria?.nome ?? null,
+            }),
+          );
+        },
+        () => cloudAdapter.financeiro.listLancamentosCompleto(),
+      ),
+  },
+
   caixa: {
     ...cloudAdapter.caixa,
     /**

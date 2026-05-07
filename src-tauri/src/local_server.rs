@@ -563,6 +563,13 @@ async fn proxy_with_incremental_sync(
                             eprintln!("[gestao-pro] ingest fornecedores falhou: {e}");
                         }
                     },
+                    "financeiro_lancamentos_completo" => match db::ingest_lancamentos_completo(text, now, strategy) {
+                        Ok((n, _)) => delta = n as i64,
+                        Err(e) => {
+                            let _ = db::record_sync_error(domain, now, &e.to_string());
+                            eprintln!("[gestao-pro] ingest financeiro_lancamentos_completo falhou: {e}");
+                        }
+                    },
                     "estoque_movimentacoes" => {
                         match db::ingest_movimentacoes(text, now, strategy) {
                             Ok((n, _)) => delta = n as i64,
@@ -718,6 +725,7 @@ fn read_typed(domain: &str, query: &[(&str, String)]) -> Result<String, db::DbEr
         }
         "clientes_lite" => db::read_clientes(None),
         "fornecedores" => db::read_fornecedores(None),
+        "financeiro_lancamentos_completo" => db::read_lancamentos_completo(),
         "estoque_saldos" => db::read_saldos(),
         "estoque_movimentacoes" => {
             let produto_id = query
@@ -983,6 +991,17 @@ async fn db_sync_handler(
             ];
             proxy_with_incremental_sync(
                 &ctx, &headers, "fornecedores", "/rest/v1/fornecedores", &params, true,
+            )
+            .await
+        }
+        "financeiro_lancamentos_completo" => {
+            let params: Vec<(&str, String)> = vec![
+                ("select", financeiro_completo_select().to_string()),
+                ("order", "data_vencimento.asc".into()),
+            ];
+            proxy_with_incremental_sync(
+                &ctx, &headers, "financeiro_lancamentos_completo",
+                "/rest/v1/financeiro_lancamentos", &params, true,
             )
             .await
         }
@@ -1812,6 +1831,44 @@ async fn fornecedores_handler(
     proxy_with_incremental_sync(&ctx, &headers, "fornecedores", "/rest/v1/fornecedores", &q_owned, false).await
 }
 
+// ---------- /api/financeiro/lancamentos-completo (v14) ----------
+//
+// Cache "completo" do PostgREST com joins (cliente, fornecedor, venda,
+// compra, categoria) que alimenta a tela /financeiro. A UI faz todos os
+// filtros (tipo, status, período, categoria, fornecedor) client-side em
+// cima desse dataset.
+
+fn financeiro_completo_select() -> &'static str {
+    "id,descricao,valor,valor_pago,data_vencimento,data_pagamento,data_emissao,\
+     tipo,status,observacoes,numero_documento,forma_pagamento,created_at,updated_at,\
+     conciliado_em,valor_repasse,taxa_repasse,numero_repasse,observacao_repasse,\
+     cliente_id,venda_id,compra_id,\
+     fornecedor:fornecedores(razao_social,nome_fantasia,documento,telefone),\
+     cliente:clientes(nome,documento,telefone,celular,email),\
+     venda:vendas(numero,data_finalizacao,total),\
+     compra:compras(numero,data_emissao,total,status),\
+     categoria:categorias_financeiras(nome)"
+}
+
+async fn financeiro_lancamentos_completo_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let params: Vec<(&str, String)> = vec![
+        ("select", financeiro_completo_select().to_string()),
+        ("order", "data_vencimento.asc".into()),
+    ];
+    proxy_with_incremental_sync(
+        &ctx,
+        &headers,
+        "financeiro_lancamentos_completo",
+        "/rest/v1/financeiro_lancamentos",
+        &params,
+        false,
+    )
+    .await
+}
+
 /// GET `/api/caixa/resumo?caixa_id=...` ou `?operador_id=...` para o aberto.
 /// Retorna o resumo local do caixa: totais por forma de pagamento, vendas,
 /// suprimentos, sangrias, esperado em dinheiro e diferença (se fechado).
@@ -2233,6 +2290,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/db/outbox/financeiro/retry-errors", post(outbox_fin_retry_errors_handler))
         .route("/api/clientes/lite", get(clientes_lite_handler))
         .route("/api/fornecedores", get(fornecedores_handler))
+        .route("/api/financeiro/lancamentos-completo", get(financeiro_lancamentos_completo_handler))
         .route("/backup/status", get(backup_status_handler))
         .route("/backup/list", get(backup_list_handler))
         .route("/backup/log", get(backup_log_handler))
