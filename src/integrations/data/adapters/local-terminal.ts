@@ -1108,6 +1108,150 @@ export const localTerminalAdapter: DataAdapter = {
         () => cloudAdapter.relatorios.cardNotasFiscais(),
       ),
 
+    cardCaixas: () =>
+      withFallback(
+        "relatorios",
+        "cardCaixas",
+        async () => {
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "caixas_remote",
+            "list",
+            "/api/relatorios/caixas",
+            { limit: "1000" },
+          );
+          if (!Array.isArray(raw)) return null;
+          return raw.map((c) => ({
+            abertura: String(c.data_abertura ?? ""),
+            fechamento: (c.data_fechamento as string) ?? null,
+            inicial: Number(c.valor_inicial) || 0,
+            vendas: Number(c.total_vendas) || 0,
+            sangrias: Number(c.total_sangrias) || 0,
+            suprimentos: Number(c.total_suprimentos) || 0,
+            esperado: c.valor_esperado != null ? Number(c.valor_esperado) : null,
+            informado: c.valor_informado != null ? Number(c.valor_informado) : null,
+            diferenca: c.diferenca != null ? Number(c.diferenca) : null,
+            status: String(c.status ?? ""),
+          }));
+        },
+        () => cloudAdapter.relatorios.cardCaixas(),
+      ),
+
+    caixasSessoes: ({ iniIso, fimIso, operadorId, terminalId, status }) =>
+      withFallback(
+        "relatorios",
+        "caixasSessoes",
+        async () => {
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "caixas_remote",
+            "list",
+            "/api/relatorios/caixas",
+            { limit: "1000" },
+          );
+          if (!Array.isArray(raw)) return null;
+          const num = (v: unknown) => Number(v) || 0;
+          return raw
+            .filter((c) => {
+              const da = String(c.data_abertura ?? "");
+              if (da < iniIso || da > fimIso) return false;
+              if (operadorId && operadorId !== "todos" && c.operador_id !== operadorId) return false;
+              if (terminalId && terminalId !== "todos" && c.terminal_id !== terminalId) return false;
+              if (status === "aberto" && c.status !== "aberto") return false;
+              if (status === "fechado" && c.status !== "fechado") return false;
+              return true;
+            })
+            .map((c) => ({
+              id: String(c.id),
+              operador_id: (c.operador_id as string) ?? null,
+              terminal_id: (c.terminal_id as string) ?? null,
+              data_abertura: String(c.data_abertura ?? ""),
+              data_fechamento: (c.data_fechamento as string) ?? null,
+              valor_inicial: num(c.valor_inicial),
+              total_vendas: num(c.total_vendas),
+              total_sangrias: num(c.total_sangrias),
+              total_suprimentos: num(c.total_suprimentos),
+              total_dinheiro: num(c.total_dinheiro),
+              total_pix: num(c.total_pix),
+              total_debito: num(c.total_debito),
+              total_credito: num(c.total_credito),
+              total_boleto: num(c.total_boleto),
+              total_ifood: num(c.total_ifood),
+              total_fiado: num(c.total_fiado),
+              total_outros: num(c.total_outros),
+              valor_esperado: c.valor_esperado != null ? num(c.valor_esperado) : null,
+              valor_informado: c.valor_informado != null ? num(c.valor_informado) : null,
+              diferenca: c.diferenca != null ? num(c.diferenca) : null,
+              status: c.status as "aberto" | "fechado",
+              observacao: (c.observacao as string) ?? null,
+              observacao_fechamento: (c.observacao_fechamento as string) ?? null,
+              qtd_vendas: num(c.qtd_vendas),
+            }));
+        },
+        () =>
+          cloudAdapter.relatorios.caixasSessoes({
+            iniIso,
+            fimIso,
+            operadorId,
+            terminalId,
+            status,
+          }),
+      ),
+
+    caixaMovimentos: (caixaId) =>
+      withFallback(
+        "relatorios",
+        "caixaMovimentos",
+        async () => {
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "caixa_movimentos_remote",
+            "list",
+            "/api/relatorios/caixa-movimentos",
+            { caixa_id: caixaId },
+          );
+          if (!Array.isArray(raw)) return null;
+          return raw.map((m) => ({
+            id: String(m.id),
+            caixa_id: String(m.caixa_id ?? ""),
+            tipo: String(m.tipo ?? ""),
+            valor: Number(m.valor) || 0,
+            motivo: (m.motivo as string) ?? null,
+            created_at: String(m.created_at ?? ""),
+          }));
+        },
+        () => cloudAdapter.relatorios.caixaMovimentos(caixaId),
+      ),
+
+    funcionariosAtivos: () =>
+      withFallback(
+        "relatorios",
+        "funcionariosAtivos",
+        async () => {
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "funcionarios_remote",
+            "list",
+            "/api/relatorios/funcionarios-ativos",
+          );
+          if (!Array.isArray(raw)) return null;
+          return raw.map((f) => ({ id: String(f.id), nome: String(f.nome ?? "") }));
+        },
+        () => cloudAdapter.relatorios.funcionariosAtivos(),
+      ),
+
+    terminaisAtivos: () =>
+      withFallback(
+        "relatorios",
+        "terminaisAtivos",
+        async () => {
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "terminais_remote",
+            "list",
+            "/api/relatorios/terminais-ativos",
+          );
+          if (!Array.isArray(raw)) return null;
+          return raw.map((t) => ({ id: String(t.id), nome: String(t.nome ?? "") }));
+        },
+        () => cloudAdapter.relatorios.terminaisAtivos(),
+      ),
+
     cardFluxoCaixa: () =>
       withFallback(
         "relatorios",
