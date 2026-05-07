@@ -284,6 +284,14 @@ export function AutorizacoesTab() {
           )}
         </CardContent>
       </Card>
+
+      <CartaoAutorizacaoDialog
+        open={showCartao}
+        onOpenChange={setShowCartao}
+        codigo={codigoGerado ?? codigoNovo}
+        label={labelQR || "Cartão Gerente"}
+        empresaNome={empresaNome}
+      />
     </div>
   );
 }
