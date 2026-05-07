@@ -1,28 +1,22 @@
 import { WifiOff } from "lucide-react";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
-import { getDataMode, isDesktop } from "@/integrations/data/mode";
+import { isDesktop } from "@/integrations/data/mode";
 
 /**
- * Banner discreto que aparece quando a internet cai.
+ * Banner discreto que aparece quando a internet cai (web puro).
  *
- * - No desktop (Tauri) modo local-server/local-terminal: avisa que está
- *   operando com dados locais e que a sincronização com a nuvem está pausada.
- * - No web puro: alerta que pode haver dados desatualizados.
+ * No desktop (Tauri) NÃO renderizamos esse toast: o `DesktopRoleBadge`
+ * no topo da shell já mostra o status real (Servidor/Terminal +
+ * conexão + última fonte de dados), então um toast flutuante seria
+ * redundante e poluiria a tela.
  *
- * Não bloqueia nenhuma tela — apenas informa.
+ * No web puro mantemos o aviso porque é a única indicação visual de
+ * que dados podem estar desatualizados.
  */
 export function OfflineBanner() {
   const { online } = useNetworkStatus();
   if (online) return null;
-
-  const mode = getDataMode();
-  const desktop = isDesktop();
-
-  const mensagem = desktop
-    ? mode === "local-terminal"
-      ? "Modo offline: usando servidor local. Sincronização com a nuvem pausada."
-      : "Modo offline: usando dados locais. Sincronização com a nuvem pausada."
-    : "Sem conexão com a internet. Algumas informações podem estar desatualizadas.";
+  if (isDesktop()) return null;
 
   return (
     <div
@@ -35,7 +29,8 @@ export function OfflineBanner() {
         <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-500" />
       </span>
       <WifiOff className="h-4 w-4 shrink-0" aria-hidden />
-      <span>{mensagem}</span>
+      <span>Sem conexão com a internet. Algumas informações podem estar desatualizadas.</span>
     </div>
   );
 }
+
