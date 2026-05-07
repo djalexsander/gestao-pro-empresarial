@@ -33,6 +33,8 @@ const ACOES: Array<{ key: keyof AutorizacoesConfig; label: string; desc: string 
   { key: "exigir_excluir_lancamento_financeiro", label: "Excluir lançamento financeiro", desc: "Contas a pagar/receber." },
   { key: "exigir_alterar_valor_confirmado", label: "Alterar valor já confirmado", desc: "Valores em lançamentos pagos/recebidos." },
   { key: "exigir_reabrir_caixa", label: "Reabrir caixa fechado", desc: "Volta caixa para aberto." },
+  { key: "exigir_sangria_caixa", label: "Sangria de caixa", desc: "Retirada manual de dinheiro do caixa." },
+  { key: "exigir_suprimento_caixa", label: "Suprimento de caixa", desc: "Entrada manual de dinheiro no caixa." },
 ];
 
 const PAPEIS_OPCOES = ["admin", "gerente", "financeiro"] as const;
