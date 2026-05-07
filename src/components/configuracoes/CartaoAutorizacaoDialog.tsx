@@ -110,16 +110,19 @@ export function CartaoAutorizacaoDialog({ open, onOpenChange, codigo, label, emp
         <DialogHeader>
           <DialogTitle>Cartão de autorização</DialogTitle>
         </DialogHeader>
-        <div className="rounded-lg border-2 border-dashed border-border bg-card p-4">
+        <div className="rounded-lg border-2 border-dashed border-border bg-white p-4 text-slate-900">
           <div className="text-center">
             <p className="text-base font-bold">{label || "Cartão Gerente"}</p>
-            <p className="text-xs text-muted-foreground">{empresaNome}</p>
+            <p className="text-xs text-slate-600">{empresaNome}</p>
           </div>
-          <div className="mt-3 flex items-center justify-center gap-4">
-            <canvas ref={qrRef} />
-            <svg ref={barcodeRef} />
+          <div className="mt-3 flex flex-col items-center justify-center gap-3">
+            <canvas ref={qrRef} className="bg-white" />
+            <svg ref={barcodeRef} className="bg-white max-w-full" />
+            <p className="font-mono text-[11px] tracking-widest text-slate-700 break-all text-center">
+              {codigo}
+            </p>
           </div>
-          <p className="mt-2 text-center text-[10px] uppercase tracking-wide text-muted-foreground">
+          <p className="mt-2 text-center text-[10px] uppercase tracking-wide text-slate-500">
             Uso exclusivo para autorização gerencial
           </p>
         </div>
