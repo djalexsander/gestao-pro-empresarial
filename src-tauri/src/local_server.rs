@@ -2241,6 +2241,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/db/outbox/financeiro/retry-errors", post(outbox_fin_retry_errors_handler))
         .route("/api/clientes/lite", get(clientes_lite_handler))
         .route("/api/fornecedores", get(fornecedores_handler))
+        .route("/api/financeiro/lancamentos-completo", get(financeiro_lancamentos_completo_handler))
         .route("/backup/status", get(backup_status_handler))
         .route("/backup/list", get(backup_list_handler))
         .route("/backup/log", get(backup_log_handler))
