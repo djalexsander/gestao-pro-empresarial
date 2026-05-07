@@ -7254,3 +7254,758 @@ pub fn cliente_remote_id_for(local_uuid: &str) -> DbResult<Option<String>> {
         Ok(r.flatten())
     })
 }
+
+// ============================================================================
+// v19 — Outbox de fornecedores (cadastro offline-first)
+// ============================================================================
+// Espelha o padrão do v18 (clientes). Mesmas regras de colapso, propagação
+// de remote_id e ordem causal (criar → editar/alterar_status/excluir).
+
+#[derive(Debug, Serialize, Default)]
+pub struct OutboxFornecedoresStats {
+    pub pending: i64,
+    pub sending: i64,
+    pub sent: i64,
+    pub error: i64,
+    pub last_sent_at_ms: Option<i64>,
+    pub last_error: Option<String>,
+    pub due_now: i64,
+    pub next_attempt_at_ms: Option<i64>,
+    pub last_auto_flush_ms: Option<i64>,
+    pub last_auto_flush_sent_ms: Option<i64>,
+    pub last_auto_attempted: Option<i64>,
+    pub last_auto_sent: Option<i64>,
+    pub last_auto_failed: Option<i64>,
+    pub last_manual_flush_ms: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OutboxFornecedoresItem {
+    pub local_uuid: String,
+    pub client_uuid: Option<String>,
+    pub fornecedor_local_uuid: String,
+    pub fornecedor_remote_id: Option<String>,
+    pub action: String,
+    pub payload: String,
+    pub status: String,
+    pub attempts: i64,
+    pub last_error: Option<String>,
+    pub remote_id: Option<String>,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub sent_at_ms: Option<i64>,
+}
+
+const FOR_COLS: &str =
+    "local_uuid, client_uuid, fornecedor_local_uuid, fornecedor_remote_id, action, payload,
+     status, attempts, last_error, remote_id, created_at_ms, updated_at_ms, sent_at_ms";
+
+fn map_for_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<OutboxFornecedoresItem> {
+    Ok(OutboxFornecedoresItem {
+        local_uuid: r.get(0)?,
+        client_uuid: r.get(1)?,
+        fornecedor_local_uuid: r.get(2)?,
+        fornecedor_remote_id: r.get(3)?,
+        action: r.get(4)?,
+        payload: r.get(5)?,
+        status: r.get(6)?,
+        attempts: r.get(7)?,
+        last_error: r.get(8)?,
+        remote_id: r.get(9)?,
+        created_at_ms: r.get(10)?,
+        updated_at_ms: r.get(11)?,
+        sent_at_ms: r.get(12)?,
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct FornecedorEnqueueResult {
+    pub fornecedor_local_uuid: String,
+    pub fornecedor_remote_id: Option<String>,
+    pub idempotente: bool,
+}
+
+pub fn fornecedor_criar_local(payload: serde_json::Value) -> DbResult<FornecedorEnqueueResult> {
+    with_conn(|conn| {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let tx = conn.unchecked_transaction()?;
+
+        let client_uuid = json_str_opt(&payload, "_client_uuid");
+        if let Some(cu) = &client_uuid {
+            let existing: Option<(String, Option<String>)> = tx.query_row(
+                "SELECT fornecedor_local_uuid, fornecedor_remote_id
+                   FROM outbox_fornecedores WHERE client_uuid=?1",
+                params![cu], |r| Ok((r.get(0)?, r.get(1)?)),
+            ).optional()?;
+            if let Some((lid, rid)) = existing {
+                tx.commit()?;
+                return Ok(FornecedorEnqueueResult {
+                    fornecedor_local_uuid: lid,
+                    fornecedor_remote_id: rid,
+                    idempotente: true,
+                });
+            }
+        }
+
+        let local_uuid = random_uuid_v4();
+        let razao_social = json_str_opt(&payload, "_razao_social").unwrap_or_default();
+        let nome_fantasia = json_str_opt(&payload, "_nome_fantasia");
+        let documento = json_str_opt(&payload, "_documento");
+        let status = json_str_opt(&payload, "_status").unwrap_or_else(|| "ativo".into());
+
+        let mut full = serde_json::json!({
+            "id": &local_uuid,
+            "local_uuid": &local_uuid,
+            "remote_id": serde_json::Value::Null,
+            "tipo": payload.get("_tipo").cloned().unwrap_or(serde_json::Value::Null),
+            "razao_social": &razao_social,
+            "nome_fantasia": &nome_fantasia,
+            "documento": &documento,
+            "inscricao_estadual": payload.get("_inscricao_estadual").cloned().unwrap_or(serde_json::Value::Null),
+            "email": payload.get("_email").cloned().unwrap_or(serde_json::Value::Null),
+            "telefone": payload.get("_telefone").cloned().unwrap_or(serde_json::Value::Null),
+            "contato_nome": payload.get("_contato_nome").cloned().unwrap_or(serde_json::Value::Null),
+            "cep": payload.get("_cep").cloned().unwrap_or(serde_json::Value::Null),
+            "logradouro": payload.get("_logradouro").cloned().unwrap_or(serde_json::Value::Null),
+            "numero": payload.get("_numero").cloned().unwrap_or(serde_json::Value::Null),
+            "complemento": payload.get("_complemento").cloned().unwrap_or(serde_json::Value::Null),
+            "bairro": payload.get("_bairro").cloned().unwrap_or(serde_json::Value::Null),
+            "cidade": payload.get("_cidade").cloned().unwrap_or(serde_json::Value::Null),
+            "estado": payload.get("_estado").cloned().unwrap_or(serde_json::Value::Null),
+            "observacoes": payload.get("_observacoes").cloned().unwrap_or(serde_json::Value::Null),
+            "status": &status,
+            "sync_status": "pending",
+            "created_at": chrono::DateTime::<chrono::Utc>::from_timestamp_millis(now_ms)
+                .map(|d| d.to_rfc3339()).unwrap_or_default(),
+        });
+        if let Some(o) = full.as_object_mut() {
+            o.entry("updated_at").or_insert(serde_json::Value::Null);
+        }
+
+        tx.execute(
+            "INSERT INTO fornecedores_local(
+                id, razao_social, nome_fantasia, documento, status, payload,
+                updated_at_remote_ms, synced_at_ms, deleted_at_ms,
+                local_uuid, remote_id, sync_status, last_error, created_offline_at_ms
+             ) VALUES (?1,?2,?3,?4,?5,?6, NULL, ?7, NULL, ?1, NULL, 'pending', NULL, ?7)",
+            params![local_uuid, razao_social, nome_fantasia, documento, status, full.to_string(), now_ms],
+        )?;
+
+        let mut rpc_payload = payload.clone();
+        if let Some(o) = rpc_payload.as_object_mut() {
+            o.insert("_client_uuid".into(), serde_json::Value::String(local_uuid.clone()));
+        }
+        let outbox_id = random_uuid_v4();
+        tx.execute(
+            "INSERT INTO outbox_fornecedores(
+                local_uuid, client_uuid, fornecedor_local_uuid, fornecedor_remote_id,
+                action, payload, status, attempts, created_at_ms, updated_at_ms, next_attempt_at_ms
+             ) VALUES (?1,?2,?3,NULL,'criar',?4,'pending',0,?5,?5,NULL)",
+            params![outbox_id, client_uuid, local_uuid, rpc_payload.to_string(), now_ms],
+        )?;
+        tx.commit()?;
+        Ok(FornecedorEnqueueResult {
+            fornecedor_local_uuid: local_uuid,
+            fornecedor_remote_id: None,
+            idempotente: false,
+        })
+    })
+}
+
+fn update_fornecedor_local_payload(
+    tx: &rusqlite::Connection,
+    fornecedor_local_uuid: &str,
+    payload: &serde_json::Value,
+    now_ms: i64,
+) -> DbResult<()> {
+    let row: Option<String> = tx.query_row(
+        "SELECT payload FROM fornecedores_local WHERE local_uuid=?1",
+        params![fornecedor_local_uuid], |r| r.get(0),
+    ).optional()?;
+    let mut full: serde_json::Value = row
+        .as_deref()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    if let (Some(o), Some(p)) = (full.as_object_mut(), payload.as_object()) {
+        for (k, v) in p {
+            if let Some(stripped) = k.strip_prefix('_') {
+                if stripped == "client_uuid" || stripped == "fornecedor_id" { continue; }
+                o.insert(stripped.to_string(), v.clone());
+            }
+        }
+        o.insert("sync_status".into(), serde_json::Value::String("pending".into()));
+    }
+    let razao_social = full.get("razao_social").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let nome_fantasia = full.get("nome_fantasia").and_then(|v| v.as_str()).map(String::from);
+    let documento = full.get("documento").and_then(|v| v.as_str()).map(String::from);
+    let status = full.get("status").and_then(|v| v.as_str()).unwrap_or("ativo").to_string();
+    tx.execute(
+        "UPDATE fornecedores_local
+            SET razao_social=?1, nome_fantasia=?2, documento=?3, status=?4,
+                payload=?5, synced_at_ms=?6
+          WHERE local_uuid=?7",
+        params![razao_social, nome_fantasia, documento, status, full.to_string(), now_ms, fornecedor_local_uuid],
+    )?;
+    Ok(())
+}
+
+pub fn fornecedor_editar_local(
+    fornecedor_local_uuid: &str,
+    payload: serde_json::Value,
+) -> DbResult<FornecedorEnqueueResult> {
+    with_conn(|conn| {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let tx = conn.unchecked_transaction()?;
+        let remote_id: Option<String> = tx.query_row(
+            "SELECT remote_id FROM fornecedores_local WHERE local_uuid=?1",
+            params![fornecedor_local_uuid], |r| r.get(0),
+        ).optional()?.flatten();
+
+        update_fornecedor_local_payload(&tx, fornecedor_local_uuid, &payload, now_ms)?;
+
+        let criar_pending: Option<(String, String)> = tx.query_row(
+            "SELECT local_uuid, payload FROM outbox_fornecedores
+              WHERE fornecedor_local_uuid=?1 AND action='criar'
+                AND status IN ('pending','error')
+              ORDER BY created_at_ms ASC LIMIT 1",
+            params![fornecedor_local_uuid], |r| Ok((r.get(0)?, r.get(1)?)),
+        ).optional()?;
+        if let Some((cid, raw)) = criar_pending {
+            let mut prev: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
+            if let (Some(prev_obj), Some(new_obj)) = (prev.as_object_mut(), payload.as_object()) {
+                for (k, v) in new_obj {
+                    if k == "_fornecedor_id" || k == "_client_uuid" { continue; }
+                    prev_obj.insert(k.clone(), v.clone());
+                }
+            }
+            tx.execute(
+                "UPDATE outbox_fornecedores
+                    SET payload=?2, updated_at_ms=?3, last_error=NULL,
+                        next_attempt_at_ms=NULL,
+                        status=CASE WHEN status='error' THEN 'pending' ELSE status END
+                  WHERE local_uuid=?1",
+                params![cid, prev.to_string(), now_ms],
+            )?;
+            tx.commit()?;
+            return Ok(FornecedorEnqueueResult {
+                fornecedor_local_uuid: fornecedor_local_uuid.to_string(),
+                fornecedor_remote_id: remote_id,
+                idempotente: true,
+            });
+        }
+
+        let edit_pending: Option<String> = tx.query_row(
+            "SELECT local_uuid FROM outbox_fornecedores
+              WHERE fornecedor_local_uuid=?1 AND action='editar'
+                AND status IN ('pending','error')
+              ORDER BY created_at_ms DESC LIMIT 1",
+            params![fornecedor_local_uuid], |r| r.get(0),
+        ).optional()?;
+        let mut rpc_payload = payload.clone();
+        if let Some(o) = rpc_payload.as_object_mut() {
+            if let Some(rid) = &remote_id {
+                o.insert("_fornecedor_id".into(), serde_json::Value::String(rid.clone()));
+            }
+        }
+        if let Some(eid) = edit_pending {
+            tx.execute(
+                "UPDATE outbox_fornecedores
+                    SET payload=?2, updated_at_ms=?3, last_error=NULL,
+                        next_attempt_at_ms=NULL,
+                        status=CASE WHEN status='error' THEN 'pending' ELSE status END
+                  WHERE local_uuid=?1",
+                params![eid, rpc_payload.to_string(), now_ms],
+            )?;
+            tx.commit()?;
+            return Ok(FornecedorEnqueueResult {
+                fornecedor_local_uuid: fornecedor_local_uuid.to_string(),
+                fornecedor_remote_id: remote_id,
+                idempotente: true,
+            });
+        }
+
+        let outbox_id = random_uuid_v4();
+        tx.execute(
+            "INSERT INTO outbox_fornecedores(
+                local_uuid, client_uuid, fornecedor_local_uuid, fornecedor_remote_id,
+                action, payload, status, attempts, created_at_ms, updated_at_ms, next_attempt_at_ms
+             ) VALUES (?1,NULL,?2,?3,'editar',?4,'pending',0,?5,?5,NULL)",
+            params![outbox_id, fornecedor_local_uuid, remote_id, rpc_payload.to_string(), now_ms],
+        )?;
+        tx.execute(
+            "UPDATE fornecedores_local SET sync_status='pending' WHERE local_uuid=?1",
+            params![fornecedor_local_uuid],
+        )?;
+        tx.commit()?;
+        Ok(FornecedorEnqueueResult {
+            fornecedor_local_uuid: fornecedor_local_uuid.to_string(),
+            fornecedor_remote_id: remote_id,
+            idempotente: false,
+        })
+    })
+}
+
+pub fn fornecedor_alterar_status_local(
+    fornecedor_local_uuid: &str,
+    novo_status: &str,
+) -> DbResult<FornecedorEnqueueResult> {
+    with_conn(|conn| {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let tx = conn.unchecked_transaction()?;
+        let remote_id: Option<String> = tx.query_row(
+            "SELECT remote_id FROM fornecedores_local WHERE local_uuid=?1",
+            params![fornecedor_local_uuid], |r| r.get(0),
+        ).optional()?.flatten();
+
+        let row: Option<String> = tx.query_row(
+            "SELECT payload FROM fornecedores_local WHERE local_uuid=?1",
+            params![fornecedor_local_uuid], |r| r.get(0),
+        ).optional()?;
+        if let Some(raw) = row {
+            let mut full: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
+            if let Some(o) = full.as_object_mut() {
+                o.insert("status".into(), serde_json::Value::String(novo_status.to_string()));
+                o.insert("sync_status".into(), serde_json::Value::String("pending".into()));
+            }
+            tx.execute(
+                "UPDATE fornecedores_local SET status=?1, payload=?2, sync_status='pending', synced_at_ms=?3
+                  WHERE local_uuid=?4",
+                params![novo_status, full.to_string(), now_ms, fornecedor_local_uuid],
+            )?;
+        }
+
+        let criar_pending: Option<(String, String)> = tx.query_row(
+            "SELECT local_uuid, payload FROM outbox_fornecedores
+              WHERE fornecedor_local_uuid=?1 AND action='criar' AND status IN ('pending','error')
+              LIMIT 1",
+            params![fornecedor_local_uuid], |r| Ok((r.get(0)?, r.get(1)?)),
+        ).optional()?;
+        if let Some((cid, raw)) = criar_pending {
+            let mut prev: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
+            if let Some(o) = prev.as_object_mut() {
+                o.insert("_status".into(), serde_json::Value::String(novo_status.to_string()));
+            }
+            tx.execute(
+                "UPDATE outbox_fornecedores SET payload=?2, updated_at_ms=?3, last_error=NULL,
+                        next_attempt_at_ms=NULL,
+                        status=CASE WHEN status='error' THEN 'pending' ELSE status END
+                  WHERE local_uuid=?1",
+                params![cid, prev.to_string(), now_ms],
+            )?;
+            tx.commit()?;
+            return Ok(FornecedorEnqueueResult {
+                fornecedor_local_uuid: fornecedor_local_uuid.to_string(),
+                fornecedor_remote_id: remote_id,
+                idempotente: true,
+            });
+        }
+
+        let last_st: Option<String> = tx.query_row(
+            "SELECT local_uuid FROM outbox_fornecedores
+              WHERE fornecedor_local_uuid=?1 AND action='alterar_status'
+                AND status IN ('pending','error')
+              ORDER BY created_at_ms DESC LIMIT 1",
+            params![fornecedor_local_uuid], |r| r.get(0),
+        ).optional()?;
+        let rpc_payload = serde_json::json!({
+            "_fornecedor_id": remote_id.clone().unwrap_or_default(),
+            "_status": novo_status,
+        });
+        if let Some(sid) = last_st {
+            tx.execute(
+                "UPDATE outbox_fornecedores SET payload=?2, updated_at_ms=?3, last_error=NULL,
+                        next_attempt_at_ms=NULL,
+                        status=CASE WHEN status='error' THEN 'pending' ELSE status END
+                  WHERE local_uuid=?1",
+                params![sid, rpc_payload.to_string(), now_ms],
+            )?;
+            tx.commit()?;
+            return Ok(FornecedorEnqueueResult {
+                fornecedor_local_uuid: fornecedor_local_uuid.to_string(),
+                fornecedor_remote_id: remote_id,
+                idempotente: true,
+            });
+        }
+
+        let outbox_id = random_uuid_v4();
+        tx.execute(
+            "INSERT INTO outbox_fornecedores(
+                local_uuid, client_uuid, fornecedor_local_uuid, fornecedor_remote_id,
+                action, payload, status, attempts, created_at_ms, updated_at_ms, next_attempt_at_ms
+             ) VALUES (?1,NULL,?2,?3,'alterar_status',?4,'pending',0,?5,?5,NULL)",
+            params![outbox_id, fornecedor_local_uuid, remote_id, rpc_payload.to_string(), now_ms],
+        )?;
+        tx.commit()?;
+        Ok(FornecedorEnqueueResult {
+            fornecedor_local_uuid: fornecedor_local_uuid.to_string(),
+            fornecedor_remote_id: remote_id,
+            idempotente: false,
+        })
+    })
+}
+
+pub fn fornecedor_excluir_local(fornecedor_local_uuid: &str) -> DbResult<FornecedorEnqueueResult> {
+    with_conn(|conn| {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let tx = conn.unchecked_transaction()?;
+        let remote_id: Option<String> = tx.query_row(
+            "SELECT remote_id FROM fornecedores_local WHERE local_uuid=?1",
+            params![fornecedor_local_uuid], |r| r.get(0),
+        ).optional()?.flatten();
+
+        let has_criar: bool = tx.query_row(
+            "SELECT 1 FROM outbox_fornecedores
+              WHERE fornecedor_local_uuid=?1 AND action='criar'
+                AND status IN ('pending','error') LIMIT 1",
+            params![fornecedor_local_uuid], |_| Ok(true),
+        ).optional()?.is_some();
+
+        tx.execute(
+            "DELETE FROM outbox_fornecedores
+              WHERE fornecedor_local_uuid=?1
+                AND action IN ('criar','editar','alterar_status')
+                AND status IN ('pending','error')",
+            params![fornecedor_local_uuid],
+        )?;
+
+        if has_criar && remote_id.is_none() {
+            tx.execute(
+                "UPDATE fornecedores_local SET deleted_at_ms=?1, sync_status='synced', synced_at_ms=?1
+                  WHERE local_uuid=?2",
+                params![now_ms, fornecedor_local_uuid],
+            )?;
+            tx.commit()?;
+            return Ok(FornecedorEnqueueResult {
+                fornecedor_local_uuid: fornecedor_local_uuid.to_string(),
+                fornecedor_remote_id: None,
+                idempotente: true,
+            });
+        }
+
+        let payload = serde_json::json!({
+            "_fornecedor_id": remote_id.clone().unwrap_or_default(),
+        });
+        let outbox_id = random_uuid_v4();
+        tx.execute(
+            "INSERT INTO outbox_fornecedores(
+                local_uuid, client_uuid, fornecedor_local_uuid, fornecedor_remote_id,
+                action, payload, status, attempts, created_at_ms, updated_at_ms, next_attempt_at_ms
+             ) VALUES (?1,NULL,?2,?3,'excluir',?4,'pending',0,?5,?5,NULL)",
+            params![outbox_id, fornecedor_local_uuid, remote_id, payload.to_string(), now_ms],
+        )?;
+        tx.execute(
+            "UPDATE fornecedores_local SET deleted_at_ms=?1, sync_status='pending', synced_at_ms=?1
+              WHERE local_uuid=?2",
+            params![now_ms, fornecedor_local_uuid],
+        )?;
+        tx.commit()?;
+        Ok(FornecedorEnqueueResult {
+            fornecedor_local_uuid: fornecedor_local_uuid.to_string(),
+            fornecedor_remote_id: remote_id,
+            idempotente: false,
+        })
+    })
+}
+
+pub fn outbox_fornecedores_get(local_uuid: &str) -> DbResult<Option<OutboxFornecedoresItem>> {
+    with_conn(|conn| {
+        let sql = format!(
+            "SELECT {cols} FROM outbox_fornecedores WHERE local_uuid=?1",
+            cols = FOR_COLS,
+        );
+        let r = conn.query_row(&sql, params![local_uuid], map_for_item).optional()?;
+        Ok(r)
+    })
+}
+
+pub fn outbox_fornecedores_pending_batch(limit: i64) -> DbResult<Vec<OutboxFornecedoresItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let now = chrono::Utc::now().timestamp_millis();
+        let sql = format!(
+            "SELECT {cols} FROM outbox_fornecedores
+              WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1
+              ORDER BY created_at_ms ASC LIMIT ?2",
+            cols = FOR_COLS,
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![now, limit], map_for_item)?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    })
+}
+
+pub fn outbox_fornecedores_pending_batch_all(limit: i64) -> DbResult<Vec<OutboxFornecedoresItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let sql = format!(
+            "SELECT {cols} FROM outbox_fornecedores WHERE status='pending'
+             ORDER BY created_at_ms ASC LIMIT ?1",
+            cols = FOR_COLS,
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![limit], map_for_item)?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    })
+}
+
+pub fn outbox_fornecedores_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxFornecedoresItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let mut out = Vec::new();
+        if let Some(st) = only_status {
+            let sql = format!(
+                "SELECT {cols} FROM outbox_fornecedores WHERE status=?1
+                 ORDER BY created_at_ms DESC LIMIT ?2",
+                cols = FOR_COLS,
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![st, limit], map_for_item)?;
+            for r in rows { out.push(r?); }
+        } else {
+            let sql = format!(
+                "SELECT {cols} FROM outbox_fornecedores
+                 ORDER BY created_at_ms DESC LIMIT ?1",
+                cols = FOR_COLS,
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![limit], map_for_item)?;
+            for r in rows { out.push(r?); }
+        }
+        Ok(out)
+    })
+}
+
+pub fn outbox_fornecedores_mark_sending(local_uuid: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        conn.execute(
+            "UPDATE outbox_fornecedores
+                SET status='sending', updated_at_ms=?2, attempts=attempts+1
+              WHERE local_uuid=?1",
+            params![local_uuid, now_ms],
+        )?;
+        Ok(())
+    })
+}
+
+pub fn outbox_fornecedores_mark_sent(
+    local_uuid: &str,
+    remote_id: &str,
+    response: &str,
+    now_ms: i64,
+) -> DbResult<()> {
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+        let item: Option<(String, String, Option<String>)> = tx.query_row(
+            "SELECT fornecedor_local_uuid, action, fornecedor_remote_id
+               FROM outbox_fornecedores WHERE local_uuid=?1",
+            params![local_uuid], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).optional()?;
+        tx.execute(
+            "UPDATE outbox_fornecedores
+                SET status='sent', sent_at_ms=?2, updated_at_ms=?2,
+                    remote_id=?3, remote_response=?4, last_error=NULL,
+                    next_attempt_at_ms=NULL
+              WHERE local_uuid=?1",
+            params![local_uuid, now_ms, remote_id, response],
+        )?;
+        if let Some((for_lid, action, _)) = item {
+            if action == "criar" {
+                tx.execute(
+                    "UPDATE fornecedores_local
+                        SET remote_id=?1, sync_status='synced', last_error=NULL
+                      WHERE local_uuid=?2",
+                    params![remote_id, for_lid],
+                )?;
+                tx.execute(
+                    "UPDATE outbox_fornecedores
+                        SET fornecedor_remote_id=?1
+                      WHERE fornecedor_local_uuid=?2 AND fornecedor_remote_id IS NULL",
+                    params![remote_id, for_lid],
+                )?;
+                let pendentes: Vec<(String, String, String)> = {
+                    let mut stmt = tx.prepare(
+                        "SELECT local_uuid, action, payload FROM outbox_fornecedores
+                          WHERE fornecedor_local_uuid=?1 AND action <> 'criar'
+                            AND status IN ('pending','error','sending')",
+                    )?;
+                    let rows = stmt.query_map(params![for_lid], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+                    let mut out = Vec::new();
+                    for r in rows { out.push(r?); }
+                    out
+                };
+                for (lid, _act, raw) in pendentes {
+                    let mut p: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
+                    if let Some(o) = p.as_object_mut() {
+                        o.insert("_fornecedor_id".into(), serde_json::Value::String(remote_id.to_string()));
+                    }
+                    tx.execute(
+                        "UPDATE outbox_fornecedores SET payload=?2 WHERE local_uuid=?1",
+                        params![lid, p.to_string()],
+                    )?;
+                }
+            } else {
+                let pendentes_outros: i64 = tx.query_row(
+                    "SELECT COUNT(*) FROM outbox_fornecedores
+                      WHERE fornecedor_local_uuid=?1 AND status IN ('pending','sending')",
+                    params![for_lid], |r| r.get(0),
+                ).optional()?.unwrap_or(0);
+                if pendentes_outros == 0 {
+                    tx.execute(
+                        "UPDATE fornecedores_local SET sync_status='synced', last_error=NULL
+                          WHERE local_uuid=?1",
+                        params![for_lid],
+                    )?;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    })
+}
+
+pub fn outbox_fornecedores_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        let attempts: i64 = conn.query_row(
+            "SELECT attempts FROM outbox_fornecedores WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).optional()?.unwrap_or(1);
+        let for_lid: Option<String> = conn.query_row(
+            "SELECT fornecedor_local_uuid FROM outbox_fornecedores WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).optional()?;
+        if attempts >= MAX_AUTO_ATTEMPTS {
+            conn.execute(
+                "UPDATE outbox_fornecedores
+                    SET status='error', last_error=?2, updated_at_ms=?3,
+                        next_attempt_at_ms=NULL
+                  WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms],
+            )?;
+            if let Some(lid) = for_lid {
+                let _ = conn.execute(
+                    "UPDATE fornecedores_local SET sync_status='error', last_error=?1
+                      WHERE local_uuid=?2",
+                    params![err, lid],
+                );
+            }
+        } else {
+            let next = now_ms + backoff_ms_for_attempts(attempts);
+            conn.execute(
+                "UPDATE outbox_fornecedores
+                    SET status='pending', last_error=?2, updated_at_ms=?3,
+                        next_attempt_at_ms=?4
+                  WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms, next],
+            )?;
+        }
+        Ok(())
+    })
+}
+
+pub fn outbox_fornecedores_reset_errors(now_ms: i64) -> DbResult<i64> {
+    with_conn(|conn| {
+        let n = conn.execute(
+            "UPDATE outbox_fornecedores
+                SET status='pending', updated_at_ms=?1,
+                    next_attempt_at_ms=NULL, last_error=NULL
+              WHERE status IN ('error','pending') AND last_error IS NOT NULL",
+            params![now_ms],
+        )?;
+        let _ = conn.execute(
+            "UPDATE fornecedores_local SET sync_status='pending', last_error=NULL
+              WHERE sync_status='error'",
+            [],
+        );
+        Ok(n as i64)
+    })
+}
+
+pub fn outbox_fornecedores_stats() -> DbResult<OutboxFornecedoresStats> {
+    with_conn(|conn| {
+        let mut s = OutboxFornecedoresStats::default();
+        let mut stmt = conn.prepare("SELECT status, COUNT(*) FROM outbox_fornecedores GROUP BY status")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        for r in rows {
+            let (st, n) = r?;
+            match st.as_str() {
+                "pending" => s.pending = n,
+                "sending" => s.sending = n,
+                "sent" => s.sent = n,
+                "error" => s.error = n,
+                _ => {}
+            }
+        }
+        s.last_sent_at_ms = conn.query_row(
+            "SELECT MAX(sent_at_ms) FROM outbox_fornecedores WHERE status='sent'",
+            [], |r| r.get::<_, Option<i64>>(0),
+        ).optional()?.flatten();
+        s.last_error = conn.query_row(
+            "SELECT last_error FROM outbox_fornecedores
+              WHERE status='error' ORDER BY updated_at_ms DESC LIMIT 1",
+            [], |r| r.get::<_, Option<String>>(0),
+        ).optional()?.flatten();
+        let now = chrono::Utc::now().timestamp_millis();
+        s.due_now = conn.query_row(
+            "SELECT COUNT(*) FROM outbox_fornecedores
+              WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1",
+            params![now], |r| r.get::<_, i64>(0),
+        ).optional()?.unwrap_or(0);
+        s.next_attempt_at_ms = conn.query_row(
+            "SELECT MIN(COALESCE(next_attempt_at_ms,0))
+               FROM outbox_fornecedores WHERE status='pending'",
+            [], |r| r.get::<_, Option<i64>>(0),
+        ).optional()?.flatten();
+        s.last_auto_flush_ms = meta_get_i64(conn, "outbox_for_last_auto_flush_ms")?;
+        s.last_auto_flush_sent_ms = meta_get_i64(conn, "outbox_for_last_auto_flush_sent_ms")?;
+        s.last_auto_attempted = meta_get_i64(conn, "outbox_for_last_auto_attempted")?;
+        s.last_auto_sent = meta_get_i64(conn, "outbox_for_last_auto_sent")?;
+        s.last_auto_failed = meta_get_i64(conn, "outbox_for_last_auto_failed")?;
+        s.last_manual_flush_ms = meta_get_i64(conn, "outbox_for_last_manual_flush_ms")?;
+        Ok(s)
+    })
+}
+
+pub fn outbox_fornecedores_record_flush_round(
+    kind: &str, now_ms: i64, attempted: i64, sent: i64, failed: i64,
+) -> DbResult<()> {
+    with_conn(|conn| {
+        if kind == "auto" {
+            meta_set_i64(conn, "outbox_for_last_auto_flush_ms", now_ms)?;
+            meta_set_i64(conn, "outbox_for_last_auto_attempted", attempted)?;
+            meta_set_i64(conn, "outbox_for_last_auto_sent", sent)?;
+            meta_set_i64(conn, "outbox_for_last_auto_failed", failed)?;
+            if sent > 0 {
+                meta_set_i64(conn, "outbox_for_last_auto_flush_sent_ms", now_ms)?;
+            }
+        } else {
+            meta_set_i64(conn, "outbox_for_last_manual_flush_ms", now_ms)?;
+        }
+        Ok(())
+    })
+}
+
+pub fn fornecedor_resolve_local_uuid(any_id: &str) -> DbResult<Option<String>> {
+    with_conn(|conn| {
+        let lid: Option<String> = conn.query_row(
+            "SELECT local_uuid FROM fornecedores_local
+              WHERE local_uuid=?1 OR remote_id=?1 OR id=?1
+              LIMIT 1",
+            params![any_id], |r| r.get(0),
+        ).optional()?;
+        Ok(lid)
+    })
+}
+
+pub fn fornecedor_remote_id_for(local_uuid: &str) -> DbResult<Option<String>> {
+    with_conn(|conn| {
+        let r: Option<Option<String>> = conn.query_row(
+            "SELECT remote_id FROM fornecedores_local WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).optional()?;
+        Ok(r.flatten())
+    })
+}
