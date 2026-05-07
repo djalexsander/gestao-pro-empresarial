@@ -4,6 +4,7 @@ import type {
   AutorizacaoAcaoDomain,
   AutorizacaoCartaoDomain,
   AutorizacaoLogDomain,
+  AutorizacaoLogFiltro,
   AutorizacaoMetodoDomain,
   AutorizacoesConfigDomain,
   CriarCartaoAutorizacaoInput,
@@ -17,6 +18,7 @@ export type AutorizacoesConfig = AutorizacoesConfigDomain;
 export type AutorizacaoLog = AutorizacaoLogDomain;
 export type AutorizacaoCartao = AutorizacaoCartaoDomain;
 export type ValidarAutorizacaoInput = ValidarAutorizacaoInputDomain;
+export type AutorizacaoLogFiltroInput = AutorizacaoLogFiltro;
 
 export function useAutorizacoesConfig() {
   return useQuery({
@@ -34,10 +36,11 @@ export function useSalvarAutorizacoesConfig() {
   });
 }
 
-export function useAutorizacoesLog(limit = 100) {
+export function useAutorizacoesLog(filtro?: AutorizacaoLogFiltro | number) {
+  const key = typeof filtro === "number" || filtro == null ? { limit: filtro ?? 100 } : filtro;
   return useQuery({
-    queryKey: ["autorizacoes_log", limit],
-    queryFn: () => dataClient.autorizacoes.log(limit),
+    queryKey: ["autorizacoes_log", key],
+    queryFn: () => dataClient.autorizacoes.log(filtro),
   });
 }
 

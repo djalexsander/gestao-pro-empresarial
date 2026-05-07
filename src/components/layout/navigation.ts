@@ -15,6 +15,7 @@ import {
   TrendingUp,
   CreditCard,
   HandCoins,
+  ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
 
@@ -85,6 +86,12 @@ export const MODULES: ModuleDef[] = [
         label: "Produtos vendidos",
         icon: BarChart3,
         description: "Consulta por dia/período",
+      },
+      {
+        to: "/autorizacoes/historico",
+        label: "Autorizações",
+        icon: ShieldCheck,
+        description: "Histórico de autorizações gerenciais",
       },
     ],
   },
