@@ -174,7 +174,12 @@ function ProdutosVendidosContent() {
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["produtos-vendidos", inicio, fim],
     queryFn: async (): Promise<ItemRow[]> => {
-      return await dataClient.relatorios.produtosVendidosPeriodo({ inicio, fim });
+      const data = await dataClient.relatorios.produtosVendidosPeriodo({ inicio, fim });
+      return data.map((r) => ({
+        ...r,
+        produtoId: r.produtoId ?? "",
+        vendaStatusPagamento: r.vendaStatusPagamento ?? "",
+      }));
     },
   });
 
