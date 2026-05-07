@@ -139,50 +139,69 @@ export function AutorizacoesTab() {
             )}
             {local.metodo_codigo_qr_habilitado && (
               <div className="space-y-3 rounded-md border border-border bg-muted/30 p-3">
-                <div className="grid gap-2 sm:grid-cols-2">
+                <div className="flex items-center justify-between gap-2">
                   <div>
-                    <Label className="text-xs">Rótulo do código (ex: "Cartão Gerente")</Label>
-                    <Input value={labelQR} onChange={(e) => setLabelQR(e.target.value)} className="mt-1" disabled={!podeGerenciarCartao} />
-                  </div>
-                  <div>
-                    <Label className="text-xs">
-                      Código de autorização{" "}
-                      {(cfg.codigo_qr_hash || codigoNovo) && (
-                        <Badge variant="secondary" className="ml-1 text-[10px]">já definido</Badge>
-                      )}
-                    </Label>
-                    <Input
-                      value={codigoNovo}
-                      onChange={(e) => setCodigoNovo(e.target.value)}
-                      placeholder={cfg.codigo_qr_hash ? "Use 'Gerar código' ou cole um novo" : "Gere ou cole um código"}
-                      className="mt-1 font-mono"
-                      disabled={!podeGerenciarCartao}
-                      type={codigoNovo ? "text" : "text"}
-                    />
-                  </div>
-                </div>
-                {podeGerenciarCartao ? (
-                  <div className="flex flex-wrap gap-2">
-                    <Button type="button" variant="secondary" size="sm" onClick={handleGerarCodigo}>
-                      <KeyRound className="mr-2 h-4 w-4" /> Gerar código
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={!codigoNovo && !codigoGerado}
-                      onClick={() => setShowCartao(true)}
-                      title={!codigoNovo && !codigoGerado ? "Gere um código primeiro" : undefined}
-                    >
-                      <Eye className="mr-2 h-4 w-4" /> Visualizar cartão
-                    </Button>
-                    <p className="w-full text-[11px] text-muted-foreground">
-                      Após salvar, o código fica armazenado de forma segura (hash) e não pode ser visualizado novamente — apenas regerado.
+                    <p className="text-sm font-medium flex items-center gap-2">
+                      <IdCard className="h-4 w-4" /> Cartões de autorização
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Cada cartão tem código único vinculado a um autorizador específico. O código completo só é exibido uma vez.
                     </p>
                   </div>
+                  {podeGerenciarCartao && (
+                    <Button type="button" size="sm" onClick={() => setShowNovoCartao(true)}>
+                      <Plus className="mr-2 h-4 w-4" /> Novo cartão
+                    </Button>
+                  )}
+                </div>
+
+                {loadingCartoes ? (
+                  <div className="flex justify-center py-4"><Loader2 className="h-5 w-5 animate-spin" /></div>
+                ) : cartoes.length === 0 ? (
+                  <p className="text-xs text-muted-foreground py-2">Nenhum cartão cadastrado ainda.</p>
                 ) : (
+                  <div className="space-y-2">
+                    {cartoes.map((c) => (
+                      <div key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-border bg-background p-2 text-sm">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{c.rotulo}</span>
+                            {c.ativo ? (
+                              <Badge variant="default" className="text-[10px]">ativo</Badge>
+                            ) : (
+                              <Badge variant="destructive" className="text-[10px]">revogado</Badge>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-muted-foreground">
+                            {c.funcionario_nome
+                              ? `Funcionário: ${c.funcionario_nome}`
+                              : c.user_id
+                              ? "Membro vinculado"
+                              : "Genérico (sem vínculo)"}
+                            {c.funcao && ` · ${c.funcao}`}
+                            {" · criado em "}
+                            {new Date(c.created_at).toLocaleDateString("pt-BR")}
+                            {c.usado_em && ` · último uso ${new Date(c.usado_em).toLocaleDateString("pt-BR")}`}
+                          </p>
+                        </div>
+                        {podeGerenciarCartao && (
+                          <div className="flex gap-1">
+                            <Button size="sm" variant="ghost" onClick={() => handleRevogar(c.id, c.ativo)} title={c.ativo ? "Revogar" : "Reativar"}>
+                              {c.ativo ? <Ban className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => handleExcluirCartao(c.id)} title="Excluir">
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {!podeGerenciarCartao && (
                   <p className="text-[11px] text-muted-foreground">
-                    Apenas dono ou admin pode gerar, visualizar ou imprimir o cartão de autorização.
+                    Apenas dono ou admin pode gerenciar cartões de autorização.
                   </p>
                 )}
               </div>
