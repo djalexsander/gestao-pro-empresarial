@@ -570,6 +570,13 @@ async fn proxy_with_incremental_sync(
                             eprintln!("[gestao-pro] ingest financeiro_lancamentos_completo falhou: {e}");
                         }
                     },
+                    "compras" => match db::ingest_compras(text, now, strategy) {
+                        Ok((n, _)) => delta = n as i64,
+                        Err(e) => {
+                            let _ = db::record_sync_error(domain, now, &e.to_string());
+                            eprintln!("[gestao-pro] ingest compras falhou: {e}");
+                        }
+                    },
                     "estoque_movimentacoes" => {
                         match db::ingest_movimentacoes(text, now, strategy) {
                             Ok((n, _)) => delta = n as i64,
@@ -726,6 +733,14 @@ fn read_typed(domain: &str, query: &[(&str, String)]) -> Result<String, db::DbEr
         "clientes_lite" => db::read_clientes(None),
         "fornecedores" => db::read_fornecedores(None),
         "financeiro_lancamentos_completo" => db::read_lancamentos_completo(),
+        "compras" => {
+            let limit = query
+                .iter()
+                .find(|(k, _)| *k == "__filter_limit")
+                .and_then(|(_, v)| v.parse::<i64>().ok())
+                .unwrap_or(500);
+            db::read_compras(limit)
+        }
         "estoque_saldos" => db::read_saldos(),
         "estoque_movimentacoes" => {
             let produto_id = query
@@ -1869,6 +1884,32 @@ async fn financeiro_lancamentos_completo_handler(
     .await
 }
 
+// ---------- /api/compras (v15) ----------
+//
+// Espelha `cloudAdapter.compras.list`: lista as compras com fornecedor
+// embutido (id/razao_social/nome_fantasia), ordenadas por data_emissao
+// desc. Cursor incremental por updated_at; limite default 500.
+
+async fn compras_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(500);
+    let mut params: Vec<(&str, String)> = vec![
+        (
+            "select",
+            "*,fornecedor:fornecedores(id,razao_social,nome_fantasia)".into(),
+        ),
+        ("order", "data_emissao.desc".into()),
+        ("limit", limit.to_string()),
+    ];
+    // Pseudo-filtro só para a leitura local (não vai ao upstream — proxy_get
+    // só repassa as chaves conhecidas do PostgREST).
+    params.push(("__filter_limit", limit.to_string()));
+    proxy_with_incremental_sync(&ctx, &headers, "compras", "/rest/v1/compras", &params, false).await
+}
+
 /// GET `/api/caixa/resumo?caixa_id=...` ou `?operador_id=...` para o aberto.
 /// Retorna o resumo local do caixa: totais por forma de pagamento, vendas,
 /// suprimentos, sangrias, esperado em dinheiro e diferença (se fechado).
@@ -2291,6 +2332,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/clientes/lite", get(clientes_lite_handler))
         .route("/api/fornecedores", get(fornecedores_handler))
         .route("/api/financeiro/lancamentos-completo", get(financeiro_lancamentos_completo_handler))
+        .route("/api/compras", get(compras_handler))
         .route("/backup/status", get(backup_status_handler))
         .route("/backup/list", get(backup_list_handler))
         .route("/backup/log", get(backup_log_handler))

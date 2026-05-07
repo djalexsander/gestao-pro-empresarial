@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i64 = 14;
+const SCHEMA_VERSION: i64 = 15;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -209,6 +209,26 @@ pub fn init() -> DbResult<()> {
         CREATE INDEX IF NOT EXISTS idx_fin_lancs_status ON financeiro_lancamentos_local(status);
         CREATE INDEX IF NOT EXISTS idx_fin_lancs_tipo ON financeiro_lancamentos_local(tipo);
         CREATE INDEX IF NOT EXISTS idx_fin_lancs_venc ON financeiro_lancamentos_local(data_vencimento_ms);
+
+        -- v15: Compras locais — payload completo da listagem com fornecedor
+        -- embutido (`fornecedor:fornecedores(id,razao_social,nome_fantasia)`),
+        -- exatamente como o cloudAdapter.compras.list devolve. Cursor
+        -- incremental por updated_at; sem tombstone (a UI já filtra
+        -- canceladas via status do payload).
+        CREATE TABLE IF NOT EXISTS compras_local (
+            id                   TEXT PRIMARY KEY,
+            numero               TEXT,
+            fornecedor_id        TEXT,
+            status               TEXT,
+            data_emissao_ms      INTEGER,
+            payload              TEXT NOT NULL,
+            updated_at_remote_ms INTEGER,
+            synced_at_ms         INTEGER NOT NULL,
+            deleted_at_ms        INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_compras_status ON compras_local(status);
+        CREATE INDEX IF NOT EXISTS idx_compras_data ON compras_local(data_emissao_ms);
+        CREATE INDEX IF NOT EXISTS idx_compras_fornecedor ON compras_local(fornecedor_id);
 
         -- Saldos: agregados por (produto_id, variacao_id). A chave única
         -- evita duplicatas quando o snapshot é re-ingerido.
@@ -1717,7 +1737,110 @@ pub fn read_lancamentos_completo() -> DbResult<String> {
     })
 }
 
-// ---------- Estoque: movimentações + saldos derivados ----------
+// ---------- Compras (v15) ----------
+//
+// Cache do payload completo da listagem de compras com fornecedor embutido,
+// alimentando a tela /compras 100% offline. Cursor incremental por
+// `updated_at`. Não usamos tombstone — a UI já lida com `status` (pendente,
+// recebida, cancelada, etc.) presente no payload.
+
+pub fn ingest_compras(
+    json_text: &str,
+    now_ms: i64,
+    strategy: IngestStrategy,
+) -> DbResult<(usize, Option<i64>)> {
+    let arr: serde_json::Value = serde_json::from_str(json_text)
+        .map_err(|e| DbError(format!("ingest_compras: json inválido: {e}")))?;
+    let items = match arr.as_array() {
+        Some(a) => a,
+        None => return Ok((0, None)),
+    };
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+        let mut count = 0usize;
+        let mut max_remote_ms: Option<i64> = None;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO compras_local(
+                    id, numero, fornecedor_id, status, data_emissao_ms,
+                    payload, updated_at_remote_ms, synced_at_ms, deleted_at_ms
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,NULL)
+                 ON CONFLICT(id) DO UPDATE SET
+                    numero               = excluded.numero,
+                    fornecedor_id        = excluded.fornecedor_id,
+                    status               = excluded.status,
+                    data_emissao_ms      = excluded.data_emissao_ms,
+                    payload              = excluded.payload,
+                    updated_at_remote_ms = COALESCE(excluded.updated_at_remote_ms, compras_local.updated_at_remote_ms),
+                    synced_at_ms         = excluded.synced_at_ms",
+            )?;
+            for item in items {
+                let id = match json_str(item, "id") {
+                    Some(s) => s.to_string(),
+                    None => continue,
+                };
+                let updated_ms = json_str(item, "updated_at").and_then(parse_iso_to_ms);
+                if let Some(ms) = updated_ms {
+                    max_remote_ms = Some(max_remote_ms.map_or(ms, |c| c.max(ms)));
+                }
+                let data_emi_ms = json_str(item, "data_emissao").and_then(parse_date_only_to_ms);
+                let payload = serde_json::to_string(item).unwrap_or_else(|_| "{}".into());
+                stmt.execute(params![
+                    id,
+                    json_str(item, "numero"),
+                    json_str(item, "fornecedor_id"),
+                    json_str(item, "status"),
+                    data_emi_ms,
+                    payload,
+                    updated_ms,
+                    now_ms,
+                ])?;
+                count += 1;
+            }
+        }
+        let total: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM compras_local WHERE deleted_at_ms IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        upsert_domain_meta(&tx, DomainMetaUpdate {
+            domain: "compras",
+            row_count: total,
+            now_ms,
+            source: "upstream",
+            strategy: strategy.as_str(),
+            delta_count: count as i64,
+            max_remote_updated_ms: max_remote_ms,
+        })?;
+        tx.commit()?;
+        Ok((count, max_remote_ms))
+    })
+}
+
+pub fn read_compras(limit: i64) -> DbResult<String> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT payload FROM compras_local
+             WHERE deleted_at_ms IS NULL
+             ORDER BY data_emissao_ms DESC NULLS LAST
+             LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit], |r| r.get::<_, String>(0))?;
+        let mut out = String::from("[");
+        let mut first = true;
+        for r in rows {
+            let payload = r?;
+            if !first {
+                out.push(',');
+            }
+            out.push_str(&payload);
+            first = false;
+        }
+        out.push(']');
+        Ok(out)
+    })
+}
+
 //
 // Modelo desta etapa:
 //
@@ -2023,6 +2146,7 @@ pub fn domain_has_rows(domain: &str) -> DbResult<bool> {
             "produtos" => "produtos_local",
             "clientes_lite" => "clientes_local",
             "fornecedores" => "fornecedores_local",
+            "compras" => "compras_local",
             "financeiro_lancamentos_completo" => "financeiro_lancamentos_local",
             "estoque_saldos" => "estoque_saldos_local",
             "estoque_movimentacoes" => "estoque_movimentacoes_local",
