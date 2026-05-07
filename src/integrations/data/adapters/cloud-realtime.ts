@@ -14,6 +14,8 @@ import {
   type RealtimeAdapter,
   type RealtimeStartOptions,
   type RealtimeStop,
+  type RealtimeTableFilter,
+  type RealtimeTableEvent,
 } from "../realtime-adapter";
 import type { DataDomain, DomainEvent } from "../realtime";
 
