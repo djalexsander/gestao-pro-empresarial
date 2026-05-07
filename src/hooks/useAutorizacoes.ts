@@ -95,4 +95,6 @@ export const ACAO_LABELS: Record<AutorizacaoAcao, string> = {
   excluir_lancamento_financeiro: "Excluir lançamento financeiro",
   alterar_valor_confirmado: "Alterar valor já confirmado",
   reabrir_caixa: "Reabrir caixa fechado",
+  sangria_caixa: "Sangria de caixa",
+  suprimento_caixa: "Suprimento de caixa",
 };
