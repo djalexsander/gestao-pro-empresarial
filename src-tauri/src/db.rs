@@ -210,6 +210,26 @@ pub fn init() -> DbResult<()> {
         CREATE INDEX IF NOT EXISTS idx_fin_lancs_tipo ON financeiro_lancamentos_local(tipo);
         CREATE INDEX IF NOT EXISTS idx_fin_lancs_venc ON financeiro_lancamentos_local(data_vencimento_ms);
 
+        -- v15: Compras locais — payload completo da listagem com fornecedor
+        -- embutido (`fornecedor:fornecedores(id,razao_social,nome_fantasia)`),
+        -- exatamente como o cloudAdapter.compras.list devolve. Cursor
+        -- incremental por updated_at; sem tombstone (a UI já filtra
+        -- canceladas via status do payload).
+        CREATE TABLE IF NOT EXISTS compras_local (
+            id                   TEXT PRIMARY KEY,
+            numero               TEXT,
+            fornecedor_id        TEXT,
+            status               TEXT,
+            data_emissao_ms      INTEGER,
+            payload              TEXT NOT NULL,
+            updated_at_remote_ms INTEGER,
+            synced_at_ms         INTEGER NOT NULL,
+            deleted_at_ms        INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_compras_status ON compras_local(status);
+        CREATE INDEX IF NOT EXISTS idx_compras_data ON compras_local(data_emissao_ms);
+        CREATE INDEX IF NOT EXISTS idx_compras_fornecedor ON compras_local(fornecedor_id);
+
         -- Saldos: agregados por (produto_id, variacao_id). A chave única
         -- evita duplicatas quando o snapshot é re-ingerido.
         CREATE TABLE IF NOT EXISTS estoque_saldos_local (
