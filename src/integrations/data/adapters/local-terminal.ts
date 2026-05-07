@@ -1051,6 +1051,63 @@ export const localTerminalAdapter: DataAdapter = {
         () => cloudAdapter.relatorios.cardCompras(),
       ),
 
+    notasFiscais: ({ inicio, fim }) =>
+      withFallback(
+        "relatorios",
+        "notasFiscais",
+        async () => {
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "vendas_remote",
+            "list",
+            "/api/vendas/historico",
+            { limit: "1000" },
+          );
+          if (!Array.isArray(raw)) return null;
+          return raw
+            .filter((v) => {
+              if (v.numero_nf == null) return false;
+              const d = v.data_emissao as string;
+              return d >= inicio && d <= fim;
+            })
+            .map((v) => ({
+              id: String(v.id),
+              numero: String(v.numero ?? ""),
+              nf: String(v.numero_nf ?? ""),
+              serie: (v.serie_nf as string) ?? "",
+              data: String(v.data_emissao ?? ""),
+              total: Number(v.total) || 0,
+              status: String(v.status ?? ""),
+            }));
+        },
+        () => cloudAdapter.relatorios.notasFiscais({ inicio, fim }),
+      ),
+
+    cardNotasFiscais: () =>
+      withFallback(
+        "relatorios",
+        "cardNotasFiscais",
+        async () => {
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "vendas_remote",
+            "list",
+            "/api/vendas/historico",
+            { limit: "1000" },
+          );
+          if (!Array.isArray(raw)) return null;
+          return raw
+            .filter((v) => v.numero_nf != null)
+            .map((v) => ({
+              venda: String(v.numero ?? ""),
+              nf: String(v.numero_nf ?? ""),
+              serie: (v.serie_nf as string) ?? "",
+              data: String(v.data_emissao ?? ""),
+              total: Number(v.total) || 0,
+              status: String(v.status ?? ""),
+            }));
+        },
+        () => cloudAdapter.relatorios.cardNotasFiscais(),
+      ),
+
     cardFluxoCaixa: () =>
       withFallback(
         "relatorios",
