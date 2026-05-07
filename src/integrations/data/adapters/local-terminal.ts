@@ -470,6 +470,56 @@ export const localTerminalAdapter: DataAdapter = {
       ),
   },
 
+  /**
+   * Fornecedores (v13): mesma filosofia de clientes — leitura completa do
+   * cadastro a partir de `fornecedores_local` (payload completo). Filtros
+   * client-side. Writes continuam diretos na nuvem por enquanto.
+   */
+  fornecedores: {
+    ...cloudAdapter.fornecedores,
+    list: (input) =>
+      withFallback(
+        "fornecedores",
+        "list",
+        async () => {
+          const all = await tryLocal<
+            Awaited<ReturnType<DataAdapter["fornecedores"]["list"]>>
+          >(
+            "fornecedores",
+            "list",
+            "/api/fornecedores",
+            { status: "" },
+          );
+          if (!Array.isArray(all)) return all;
+          let rows = all;
+          if (input?.status) {
+            rows = rows.filter(
+              (f) => (f as { status?: string }).status === input.status,
+            );
+          }
+          if (input?.busca) {
+            const b = input.busca.trim().toLowerCase();
+            if (b) {
+              rows = rows.filter((f) => {
+                const x = f as {
+                  razao_social?: string | null;
+                  nome_fantasia?: string | null;
+                  documento?: string | null;
+                };
+                return (
+                  (x.razao_social ?? "").toLowerCase().includes(b) ||
+                  (x.nome_fantasia ?? "").toLowerCase().includes(b) ||
+                  (x.documento ?? "").toLowerCase().includes(b)
+                );
+              });
+            }
+          }
+          return rows;
+        },
+        () => cloudAdapter.fornecedores.list(input),
+      ),
+  },
+
   caixa: {
     ...cloudAdapter.caixa,
     /**
