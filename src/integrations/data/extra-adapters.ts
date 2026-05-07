@@ -220,6 +220,8 @@ export interface EmpresaAdapter {
   criarSocio(input: CriarSocioInput): Promise<{ ok: boolean; erro?: string }>;
   removerMembro(membroId: string): Promise<{ ok: boolean; erro?: string }>;
   listarIntegracoes(empresaId: string): Promise<EmpresaIntegracaoDomain[]>;
+  /** Lista integrações da(s) empresa(s) acessíveis filtrando por tipo (RLS aplica). */
+  integracoesPorTipos(tipos: string[]): Promise<EmpresaIntegracaoDomain[]>;
   upsertIntegracao(input: EmpresaIntegracaoDomain): Promise<void>;
 }
 
