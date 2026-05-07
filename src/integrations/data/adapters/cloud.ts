@@ -1488,9 +1488,42 @@ const financeiro: DataAdapter["financeiro"] = {
     if (error) throw error;
     return (data ?? []) as import("../adapter").LancamentoAvulsoPagoDomain[];
   },
+  async pagamentosPorLancamento(lancamentoId) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.from as any)("lancamento_pagamentos")
+      .select("id, valor, data_pagamento, forma_pagamento, observacao, created_at")
+      .eq("lancamento_id", lancamentoId)
+      .order("data_pagamento", { ascending: false });
+    if (error) throw new Error(error.message);
+    return (data ?? []) as import("../adapter").LancamentoPagamentoHistDomain[];
+  },
+  async lancamentoFks(lancamentoId) {
+    const { data, error } = await supabase
+      .from("financeiro_lancamentos")
+      .select(
+        "id, tipo, descricao, valor, data_vencimento, data_emissao, categoria_id, cliente_id, fornecedor_id, numero_documento, forma_pagamento, observacoes, venda_id, compra_id",
+      )
+      .eq("id", lancamentoId)
+      .single();
+    if (error) throw new Error(error.message);
+    return data as unknown as import("../adapter").LancamentoFksDomain;
+  },
+  async registrarCobrancaWhatsapp(input) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase.from as any)("cobranca_whatsapp_logs").insert({
+      empresa_id: input.empresa_id,
+      owner_id: input.owner_id,
+      cliente_id: input.cliente_id,
+      lancamento_id: input.lancamento_id,
+      telefone: input.telefone,
+      mensagem: input.mensagem,
+      status: "manual",
+      tipo: "manual",
+      sent_at: new Date().toISOString(),
+    });
+    if (error) throw new Error(error.message);
+  },
 };
-// =====================================================================
-const estoque: DataAdapter["estoque"] = {
   async registrarMovimento(
     input: RegistrarMovimentoEstoqueInput,
   ): Promise<RegistrarMovimentoEstoqueResult> {
