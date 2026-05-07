@@ -1795,6 +1795,7 @@ export function DesktopTab() {
             cancelamentos: outboxCancel,
             financeiro: outboxFin,
             clientes: outboxClientes,
+            fornecedores: outboxFornecedores,
           }}
         />
 
