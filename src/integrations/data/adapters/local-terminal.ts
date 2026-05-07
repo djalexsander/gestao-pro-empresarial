@@ -588,6 +588,29 @@ export const localTerminalAdapter: DataAdapter = {
       ),
   },
 
+  /**
+   * Compras (v15): a tela /compras lista até 500 compras com fornecedor
+   * embutido. Cacheamos o payload completo (mesmo `select` do
+   * cloudAdapter) em `compras_local`. Writes (criar, receber, atualizar
+   * status/metadados, excluir) seguem direto na nuvem nesta fase.
+   */
+  compras: {
+    ...cloudAdapter.compras,
+    list: (input) =>
+      withFallback(
+        "compras",
+        "list",
+        () =>
+          tryLocal<Awaited<ReturnType<DataAdapter["compras"]["list"]>>>(
+            "compras",
+            "list",
+            "/api/compras",
+            { limit: input?.limit != null ? String(input.limit) : undefined },
+          ),
+        () => cloudAdapter.compras.list(input),
+      ),
+  },
+
   caixa: {
     ...cloudAdapter.caixa,
     /**
