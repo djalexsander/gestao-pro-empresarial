@@ -53,4 +53,8 @@ export const realtimeClient = {
     }
     return fn.call(adapter, ...args);
   },
+  subscribeTable: <TRow = Record<string, unknown>>(
+    filter: Parameters<RealtimeAdapter["subscribeTable"]>[0],
+    handler: (event: import("./realtime-adapter").RealtimeTableEvent<TRow>) => void,
+  ) => getRealtimeAdapter().subscribeTable<TRow>(filter, handler),
 };

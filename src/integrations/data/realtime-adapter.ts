@@ -51,6 +51,25 @@ export interface RealtimeStartOptions {
 /**
  * Contrato que toda fonte de realtime deve implementar.
  */
+/**
+ * Filtros opcionais para `subscribeTable` — espelha o formato `coluna=eq.valor`
+ * do `postgres_changes` do Supabase, mas o adapter local pode reinterpretar.
+ */
+export interface RealtimeTableFilter {
+  /** Tabela alvo (ex.: "pagamentos", "caixa_movimentos"). */
+  table: string;
+  /** "INSERT" | "UPDATE" | "DELETE" | "*". Default "*". */
+  event?: "INSERT" | "UPDATE" | "DELETE" | "*";
+  /** Filtro server-side, ex.: `id=eq.abc-123`. */
+  filter?: string;
+}
+
+export interface RealtimeTableEvent<TRow = Record<string, unknown>> {
+  eventType: "INSERT" | "UPDATE" | "DELETE";
+  new: TRow | null;
+  old: TRow | null;
+}
+
 export interface RealtimeAdapter {
   /** Identificador legível: "supabase" | "local-ws" | "local-emitter" | "polling". */
   readonly source: NonNullable<DomainEvent["source"]>;
@@ -68,6 +87,16 @@ export interface RealtimeAdapter {
   subscribeDomain?(
     domain: DataDomain,
     handler: (event: DomainEvent) => void,
+  ): RealtimeStop;
+
+  /**
+   * Assinatura ad-hoc a uma tabela específica. Usada por componentes que
+   * precisam reagir a uma mudança pontual (ex.: status do pagamento atual)
+   * sem depender do bus de domínio.
+   */
+  subscribeTable<TRow = Record<string, unknown>>(
+    filter: RealtimeTableFilter,
+    handler: (event: RealtimeTableEvent<TRow>) => void,
   ): RealtimeStop;
 }
 

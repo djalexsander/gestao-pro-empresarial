@@ -9,7 +9,7 @@ import { useMinhaAssinatura, useMeusModulos } from "@/hooks/useSaasAdmin";
 import { useCobrancaPendente } from "@/hooks/useCobrancaPendente";
 import { getEffectivePlanStatus } from "@/lib/planStatus";
 import { CobrancaPixDialog, type CobrancaResult } from "@/components/saas/CobrancaPixDialog";
-import { supabase } from "@/integrations/supabase/client";
+import { realtimeClient } from "@/integrations/data/realtime-client";
 
 const fmtBRL = (n: number) =>
   Number(n ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -56,28 +56,24 @@ export function ResumoAssinatura({
   // Realtime: quando a assinatura/módulos da empresa mudam (ativação via webhook),
   // recarregamos o status para refletir "Ativa" sem precisar de refresh manual.
   useEffect(() => {
-    const ch = supabase
-      .channel("resumo-assinatura-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "empresa_assinaturas" },
-        () => {
-          qc.invalidateQueries({ queryKey: ["minha-assinatura"] });
-          qc.invalidateQueries({ queryKey: ["cobranca-pendente"] });
-          qc.invalidateQueries({ queryKey: ["meus-pagamentos"] });
-        },
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "empresa_modulos" },
-        () => {
-          qc.invalidateQueries({ queryKey: ["meus-modulos"] });
-          qc.invalidateQueries({ queryKey: ["modulos-disponiveis-cliente"] });
-        },
-      )
-      .subscribe();
+    const stopAss = realtimeClient.subscribeTable(
+      { table: "empresa_assinaturas" },
+      () => {
+        qc.invalidateQueries({ queryKey: ["minha-assinatura"] });
+        qc.invalidateQueries({ queryKey: ["cobranca-pendente"] });
+        qc.invalidateQueries({ queryKey: ["meus-pagamentos"] });
+      },
+    );
+    const stopMod = realtimeClient.subscribeTable(
+      { table: "empresa_modulos" },
+      () => {
+        qc.invalidateQueries({ queryKey: ["meus-modulos"] });
+        qc.invalidateQueries({ queryKey: ["modulos-disponiveis-cliente"] });
+      },
+    );
     return () => {
-      supabase.removeChannel(ch);
+      stopAss();
+      stopMod();
     };
   }, [qc]);
 

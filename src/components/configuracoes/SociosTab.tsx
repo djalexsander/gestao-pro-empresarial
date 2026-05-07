@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2, UserPlus, Crown, Shield, Briefcase, Eye, EyeOff } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -64,11 +64,8 @@ export function SociosTab() {
     queryKey: ["empresa_membros", empresaAtual?.id],
     enabled: !!empresaAtual?.id,
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("listar_membros_empresa", {
-        _empresa_id: empresaAtual!.id,
-      });
-      if (error) throw error;
-      return (data || []) as Array<{
+      const data = await dataClient.empresa.listarMembros(empresaAtual!.id);
+      return data as Array<{
         id: string;
         user_id: string;
         email: string | null;
@@ -84,18 +81,14 @@ export function SociosTab() {
       if (!email.trim()) throw new Error("Informe o e-mail");
       if (senha.length < 8) throw new Error("A senha deve ter ao menos 8 caracteres");
 
-      const { data, error } = await supabase.functions.invoke("criar-socio", {
-        body: {
-          empresa_id: empresaAtual!.id,
-          nome: nome.trim(),
-          email: email.trim().toLowerCase(),
-          telefone: telefone.trim() || undefined,
-          senha,
-          papel: novoPapel,
-        },
+      const result = await dataClient.empresa.criarSocio({
+        empresa_id: empresaAtual!.id,
+        nome: nome.trim(),
+        email: email.trim().toLowerCase(),
+        telefone: telefone.trim() || undefined,
+        senha,
+        papel: novoPapel,
       });
-      if (error) throw new Error(error.message);
-      const result = data as { ok: boolean; erro?: string };
       if (!result.ok) throw new Error(result.erro || "Erro ao adicionar");
       return result;
     },
@@ -113,9 +106,7 @@ export function SociosTab() {
 
   const remover = useMutation({
     mutationFn: async (id: string) => {
-      const { data, error } = await supabase.rpc("remover_membro", { _membro_id: id });
-      if (error) throw error;
-      const result = data as { ok: boolean; erro?: string };
+      const result = await dataClient.empresa.removerMembro(id);
       if (!result.ok) throw new Error(result.erro || "Erro ao remover");
     },
     onSuccess: () => {

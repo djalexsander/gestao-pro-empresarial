@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { realtimeClient } from "@/integrations/data/realtime-client";
 import { dataClient } from "@/integrations/data";
 
 export type CaixaStatus = "aberto" | "fechado";
@@ -114,26 +114,22 @@ export function useCaixaResumo(caixaId: string | null | undefined) {
   // inteiro — aqui queremos refrescar apenas o caixa visível.
   useEffect(() => {
     if (!caixaId) return;
-    const channel = supabase
-      .channel(`caixa-resumo-${caixaId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "caixa_movimentos", filter: `caixa_id=eq.${caixaId}` },
-        () => {
-          qc.invalidateQueries({ queryKey: ["caixa", "resumo", caixaId] });
-          qc.invalidateQueries({ queryKey: ["caixa", "movimentos", caixaId] });
-        },
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "vendas", filter: `caixa_id=eq.${caixaId}` },
-        () => {
-          qc.invalidateQueries({ queryKey: ["caixa", "resumo", caixaId] });
-        },
-      )
-      .subscribe();
+    const stopMov = realtimeClient.subscribeTable(
+      { table: "caixa_movimentos", filter: `caixa_id=eq.${caixaId}` },
+      () => {
+        qc.invalidateQueries({ queryKey: ["caixa", "resumo", caixaId] });
+        qc.invalidateQueries({ queryKey: ["caixa", "movimentos", caixaId] });
+      },
+    );
+    const stopVendas = realtimeClient.subscribeTable(
+      { table: "vendas", filter: `caixa_id=eq.${caixaId}` },
+      () => {
+        qc.invalidateQueries({ queryKey: ["caixa", "resumo", caixaId] });
+      },
+    );
     return () => {
-      supabase.removeChannel(channel);
+      stopMov();
+      stopVendas();
     };
   }, [caixaId, qc]);
 

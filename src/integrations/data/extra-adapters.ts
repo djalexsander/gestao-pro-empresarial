@@ -187,8 +187,40 @@ export interface EmpresaAcessivelDomain {
   papel: EmpresaPapelDomain;
 }
 
+export interface EmpresaMembroDomain {
+  id: string;
+  user_id: string;
+  email: string | null;
+  papel: EmpresaPapelDomain;
+  created_at: string;
+}
+
+export interface CriarSocioInput {
+  empresa_id: string;
+  nome: string;
+  email: string;
+  telefone?: string;
+  senha: string;
+  papel: EmpresaPapelDomain;
+}
+
+export interface EmpresaIntegracaoDomain {
+  id?: string;
+  empresa_id: string;
+  owner_id: string;
+  tipo_integracao: string;
+  ativo?: boolean;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
+}
+
 export interface EmpresaAdapter {
   acessiveis(userId: string): Promise<EmpresaAcessivelDomain[]>;
+  listarMembros(empresaId: string): Promise<EmpresaMembroDomain[]>;
+  criarSocio(input: CriarSocioInput): Promise<{ ok: boolean; erro?: string }>;
+  removerMembro(membroId: string): Promise<{ ok: boolean; erro?: string }>;
+  listarIntegracoes(empresaId: string): Promise<EmpresaIntegracaoDomain[]>;
+  upsertIntegracao(input: EmpresaIntegracaoDomain): Promise<void>;
 }
 
 // =============== Configuração da empresa (cabeçalho fiscal) ===============
