@@ -2812,6 +2812,19 @@ pub async fn start(
         run_outbox_financeiro_scheduler(fin_ctx, fin_scheduler_rx).await;
     });
 
+    // Scheduler paralelo para a outbox de CLIENTES (cadastro offline-first v18).
+    let (cli_scheduler_tx, cli_scheduler_rx) = oneshot::channel::<()>();
+    let cli_ctx = AppCtx {
+        upstream: upstream.clone(),
+        http: reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .map_err(|e| format!("Falha ao criar HTTP client (cli scheduler): {e}"))?,
+    };
+    handle.spawn(async move {
+        run_outbox_clientes_scheduler(cli_ctx, cli_scheduler_rx).await;
+    });
+
     // Scheduler de backup automático local. Roda 1× por dia, no máximo,
     // controlado por timestamp em meta. Não depende de upstream.
     let (backup_scheduler_tx, backup_scheduler_rx) = oneshot::channel::<()>();
