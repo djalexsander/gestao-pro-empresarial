@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import {
+  Copy,
   Database,
   DownloadCloud,
+  FolderOpen,
   HardDrive,
   History,
   Loader2,
@@ -14,7 +16,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
+import { isDesktop } from "@/integrations/data/mode";
+import {
+  copyToClipboard,
+  dirnameOf,
+  pickDbFile,
+  pickSaveFile,
+  revealInExplorer,
+} from "@/integrations/desktop/nativeDialogs";
 import {
   agendarRestauracao,
   cancelarRestauracao,
@@ -60,9 +70,8 @@ export function BackupSeguranca({ cfg }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const [restorePath, setRestorePath] = useState("");
   const [exportSrc, setExportSrc] = useState<string | null>(null);
-  const [exportDest, setExportDest] = useState("");
+  const desktop = isDesktop();
 
   const recarregar = async () => {
     const [st, fs, lg] = await Promise.all([
@@ -105,13 +114,17 @@ export function BackupSeguranca({ cfg }: Props) {
     run("Backup manual", () => criarBackupAgora(cfg, "manual"));
 
   const handleRestore = async () => {
-    const path = restorePath.trim();
-    if (!path) {
-      setError("Informe o caminho do arquivo .db a restaurar.");
+    if (!desktop) {
+      setError("Restauração disponível apenas no app desktop.");
       return;
     }
+    const path = await pickDbFile({
+      title: "Selecionar backup .db para restaurar",
+      defaultPath: status?.backups_dir ?? undefined,
+    });
+    if (!path) return;
     if (!confirm(
-      "Restaurar substituirá o banco atual. Um pre-backup automático será criado e o app precisará ser reiniciado. Deseja continuar?",
+      `Restaurar a partir de:\n${path}\n\nIsso substituirá o banco atual. Um pre-backup automático será criado e o app precisará ser reiniciado. Deseja continuar?`,
     )) return;
     await run("Restauração agendada", () => agendarRestauracao(cfg, path));
   };
@@ -121,11 +134,34 @@ export function BackupSeguranca({ cfg }: Props) {
   };
 
   const handleExport = async () => {
-    if (!exportSrc) { setError("Selecione um backup."); return; }
-    const dest = exportDest.trim();
-    if (!dest) { setError("Informe o caminho de destino."); return; }
+    if (!exportSrc) { setError("Selecione um backup na lista acima."); return; }
+    if (!desktop) {
+      setError("Exportação com seletor disponível apenas no app desktop.");
+      return;
+    }
+    const fileName = exportSrc.split(/[\\/]/).pop() ?? "gestao-pro-backup.db";
+    const dest = await pickSaveFile({
+      title: "Salvar cópia do backup",
+      defaultPath: fileName,
+    });
+    if (!dest) return;
     await run("Exportação", () => exportarBackup(cfg, exportSrc, dest));
   };
+
+  const handleOpenFolder = async (path: string | null | undefined) => {
+    if (!path) return;
+    const ok = await revealInExplorer(path);
+    if (ok) toast.success("Pasta aberta no explorador.");
+    else toast.error("Não foi possível abrir a pasta.");
+  };
+
+  const handleCopy = async (path: string | null | undefined, label: string) => {
+    if (!path) return;
+    const ok = await copyToClipboard(path);
+    if (ok) toast.success(`${label} copiado para a área de transferência.`);
+    else toast.error("Não foi possível copiar.");
+  };
+
 
   return (
     <Card>
@@ -164,11 +200,59 @@ export function BackupSeguranca({ cfg }: Props) {
 
         <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-3 text-xs sm:grid-cols-2">
           <div>
-            <div className="text-muted-foreground">Pasta de backups</div>
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <span className="text-muted-foreground">Pasta de backups</span>
+              <div className="flex gap-1">
+                {desktop && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenFolder(status?.backups_dir)}
+                    disabled={!status?.backups_dir}
+                    className="inline-flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] hover:bg-muted disabled:opacity-50"
+                    title="Abrir no explorador"
+                  >
+                    <FolderOpen className="h-3 w-3" /> Abrir
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleCopy(status?.backups_dir, "Caminho")}
+                  disabled={!status?.backups_dir}
+                  className="inline-flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] hover:bg-muted disabled:opacity-50"
+                  title="Copiar caminho"
+                >
+                  <Copy className="h-3 w-3" /> Copiar
+                </button>
+              </div>
+            </div>
             <div className="font-mono break-all">{status?.backups_dir ?? "—"}</div>
           </div>
           <div>
-            <div className="text-muted-foreground">Banco local</div>
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <span className="text-muted-foreground">Banco local</span>
+              <div className="flex gap-1">
+                {desktop && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenFolder(dirnameOf(status?.db_path ?? ""))}
+                    disabled={!status?.db_path}
+                    className="inline-flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] hover:bg-muted disabled:opacity-50"
+                    title="Abrir pasta no explorador"
+                  >
+                    <FolderOpen className="h-3 w-3" /> Abrir
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleCopy(status?.db_path, "Caminho")}
+                  disabled={!status?.db_path}
+                  className="inline-flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] hover:bg-muted disabled:opacity-50"
+                  title="Copiar caminho"
+                >
+                  <Copy className="h-3 w-3" /> Copiar
+                </button>
+              </div>
+            </div>
             <div className="font-mono break-all">{status?.db_path ?? "—"}</div>
           </div>
           <div>
@@ -272,10 +356,10 @@ export function BackupSeguranca({ cfg }: Props) {
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => setRestorePath(f.path)}
-                              title="Usar este caminho na restauração"
+                              onClick={() => handleOpenFolder(dirnameOf(f.path))}
+                              title="Abrir pasta deste backup"
                             >
-                              <DownloadCloud className="h-3 w-3" />
+                              <FolderOpen className="h-3 w-3" />
                             </Button>
                           </div>
                         </td>
@@ -297,24 +381,19 @@ export function BackupSeguranca({ cfg }: Props) {
           <div className="space-y-2 text-xs">
             <div>
               <span className="text-muted-foreground">Origem:</span>{" "}
-              <span className="font-mono">{exportSrc ?? "selecione um backup acima"}</span>
+              <span className="font-mono break-all">{exportSrc ?? "selecione um backup acima"}</span>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Input
-                placeholder="Caminho de destino (ex.: D:\\Backups\\gestao-pro.db)"
-                value={exportDest}
-                onChange={(e) => setExportDest(e.target.value)}
-              />
-              <Button
-                onClick={handleExport}
-                disabled={!!busy || !exportSrc || !exportDest.trim()}
-              >
-                Exportar
-              </Button>
-            </div>
+            <Button
+              onClick={handleExport}
+              disabled={!!busy || !exportSrc || !desktop}
+            >
+              <UploadCloud className="mr-2 h-4 w-4" />
+              Escolher destino e exportar…
+            </Button>
             <div className="text-muted-foreground">
-              Copia o arquivo selecionado para o caminho indicado (HD externo,
-              pendrive ou pasta de rede). Não altera o banco em uso.
+              Abre o explorador do Windows para você escolher onde salvar
+              (HD externo, pendrive, pasta de rede). Não altera o banco em uso.
+              {!desktop && " Disponível apenas no app desktop."}
             </div>
           </div>
         </div>
@@ -326,24 +405,20 @@ export function BackupSeguranca({ cfg }: Props) {
             Restaurar backup
           </div>
           <div className="space-y-2 text-xs">
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Input
-                placeholder="Caminho do arquivo .db a restaurar"
-                value={restorePath}
-                onChange={(e) => setRestorePath(e.target.value)}
-              />
-              <Button
-                variant="destructive"
-                onClick={handleRestore}
-                disabled={!!busy || !restorePath.trim()}
-              >
-                Restaurar
-              </Button>
-            </div>
+            <Button
+              variant="destructive"
+              onClick={handleRestore}
+              disabled={!!busy || !desktop}
+            >
+              <DownloadCloud className="mr-2 h-4 w-4" />
+              Selecionar arquivo .db e restaurar…
+            </Button>
             <div className="text-muted-foreground">
+              Abre o explorador para você escolher o arquivo de backup.
               Antes da restauração: validamos o arquivo, criamos um pre-backup
               do estado atual e agendamos o swap atômico para o próximo boot.
               Depois, basta reiniciar o app.
+              {!desktop && " Disponível apenas no app desktop."}
             </div>
           </div>
         </div>
