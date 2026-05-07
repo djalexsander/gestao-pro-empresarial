@@ -130,18 +130,16 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
       }
 
       // 1) Reautenticação online com timeout curto (evita loading infinito).
-      let authedUser: { id: string; email?: string | null } | null = null;
-      let signInError: { message?: string } | null = null;
+      type SignInResult = { user: { id: string } | null; error: { message?: string } | null };
+      let res: SignInResult;
       try {
-        const res = await withAuthTimeout(
+        res = (await withAuthTimeout(
           dataClient.auth.signInWithPassword({
             email: email.trim(),
             password,
           }),
           desktop ? 6000 : 15000,
-        );
-        authedUser = res.user as typeof authedUser;
-        signInError = res.error as typeof signInError;
+        )) as SignInResult;
       } catch (netErr) {
         if (desktop && isNetworkAuthError(netErr)) {
           const ok = await entrarOffline("rede");
@@ -153,6 +151,9 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
         return;
       }
 
+      const signInError = res.error;
+      const authedUser = res.user;
+
       if (signInError && desktop && isNetworkAuthError(signInError)) {
         const ok = await entrarOffline("rede");
         if (!ok) setBusy(false);
@@ -160,10 +161,11 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
       }
 
       if (signInError || !authedUser) {
+        const msg = signInError?.message;
         toast.error(
-          signInError?.message === "Invalid login credentials"
+          msg === "Invalid login credentials"
             ? "E-mail ou senha inválidos."
-            : signInError?.message ?? "Não foi possível autenticar.",
+            : msg ?? "Não foi possível autenticar.",
         );
         setBusy(false);
         return;
