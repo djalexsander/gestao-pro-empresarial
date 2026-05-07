@@ -297,9 +297,8 @@ export function useAppUpdate(): AppUpdateState {
     }
 
     try {
-      let update = updateRef.current as
-        | Awaited<ReturnType<typeof import("@tauri-apps/plugin-updater").check>>
-        | null;
+      type TauriUpdate = Awaited<ReturnType<typeof import("@tauri-apps/plugin-updater")["check"]>>;
+      let update = updateRef.current as TauriUpdate | null;
       if (!update) {
         const { check } = await import("@tauri-apps/plugin-updater");
         update = await check();
