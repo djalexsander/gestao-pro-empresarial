@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, Package, Boxes, ShoppingCart } from "lucide-react";
 import { lazy, Suspense, type ComponentType } from "react";
 import { Loader2 } from "lucide-react";
+import { PdvQuickAccessProvider } from "@/contexts/PdvQuickAccessContext";
 
 export type PdvQuickViewKey = "produtos" | "estoque" | "compras";
 
@@ -68,7 +69,9 @@ export function PdvQuickViewDialog({ view, onClose }: Props) {
               </div>
             }
           >
-            {Component ? <Component /> : null}
+            <PdvQuickAccessProvider active={!!view}>
+              {Component ? <Component /> : null}
+            </PdvQuickAccessProvider>
           </Suspense>
         </div>
       </DialogContent>
