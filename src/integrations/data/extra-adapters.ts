@@ -430,6 +430,20 @@ export interface CobrancaCriadaDomain {
   due_date?: string | null;
 }
 
+export interface PagamentoSaasClienteDomain {
+  id: string;
+  referencia_tipo: string;
+  descricao: string | null;
+  valor: number;
+  status: string;
+  forma_pagamento: string | null;
+  data_vencimento: string | null;
+  data_pagamento: string | null;
+  created_at: string;
+  plano: { nome: string } | null;
+  modulo: { nome: string } | null;
+}
+
 export interface SaasClienteAdapter {
   planosDisponiveis(): Promise<unknown[]>;
   modulosDisponiveisCliente(): Promise<unknown[]>;
@@ -437,6 +451,14 @@ export interface SaasClienteAdapter {
   solicitarPlano(planoId: string): Promise<{ pagamentoId: string; cobranca: CobrancaCriadaDomain | null }>;
   solicitarModulo(moduloId: string): Promise<{ pagamentoId: string; cobranca: CobrancaCriadaDomain | null }>;
   resetarDadosEmpresa(): Promise<void>;
+  /** Lista pagamentos da empresa autenticada (50 mais recentes). */
+  meusPagamentos(empresaId: string): Promise<PagamentoSaasClienteDomain[]>;
+  /** Cria/reutiliza pagamento consolidado a partir do carrinho. */
+  solicitarCarrinho(input: { planos: string[]; modulos: string[] }): Promise<string>;
+  /** Lê flag asaas_enabled da config comercial. */
+  asaasEnabled(): Promise<boolean>;
+  /** Cria cobrança Pix Asaas para um pagamento existente. */
+  criarCobrancaPix(pagamentoId: string): Promise<CobrancaCriadaDomain>;
 }
 
 // --- QA (super admin) ---
