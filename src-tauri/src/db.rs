@@ -7185,3 +7185,13 @@ pub fn cliente_resolve_local_uuid(any_id: &str) -> DbResult<Option<String>> {
         Ok(lid)
     })
 }
+
+pub fn cliente_remote_id_for(local_uuid: &str) -> DbResult<Option<String>> {
+    with_conn(|conn| {
+        let r: Option<Option<String>> = conn.query_row(
+            "SELECT remote_id FROM clientes_local WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).optional()?;
+        Ok(r.flatten())
+    })
+}

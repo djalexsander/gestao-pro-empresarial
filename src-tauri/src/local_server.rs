@@ -3545,13 +3545,7 @@ async fn push_one_outbox_clientes(
     // Bloqueio de causalidade: editar/alterar_status/excluir só vão se já houver
     // remote_id resolvido (criar enviado antes).
     if item.action != "criar" && item.cliente_remote_id.is_none() {
-        // tenta resolver novamente do clientes_local (sync_status pode ter mudado).
-        let resolved: Option<String> = db::with_conn_opt(|conn| {
-            conn.query_row(
-                "SELECT remote_id FROM clientes_local WHERE local_uuid=?1",
-                rusqlite::params![&item.cliente_local_uuid], |r| r.get(0),
-            ).optional()
-        }).ok().flatten().flatten();
+        let resolved = db::cliente_remote_id_for(&item.cliente_local_uuid).ok().flatten();
         if resolved.is_none() {
             return Err("aguardando criar do cliente sincronizar".to_string());
         }
