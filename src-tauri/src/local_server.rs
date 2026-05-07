@@ -621,6 +621,20 @@ async fn proxy_with_incremental_sync(
                             eprintln!("[gestao-pro] ingest terminais_remote falhou: {e}");
                         }
                     },
+                    "pagamentos_empresa_remote" => match db::ingest_pagamentos_empresa_remote(text, now, strategy) {
+                        Ok((n, _)) => delta = n as i64,
+                        Err(e) => {
+                            let _ = db::record_sync_error(domain, now, &e.to_string());
+                            eprintln!("[gestao-pro] ingest pagamentos_empresa falhou: {e}");
+                        }
+                    },
+                    "venda_itens_remote" => match db::ingest_venda_itens_remote(text, now, strategy) {
+                        Ok((n, _)) => delta = n as i64,
+                        Err(e) => {
+                            let _ = db::record_sync_error(domain, now, &e.to_string());
+                            eprintln!("[gestao-pro] ingest venda_itens_remote falhou: {e}");
+                        }
+                    },
                     _ => {}
                 }
                 let _ = db::cache_put(domain, &key, "{\"_marker\":1}", now, CACHE_TTL_MS);
@@ -815,6 +829,27 @@ fn read_typed(domain: &str, query: &[(&str, String)]) -> Result<String, db::DbEr
         }
         "funcionarios_remote" => db::read_funcionarios_ativos_remote(),
         "terminais_remote" => db::read_terminais_ativos_remote(),
+        "pagamentos_empresa_remote" => {
+            let limit = query
+                .iter()
+                .find(|(k, _)| *k == "__filter_limit")
+                .and_then(|(_, v)| v.parse::<i64>().ok())
+                .unwrap_or(200);
+            db::read_pagamentos_empresa_remote(limit)
+        }
+        "venda_itens_remote" => {
+            let inicio = query
+                .iter()
+                .find(|(k, _)| *k == "__filter_inicio_ms")
+                .and_then(|(_, v)| v.parse::<i64>().ok())
+                .unwrap_or(0);
+            let fim = query
+                .iter()
+                .find(|(k, _)| *k == "__filter_fim_ms")
+                .and_then(|(_, v)| v.parse::<i64>().ok())
+                .unwrap_or(i64::MAX);
+            db::read_venda_itens_remote_periodo(inicio, fim)
+        }
         _ => Err(db::DbError("domínio sem leitura tipada".into())),
     }
 }
@@ -2088,7 +2123,83 @@ async fn relatorios_terminais_ativos_handler(
     .await
 }
 
-/// GET `/api/caixa/resumo?caixa_id=...` ou `?operador_id=...` para o aberto.
+/// Cache offline dos pagamentos da empresa (assinatura) — espelha
+/// `cloudAdapter.relatorios.pagamentosEmpresa`. Limite default 200.
+async fn relatorios_pagamentos_empresa_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(200);
+    let mut params: Vec<(&str, String)> = vec![
+        (
+            "select",
+            "id,referencia_tipo,descricao,valor,status,data_vencimento,data_pagamento,created_at,asaas_payment_id,asaas_invoice_url,asaas_pix_qrcode,asaas_pix_copia_cola,asaas_billing_type"
+                .into(),
+        ),
+        ("order", "created_at.desc".into()),
+        ("limit", limit.to_string()),
+    ];
+    params.push(("__filter_limit", limit.to_string()));
+    proxy_with_incremental_sync(
+        &ctx,
+        &headers,
+        "pagamentos_empresa_remote",
+        "/rest/v1/pagamentos",
+        &params,
+        false,
+    )
+    .await
+}
+
+/// Cache offline dos itens de venda em um período. Junta com
+/// `vendas_remote_cache` no SQLite para devolver itens com a venda embutida
+/// em `__venda` (o adapter desempacota e monta `ProdutoVendidoLinhaDomain`).
+/// Espera `inicio` e `fim` (datas ISO `YYYY-MM-DD` ou ISO completo).
+async fn relatorios_venda_itens_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let inicio = q.get("inicio").cloned().unwrap_or_default();
+    let fim = q.get("fim").cloned().unwrap_or_default();
+    if inicio.is_empty() || fim.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "inicio/fim obrigatórios".into()));
+    }
+    // PostgREST: filtra itens cuja venda esteja no período.
+    // venda_itens não tem data; o filtro robusto ocorre na leitura local
+    // pelo JOIN com vendas_remote_cache.data_emissao_ms.
+    let mut params: Vec<(&str, String)> = vec![
+        (
+            "select",
+            "id,venda_id,produto_id,descricao,quantidade,preco_unitario,total,produto:produtos(nome,sku,categoria_id,preco_custo),updated_at"
+                .into(),
+        ),
+        ("order", "id.asc".into()),
+        ("limit", "5000".into()),
+    ];
+    let inicio_ms = parse_iso_date_ms(&inicio).unwrap_or(0);
+    let fim_ms = parse_iso_date_ms(&fim).unwrap_or(i64::MAX);
+    params.push(("__filter_inicio_ms", inicio_ms.to_string()));
+    params.push(("__filter_fim_ms", fim_ms.to_string()));
+    proxy_with_incremental_sync(
+        &ctx,
+        &headers,
+        "venda_itens_remote",
+        "/rest/v1/venda_itens",
+        &params,
+        false,
+    )
+    .await
+}
+
+fn parse_iso_date_ms(s: &str) -> Option<i64> {
+    // aceita YYYY-MM-DD ou ISO completo; tolerante.
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        return Some(d.and_hms_opt(0, 0, 0)?.and_utc().timestamp_millis());
+    }
+    chrono::DateTime::parse_from_rfc3339(s).ok().map(|dt| dt.timestamp_millis())
+}
 /// Retorna o resumo local do caixa: totais por forma de pagamento, vendas,
 /// suprimentos, sangrias, esperado em dinheiro e diferença (se fechado).
 async fn caixa_resumo_handler(
@@ -2516,6 +2627,8 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/relatorios/caixa-movimentos", get(relatorios_caixa_movimentos_handler))
         .route("/api/relatorios/funcionarios-ativos", get(relatorios_funcionarios_ativos_handler))
         .route("/api/relatorios/terminais-ativos", get(relatorios_terminais_ativos_handler))
+        .route("/api/relatorios/pagamentos-empresa", get(relatorios_pagamentos_empresa_handler))
+        .route("/api/relatorios/venda-itens", get(relatorios_venda_itens_handler))
         .route("/backup/status", get(backup_status_handler))
         .route("/backup/list", get(backup_list_handler))
         .route("/backup/log", get(backup_log_handler))

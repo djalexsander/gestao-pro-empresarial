@@ -834,6 +834,32 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_term_rc_ativo
             ON terminais_remote_cache(ativo);
+
+        CREATE TABLE IF NOT EXISTS pagamentos_empresa_remote_cache (
+            id                   TEXT PRIMARY KEY,
+            status               TEXT,
+            created_at_ms        INTEGER,
+            payload              TEXT NOT NULL,
+            updated_at_remote_ms INTEGER,
+            synced_at_ms         INTEGER NOT NULL,
+            deleted_at_ms        INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_pag_emp_rc_created
+            ON pagamentos_empresa_remote_cache(created_at_ms DESC);
+
+        CREATE TABLE IF NOT EXISTS venda_itens_remote_cache (
+            id                   TEXT PRIMARY KEY,
+            venda_id             TEXT,
+            produto_id           TEXT,
+            payload              TEXT NOT NULL,
+            updated_at_remote_ms INTEGER,
+            synced_at_ms         INTEGER NOT NULL,
+            deleted_at_ms        INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_venda_itens_rc_venda
+            ON venda_itens_remote_cache(venda_id);
+        CREATE INDEX IF NOT EXISTS idx_venda_itens_rc_produto
+            ON venda_itens_remote_cache(produto_id);
         "#,
     )?;
 
@@ -2274,6 +2300,121 @@ pub fn read_terminais_ativos_remote() -> DbResult<String> {
     })
 }
 
+pub fn ingest_pagamentos_empresa_remote(
+    json_text: &str,
+    now_ms: i64,
+    strategy: IngestStrategy,
+) -> DbResult<(usize, Option<i64>)> {
+    let arr: serde_json::Value = serde_json::from_str(json_text)
+        .map_err(|e| DbError(format!("ingest pagamentos_empresa: json inválido: {e}")))?;
+    let items = match arr.as_array() {
+        Some(a) => a,
+        None => return Ok((0, None)),
+    };
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+        let mut count = 0usize;
+        let mut max_remote_ms: Option<i64> = None;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO pagamentos_empresa_remote_cache(
+                    id, status, created_at_ms, payload, updated_at_remote_ms, synced_at_ms, deleted_at_ms
+                 ) VALUES (?1,?2,?3,?4,?5,?6,NULL)
+                 ON CONFLICT(id) DO UPDATE SET
+                    status = excluded.status,
+                    created_at_ms = excluded.created_at_ms,
+                    payload = excluded.payload,
+                    updated_at_remote_ms = excluded.updated_at_remote_ms,
+                    synced_at_ms = excluded.synced_at_ms",
+            )?;
+            for item in items {
+                let id = match json_str(item, "id") { Some(s) => s.to_string(), None => continue };
+                let status = json_str(item, "status").map(|s| s.to_string());
+                let created_ms = json_str(item, "created_at").and_then(parse_iso_to_ms);
+                if let Some(ms) = created_ms {
+                    max_remote_ms = Some(max_remote_ms.map_or(ms, |c| c.max(ms)));
+                }
+                let payload = serde_json::to_string(item).unwrap_or_else(|_| "{}".into());
+                stmt.execute(params![id, status, created_ms, payload, created_ms, now_ms])?;
+                count += 1;
+            }
+        }
+        let total: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM pagamentos_empresa_remote_cache WHERE deleted_at_ms IS NULL",
+            [], |r| r.get(0))?;
+        upsert_domain_meta(&tx, DomainMetaUpdate {
+            domain: "pagamentos_empresa_remote",
+            row_count: total,
+            now_ms,
+            source: "upstream",
+            strategy: strategy.as_str(),
+            delta_count: count as i64,
+            max_remote_updated_ms: max_remote_ms,
+        })?;
+        tx.commit()?;
+        Ok((count, max_remote_ms))
+    })
+}
+
+pub fn read_pagamentos_empresa_remote(limit: i64) -> DbResult<String> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT payload FROM pagamentos_empresa_remote_cache
+             WHERE deleted_at_ms IS NULL
+             ORDER BY created_at_ms DESC NULLS LAST
+             LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit], |r| r.get::<_, String>(0))?;
+        json_array_from_rows(rows)
+    })
+}
+
+pub fn ingest_venda_itens_remote(
+    json_text: &str,
+    now_ms: i64,
+    strategy: IngestStrategy,
+) -> DbResult<(usize, Option<i64>)> {
+    ingest_simple_cache(
+        "venda_itens_remote",
+        "venda_itens_remote_cache",
+        json_text,
+        now_ms,
+        strategy,
+        |item| {
+            vec![
+                Box::new(json_str(item, "venda_id").map(|s| s.to_string())),
+                Box::new(json_str(item, "produto_id").map(|s| s.to_string())),
+            ]
+        },
+        &["venda_id", "produto_id"],
+    )
+}
+
+pub fn read_venda_itens_remote_periodo(inicio_ms: i64, fim_ms: i64) -> DbResult<String> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT vi.payload, v.payload AS venda_payload
+               FROM venda_itens_remote_cache vi
+               JOIN vendas_remote_cache v ON v.id = vi.venda_id
+              WHERE vi.deleted_at_ms IS NULL
+                AND v.deleted_at_ms IS NULL
+                AND COALESCE(v.status,'') != 'cancelada'
+                AND v.data_emissao_ms BETWEEN ?1 AND ?2",
+        )?;
+        let rows = stmt.query_map(params![inicio_ms, fim_ms], |r| {
+            let item: String = r.get(0)?;
+            let venda: String = r.get(1)?;
+            let mut item_v: serde_json::Value = serde_json::from_str(&item).unwrap_or(serde_json::json!({}));
+            let venda_v: serde_json::Value = serde_json::from_str(&venda).unwrap_or(serde_json::json!({}));
+            if let Some(obj) = item_v.as_object_mut() {
+                obj.insert("__venda".into(), venda_v);
+            }
+            Ok(serde_json::to_string(&item_v).unwrap_or_else(|_| "{}".into()))
+        })?;
+        json_array_from_rows(rows)
+    })
+}
+
 //     `data_movimentacao` (timestamp definitivo na nuvem; mais estável
 //     que `updated_at`, que poderia mudar com edição de observação).
 //     Lote = INSERT OR IGNORE pelo `id` → retries idempotentes.
@@ -2584,6 +2725,8 @@ pub fn domain_has_rows(domain: &str) -> DbResult<bool> {
             "caixa_movimentos_remote" => "caixa_movimentos_remote_cache",
             "funcionarios_remote" => "funcionarios_remote_cache",
             "terminais_remote" => "terminais_remote_cache",
+            "pagamentos_empresa_remote" => "pagamentos_empresa_remote_cache",
+            "venda_itens_remote" => "venda_itens_remote_cache",
             _ => return Ok(false),
         };
         let sql = format!("SELECT COUNT(*) FROM {table}");

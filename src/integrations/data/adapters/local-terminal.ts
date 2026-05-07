@@ -1252,6 +1252,68 @@ export const localTerminalAdapter: DataAdapter = {
         () => cloudAdapter.relatorios.terminaisAtivos(),
       ),
 
+    pagamentosEmpresa: () =>
+      withFallback(
+        "relatorios",
+        "pagamentosEmpresa",
+        async () => {
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "pagamentos_empresa_remote",
+            "list",
+            "/api/relatorios/pagamentos-empresa",
+            { limit: "200" },
+          );
+          if (!Array.isArray(raw)) return null;
+          return raw as unknown as Awaited<
+            ReturnType<typeof cloudAdapter.relatorios.pagamentosEmpresa>
+          >;
+        },
+        () => cloudAdapter.relatorios.pagamentosEmpresa(),
+      ),
+
+    produtosVendidosPeriodo: ({ inicio, fim }) =>
+      withFallback(
+        "relatorios",
+        "produtosVendidosPeriodo",
+        async () => {
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "venda_itens_remote",
+            "list",
+            "/api/relatorios/venda-itens",
+            { inicio, fim },
+          );
+          if (!Array.isArray(raw)) return null;
+          return raw.map((it) => {
+            const v = (it.__venda as Record<string, unknown>) ?? {};
+            const produto = (it.produto as Record<string, unknown> | null) ?? null;
+            const cliente = (v.cliente as { nome?: string } | null) ?? null;
+            return {
+              itemId: String(it.id),
+              vendaId: String(v.id ?? it.venda_id ?? ""),
+              vendaNumero: String(v.numero ?? ""),
+              dataEmissao: String(v.data_emissao ?? ""),
+              vendaStatus: String(v.status ?? ""),
+              vendaStatusPagamento: String(v.status_pagamento ?? ""),
+              formaPagamento: (v.forma_pagamento as string) ?? "",
+              clienteId: (v.cliente_id as string) ?? null,
+              clienteNome: cliente?.nome ?? null,
+              operadorId: (v.operador_id as string) ?? null,
+              caixaId: (v.caixa_id as string) ?? null,
+              produtoId: (it.produto_id as string) ?? null,
+              produtoNome:
+                (produto?.nome as string) ?? (it.descricao as string) ?? "—",
+              produtoSku: (produto?.sku as string) ?? "",
+              categoriaId: (produto?.categoria_id as string) ?? null,
+              precoCusto: Number(produto?.preco_custo) || 0,
+              quantidade: Number(it.quantidade) || 0,
+              precoUnitario: Number(it.preco_unitario) || 0,
+              total: Number(it.total) || 0,
+            };
+          });
+        },
+        () => cloudAdapter.relatorios.produtosVendidosPeriodo({ inicio, fim }),
+      ),
+
     cardFluxoCaixa: () =>
       withFallback(
         "relatorios",
