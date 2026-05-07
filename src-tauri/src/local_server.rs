@@ -563,6 +563,13 @@ async fn proxy_with_incremental_sync(
                             eprintln!("[gestao-pro] ingest fornecedores falhou: {e}");
                         }
                     },
+                    "financeiro_lancamentos_completo" => match db::ingest_lancamentos_completo(text, now, strategy) {
+                        Ok((n, _)) => delta = n as i64,
+                        Err(e) => {
+                            let _ = db::record_sync_error(domain, now, &e.to_string());
+                            eprintln!("[gestao-pro] ingest financeiro_lancamentos_completo falhou: {e}");
+                        }
+                    },
                     "estoque_movimentacoes" => {
                         match db::ingest_movimentacoes(text, now, strategy) {
                             Ok((n, _)) => delta = n as i64,
