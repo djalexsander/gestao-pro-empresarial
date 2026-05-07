@@ -142,11 +142,32 @@ export interface AutorizacaoLogDomain {
   metodo: AutorizacaoMetodoDomain;
   status: "autorizado" | "negado";
   contexto: string;
+  contexto_dados: Record<string, unknown> | null;
   autorizador_nome: string | null;
+  autorizador_user_id: string | null;
+  autorizador_funcionario_id: string | null;
+  solicitante_user_id: string | null;
+  solicitante_funcionario_id: string | null;
+  solicitante_nome: string | null;
   valor_envolvido: number | null;
   diferenca_caixa: number | null;
   motivo_negacao: string | null;
+  referencia_tipo: string | null;
+  referencia_id: string | null;
+  terminal_id: string | null;
   created_at: string;
+}
+
+export interface AutorizacaoLogFiltro {
+  inicio?: string | null;
+  fim?: string | null;
+  acao?: AutorizacaoAcaoDomain | null;
+  status?: "autorizado" | "negado" | null;
+  metodo?: AutorizacaoMetodoDomain | null;
+  autorizador_funcionario_id?: string | null;
+  solicitante_funcionario_id?: string | null;
+  texto?: string | null;
+  limit?: number;
 }
 
 export interface ValidarAutorizacaoInputDomain {
