@@ -2123,7 +2123,83 @@ async fn relatorios_terminais_ativos_handler(
     .await
 }
 
-/// GET `/api/caixa/resumo?caixa_id=...` ou `?operador_id=...` para o aberto.
+/// Cache offline dos pagamentos da empresa (assinatura) — espelha
+/// `cloudAdapter.relatorios.pagamentosEmpresa`. Limite default 200.
+async fn relatorios_pagamentos_empresa_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(200);
+    let mut params: Vec<(&str, String)> = vec![
+        (
+            "select",
+            "id,referencia_tipo,descricao,valor,status,data_vencimento,data_pagamento,created_at,asaas_payment_id,asaas_invoice_url,asaas_pix_qrcode,asaas_pix_copia_cola,asaas_billing_type"
+                .into(),
+        ),
+        ("order", "created_at.desc".into()),
+        ("limit", limit.to_string()),
+    ];
+    params.push(("__filter_limit", limit.to_string()));
+    proxy_with_incremental_sync(
+        &ctx,
+        &headers,
+        "pagamentos_empresa_remote",
+        "/rest/v1/pagamentos",
+        &params,
+        false,
+    )
+    .await
+}
+
+/// Cache offline dos itens de venda em um período. Junta com
+/// `vendas_remote_cache` no SQLite para devolver itens com a venda embutida
+/// em `__venda` (o adapter desempacota e monta `ProdutoVendidoLinhaDomain`).
+/// Espera `inicio` e `fim` (datas ISO `YYYY-MM-DD` ou ISO completo).
+async fn relatorios_venda_itens_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let inicio = q.get("inicio").cloned().unwrap_or_default();
+    let fim = q.get("fim").cloned().unwrap_or_default();
+    if inicio.is_empty() || fim.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "inicio/fim obrigatórios".into()));
+    }
+    // PostgREST: filtra itens cuja venda esteja no período.
+    // venda_itens não tem data; o filtro robusto ocorre na leitura local
+    // pelo JOIN com vendas_remote_cache.data_emissao_ms.
+    let mut params: Vec<(&str, String)> = vec![
+        (
+            "select",
+            "id,venda_id,produto_id,descricao,quantidade,preco_unitario,total,produto:produtos(nome,sku,categoria_id,preco_custo),updated_at"
+                .into(),
+        ),
+        ("order", "id.asc".into()),
+        ("limit", "5000".into()),
+    ];
+    let inicio_ms = parse_iso_date_ms(&inicio).unwrap_or(0);
+    let fim_ms = parse_iso_date_ms(&fim).unwrap_or(i64::MAX);
+    params.push(("__filter_inicio_ms", inicio_ms.to_string()));
+    params.push(("__filter_fim_ms", fim_ms.to_string()));
+    proxy_with_incremental_sync(
+        &ctx,
+        &headers,
+        "venda_itens_remote",
+        "/rest/v1/venda_itens",
+        &params,
+        false,
+    )
+    .await
+}
+
+fn parse_iso_date_ms(s: &str) -> Option<i64> {
+    // aceita YYYY-MM-DD ou ISO completo; tolerante.
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        return Some(d.and_hms_opt(0, 0, 0)?.and_utc().timestamp_millis());
+    }
+    chrono::DateTime::parse_from_rfc3339(s).ok().map(|dt| dt.timestamp_millis())
+}
 /// Retorna o resumo local do caixa: totais por forma de pagamento, vendas,
 /// suprimentos, sangrias, esperado em dinheiro e diferença (se fechado).
 async fn caixa_resumo_handler(
