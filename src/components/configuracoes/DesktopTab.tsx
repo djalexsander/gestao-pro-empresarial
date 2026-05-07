@@ -99,6 +99,8 @@ export function DesktopTab() {
   const [flushingFin, setFlushingFin] = useState(false);
   const [outboxClientes, setOutboxClientes] = useState<OutboxStats | null>(null);
   const [flushingClientes, setFlushingClientes] = useState(false);
+  const [outboxFornecedores, setOutboxFornecedores] = useState<OutboxStats | null>(null);
+  const [flushingFornecedores, setFlushingFornecedores] = useState(false);
   const [caixaAberto, setCaixaAberto] = useState<CaixaLocalAbertoRow | null>(null);
   const [caixaResumo, setCaixaResumo] = useState<CaixaResumoLocal | null>(null);
   const [caixaLancamentos, setCaixaLancamentos] = useState<LancamentoLocalRow[]>([]);
