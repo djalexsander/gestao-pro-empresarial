@@ -3729,3 +3729,351 @@ async fn run_outbox_clientes_scheduler(
         }
     }
 }
+
+// ============================================================================
+// OUTBOX FORNECEDORES — handlers + scheduler (v18)
+// ============================================================================
+
+#[derive(Deserialize)]
+struct FornecedorCriarRequest {
+    #[serde(flatten)]
+    payload: serde_json::Value,
+}
+
+#[derive(Serialize)]
+struct FornecedorCriarResponse {
+    fornecedor_id: String,
+    fornecedor_local_uuid: String,
+    fornecedor_remote_id: Option<String>,
+    idempotente: bool,
+    outbox_status: String,
+    remote_response: Option<String>,
+}
+
+async fn fornecedor_criar_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<FornecedorCriarRequest>,
+) -> Result<Json<FornecedorCriarResponse>, (StatusCode, String)> {
+    let r = db::fornecedor_criar_local(req.payload)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let mut outbox_status = "pending".to_string();
+    let mut remote_response: Option<String> = None;
+    let mut fornecedor_remote_id = r.fornecedor_remote_id.clone();
+    if !r.idempotente && ctx.upstream.is_some() {
+        if let Ok(items) = db::outbox_fornecedores_list(20, Some("pending")) {
+            if let Some(it) = items.into_iter().find(|i| i.fornecedor_local_uuid == r.fornecedor_local_uuid && i.action == "criar") {
+                if let Ok(rid) = push_one_outbox_fornecedores(&ctx, &headers, &it.local_uuid).await {
+                    outbox_status = "sent".to_string();
+                    fornecedor_remote_id = Some(rid);
+                    if let Ok(Some(it2)) = db::outbox_fornecedores_get(&it.local_uuid) {
+                        remote_response = Some(it2.remote_id.unwrap_or_default());
+                    }
+                }
+            }
+        }
+    }
+    let fornecedor_id = fornecedor_remote_id.clone().unwrap_or_else(|| r.fornecedor_local_uuid.clone());
+    Ok(Json(FornecedorCriarResponse {
+        fornecedor_id,
+        fornecedor_local_uuid: r.fornecedor_local_uuid,
+        fornecedor_remote_id,
+        idempotente: r.idempotente,
+        outbox_status,
+        remote_response,
+    }))
+}
+
+#[derive(Deserialize)]
+struct FornecedorEditarRequest {
+    fornecedor_id: String,
+    #[serde(flatten)]
+    payload: serde_json::Value,
+}
+
+#[derive(Serialize)]
+struct FornecedorSimpleResponse {
+    fornecedor_id: String,
+    fornecedor_local_uuid: String,
+    fornecedor_remote_id: Option<String>,
+    idempotente: bool,
+    outbox_status: String,
+}
+
+async fn fornecedor_editar_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<FornecedorEditarRequest>,
+) -> Result<Json<FornecedorSimpleResponse>, (StatusCode, String)> {
+    let lid = db::fornecedor_resolve_local_uuid(&req.fornecedor_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "fornecedor não encontrado".to_string()))?;
+    let mut payload = req.payload;
+    if let Some(o) = payload.as_object_mut() {
+        o.remove("fornecedor_id");
+        o.remove("_fornecedor_id");
+    }
+    let r = db::fornecedor_editar_local(&lid, payload)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let mut outbox_status = "pending".to_string();
+    if !r.idempotente && ctx.upstream.is_some() {
+        if let Ok(items) = db::outbox_fornecedores_list(20, Some("pending")) {
+            if let Some(it) = items.into_iter().find(|i| i.fornecedor_local_uuid == r.fornecedor_local_uuid && i.action == "editar") {
+                if push_one_outbox_fornecedores(&ctx, &headers, &it.local_uuid).await.is_ok() {
+                    outbox_status = "sent".to_string();
+                }
+            }
+        }
+    }
+    Ok(Json(FornecedorSimpleResponse {
+        fornecedor_id: r.fornecedor_remote_id.clone().unwrap_or_else(|| r.fornecedor_local_uuid.clone()),
+        fornecedor_local_uuid: r.fornecedor_local_uuid,
+        fornecedor_remote_id: r.fornecedor_remote_id,
+        idempotente: r.idempotente,
+        outbox_status,
+    }))
+}
+
+#[derive(Deserialize)]
+struct FornecedorAlterarStatusRequest {
+    fornecedor_id: String,
+    status: String,
+}
+
+async fn fornecedor_alterar_status_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<FornecedorAlterarStatusRequest>,
+) -> Result<Json<FornecedorSimpleResponse>, (StatusCode, String)> {
+    let lid = db::fornecedor_resolve_local_uuid(&req.fornecedor_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "fornecedor não encontrado".to_string()))?;
+    let r = db::fornecedor_alterar_status_local(&lid, &req.status)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let mut outbox_status = "pending".to_string();
+    if !r.idempotente && ctx.upstream.is_some() {
+        if let Ok(items) = db::outbox_fornecedores_list(20, Some("pending")) {
+            if let Some(it) = items.into_iter().find(|i| i.fornecedor_local_uuid == r.fornecedor_local_uuid && i.action == "alterar_status") {
+                if push_one_outbox_fornecedores(&ctx, &headers, &it.local_uuid).await.is_ok() {
+                    outbox_status = "sent".to_string();
+                }
+            }
+        }
+    }
+    Ok(Json(FornecedorSimpleResponse {
+        fornecedor_id: r.fornecedor_remote_id.clone().unwrap_or_else(|| r.fornecedor_local_uuid.clone()),
+        fornecedor_local_uuid: r.fornecedor_local_uuid,
+        fornecedor_remote_id: r.fornecedor_remote_id,
+        idempotente: r.idempotente,
+        outbox_status,
+    }))
+}
+
+#[derive(Deserialize)]
+struct FornecedorExcluirRequest {
+    fornecedor_id: String,
+}
+
+async fn fornecedor_excluir_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<FornecedorExcluirRequest>,
+) -> Result<Json<FornecedorSimpleResponse>, (StatusCode, String)> {
+    let lid = db::fornecedor_resolve_local_uuid(&req.fornecedor_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "fornecedor não encontrado".to_string()))?;
+    let r = db::fornecedor_excluir_local(&lid)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let mut outbox_status = "pending".to_string();
+    if !r.idempotente && ctx.upstream.is_some() {
+        if let Ok(items) = db::outbox_fornecedores_list(20, Some("pending")) {
+            if let Some(it) = items.into_iter().find(|i| i.fornecedor_local_uuid == r.fornecedor_local_uuid && i.action == "excluir") {
+                if push_one_outbox_fornecedores(&ctx, &headers, &it.local_uuid).await.is_ok() {
+                    outbox_status = "sent".to_string();
+                }
+            }
+        }
+    } else if r.idempotente {
+        outbox_status = "skipped".to_string();
+    }
+    Ok(Json(FornecedorSimpleResponse {
+        fornecedor_id: r.fornecedor_remote_id.clone().unwrap_or_else(|| r.fornecedor_local_uuid.clone()),
+        fornecedor_local_uuid: r.fornecedor_local_uuid,
+        fornecedor_remote_id: r.fornecedor_remote_id,
+        idempotente: r.idempotente,
+        outbox_status,
+    }))
+}
+
+async fn push_one_outbox_fornecedores(
+    ctx: &AppCtx,
+    headers: &HeaderMap,
+    local_uuid: &str,
+) -> Result<String, String> {
+    let upstream = ctx.upstream.as_ref().ok_or("upstream não configurado")?;
+    let now = now_ms();
+
+    let item = db::outbox_fornecedores_get(local_uuid)
+        .map_err(|e| e.to_string())?
+        .ok_or("item não encontrado na outbox de fornecedores")?;
+    if item.status == "sent" { return Ok(item.remote_id.unwrap_or_default()); }
+
+    if item.action != "criar" && item.fornecedor_remote_id.is_none() {
+        let resolved = db::fornecedor_remote_id_for(&item.fornecedor_local_uuid).ok().flatten();
+        if resolved.is_none() {
+            return Err("aguardando criar do fornecedor sincronizar".to_string());
+        }
+    }
+
+    let payload: serde_json::Value =
+        serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
+
+    db::outbox_fornecedores_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
+
+    let rpc_name = match item.action.as_str() {
+        "criar" => "criar_fornecedor",
+        "editar" => "editar_fornecedor",
+        "alterar_status" => "alterar_status_fornecedor",
+        "excluir" => "excluir_fornecedor",
+        _ => {
+            let msg = format!("ação desconhecida: {}", item.action);
+            let _ = db::outbox_fornecedores_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
+
+    let auth = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+
+    let url = format!(
+        "{}/rest/v1/rpc/{}",
+        upstream.base_url.trim_end_matches('/'),
+        rpc_name,
+    );
+    let resp = ctx.http.post(&url)
+        .header("apikey", &upstream.anon_key)
+        .header(axum::http::header::AUTHORIZATION, auth)
+        .header(axum::http::header::CONTENT_TYPE, "application/json")
+        .header(axum::http::header::ACCEPT, "application/json")
+        .json(&payload)
+        .send().await
+        .map_err(|e| {
+            let msg = format!("rede: {e}");
+            let _ = db::outbox_fornecedores_mark_error(local_uuid, &msg, now);
+            msg
+        })?;
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        let msg = format!("HTTP {}: {}", status.as_u16(), text);
+        let _ = db::outbox_fornecedores_mark_error(local_uuid, &msg, now);
+        return Err(msg);
+    }
+    let parsed: serde_json::Value =
+        serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+    let remote_id = parsed.get("fornecedor_id").and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| parsed.as_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| text.trim().trim_matches('"').to_string());
+    db::outbox_fornecedores_mark_sent(local_uuid, &remote_id, &text, now)
+        .map_err(|e| e.to_string())?;
+    Ok(remote_id)
+}
+
+async fn outbox_forn_stats_handler(
+) -> Result<Json<db::OutboxFornecedoresStats>, (StatusCode, String)> {
+    db::outbox_fornecedores_stats().map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+#[derive(Serialize)]
+struct OutboxFornListResponse {
+    total: usize,
+    items: Vec<db::OutboxFornecedoresItem>,
+}
+
+async fn outbox_forn_list_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<OutboxFornListResponse>, (StatusCode, String)> {
+    let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(200);
+    let status = q.get("status").map(|s| s.as_str());
+    let items = db::outbox_fornecedores_list(limit, status)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(OutboxFornListResponse { total: items.len(), items }))
+}
+
+async fn outbox_forn_flush_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<Json<FlushResponse>, (StatusCode, String)> {
+    let pending = db::outbox_fornecedores_pending_batch_all(100)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let mut sent = 0usize;
+    let mut failed = 0usize;
+    let mut errors: Vec<String> = Vec::new();
+    for it in &pending {
+        match push_one_outbox_fornecedores(&ctx, &headers, &it.local_uuid).await {
+            Ok(_) => sent += 1,
+            Err(e) => { failed += 1; errors.push(format!("{}: {}", it.local_uuid, e)); }
+        }
+    }
+    let _ = db::outbox_fornecedores_record_flush_round(
+        "manual", now_ms(), pending.len() as i64, sent as i64, failed as i64,
+    );
+    Ok(Json(FlushResponse { attempted: pending.len(), sent, failed, errors }))
+}
+
+async fn outbox_forn_retry_errors_handler() -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
+    let n = db::outbox_fornecedores_reset_errors(now_ms())
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(RetryErrorsResponse { requeued: n }))
+}
+
+async fn run_outbox_fornecedores_scheduler(
+    ctx: AppCtx,
+    mut shutdown_rx: oneshot::Receiver<()>,
+) {
+    eprintln!("[gestao-pro] outbox fornecedores scheduler: iniciado");
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_millis(SCHEDULER_TICK_MS)) => {}
+            _ = &mut shutdown_rx => {
+                eprintln!("[gestao-pro] outbox fornecedores scheduler: parado");
+                break;
+            }
+        }
+        if ctx.upstream.is_none() {
+            let _ = db::outbox_fornecedores_record_flush_round("auto", now_ms(), 0, 0, 0);
+            continue;
+        }
+        let pending = match db::outbox_fornecedores_pending_batch(SCHEDULER_BATCH) {
+            Ok(p) => p,
+            Err(e) => { eprintln!("[gestao-pro] outbox fornecedores: batch err: {e}"); continue; }
+        };
+        if pending.is_empty() {
+            let _ = db::outbox_fornecedores_record_flush_round("auto", now_ms(), 0, 0, 0);
+            continue;
+        }
+        let empty = HeaderMap::new();
+        let mut sent = 0i64;
+        let mut failed = 0i64;
+        for it in &pending {
+            match push_one_outbox_fornecedores(&ctx, &empty, &it.local_uuid).await {
+                Ok(_) => sent += 1,
+                Err(_) => failed += 1,
+            }
+        }
+        let _ = db::outbox_fornecedores_record_flush_round(
+            "auto", now_ms(), pending.len() as i64, sent, failed,
+        );
+        if sent > 0 || failed > 0 {
+            eprintln!(
+                "[gestao-pro] outbox fornecedores auto-flush: attempted={} sent={} failed={}",
+                pending.len(), sent, failed,
+            );
+        }
+    }
+}
