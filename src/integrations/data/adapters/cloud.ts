@@ -725,6 +725,16 @@ const caixa: DataAdapter["caixa"] = {
     if (error) throw error;
     return (data ?? []) as unknown as import("../types").CaixaMovimentoDomain[];
   },
+
+  async obterPorId(caixaId) {
+    const { data, error } = await supabase
+      .from("caixas")
+      .select("*")
+      .eq("id", caixaId)
+      .maybeSingle();
+    if (error) throw error;
+    return (data as unknown as import("../types").CaixaDomain | null) ?? null;
+  },
 };
 
 // =====================================================================
@@ -1755,6 +1765,14 @@ const funcionarios: DataAdapter["funcionarios"] = {
     if (input?.somente_ativos) rows = rows.filter((f) => f.ativo);
     return rows;
   },
+  async nomePorId(funcionarioId) {
+    const { data } = await supabase
+      .from("funcionarios")
+      .select("nome")
+      .eq("id", funcionarioId)
+      .maybeSingle();
+    return (data?.nome as string | undefined) ?? null;
+  },
 };
 
 // ============================================================
@@ -2370,6 +2388,19 @@ const terminais: DataAdapter["terminais"] = {
     });
     if (error) throw error;
   },
+  async atualizarPermissoes(input) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase as any).rpc("terminal_atualizar_permissoes", {
+      _terminal_id: input.id,
+      _pode_pdv: input.pode_pdv,
+      _pode_erp: input.pode_erp,
+      _pode_financeiro: input.pode_financeiro,
+      _pode_configuracoes: input.pode_configuracoes,
+      _pode_relatorios: input.pode_relatorios,
+      _pode_cadastros: input.pode_cadastros,
+    });
+    if (error) throw error;
+  },
 };
 
 const notificacoes: DataAdapter["notificacoes"] = {
@@ -2940,6 +2971,42 @@ const saasCliente: DataAdapter["saasCliente"] = {
   async resetarDadosEmpresa() {
     const { error } = await rpc("resetar_dados_empresa");
     if (error) throw error;
+  },
+  async meusPagamentos(empresaId) {
+    const { data, error } = await supabase
+      .from("pagamentos")
+      .select(
+        `id, referencia_tipo, descricao, valor, status, forma_pagamento,
+         data_vencimento, data_pagamento, created_at,
+         plano:plano_id (nome),
+         modulo:modulo_id (nome)`,
+      )
+      .eq("empresa_id", empresaId)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    if (error) throw error;
+    return (data ?? []) as unknown as import("../extra-adapters").PagamentoSaasClienteDomain[];
+  },
+  async solicitarCarrinho(input) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.rpc as any)("solicitar_carrinho", {
+      _planos: input.planos,
+      _modulos: input.modulos,
+    });
+    if (error) throw error;
+    return data as string;
+  },
+  async asaasEnabled() {
+    const { data } = await supabase
+      .from("config_comercial")
+      .select("asaas_enabled")
+      .maybeSingle();
+    return Boolean(data?.asaas_enabled);
+  },
+  async criarCobrancaPix(pagamentoId) {
+    const cob = await criarCobrancaAsaasImpl(pagamentoId);
+    if (!cob) throw new Error("Cobrança Pix indisponível");
+    return cob;
   },
 };
 

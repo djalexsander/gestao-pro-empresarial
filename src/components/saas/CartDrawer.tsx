@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { Loader2, ShoppingCart, Trash2, Crown, Puzzle, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 import {
   Sheet,
   SheetContent,
@@ -16,7 +15,7 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { useCart } from "./CartContext";
 import { CobrancaPixDialog, type CobrancaResult } from "./CobrancaPixDialog";
-import { useCobrancaPendente } from "@/hooks/useCobrancaPendente";
+
 
 const fmtBRL = (n: number) =>
   Number(n ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -34,22 +33,14 @@ export function CartDrawer() {
     setLoading(true);
     try {
       // 1) Cria/reutiliza pagamento consolidado
-      const { data: pagamentoId, error } = await (supabase.rpc as any)(
-        "solicitar_carrinho",
-        {
-          _planos: planos.map((p) => p.id),
-          _modulos: modulos.map((m) => m.id),
-        },
-      );
-      if (error) throw error;
+      const pagamentoId = await dataClient.saasCliente.solicitarCarrinho({
+        planos: planos.map((p) => p.id),
+        modulos: modulos.map((m) => m.id),
+      });
 
       // 2) Verifica se cobrança automática Asaas está habilitada
-      const { data: cfg } = await supabase
-        .from("config_comercial")
-        .select("asaas_enabled")
-        .maybeSingle();
-
-      if (!cfg?.asaas_enabled) {
+      const enabled = await dataClient.saasCliente.asaasEnabled();
+      if (!enabled) {
         toast.success(
           "Solicitação registrada! Aguarde a confirmação do pagamento pelo suporte.",
         );
@@ -59,36 +50,15 @@ export function CartDrawer() {
       }
 
       // 3) Cria cobrança Pix no Asaas (idempotente do lado da edge)
-      const { data: cob, error: cobErr } = await supabase.functions.invoke(
-        "asaas-criar-cobranca",
-        { body: { pagamento_id: pagamentoId, billing_type: "PIX" } },
-      );
-      if (cobErr) {
-        // A mensagem útil vem no body da resposta, não no error.message.
-        const ctx = (cobErr as { context?: { response?: Response } })?.context;
-        let detalhe =
-          cobErr.message && cobErr.message !== "Edge Function returned a non-2xx status code"
-            ? cobErr.message
-            : "Não foi possível criar a cobrança Pix. Confira o CNPJ/CPF em Configurações → Empresa e tente novamente.";
-        if (ctx?.response) {
-          try {
-            const body = await ctx.response.clone().json();
-            if (body?.error) detalhe = String(body.error);
-            else if (body?.message) detalhe = String(body.message);
-          } catch {
-            /* ignora parse */
-          }
-        }
-        throw new Error(detalhe);
-      }
+      const cob = await dataClient.saasCliente.criarCobrancaPix(pagamentoId);
 
       setCobranca({
-        pagamento_id: pagamentoId as string,
-        asaas_payment_id: (cob as any).asaas_payment_id,
-        invoice_url: (cob as any).invoice_url,
-        pix_qrcode: (cob as any).pix_qrcode,
-        pix_copia_cola: (cob as any).pix_copia_cola,
-        due_date: (cob as any).due_date,
+        pagamento_id: pagamentoId,
+        asaas_payment_id: cob.asaas_payment_id,
+        invoice_url: cob.invoice_url ?? null,
+        pix_qrcode: cob.pix_qrcode ?? null,
+        pix_copia_cola: cob.pix_copia_cola ?? null,
+        due_date: cob.due_date ?? null,
       });
       cart.clear();
       cart.setOpen(false);
