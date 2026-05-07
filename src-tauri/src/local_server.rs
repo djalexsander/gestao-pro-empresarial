@@ -593,6 +593,34 @@ async fn proxy_with_incremental_sync(
                             }
                         }
                     }
+                    "caixas_remote" => match db::ingest_caixas_remote(text, now, strategy) {
+                        Ok((n, _)) => delta = n as i64,
+                        Err(e) => {
+                            let _ = db::record_sync_error(domain, now, &e.to_string());
+                            eprintln!("[gestao-pro] ingest caixas_remote falhou: {e}");
+                        }
+                    },
+                    "caixa_movimentos_remote" => match db::ingest_caixa_movimentos_remote(text, now, strategy) {
+                        Ok((n, _)) => delta = n as i64,
+                        Err(e) => {
+                            let _ = db::record_sync_error(domain, now, &e.to_string());
+                            eprintln!("[gestao-pro] ingest caixa_movimentos_remote falhou: {e}");
+                        }
+                    },
+                    "funcionarios_remote" => match db::ingest_funcionarios_remote(text, now, strategy) {
+                        Ok((n, _)) => delta = n as i64,
+                        Err(e) => {
+                            let _ = db::record_sync_error(domain, now, &e.to_string());
+                            eprintln!("[gestao-pro] ingest funcionarios_remote falhou: {e}");
+                        }
+                    },
+                    "terminais_remote" => match db::ingest_terminais_remote(text, now, strategy) {
+                        Ok((n, _)) => delta = n as i64,
+                        Err(e) => {
+                            let _ = db::record_sync_error(domain, now, &e.to_string());
+                            eprintln!("[gestao-pro] ingest terminais_remote falhou: {e}");
+                        }
+                    },
                     _ => {}
                 }
                 let _ = db::cache_put(domain, &key, "{\"_marker\":1}", now, CACHE_TTL_MS);
@@ -769,6 +797,24 @@ fn read_typed(domain: &str, query: &[(&str, String)]) -> Result<String, db::DbEr
                 .unwrap_or(500);
             db::read_movimentacoes(produto_id.as_deref(), limit)
         }
+        "caixas_remote" => {
+            let limit = query
+                .iter()
+                .find(|(k, _)| *k == "__filter_limit")
+                .and_then(|(_, v)| v.parse::<i64>().ok())
+                .unwrap_or(1000);
+            db::read_caixas_remote(limit)
+        }
+        "caixa_movimentos_remote" => {
+            let caixa_id = query
+                .iter()
+                .find(|(k, _)| *k == "__filter_caixa_id")
+                .map(|(_, v)| v.as_str())
+                .unwrap_or("");
+            db::read_caixa_movimentos_remote(caixa_id)
+        }
+        "funcionarios_remote" => db::read_funcionarios_ativos_remote(),
+        "terminais_remote" => db::read_terminais_ativos_remote(),
         _ => Err(db::DbError("domínio sem leitura tipada".into())),
     }
 }
@@ -1949,6 +1995,99 @@ async fn vendas_historico_handler(
     proxy_with_incremental_sync(&ctx, &headers, "vendas_remote", "/rest/v1/vendas", &params, false).await
 }
 
+// ---------- /api/relatorios/caixas (v17) ----------
+//
+// Cache de leitura para os relatórios de caixa (cardCaixas + caixasSessoes).
+// Filtragem por período / operador / terminal / status é feita client-side
+// no adapter, mantendo a granularidade do payload completo offline.
+
+async fn relatorios_caixas_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(1000);
+    let mut params: Vec<(&str, String)> = vec![
+        (
+            "select",
+            "id,operador_id,terminal_id,data_abertura,data_fechamento,valor_inicial,total_vendas,total_sangrias,total_suprimentos,total_dinheiro,total_pix,total_debito,total_credito,total_boleto,total_ifood,total_fiado,total_outros,valor_esperado,valor_informado,diferenca,status,observacao,observacao_fechamento,qtd_vendas,updated_at"
+                .into(),
+        ),
+        ("order", "data_abertura.desc".into()),
+        ("limit", limit.to_string()),
+    ];
+    params.push(("__filter_limit", limit.to_string()));
+    proxy_with_incremental_sync(&ctx, &headers, "caixas_remote", "/rest/v1/caixas", &params, false).await
+}
+
+async fn relatorios_caixa_movimentos_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let caixa_id = q.get("caixa_id").cloned().unwrap_or_default();
+    if caixa_id.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "caixa_id obrigatório".into()));
+    }
+    let mut params: Vec<(&str, String)> = vec![
+        (
+            "select",
+            "id,caixa_id,tipo,valor,motivo,created_at,updated_at".into(),
+        ),
+        ("caixa_id", format!("eq.{caixa_id}")),
+        ("order", "created_at.desc".into()),
+        ("limit", "500".into()),
+    ];
+    params.push(("__filter_caixa_id", caixa_id));
+    proxy_with_incremental_sync(
+        &ctx,
+        &headers,
+        "caixa_movimentos_remote",
+        "/rest/v1/caixa_movimentos",
+        &params,
+        false,
+    )
+    .await
+}
+
+async fn relatorios_funcionarios_ativos_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let params: Vec<(&str, String)> = vec![
+        ("select", "id,nome,ativo,updated_at".into()),
+        ("order", "nome.asc".into()),
+    ];
+    proxy_with_incremental_sync(
+        &ctx,
+        &headers,
+        "funcionarios_remote",
+        "/rest/v1/funcionarios",
+        &params,
+        false,
+    )
+    .await
+}
+
+async fn relatorios_terminais_ativos_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let params: Vec<(&str, String)> = vec![
+        ("select", "id,nome,ativo,updated_at".into()),
+        ("order", "nome.asc".into()),
+    ];
+    proxy_with_incremental_sync(
+        &ctx,
+        &headers,
+        "terminais_remote",
+        "/rest/v1/terminais",
+        &params,
+        false,
+    )
+    .await
+}
+
 /// GET `/api/caixa/resumo?caixa_id=...` ou `?operador_id=...` para o aberto.
 /// Retorna o resumo local do caixa: totais por forma de pagamento, vendas,
 /// suprimentos, sangrias, esperado em dinheiro e diferença (se fechado).
@@ -2373,6 +2512,10 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/financeiro/lancamentos-completo", get(financeiro_lancamentos_completo_handler))
         .route("/api/compras", get(compras_handler))
         .route("/api/vendas/historico", get(vendas_historico_handler))
+        .route("/api/relatorios/caixas", get(relatorios_caixas_handler))
+        .route("/api/relatorios/caixa-movimentos", get(relatorios_caixa_movimentos_handler))
+        .route("/api/relatorios/funcionarios-ativos", get(relatorios_funcionarios_ativos_handler))
+        .route("/api/relatorios/terminais-ativos", get(relatorios_terminais_ativos_handler))
         .route("/backup/status", get(backup_status_handler))
         .route("/backup/list", get(backup_list_handler))
         .route("/backup/log", get(backup_log_handler))
