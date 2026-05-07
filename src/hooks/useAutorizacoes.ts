@@ -4,6 +4,7 @@ import type {
   AutorizacaoAcaoDomain,
   AutorizacaoCartaoDomain,
   AutorizacaoLogDomain,
+  AutorizacaoLogFiltro,
   AutorizacaoMetodoDomain,
   AutorizacoesConfigDomain,
   CriarCartaoAutorizacaoInput,
@@ -17,6 +18,7 @@ export type AutorizacoesConfig = AutorizacoesConfigDomain;
 export type AutorizacaoLog = AutorizacaoLogDomain;
 export type AutorizacaoCartao = AutorizacaoCartaoDomain;
 export type ValidarAutorizacaoInput = ValidarAutorizacaoInputDomain;
+export type AutorizacaoLogFiltroInput = AutorizacaoLogFiltro;
 
 export function useAutorizacoesConfig() {
   return useQuery({
