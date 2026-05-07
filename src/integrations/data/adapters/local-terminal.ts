@@ -35,10 +35,14 @@ import { getDesktopConfig } from "@/integrations/desktop/configStore";
 import {
   abrirCaixaLocal,
   alterarStatusClienteLocal,
+  alterarStatusFornecedorLocal,
   cancelarVendaLocal,
   criarClienteLocal,
+  criarFornecedorLocal,
   editarClienteLocal,
+  editarFornecedorLocal,
   excluirClienteLocal,
+  excluirFornecedorLocal,
   fecharCaixaLocal,
   getBaseUrl,
   registrarMovCaixaLocal,
@@ -590,6 +594,103 @@ export const localTerminalAdapter: DataAdapter = {
    */
   fornecedores: {
     ...cloudAdapter.fornecedores,
+    /**
+     * Writes (Fase 2 — fornecedores): mesma filosofia de clientes. Vão ao
+     * servidor local que grava em `fornecedores_local`, enfileira em
+     * `outbox_fornecedores` e tenta push imediato à nuvem.
+     */
+    criar: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await criarFornecedorLocal(
+          cfg,
+          input as unknown as Record<string, unknown>,
+          token,
+        );
+        if (r) {
+          reportDataSource({
+            source: "local-server",
+            domain: "fornecedores",
+            method: "criar",
+            fallback: false,
+          });
+          return { fornecedor_id: r.fornecedor_id, idempotente: r.idempotente };
+        }
+      }
+      const result = await cloudAdapter.fornecedores.criar(input);
+      reportDataSource({ source: "cloud", domain: "fornecedores", method: "criar", fallback: true });
+      return result;
+    },
+    editar: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await editarFornecedorLocal(
+          cfg,
+          input as unknown as Record<string, unknown> & { fornecedor_id: string },
+          token,
+        );
+        if (r) {
+          reportDataSource({
+            source: "local-server",
+            domain: "fornecedores",
+            method: "editar",
+            fallback: false,
+          });
+          return { fornecedor_id: r.fornecedor_id };
+        }
+      }
+      const result = await cloudAdapter.fornecedores.editar(input);
+      reportDataSource({ source: "cloud", domain: "fornecedores", method: "editar", fallback: true });
+      return result;
+    },
+    alterarStatus: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await alterarStatusFornecedorLocal(
+          cfg,
+          { fornecedor_id: input.fornecedor_id, status: input.status },
+          token,
+        );
+        if (r) {
+          reportDataSource({
+            source: "local-server",
+            domain: "fornecedores",
+            method: "alterarStatus",
+            fallback: false,
+          });
+          return { fornecedor_id: r.fornecedor_id, status: input.status };
+        }
+      }
+      const result = await cloudAdapter.fornecedores.alterarStatus(input);
+      reportDataSource({ source: "cloud", domain: "fornecedores", method: "alterarStatus", fallback: true });
+      return result;
+    },
+    excluir: async (fornecedorId) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await excluirFornecedorLocal(cfg, { fornecedor_id: fornecedorId }, token);
+        if (r) {
+          reportDataSource({
+            source: "local-server",
+            domain: "fornecedores",
+            method: "excluir",
+            fallback: false,
+          });
+          return { fornecedor_id: r.fornecedor_id, excluido: true };
+        }
+      }
+      const result = await cloudAdapter.fornecedores.excluir(fornecedorId);
+      reportDataSource({ source: "cloud", domain: "fornecedores", method: "excluir", fallback: true });
+      return result;
+    },
     list: (input) =>
       withFallback(
         "fornecedores",
