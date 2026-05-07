@@ -1,125 +1,65 @@
-import { useEffect, useState } from "react";
-import { Download, Loader2, RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Download, Loader2, RefreshCw, ShieldCheck, Sparkles, WifiOff, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
+import {
+  useAppUpdate,
+  loadUpdatePrefs,
+  saveUpdatePrefs,
+  type UpdatePrefs,
+  type UpdateChannel,
+} from "@/hooks/useAppUpdate";
 
 /**
- * Bloco de Atualização do App Desktop.
+ * Bloco de Atualização do App Desktop em Configurações > Desktop.
  *
- * Usa `@tauri-apps/plugin-updater` para consultar o endpoint configurado em
- * `tauri.conf.json` (plugins.updater.endpoints) e fazer download/install
- * verificados pela chave pública (assinatura). O reinício é feito via
- * `@tauri-apps/plugin-process`.
+ * Reusa o hook `useAppUpdate` (mesmo do banner global) para manter um único
+ * estado consistente: verificação automática a cada 30min, download/install
+ * assinados via Tauri Updater, reinício via plugin-process.
  *
- * Renderiza somente quando rodando dentro do Tauri (desktop). Na web fica
- * inerte — o módulo de atualização só faz sentido no app instalado.
+ * Adiciona preferências persistidas em localStorage:
+ *   - verificar automaticamente
+ *   - baixar automaticamente
+ *   - canal (estável / beta / dev)
+ *
+ * Na web, exibe estado degradado (sem ações de instalar binário).
  */
 export function AtualizacoesTab() {
-  const [isTauri, setIsTauri] = useState(false);
-  const [currentVersion, setCurrentVersion] = useState<string>("—");
-  const [checking, setChecking] = useState(false);
-  const [installing, setInstalling] = useState(false);
-  const [progress, setProgress] = useState<number | null>(null);
-  const [downloaded, setDownloaded] = useState(0);
-  const [contentLength, setContentLength] = useState<number | null>(null);
-  const [available, setAvailable] = useState<{
-    version: string;
-    date?: string | null;
-    notes?: string | null;
-  } | null>(null);
-  const [lastChecked, setLastChecked] = useState<Date | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const upd = useAppUpdate();
+  const [prefs, setPrefs] = useState<UpdatePrefs>(() => loadUpdatePrefs());
 
   useEffect(() => {
-    const inTauri =
-      typeof window !== "undefined" &&
-      // @ts-expect-error - injected by Tauri runtime
-      (Boolean(window.__TAURI_INTERNALS__) || Boolean(window.__TAURI__));
-    setIsTauri(inTauri);
-    if (!inTauri) return;
-    void (async () => {
-      try {
-        const { getVersion } = await import("@tauri-apps/api/app");
-        setCurrentVersion(await getVersion());
-      } catch {
-        /* ignore */
-      }
-    })();
-  }, []);
+    saveUpdatePrefs(prefs);
+  }, [prefs]);
 
-  const verificar = async () => {
-    setError(null);
-    setAvailable(null);
-    setChecking(true);
-    try {
-      const { check } = await import("@tauri-apps/plugin-updater");
-      const update = await check();
-      setLastChecked(new Date());
-      if (update) {
-        setAvailable({
-          version: update.version,
-          date: update.date ?? null,
-          notes: update.body ?? null,
-        });
-      } else {
-        toast.success("Você está na versão mais recente.");
-      }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setError(msg);
-      toast.error(`Falha ao verificar atualizações: ${msg}`);
-    } finally {
-      setChecking(false);
+  const updatePref = <K extends keyof UpdatePrefs>(key: K, value: UpdatePrefs[K]) => {
+    setPrefs((p) => ({ ...p, [key]: value }));
+  };
+
+  const handleVerificar = async () => {
+    if (!upd.online) {
+      toast.error("Sem conexão para verificar atualizações.");
+      return;
+    }
+    await upd.check();
+    if (!upd.newVersion && upd.status !== "error") {
+      toast.success("Você está na versão mais recente.");
     }
   };
 
-  const baixarEInstalar = async () => {
-    setError(null);
-    setInstalling(true);
-    setProgress(0);
-    setDownloaded(0);
-    setContentLength(null);
-    try {
-      const { check } = await import("@tauri-apps/plugin-updater");
-      const update = await check();
-      if (!update) {
-        toast.info("Sem nova versão disponível.");
-        setInstalling(false);
-        return;
-      }
-      let received = 0;
-      let total: number | null = null;
-      await update.downloadAndInstall((event) => {
-        switch (event.event) {
-          case "Started":
-            total = event.data.contentLength ?? null;
-            setContentLength(total);
-            break;
-          case "Progress":
-            received += event.data.chunkLength;
-            setDownloaded(received);
-            if (total) setProgress(Math.min(100, (received / total) * 100));
-            break;
-          case "Finished":
-            setProgress(100);
-            break;
-        }
-      });
-      toast.success("Atualização instalada. Reiniciando…");
-      const { relaunch } = await import("@tauri-apps/plugin-process");
-      await relaunch();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setError(msg);
-      toast.error(`Falha ao atualizar: ${msg}`);
-      setInstalling(false);
-    }
-  };
-
-  if (!isTauri) {
+  if (!upd.isTauri) {
     return (
       <Card>
         <CardHeader>
@@ -135,6 +75,11 @@ export function AtualizacoesTab() {
     );
   }
 
+  const sizeMb =
+    upd.contentLength != null
+      ? `${(upd.downloaded / 1024 / 1024).toFixed(1)} / ${(upd.contentLength / 1024 / 1024).toFixed(1)} MB`
+      : null;
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-2">
@@ -143,15 +88,15 @@ export function AtualizacoesTab() {
         </CardTitle>
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="font-mono">
-            v{currentVersion}
+            v{upd.currentVersion ?? "—"}
           </Badge>
           <Button
             size="sm"
             variant="outline"
-            onClick={() => void verificar()}
-            disabled={checking || installing}
+            onClick={() => void handleVerificar()}
+            disabled={upd.status === "checking" || upd.isApplying || !upd.online}
           >
-            {checking ? (
+            {upd.status === "checking" ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <RefreshCw className="h-4 w-4" />
@@ -160,77 +105,150 @@ export function AtualizacoesTab() {
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="space-y-3 text-sm">
+      <CardContent className="space-y-4 text-sm">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
           Atualizações são assinadas digitalmente e verificadas antes de instalar.
         </div>
 
-        {lastChecked && (
+        {!upd.online && (
+          <div className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs text-amber-700 dark:text-amber-400">
+            <WifiOff className="h-3.5 w-3.5" />
+            Sem conexão para verificar atualizações.
+          </div>
+        )}
+
+        {upd.lastChecked && (
           <div className="text-xs text-muted-foreground">
-            Última verificação: {lastChecked.toLocaleString("pt-BR")}
+            Última verificação: {upd.lastChecked.toLocaleString("pt-BR")}
           </div>
         )}
 
-        {error && (
+        {upd.error && (
           <div className="rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
-            {error}
+            {upd.error}
           </div>
         )}
 
-        {available ? (
+        {upd.newVersion ? (
           <div className="rounded-md border bg-muted/30 p-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <div>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
                 <div className="font-medium">
-                  Nova versão disponível: v{available.version}
+                  Nova versão disponível: v{upd.newVersion}
                 </div>
-                {available.date && (
+                {upd.releaseDate && (
                   <div className="text-xs text-muted-foreground">
-                    Publicada em {available.date}
+                    Publicada em {upd.releaseDate}
                   </div>
                 )}
               </div>
-              <Button
-                size="sm"
-                onClick={() => void baixarEInstalar()}
-                disabled={installing}
-              >
-                {installing ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="h-4 w-4" />
-                )}
-                <span className="ml-1">
-                  {installing ? "Instalando…" : "Baixar e instalar"}
-                </span>
-              </Button>
+              {upd.status === "ready" ? (
+                <Button size="sm" onClick={() => void upd.restart()}>
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span className="ml-1">Reiniciar</span>
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  onClick={() => void upd.applyUpdate()}
+                  disabled={upd.isApplying}
+                >
+                  {upd.isApplying ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                  <span className="ml-1">
+                    {upd.status === "downloading"
+                      ? "Baixando…"
+                      : upd.status === "installing"
+                        ? "Instalando…"
+                        : "Baixar e instalar"}
+                  </span>
+                </Button>
+              )}
             </div>
-            {available.notes && (
+
+            {upd.releaseNotes && (
               <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-background/60 p-2 text-xs">
-                {available.notes}
+                {upd.releaseNotes}
               </pre>
             )}
-            {installing && (
+
+            {(upd.status === "downloading" || upd.status === "installing") && (
               <div className="space-y-1">
-                <Progress value={progress ?? 0} />
+                <Progress value={upd.progress} />
                 <div className="text-[11px] text-muted-foreground">
-                  {contentLength
-                    ? `${(downloaded / 1024 / 1024).toFixed(1)} / ${(
-                        contentLength / 1024 / 1024
-                      ).toFixed(1)} MB`
-                    : "Baixando…"}
+                  {sizeMb ?? "Baixando…"} · {Math.round(upd.progress)}%
                 </div>
               </div>
             )}
           </div>
         ) : (
-          !checking && (
+          upd.status !== "checking" && (
             <div className="text-xs text-muted-foreground">
               Nenhuma atualização pendente. Use “Verificar” para checar agora.
             </div>
           )
         )}
+
+        {/* Preferências */}
+        <div className="space-y-3 rounded-md border bg-background/40 p-3">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Preferências
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <Label htmlFor="upd-auto-check" className="flex flex-col gap-0.5 text-sm">
+              <span>Verificar atualizações automaticamente</span>
+              <span className="text-xs text-muted-foreground">
+                Ao abrir o app e a cada 30 minutos.
+              </span>
+            </Label>
+            <Switch
+              id="upd-auto-check"
+              checked={prefs.autoCheck}
+              onCheckedChange={(v) => updatePref("autoCheck", v)}
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <Label htmlFor="upd-auto-dl" className="flex flex-col gap-0.5 text-sm">
+              <span>Baixar automaticamente</span>
+              <span className="text-xs text-muted-foreground">
+                Baixa em segundo plano e pede só para instalar.
+              </span>
+            </Label>
+            <Switch
+              id="upd-auto-dl"
+              checked={prefs.autoDownload}
+              onCheckedChange={(v) => updatePref("autoDownload", v)}
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <Label htmlFor="upd-channel" className="flex flex-col gap-0.5 text-sm">
+              <span>Canal de atualização</span>
+              <span className="text-xs text-muted-foreground">
+                Estável é o recomendado para produção.
+              </span>
+            </Label>
+            <Select
+              value={prefs.channel}
+              onValueChange={(v) => updatePref("channel", v as UpdateChannel)}
+            >
+              <SelectTrigger id="upd-channel" className="w-[160px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="stable">Estável</SelectItem>
+                <SelectItem value="beta">Beta</SelectItem>
+                <SelectItem value="dev">Desenvolvimento</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
