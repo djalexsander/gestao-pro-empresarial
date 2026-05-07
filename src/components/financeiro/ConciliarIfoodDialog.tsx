@@ -87,27 +87,13 @@ export function ConciliarIfoodDialog({
     queryKey: ["ifood_pendentes"],
     enabled: open && mode === "lote",
     queryFn: async (): Promise<PendenteRow[]> => {
-      const { data, error } = await supabase
-        .from("financeiro_lancamentos")
-        .select("id, descricao, valor, data_emissao, cliente:clientes(nome)")
-        .eq("forma_pagamento", "ifood")
-        .eq("status", "pendente")
-        .order("data_emissao", { ascending: true })
-        .limit(500);
-      if (error) throw error;
-      type Row = {
-        id: string;
-        descricao: string;
-        valor: number;
-        data_emissao: string;
-        cliente: { nome: string | null } | null;
-      };
-      return ((data ?? []) as Row[]).map((r) => ({
+      const data = await dataClient.financeiro.listIfoodPendentes();
+      return data.map((r) => ({
         id: r.id,
         descricao: r.descricao,
-        valor: Number(r.valor),
+        valor: r.valor,
         data_emissao: r.data_emissao,
-        cliente_nome: r.cliente?.nome ?? null,
+        cliente_nome: r.cliente_nome,
       }));
     },
   });
