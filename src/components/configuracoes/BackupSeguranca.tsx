@@ -228,7 +228,31 @@ export function BackupSeguranca({ cfg }: Props) {
             <div className="font-mono break-all">{status?.backups_dir ?? "—"}</div>
           </div>
           <div>
-            <div className="text-muted-foreground">Banco local</div>
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <span className="text-muted-foreground">Banco local</span>
+              <div className="flex gap-1">
+                {desktop && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenFolder(dirnameOf(status?.db_path ?? ""))}
+                    disabled={!status?.db_path}
+                    className="inline-flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] hover:bg-muted disabled:opacity-50"
+                    title="Abrir pasta no explorador"
+                  >
+                    <FolderOpen className="h-3 w-3" /> Abrir
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleCopy(status?.db_path, "Caminho")}
+                  disabled={!status?.db_path}
+                  className="inline-flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] hover:bg-muted disabled:opacity-50"
+                  title="Copiar caminho"
+                >
+                  <Copy className="h-3 w-3" /> Copiar
+                </button>
+              </div>
+            </div>
             <div className="font-mono break-all">{status?.db_path ?? "—"}</div>
           </div>
           <div>
