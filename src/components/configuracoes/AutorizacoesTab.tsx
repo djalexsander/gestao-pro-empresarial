@@ -46,11 +46,19 @@ export function AutorizacoesTab() {
   const { data: cfg, isLoading } = useAutorizacoesConfig();
   const salvar = useSalvarAutorizacoesConfig();
   const { data: logs = [] } = useAutorizacoesLog(50);
+  const { papel, empresaAtual } = useEmpresaAtual();
+  const { data: empresaCfg } = useConfigEmpresa();
+
+  const podeGerenciarCartao = papel === "owner" || papel === "admin";
+  const empresaNome =
+    empresaCfg?.nome_fantasia || empresaCfg?.razao_social || empresaAtual?.nome || "";
 
   const [local, setLocal] = useState<Partial<AutorizacoesConfig>>({});
   const [senhaNova, setSenhaNova] = useState("");
   const [codigoNovo, setCodigoNovo] = useState("");
   const [labelQR, setLabelQR] = useState("");
+  const [codigoGerado, setCodigoGerado] = useState<string | null>(null);
+  const [showCartao, setShowCartao] = useState(false);
 
   useEffect(() => {
     if (cfg) {
@@ -72,14 +80,39 @@ export function AutorizacoesTab() {
     set("papeis_autorizadores", Array.from(atuais) as AutorizacoesConfig["papeis_autorizadores"]);
   };
 
+  function handleGerarCodigo() {
+    if (!podeGerenciarCartao) {
+      toast.error("Apenas dono ou admin pode gerar o cartão.");
+      return;
+    }
+    const novo = gerarCodigoSeguro();
+    setCodigoGerado(novo);
+    setCodigoNovo(novo);
+    setShowCartao(true);
+    toast.success("Código gerado. Salve as configurações para ativá-lo.");
+  }
+
   async function handleSalvar() {
     const payload: Record<string, unknown> = { ...local, codigo_qr_label: labelQR };
     if (senhaNova) payload.senha_master_nova = senhaNova;
     if (codigoNovo) payload.codigo_qr_novo = codigoNovo;
+    const codigoAlterado = !!codigoNovo;
     try {
       await salvar.mutateAsync(payload);
       setSenhaNova(""); setCodigoNovo("");
       toast.success("Autorizações atualizadas.");
+      if (codigoAlterado) {
+        try {
+          const { data: u } = await supabase.auth.getUser();
+          await supabase.from("audit_logs").insert({
+            actor_id: u.user?.id ?? null,
+            actor_email: u.user?.email ?? null,
+            action: "autorizacoes.codigo_qr.alterado",
+            target_type: "autorizacoes_config",
+            metadata: { label: labelQR, empresa: empresaNome },
+          });
+        } catch {/* noop */}
+      }
     } catch (e) {
       toast.error((e as Error).message);
     }
