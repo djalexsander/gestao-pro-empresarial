@@ -8404,3 +8404,352 @@ fn compra_recompute_payload_safe(
 ) -> DbResult<()> {
     compra_recompute_payload(tx, compra_local_uuid, now_ms)
 }
+
+// -----------------------------------------------------------------
+// Etapa 3 — editar_metadados, alterar_status, excluir
+// -----------------------------------------------------------------
+//
+// Mesmo padrão usado em fornecedores: se ainda existe `criar` pendente,
+// fundimos a mudança no payload do criar (colapso) e nunca enfileiramos
+// uma segunda action. Caso contrário, colapsamos contra a última ação
+// do mesmo tipo pendente; se nenhuma existir, enfileiramos uma nova.
+
+/// Patch parcial em metadados editáveis da compra. Espelha
+/// `cloudAdapter.compras.atualizarMetadados`. Os campos opcionais usam
+/// `Option<Option<T>>` para distinguir "não enviado" de "definir como
+/// null". O input vem como JSON com chaves `_data_vencimento`,
+/// `_data_prevista`, `_fornecedor_id`, `_numero_nf`, `_serie_nf`,
+/// `_observacoes` (presença = patch).
+pub fn compra_editar_metadados_local(
+    compra_local_uuid: &str,
+    payload: serde_json::Value,
+) -> DbResult<CompraEnqueueResult> {
+    with_conn(|conn| {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let tx = conn.unchecked_transaction()?;
+        let remote_id: Option<String> = tx.query_row(
+            "SELECT remote_id FROM compras_local WHERE local_uuid=?1",
+            params![compra_local_uuid], |r| r.get(0),
+        ).optional()?.flatten();
+
+        // Aplica patch local em compras_local.payload (e nas colunas
+        // espelhadas relevantes).
+        let raw: Option<String> = tx.query_row(
+            "SELECT payload FROM compras_local WHERE local_uuid=?1",
+            params![compra_local_uuid], |r| r.get(0),
+        ).optional()?;
+        if let Some(rs) = raw {
+            let mut full: serde_json::Value = serde_json::from_str(&rs).unwrap_or(serde_json::json!({}));
+            if let Some(o) = full.as_object_mut() {
+                if let Some(v) = payload.get("_data_vencimento") {
+                    o.insert("data_vencimento".into(), v.clone());
+                }
+                if let Some(v) = payload.get("_data_prevista") {
+                    o.insert("data_prevista".into(), v.clone());
+                }
+                if let Some(v) = payload.get("_fornecedor_id") {
+                    o.insert("fornecedor_id".into(), v.clone());
+                    // Reembute fornecedor (best effort)
+                    let fid = v.as_str().map(String::from);
+                    let forn_obj: serde_json::Value = if let Some(fid) = fid.as_deref() {
+                        let row: Option<(String, Option<String>)> = tx.query_row(
+                            "SELECT razao_social, nome_fantasia FROM fornecedores_local
+                              WHERE remote_id=?1 OR local_uuid=?1 OR id=?1 LIMIT 1",
+                            params![fid], |r| Ok((r.get(0)?, r.get(1)?)),
+                        ).optional()?;
+                        match row {
+                            Some((rs, nf)) => serde_json::json!({
+                                "id": fid, "razao_social": rs, "nome_fantasia": nf
+                            }),
+                            None => serde_json::json!({
+                                "id": fid, "razao_social": "", "nome_fantasia": null
+                            }),
+                        }
+                    } else { serde_json::Value::Null };
+                    o.insert("fornecedor".into(), forn_obj);
+                }
+                if let Some(v) = payload.get("_numero_nf") { o.insert("numero_nf".into(), v.clone()); }
+                if let Some(v) = payload.get("_serie_nf") { o.insert("serie_nf".into(), v.clone()); }
+                if let Some(v) = payload.get("_observacoes") { o.insert("observacoes".into(), v.clone()); }
+                o.insert("sync_status".into(), serde_json::Value::String("pending".into()));
+            }
+            let numero = full.get("numero").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let fornecedor_id_col = full.get("fornecedor_id").and_then(|v| v.as_str()).map(String::from);
+            let status_col = full.get("status").and_then(|v| v.as_str()).unwrap_or("pendente").to_string();
+            let data_emissao_ms = full.get("data_emissao").and_then(|v| v.as_str()).and_then(parse_date_only_to_ms);
+            tx.execute(
+                "UPDATE compras_local
+                    SET numero=?1, fornecedor_id=?2, status=?3, data_emissao_ms=?4,
+                        payload=?5, sync_status='pending', synced_at_ms=?6
+                  WHERE local_uuid=?7",
+                params![numero, fornecedor_id_col, status_col, data_emissao_ms,
+                        full.to_string(), now_ms, compra_local_uuid],
+            )?;
+        }
+
+        // Colapso 1: se `criar` está pendente, mescla os _campos no payload do criar.
+        let criar_pending: Option<(String, String)> = tx.query_row(
+            "SELECT local_uuid, payload FROM outbox_compras
+              WHERE compra_local_uuid=?1 AND action='criar'
+                AND status IN ('pending','error')
+              ORDER BY created_at_ms ASC LIMIT 1",
+            params![compra_local_uuid], |r| Ok((r.get(0)?, r.get(1)?)),
+        ).optional()?;
+        if let Some((cid, raw)) = criar_pending {
+            let mut prev: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
+            if let (Some(prev_obj), Some(new_obj)) = (prev.as_object_mut(), payload.as_object()) {
+                for (k, v) in new_obj {
+                    if k == "_compra_id" { continue; }
+                    prev_obj.insert(k.clone(), v.clone());
+                }
+            }
+            tx.execute(
+                "UPDATE outbox_compras
+                    SET payload=?2, updated_at_ms=?3, last_error=NULL,
+                        next_attempt_at_ms=NULL,
+                        status=CASE WHEN status='error' THEN 'pending' ELSE status END
+                  WHERE local_uuid=?1",
+                params![cid, prev.to_string(), now_ms],
+            )?;
+            tx.commit()?;
+            return Ok(CompraEnqueueResult {
+                compra_local_uuid: compra_local_uuid.to_string(),
+                compra_remote_id: remote_id,
+                idempotente: true,
+            });
+        }
+
+        // Colapso 2: se já há `editar_metadados` pendente, mescla.
+        let edit_pending: Option<(String, String)> = tx.query_row(
+            "SELECT local_uuid, payload FROM outbox_compras
+              WHERE compra_local_uuid=?1 AND action='editar_metadados'
+                AND status IN ('pending','error')
+              ORDER BY created_at_ms DESC LIMIT 1",
+            params![compra_local_uuid], |r| Ok((r.get(0)?, r.get(1)?)),
+        ).optional()?;
+        let mut rpc_payload = payload.clone();
+        if let Some(o) = rpc_payload.as_object_mut() {
+            if let Some(rid) = &remote_id {
+                o.insert("_compra_id".into(), serde_json::Value::String(rid.clone()));
+            }
+        }
+        if let Some((eid, raw)) = edit_pending {
+            let mut prev: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
+            if let (Some(prev_obj), Some(new_obj)) = (prev.as_object_mut(), rpc_payload.as_object()) {
+                for (k, v) in new_obj {
+                    prev_obj.insert(k.clone(), v.clone());
+                }
+            }
+            tx.execute(
+                "UPDATE outbox_compras
+                    SET payload=?2, updated_at_ms=?3, last_error=NULL,
+                        next_attempt_at_ms=NULL,
+                        status=CASE WHEN status='error' THEN 'pending' ELSE status END
+                  WHERE local_uuid=?1",
+                params![eid, prev.to_string(), now_ms],
+            )?;
+            tx.commit()?;
+            return Ok(CompraEnqueueResult {
+                compra_local_uuid: compra_local_uuid.to_string(),
+                compra_remote_id: remote_id,
+                idempotente: true,
+            });
+        }
+
+        let outbox_id = random_uuid_v4();
+        tx.execute(
+            "INSERT INTO outbox_compras(
+                local_uuid, client_uuid, compra_local_uuid, compra_remote_id,
+                action, payload, status, attempts, created_at_ms, updated_at_ms, next_attempt_at_ms
+             ) VALUES (?1,NULL,?2,?3,'editar_metadados',?4,'pending',0,?5,?5,NULL)",
+            params![outbox_id, compra_local_uuid, remote_id, rpc_payload.to_string(), now_ms],
+        )?;
+        tx.commit()?;
+        Ok(CompraEnqueueResult {
+            compra_local_uuid: compra_local_uuid.to_string(),
+            compra_remote_id: remote_id,
+            idempotente: false,
+        })
+    })
+}
+
+/// Altera o status da compra. Payload upstream esperado:
+/// `{ _id, _status }` (espelha `cloudAdapter.compras.atualizarStatus`).
+pub fn compra_alterar_status_local(
+    compra_local_uuid: &str,
+    novo_status: &str,
+) -> DbResult<CompraEnqueueResult> {
+    with_conn(|conn| {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let tx = conn.unchecked_transaction()?;
+        let remote_id: Option<String> = tx.query_row(
+            "SELECT remote_id FROM compras_local WHERE local_uuid=?1",
+            params![compra_local_uuid], |r| r.get(0),
+        ).optional()?.flatten();
+
+        // Aplica localmente
+        let raw: Option<String> = tx.query_row(
+            "SELECT payload FROM compras_local WHERE local_uuid=?1",
+            params![compra_local_uuid], |r| r.get(0),
+        ).optional()?;
+        if let Some(rs) = raw {
+            let mut full: serde_json::Value = serde_json::from_str(&rs).unwrap_or(serde_json::json!({}));
+            if let Some(o) = full.as_object_mut() {
+                o.insert("status".into(), serde_json::Value::String(novo_status.to_string()));
+                o.insert("sync_status".into(), serde_json::Value::String("pending".into()));
+            }
+            tx.execute(
+                "UPDATE compras_local SET status=?1, payload=?2, sync_status='pending', synced_at_ms=?3
+                  WHERE local_uuid=?4",
+                params![novo_status, full.to_string(), now_ms, compra_local_uuid],
+            )?;
+        }
+
+        // Colapso 1: criar pendente → patch no _status do criar (e no
+        // espelho status do payload completo, se presente).
+        let criar_pending: Option<(String, String)> = tx.query_row(
+            "SELECT local_uuid, payload FROM outbox_compras
+              WHERE compra_local_uuid=?1 AND action='criar'
+                AND status IN ('pending','error')
+              LIMIT 1",
+            params![compra_local_uuid], |r| Ok((r.get(0)?, r.get(1)?)),
+        ).optional()?;
+        if let Some((cid, raw)) = criar_pending {
+            let mut prev: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
+            if let Some(o) = prev.as_object_mut() {
+                o.insert("_status".into(), serde_json::Value::String(novo_status.to_string()));
+            }
+            tx.execute(
+                "UPDATE outbox_compras SET payload=?2, updated_at_ms=?3, last_error=NULL,
+                        next_attempt_at_ms=NULL,
+                        status=CASE WHEN status='error' THEN 'pending' ELSE status END
+                  WHERE local_uuid=?1",
+                params![cid, prev.to_string(), now_ms],
+            )?;
+            tx.commit()?;
+            return Ok(CompraEnqueueResult {
+                compra_local_uuid: compra_local_uuid.to_string(),
+                compra_remote_id: remote_id,
+                idempotente: true,
+            });
+        }
+
+        // Colapso 2: substitui último alterar_status pendente.
+        let last_st: Option<String> = tx.query_row(
+            "SELECT local_uuid FROM outbox_compras
+              WHERE compra_local_uuid=?1 AND action='alterar_status'
+                AND status IN ('pending','error')
+              ORDER BY created_at_ms DESC LIMIT 1",
+            params![compra_local_uuid], |r| r.get(0),
+        ).optional()?;
+        let rpc_payload = serde_json::json!({
+            "_id": remote_id.clone().unwrap_or_default(),
+            "_status": novo_status,
+        });
+        if let Some(sid) = last_st {
+            tx.execute(
+                "UPDATE outbox_compras SET payload=?2, updated_at_ms=?3, last_error=NULL,
+                        next_attempt_at_ms=NULL,
+                        status=CASE WHEN status='error' THEN 'pending' ELSE status END
+                  WHERE local_uuid=?1",
+                params![sid, rpc_payload.to_string(), now_ms],
+            )?;
+            tx.commit()?;
+            return Ok(CompraEnqueueResult {
+                compra_local_uuid: compra_local_uuid.to_string(),
+                compra_remote_id: remote_id,
+                idempotente: true,
+            });
+        }
+
+        let outbox_id = random_uuid_v4();
+        tx.execute(
+            "INSERT INTO outbox_compras(
+                local_uuid, client_uuid, compra_local_uuid, compra_remote_id,
+                action, payload, status, attempts, created_at_ms, updated_at_ms, next_attempt_at_ms
+             ) VALUES (?1,NULL,?2,?3,'alterar_status',?4,'pending',0,?5,?5,NULL)",
+            params![outbox_id, compra_local_uuid, remote_id, rpc_payload.to_string(), now_ms],
+        )?;
+        tx.commit()?;
+        Ok(CompraEnqueueResult {
+            compra_local_uuid: compra_local_uuid.to_string(),
+            compra_remote_id: remote_id,
+            idempotente: false,
+        })
+    })
+}
+
+/// Exclui a compra. Se o `criar` ainda está pendente (e não há
+/// remote_id), apenas removemos as ações pendentes e marcamos como
+/// excluído localmente — nunca chega ao upstream.
+pub fn compra_excluir_local(compra_local_uuid: &str) -> DbResult<CompraEnqueueResult> {
+    with_conn(|conn| {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let tx = conn.unchecked_transaction()?;
+        let remote_id: Option<String> = tx.query_row(
+            "SELECT remote_id FROM compras_local WHERE local_uuid=?1",
+            params![compra_local_uuid], |r| r.get(0),
+        ).optional()?.flatten();
+
+        let has_criar: bool = tx.query_row(
+            "SELECT 1 FROM outbox_compras
+              WHERE compra_local_uuid=?1 AND action='criar'
+                AND status IN ('pending','error') LIMIT 1",
+            params![compra_local_uuid], |_| Ok(true),
+        ).optional()?.is_some();
+
+        // Cancela todas as ações pendentes que se tornaram redundantes.
+        // Recebimentos pendentes também caem (a compra deixa de existir).
+        tx.execute(
+            "DELETE FROM outbox_compras
+              WHERE compra_local_uuid=?1
+                AND action IN ('criar','editar_metadados','alterar_status',
+                               'receber','receber_itens')
+                AND status IN ('pending','error')",
+            params![compra_local_uuid],
+        )?;
+
+        if has_criar && remote_id.is_none() {
+            // Compra nasceu offline e está sendo descartada antes de subir.
+            tx.execute(
+                "UPDATE compras_local SET deleted_at_ms=?1, sync_status='synced', synced_at_ms=?1
+                  WHERE local_uuid=?2",
+                params![now_ms, compra_local_uuid],
+            )?;
+            // Itens vão junto (cleanup local; ainda não existem no remoto).
+            tx.execute(
+                "DELETE FROM compra_itens_local WHERE compra_local_uuid=?1",
+                params![compra_local_uuid],
+            )?;
+            tx.commit()?;
+            return Ok(CompraEnqueueResult {
+                compra_local_uuid: compra_local_uuid.to_string(),
+                compra_remote_id: None,
+                idempotente: true,
+            });
+        }
+
+        let payload = serde_json::json!({
+            "_compra_id": remote_id.clone().unwrap_or_default(),
+        });
+        let outbox_id = random_uuid_v4();
+        tx.execute(
+            "INSERT INTO outbox_compras(
+                local_uuid, client_uuid, compra_local_uuid, compra_remote_id,
+                action, payload, status, attempts, created_at_ms, updated_at_ms, next_attempt_at_ms
+             ) VALUES (?1,NULL,?2,?3,'excluir',?4,'pending',0,?5,?5,NULL)",
+            params![outbox_id, compra_local_uuid, remote_id, payload.to_string(), now_ms],
+        )?;
+        tx.execute(
+            "UPDATE compras_local SET deleted_at_ms=?1, sync_status='pending', synced_at_ms=?1
+              WHERE local_uuid=?2",
+            params![now_ms, compra_local_uuid],
+        )?;
+        tx.commit()?;
+        Ok(CompraEnqueueResult {
+            compra_local_uuid: compra_local_uuid.to_string(),
+            compra_remote_id: remote_id,
+            idempotente: false,
+        })
+    })
+}
