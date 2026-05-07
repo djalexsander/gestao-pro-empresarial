@@ -2134,6 +2134,102 @@ export type Database = {
         }
         Relationships: []
       }
+      pix_cobrancas_geradas: {
+        Row: {
+          cliente_id: string | null
+          copia_cola: string | null
+          created_at: string
+          empresa_id: string
+          id: string
+          invoice_url: string | null
+          lancamento_id: string | null
+          owner_id: string
+          paid_at: string | null
+          payload_request: Json | null
+          payload_response: Json | null
+          provider: string
+          provider_payment_id: string | null
+          qr_code_image: string | null
+          status: string
+          updated_at: string
+          valor: number
+          vencimento: string | null
+        }
+        Insert: {
+          cliente_id?: string | null
+          copia_cola?: string | null
+          created_at?: string
+          empresa_id: string
+          id?: string
+          invoice_url?: string | null
+          lancamento_id?: string | null
+          owner_id: string
+          paid_at?: string | null
+          payload_request?: Json | null
+          payload_response?: Json | null
+          provider: string
+          provider_payment_id?: string | null
+          qr_code_image?: string | null
+          status?: string
+          updated_at?: string
+          valor: number
+          vencimento?: string | null
+        }
+        Update: {
+          cliente_id?: string | null
+          copia_cola?: string | null
+          created_at?: string
+          empresa_id?: string
+          id?: string
+          invoice_url?: string | null
+          lancamento_id?: string | null
+          owner_id?: string
+          paid_at?: string | null
+          payload_request?: Json | null
+          payload_response?: Json | null
+          provider?: string
+          provider_payment_id?: string | null
+          qr_code_image?: string | null
+          status?: string
+          updated_at?: string
+          valor?: number
+          vencimento?: string | null
+        }
+        Relationships: []
+      }
+      pix_webhook_eventos: {
+        Row: {
+          event_id: string | null
+          id: string
+          payload: Json
+          payment_id: string | null
+          processado_em: string | null
+          provider: string
+          recebido_em: string
+          status: string | null
+        }
+        Insert: {
+          event_id?: string | null
+          id?: string
+          payload: Json
+          payment_id?: string | null
+          processado_em?: string | null
+          provider: string
+          recebido_em?: string
+          status?: string | null
+        }
+        Update: {
+          event_id?: string | null
+          id?: string
+          payload?: Json
+          payment_id?: string | null
+          processado_em?: string | null
+          provider?: string
+          recebido_em?: string
+          status?: string | null
+        }
+        Relationships: []
+      }
       planos: {
         Row: {
           ativo: boolean
