@@ -1995,6 +1995,99 @@ async fn vendas_historico_handler(
     proxy_with_incremental_sync(&ctx, &headers, "vendas_remote", "/rest/v1/vendas", &params, false).await
 }
 
+// ---------- /api/relatorios/caixas (v17) ----------
+//
+// Cache de leitura para os relatórios de caixa (cardCaixas + caixasSessoes).
+// Filtragem por período / operador / terminal / status é feita client-side
+// no adapter, mantendo a granularidade do payload completo offline.
+
+async fn relatorios_caixas_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(1000);
+    let mut params: Vec<(&str, String)> = vec![
+        (
+            "select",
+            "id,operador_id,terminal_id,data_abertura,data_fechamento,valor_inicial,total_vendas,total_sangrias,total_suprimentos,total_dinheiro,total_pix,total_debito,total_credito,total_boleto,total_ifood,total_fiado,total_outros,valor_esperado,valor_informado,diferenca,status,observacao,observacao_fechamento,qtd_vendas,updated_at"
+                .into(),
+        ),
+        ("order", "data_abertura.desc".into()),
+        ("limit", limit.to_string()),
+    ];
+    params.push(("__filter_limit", limit.to_string()));
+    proxy_with_incremental_sync(&ctx, &headers, "caixas_remote", "/rest/v1/caixas", &params, false).await
+}
+
+async fn relatorios_caixa_movimentos_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let caixa_id = q.get("caixa_id").cloned().unwrap_or_default();
+    if caixa_id.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "caixa_id obrigatório".into()));
+    }
+    let mut params: Vec<(&str, String)> = vec![
+        (
+            "select",
+            "id,caixa_id,tipo,valor,motivo,created_at,updated_at".into(),
+        ),
+        ("caixa_id", format!("eq.{caixa_id}")),
+        ("order", "created_at.desc".into()),
+        ("limit", "500".into()),
+    ];
+    params.push(("__filter_caixa_id", caixa_id));
+    proxy_with_incremental_sync(
+        &ctx,
+        &headers,
+        "caixa_movimentos_remote",
+        "/rest/v1/caixa_movimentos",
+        &params,
+        false,
+    )
+    .await
+}
+
+async fn relatorios_funcionarios_ativos_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let params: Vec<(&str, String)> = vec![
+        ("select", "id,nome,ativo,updated_at".into()),
+        ("order", "nome.asc".into()),
+    ];
+    proxy_with_incremental_sync(
+        &ctx,
+        &headers,
+        "funcionarios_remote",
+        "/rest/v1/funcionarios",
+        &params,
+        false,
+    )
+    .await
+}
+
+async fn relatorios_terminais_ativos_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let params: Vec<(&str, String)> = vec![
+        ("select", "id,nome,ativo,updated_at".into()),
+        ("order", "nome.asc".into()),
+    ];
+    proxy_with_incremental_sync(
+        &ctx,
+        &headers,
+        "terminais_remote",
+        "/rest/v1/terminais",
+        &params,
+        false,
+    )
+    .await
+}
+
 /// GET `/api/caixa/resumo?caixa_id=...` ou `?operador_id=...` para o aberto.
 /// Retorna o resumo local do caixa: totais por forma de pagamento, vendas,
 /// suprimentos, sangrias, esperado em dinheiro e diferença (se fechado).
