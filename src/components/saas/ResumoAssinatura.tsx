@@ -9,7 +9,7 @@ import { useMinhaAssinatura, useMeusModulos } from "@/hooks/useSaasAdmin";
 import { useCobrancaPendente } from "@/hooks/useCobrancaPendente";
 import { getEffectivePlanStatus } from "@/lib/planStatus";
 import { CobrancaPixDialog, type CobrancaResult } from "@/components/saas/CobrancaPixDialog";
-import { supabase } from "@/integrations/supabase/client";
+import { realtimeClient } from "@/integrations/data/realtime-client";
 
 const fmtBRL = (n: number) =>
   Number(n ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
