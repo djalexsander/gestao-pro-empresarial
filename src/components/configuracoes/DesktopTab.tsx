@@ -748,7 +748,7 @@ export function DesktopTab() {
         )}
 
         {role !== "unset" &&
-          (outbox || outboxVendas || outboxCaixa || outboxCancel || outboxFin) && (
+          (outbox || outboxVendas || outboxCaixa || outboxCancel || outboxFin || outboxClientes) && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
