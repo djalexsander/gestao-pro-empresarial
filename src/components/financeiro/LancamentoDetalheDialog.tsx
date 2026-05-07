@@ -34,7 +34,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { supabase } from "@/integrations/supabase/client";
 import { dataClient } from "@/integrations/data";
 import { formatBRL } from "@/lib/mock-data";
 import { useHotkeys } from "@/hooks/useHotkeys";
@@ -158,8 +157,8 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
   const { data: ownerId = "" } = useQuery({
     queryKey: ["auth_uid"],
     queryFn: async () => {
-      const { data } = await supabase.auth.getUser();
-      return data.user?.id ?? "";
+      const { user } = await dataClient.auth.getUser();
+      return user?.id ?? "";
     },
     staleTime: 60_000,
   });
@@ -170,26 +169,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
     enabled: open && !!lancamento?.id,
     queryFn: async (): Promise<PagamentoHist[]> => {
       if (!lancamento?.id) return [];
-      const { data, error } = await (
-        supabase.from as unknown as (t: string) => {
-          select: (cols: string) => {
-            eq: (
-              col: string,
-              val: string,
-            ) => {
-              order: (
-                col: string,
-                opts?: { ascending?: boolean },
-              ) => Promise<{ data: PagamentoHist[] | null; error: { message: string } | null }>;
-            };
-          };
-        }
-      )("lancamento_pagamentos")
-        .select("id, valor, data_pagamento, forma_pagamento, observacao, created_at")
-        .eq("lancamento_id", lancamento.id)
-        .order("data_pagamento", { ascending: false });
-      if (error) throw new Error(error.message);
-      return data ?? [];
+      return await dataClient.financeiro.pagamentosPorLancamento(lancamento.id);
     },
   });
 
@@ -260,30 +240,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
     queryKey: ["lancamento_fks", lancamento?.id],
     enabled: open && editOpen && !!lancamento?.id,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("financeiro_lancamentos")
-        .select(
-          "id, tipo, descricao, valor, data_vencimento, data_emissao, categoria_id, cliente_id, fornecedor_id, numero_documento, forma_pagamento, observacoes, venda_id, compra_id",
-        )
-        .eq("id", lancamento!.id)
-        .single();
-      if (error) throw new Error(error.message);
-      return data as {
-        id: string;
-        tipo: "receber" | "pagar";
-        descricao: string;
-        valor: number;
-        data_vencimento: string;
-        data_emissao: string | null;
-        categoria_id: string | null;
-        cliente_id: string | null;
-        fornecedor_id: string | null;
-        numero_documento: string | null;
-        forma_pagamento: string | null;
-        observacoes: string | null;
-        venda_id: string | null;
-        compra_id: string | null;
-      };
+      return await dataClient.financeiro.lancamentoFks(lancamento!.id);
     },
   });
 
@@ -792,15 +749,7 @@ function CobrancaActions({ lancamento, saldoRestante }: CobrancaActionsProps) {
   const { data: integracoes = [] } = useQuery({
     queryKey: ["integracoes_cobranca"],
     queryFn: async () => {
-      const { data, error } = await (supabase.from as unknown as (t: string) => {
-        select: (cols: string) => {
-          in: (col: string, vals: string[]) => Promise<{ data: any[] | null; error: { message: string } | null }>;
-        };
-      })("empresa_integracoes")
-        .select("tipo_integracao, status, ativo, configuracoes, empresa_id, owner_id")
-        .in("tipo_integracao", ["pix", "whatsapp"]);
-      if (error) throw new Error(error.message);
-      return data ?? [];
+      return await dataClient.empresa.integracoesPorTipos(["pix", "whatsapp"]);
     },
     staleTime: 30_000,
   });
@@ -896,16 +845,13 @@ function CobrancaActions({ lancamento, saldoRestante }: CobrancaActionsProps) {
     // Registra log
     if (wa?.empresa_id) {
       try {
-        await (supabase.from as any)("cobranca_whatsapp_logs").insert({
+        await dataClient.financeiro.registrarCobrancaWhatsapp({
           empresa_id: wa.empresa_id,
           owner_id: wa.owner_id,
           cliente_id: lancamento.cliente_id ?? null,
           lancamento_id: lancamento.id,
           telefone: telFull,
           mensagem: msg,
-          status: "manual",
-          tipo: "manual",
-          sent_at: new Date().toISOString(),
         });
         qc.invalidateQueries({ queryKey: ["cobranca_whatsapp_logs"] });
       } catch {

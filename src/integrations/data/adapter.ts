@@ -506,6 +506,49 @@ export interface FinanceiroAdapter {
   movimentosCaixaPeriodo(periodo: { inicio: string; fim: string }): Promise<MovimentoCaixaPeriodoDomain[]>;
   /** Lançamentos pagos/recebidos AVULSOS (sem caixa, sem venda) em um período. */
   lancamentosAvulsosPagos(periodo: { inicio: string; fim: string }): Promise<LancamentoAvulsoPagoDomain[]>;
+
+  // Onda 12 — Detalhe de lançamento
+  /** Histórico de pagamentos parciais de um título. */
+  pagamentosPorLancamento(lancamentoId: string): Promise<LancamentoPagamentoHistDomain[]>;
+  /** Carrega FKs (categoria/cliente/fornecedor) de um lançamento para edição. */
+  lancamentoFks(lancamentoId: string): Promise<LancamentoFksDomain>;
+  /** Registra log de cobrança WhatsApp (envio manual). */
+  registrarCobrancaWhatsapp(input: RegistrarCobrancaWhatsappInput): Promise<void>;
+}
+
+export interface LancamentoPagamentoHistDomain {
+  id: string;
+  valor: number;
+  data_pagamento: string;
+  forma_pagamento: string | null;
+  observacao: string | null;
+  created_at: string;
+}
+
+export interface LancamentoFksDomain {
+  id: string;
+  tipo: "receber" | "pagar";
+  descricao: string;
+  valor: number;
+  data_vencimento: string;
+  data_emissao: string | null;
+  categoria_id: string | null;
+  cliente_id: string | null;
+  fornecedor_id: string | null;
+  numero_documento: string | null;
+  forma_pagamento: string | null;
+  observacoes: string | null;
+  venda_id: string | null;
+  compra_id: string | null;
+}
+
+export interface RegistrarCobrancaWhatsappInput {
+  empresa_id: string;
+  owner_id: string;
+  cliente_id: string | null;
+  lancamento_id: string;
+  telefone: string;
+  mensagem: string;
 }
 
 export interface IfoodPendenteDomain {
@@ -866,6 +909,44 @@ export interface ComprasAdapter {
 /** Dashboard agregado — uma única chamada que monta todos os KPIs. */
 export interface DashboardAdapter {
   carregar(): Promise<DashboardData>;
+  /**
+   * Detalhe de um KPI (vendas/compras/lucro/contas-pagar/contas-receber/estoque-baixo)
+   * para um período. Centraliza as queries que antes estavam no KpiDetailDialog.
+   */
+  kpiDetalhe(input: KpiDetalheInput): Promise<KpiDetalheResult>;
+}
+
+export type KpiTipoDomain =
+  | "vendas"
+  | "compras"
+  | "lucro"
+  | "contas-pagar"
+  | "contas-receber"
+  | "estoque-baixo";
+
+export interface KpiDetalheInput {
+  tipo: KpiTipoDomain;
+  inicio: string;
+  fim: string;
+}
+
+export interface KpiDetalheRow {
+  identificador: string;
+  data: string | null;
+  descricao: string;
+  valor: number;
+  status: string;
+}
+
+export interface KpiDetalheResumoItem {
+  label: string;
+  valor: string;
+  tone?: "success" | "danger" | "warning" | "info" | "muted";
+}
+
+export interface KpiDetalheResult {
+  rows: KpiDetalheRow[];
+  resumo: KpiDetalheResumoItem[];
 }
 
 import type {
