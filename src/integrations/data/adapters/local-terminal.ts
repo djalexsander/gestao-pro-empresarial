@@ -922,6 +922,422 @@ export const localTerminalAdapter: DataAdapter = {
       ),
   },
 
+  /**
+   * Relatórios (v17 — Fase 7): leitura offline-first dos relatórios que
+   * podem ser derivados dos caches locais já existentes
+   * (vendas_remote_cache, compras_local, financeiro_lancamentos_local,
+   * produtos_local + estoque). Métodos que dependem de tabelas ainda não
+   * cacheadas (caixa, pagamentos da empresa, funcionários, terminais,
+   * notas fiscais) seguem direto na nuvem via spread do cloud.
+   */
+  relatorios: {
+    ...cloudAdapter.relatorios,
+
+    fluxoCaixa: ({ inicio, fim }) =>
+      withFallback(
+        "relatorios",
+        "fluxoCaixa",
+        async () => {
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "financeiro_lancamentos_completo",
+            "listLancamentosCompleto",
+            "/api/financeiro/lancamentos-completo",
+          );
+          if (!Array.isArray(raw)) return null;
+          return raw
+            .filter((l) => {
+              const dv = l.data_vencimento as string | null;
+              return dv != null && dv >= inicio && dv <= fim;
+            })
+            .sort((a, b) =>
+              String(b.data_vencimento).localeCompare(String(a.data_vencimento)),
+            )
+            .slice(0, 1000)
+            .map((l) => ({
+              id: String(l.id),
+              descricao: (l.descricao as string) ?? null,
+              tipo: String(l.tipo ?? ""),
+              valor: Number(l.valor) || 0,
+              valor_pago: Number(l.valor_pago) || 0,
+              emissao: (l.data_emissao as string) ?? "",
+              vencimento: (l.data_vencimento as string) ?? "",
+              pagamento: (l.data_pagamento as string) ?? null,
+              status: String(l.status ?? ""),
+              forma: (l.forma_pagamento as string) ?? null,
+            }));
+        },
+        () => cloudAdapter.relatorios.fluxoCaixa({ inicio, fim }),
+      ),
+
+    compras: ({ inicio, fim }) =>
+      withFallback(
+        "relatorios",
+        "compras",
+        async () => {
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "compras",
+            "list",
+            "/api/compras",
+            { limit: "500" },
+          );
+          if (!Array.isArray(raw)) return null;
+          return raw
+            .filter((c) => {
+              const d = c.data_emissao as string;
+              return d >= inicio && d <= fim;
+            })
+            .map((c) => ({
+              id: String(c.id),
+              numero: String(c.numero ?? ""),
+              data: String(c.data_emissao ?? ""),
+              fornecedor:
+                (c.fornecedor as { razao_social?: string } | null)
+                  ?.razao_social ?? "—",
+              total: Number(c.total) || 0,
+              status: String(c.status ?? ""),
+            }));
+        },
+        () => cloudAdapter.relatorios.compras({ inicio, fim }),
+      ),
+
+    cardVendas: () =>
+      withFallback(
+        "relatorios",
+        "cardVendas",
+        async () => {
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "vendas_remote",
+            "list",
+            "/api/vendas/historico",
+            { limit: "1000" },
+          );
+          if (!Array.isArray(raw)) return null;
+          return raw.map((v) => ({
+            numero: String(v.numero ?? ""),
+            data: String(v.data_emissao ?? ""),
+            cliente:
+              (v.cliente as { nome?: string } | null)?.nome ?? "Consumidor",
+            forma: (v.forma_pagamento as string) ?? "",
+            total: Number(v.total) || 0,
+            status: String(v.status ?? ""),
+            pagamento: String(v.status_pagamento ?? ""),
+          }));
+        },
+        () => cloudAdapter.relatorios.cardVendas(),
+      ),
+
+    cardCompras: () =>
+      withFallback(
+        "relatorios",
+        "cardCompras",
+        async () => {
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "compras",
+            "list",
+            "/api/compras",
+            { limit: "1000" },
+          );
+          if (!Array.isArray(raw)) return null;
+          return raw.map((c) => ({
+            numero: String(c.numero ?? ""),
+            data: String(c.data_emissao ?? ""),
+            fornecedor:
+              (c.fornecedor as { razao_social?: string } | null)
+                ?.razao_social ?? "—",
+            total: Number(c.total) || 0,
+            status: String(c.status ?? ""),
+          }));
+        },
+        () => cloudAdapter.relatorios.cardCompras(),
+      ),
+
+    cardFluxoCaixa: () =>
+      withFallback(
+        "relatorios",
+        "cardFluxoCaixa",
+        async () => {
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "financeiro_lancamentos_completo",
+            "listLancamentosCompleto",
+            "/api/financeiro/lancamentos-completo",
+          );
+          if (!Array.isArray(raw)) return null;
+          return [...raw]
+            .sort((a, b) =>
+              String(b.data_vencimento ?? "").localeCompare(
+                String(a.data_vencimento ?? ""),
+              ),
+            )
+            .slice(0, 1000)
+            .map((l) => ({
+              id: String(l.id),
+              descricao: (l.descricao as string) ?? null,
+              tipo: String(l.tipo ?? ""),
+              valor: Number(l.valor) || 0,
+              valor_pago: Number(l.valor_pago) || 0,
+              emissao: (l.data_emissao as string) ?? "",
+              vencimento: (l.data_vencimento as string) ?? "",
+              pagamento: (l.data_pagamento as string) ?? null,
+              status: String(l.status ?? ""),
+              forma: (l.forma_pagamento as string) ?? null,
+            }));
+        },
+        () => cloudAdapter.relatorios.cardFluxoCaixa(),
+      ),
+
+    cardFinanceiro: () =>
+      withFallback(
+        "relatorios",
+        "cardFinanceiro",
+        async () => {
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "financeiro_lancamentos_completo",
+            "listLancamentosCompleto",
+            "/api/financeiro/lancamentos-completo",
+          );
+          if (!Array.isArray(raw)) return null;
+          return raw
+            .filter((l) => l.status !== "cancelado")
+            .map((l) => {
+              const cli = l.cliente as { id?: string; nome?: string } | null;
+              const forn = l.fornecedor as
+                | { razao_social?: string; nome_fantasia?: string }
+                | null;
+              return {
+                id: String(l.id),
+                descricao: String(l.descricao ?? ""),
+                tipo: l.tipo as "receita" | "despesa",
+                valor: Number(l.valor) || 0,
+                valor_pago: Number(l.valor_pago) || 0,
+                data_emissao: String(l.data_emissao ?? ""),
+                data_vencimento: String(l.data_vencimento ?? ""),
+                data_pagamento: (l.data_pagamento as string) ?? null,
+                status: l.status as
+                  | "pago"
+                  | "pendente"
+                  | "atrasado"
+                  | "cancelado",
+                forma_pagamento: (l.forma_pagamento as string) ?? null,
+                categoria_id: (l.categoria_id as string) ?? null,
+                categoria_nome:
+                  (l.categoria as { nome?: string } | null)?.nome ?? null,
+                cliente_id: (l.cliente_id as string) ?? cli?.id ?? null,
+                cliente_nome: cli?.nome ?? null,
+                fornecedor_id: null,
+                fornecedor_nome:
+                  forn?.nome_fantasia ?? forn?.razao_social ?? null,
+              };
+            });
+        },
+        () => cloudAdapter.relatorios.cardFinanceiro(),
+      ),
+
+    lancamentosFinanceiroPeriodo: ({ inicio, fim }) =>
+      withFallback(
+        "relatorios",
+        "lancamentosFinanceiroPeriodo",
+        async () => {
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "financeiro_lancamentos_completo",
+            "listLancamentosCompleto",
+            "/api/financeiro/lancamentos-completo",
+          );
+          if (!Array.isArray(raw)) return null;
+          return raw
+            .filter((l) => {
+              if (l.status === "cancelado") return false;
+              const dv = l.data_vencimento as string | null;
+              return dv != null && dv >= inicio && dv <= fim;
+            })
+            .map((l) => {
+              const cli = l.cliente as { id?: string; nome?: string } | null;
+              const forn = l.fornecedor as
+                | { razao_social?: string; nome_fantasia?: string }
+                | null;
+              return {
+                id: String(l.id),
+                descricao: String(l.descricao ?? ""),
+                tipo: l.tipo as "receita" | "despesa",
+                valor: Number(l.valor) || 0,
+                valor_pago: Number(l.valor_pago) || 0,
+                data_emissao: String(l.data_emissao ?? ""),
+                data_vencimento: String(l.data_vencimento ?? ""),
+                data_pagamento: (l.data_pagamento as string) ?? null,
+                status: l.status as
+                  | "pago"
+                  | "pendente"
+                  | "atrasado"
+                  | "cancelado",
+                forma_pagamento: (l.forma_pagamento as string) ?? null,
+                categoria_id: (l.categoria_id as string) ?? null,
+                categoria_nome:
+                  (l.categoria as { nome?: string } | null)?.nome ?? null,
+                cliente_id: (l.cliente_id as string) ?? cli?.id ?? null,
+                cliente_nome: cli?.nome ?? null,
+                fornecedor_id: null,
+                fornecedor_nome:
+                  forn?.nome_fantasia ?? forn?.razao_social ?? null,
+              };
+            });
+        },
+        () =>
+          cloudAdapter.relatorios.lancamentosFinanceiroPeriodo({ inicio, fim }),
+      ),
+
+    saldoAcumuladoFinanceiro: () =>
+      withFallback(
+        "relatorios",
+        "saldoAcumuladoFinanceiro",
+        async () => {
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "financeiro_lancamentos_completo",
+            "listLancamentosCompleto",
+            "/api/financeiro/lancamentos-completo",
+          );
+          if (!Array.isArray(raw)) return null;
+          let recebido = 0;
+          let pago = 0;
+          for (const l of raw) {
+            if (l.status !== "pago") continue;
+            const v = Number(l.valor_pago) || 0;
+            if (l.tipo === "receita") recebido += v;
+            else if (l.tipo === "despesa") pago += v;
+          }
+          return { recebido, pago };
+        },
+        () => cloudAdapter.relatorios.saldoAcumuladoFinanceiro(),
+      ),
+
+    clientesOpcoes: () =>
+      withFallback(
+        "relatorios",
+        "clientesOpcoes",
+        async () => {
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "clientes",
+            "list",
+            "/api/clientes",
+            { status: "" },
+          );
+          if (!Array.isArray(raw)) return null;
+          return raw
+            .map((c) => ({
+              id: String(c.id),
+              nome: String(c.nome ?? ""),
+              nome_fantasia: (c.nome_fantasia as string) ?? null,
+              documento: (c.documento as string) ?? null,
+            }))
+            .sort((a, b) => a.nome.localeCompare(b.nome));
+        },
+        () => cloudAdapter.relatorios.clientesOpcoes(),
+      ),
+
+    clientesPorIds: (ids) =>
+      withFallback(
+        "relatorios",
+        "clientesPorIds",
+        async () => {
+          if (!ids.length) return [];
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "clientes",
+            "list",
+            "/api/clientes",
+            { status: "" },
+          );
+          if (!Array.isArray(raw)) return null;
+          const set = new Set(ids);
+          return raw
+            .filter((c) => set.has(String(c.id)))
+            .map((c) => ({ id: String(c.id), nome: String(c.nome ?? "") }));
+        },
+        () => cloudAdapter.relatorios.clientesPorIds(ids),
+      ),
+
+    estoqueBase: () =>
+      withFallback(
+        "relatorios",
+        "estoqueBase",
+        async () => {
+          const [prodRaw, movRaw] = await Promise.all([
+            tryLocal<Array<Record<string, unknown>>>(
+              "produtos",
+              "list",
+              "/api/produtos/list",
+              { status: "ativo" },
+            ),
+            tryLocal<
+              Array<{
+                produto_id: string;
+                tipo: string;
+                quantidade: number | string;
+              }>
+            >("estoque", "saldosLinhas", "/api/estoque/saldos"),
+          ]);
+          if (!Array.isArray(prodRaw) || !Array.isArray(movRaw)) return null;
+          const produtos = prodRaw
+            .map((p) => ({
+              id: String(p.id),
+              sku: (p.sku as string) ?? null,
+              nome: String(p.nome ?? ""),
+              unidade: (p.unidade as string) ?? null,
+              preco_custo: Number(p.preco_custo) || 0,
+              preco_venda: Number(p.preco_venda) || 0,
+              estoque_minimo: Number(p.estoque_minimo) || 0,
+            }))
+            .sort((a, b) => a.nome.localeCompare(b.nome));
+          const movimentos = movRaw.map((m) => ({
+            produto_id: m.produto_id,
+            tipo: m.tipo,
+            quantidade: Number(m.quantidade) || 0,
+          }));
+          return { produtos, movimentos };
+        },
+        () => cloudAdapter.relatorios.estoqueBase(),
+      ),
+
+    dreTotais: ({ inicio, fim }) =>
+      withFallback(
+        "relatorios",
+        "dreTotais",
+        async () => {
+          const [vendasRaw, lancRaw] = await Promise.all([
+            tryLocal<Array<Record<string, unknown>>>(
+              "vendas_remote",
+              "list",
+              "/api/vendas/historico",
+              { limit: "1000" },
+            ),
+            tryLocal<Array<Record<string, unknown>>>(
+              "financeiro_lancamentos_completo",
+              "listLancamentosCompleto",
+              "/api/financeiro/lancamentos-completo",
+            ),
+          ]);
+          if (!Array.isArray(vendasRaw) || !Array.isArray(lancRaw)) return null;
+          const receita_vendas = vendasRaw
+            .filter((v) => {
+              if (v.status === "cancelada") return false;
+              const d = v.data_emissao as string;
+              return d >= inicio && d <= fim;
+            })
+            .reduce((a, v) => a + (Number(v.total) || 0), 0);
+          const lancsPagos = lancRaw.filter((l) => {
+            if (l.status !== "pago") return false;
+            const dp = l.data_pagamento as string | null;
+            return dp != null && dp >= inicio && dp <= fim;
+          });
+          const outras_receitas = lancsPagos
+            .filter((l) => l.tipo === "receita")
+            .reduce((a, l) => a + (Number(l.valor_pago) || 0), 0);
+          const despesas = lancsPagos
+            .filter((l) => l.tipo === "despesa")
+            .reduce((a, l) => a + (Number(l.valor_pago) || 0), 0);
+          return { receita_vendas, outras_receitas, despesas };
+        },
+        () => cloudAdapter.relatorios.dreTotais({ inicio, fim }),
+      ),
+  },
+
   caixa: {
     ...cloudAdapter.caixa,
     /**
