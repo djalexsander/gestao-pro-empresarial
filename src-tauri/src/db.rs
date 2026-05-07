@@ -1582,11 +1582,16 @@ pub fn ingest_clientes(
         let mut count = 0usize;
         let mut max_remote_ms: Option<i64> = None;
         {
+            // Para snapshots/incremental: se já existe linha local com
+            // remote_id=item.id (cliente que nasceu offline e foi sincronizado),
+            // atualiza essa linha PELO local_uuid em vez de criar nova com id=R
+            // (que duplicaria a entidade na UI).
             let mut stmt = tx.prepare(
                 "INSERT INTO clientes_local(
                     id, nome, nome_fantasia, documento, status, payload,
-                    updated_at_remote_ms, synced_at_ms, deleted_at_ms
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
+                    updated_at_remote_ms, synced_at_ms, deleted_at_ms,
+                    local_uuid, remote_id, sync_status, last_error, created_offline_at_ms
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?1,?1,'synced',NULL,NULL)
                  ON CONFLICT(id) DO UPDATE SET
                     nome                 = excluded.nome,
                     nome_fantasia        = excluded.nome_fantasia,
@@ -1595,7 +1600,10 @@ pub fn ingest_clientes(
                     payload              = excluded.payload,
                     updated_at_remote_ms = COALESCE(excluded.updated_at_remote_ms, clientes_local.updated_at_remote_ms),
                     synced_at_ms         = excluded.synced_at_ms,
-                    deleted_at_ms        = excluded.deleted_at_ms",
+                    deleted_at_ms        = excluded.deleted_at_ms,
+                    remote_id            = excluded.id,
+                    sync_status          = CASE WHEN clientes_local.sync_status='pending' OR clientes_local.sync_status='error'
+                                                THEN clientes_local.sync_status ELSE 'synced' END",
             )?;
             for item in items {
                 let id = match json_str(item, "id") {
@@ -1615,6 +1623,40 @@ pub fn ingest_clientes(
                     None::<i64>
                 };
                 let payload = serde_json::to_string(item).unwrap_or_else(|_| "{}".into());
+
+                // Tenta resolver linha existente por remote_id (cliente que
+                // nasceu offline). Se encontrada e diferente do id, atualiza
+                // por local_uuid e pula o INSERT.
+                let existing_lid: Option<String> = tx.query_row(
+                    "SELECT local_uuid FROM clientes_local
+                      WHERE remote_id=?1 AND id<>?1 LIMIT 1",
+                    params![id], |r| r.get(0),
+                ).optional()?;
+                if let Some(lid) = existing_lid {
+                    tx.execute(
+                        "UPDATE clientes_local
+                            SET nome=?1, nome_fantasia=?2, documento=?3, status=?4,
+                                payload=?5, updated_at_remote_ms=COALESCE(?6, updated_at_remote_ms),
+                                synced_at_ms=?7, deleted_at_ms=?8, remote_id=?9,
+                                sync_status=CASE WHEN sync_status IN ('pending','error') THEN sync_status ELSE 'synced' END
+                          WHERE local_uuid=?10",
+                        params![
+                            json_str(item, "nome"),
+                            json_str(item, "nome_fantasia"),
+                            json_str(item, "documento"),
+                            status,
+                            payload,
+                            updated_ms,
+                            now_ms,
+                            deleted_at_ms,
+                            id,
+                            lid,
+                        ],
+                    )?;
+                    count += 1;
+                    continue;
+                }
+
                 stmt.execute(params![
                     id,
                     json_str(item, "nome"),
