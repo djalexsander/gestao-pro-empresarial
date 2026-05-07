@@ -70,9 +70,8 @@ export function BackupSeguranca({ cfg }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const [restorePath, setRestorePath] = useState("");
   const [exportSrc, setExportSrc] = useState<string | null>(null);
-  const [exportDest, setExportDest] = useState("");
+  const desktop = isDesktop();
 
   const recarregar = async () => {
     const [st, fs, lg] = await Promise.all([
