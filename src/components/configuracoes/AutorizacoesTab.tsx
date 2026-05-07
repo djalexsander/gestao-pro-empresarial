@@ -255,10 +255,17 @@ export function AutorizacoesTab() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <History className="h-5 w-5 text-muted-foreground" /> Histórico de autorizações
-          </CardTitle>
-          <CardDescription>Últimos {logs.length} registros.</CardDescription>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <History className="h-5 w-5 text-muted-foreground" /> Histórico de autorizações
+              </CardTitle>
+              <CardDescription>Últimos {logs.length} registros. Use a página dedicada para filtros completos.</CardDescription>
+            </div>
+            <Button asChild size="sm" variant="outline">
+              <a href="/autorizacoes/historico">Ver histórico completo</a>
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {logs.length === 0 ? (
@@ -276,6 +283,10 @@ export function AutorizacoesTab() {
                       <span className="text-xs text-muted-foreground">via {l.metodo}</span>
                     </div>
                     <p className="mt-1 truncate text-xs text-muted-foreground">{l.contexto}</p>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+                      {l.solicitante_nome && <span>Solicitante: <span className="text-foreground">{l.solicitante_nome}</span></span>}
+                      {l.referencia_tipo && <span>Ref: {l.referencia_tipo}{l.referencia_id ? ` #${l.referencia_id}` : ""}</span>}
+                    </div>
                     {l.motivo_negacao && <p className="mt-1 text-xs text-destructive">Motivo: {l.motivo_negacao}</p>}
                   </div>
                   <div className="shrink-0 text-right text-xs text-muted-foreground">
