@@ -30,17 +30,20 @@ import {
   fetchKnownTerminals,
   fetchOutboxCaixaStats,
   fetchOutboxCancelamentosStats,
+  fetchOutboxClientesStats,
   fetchOutboxFinanceiroStats,
   fetchOutboxStats,
   fetchOutboxVendasStats,
   flushOutbox,
   flushOutboxCaixa,
   flushOutboxCancelamentos,
+  flushOutboxClientes,
   flushOutboxFinanceiro,
   flushOutboxVendas,
   regenerarLancamentosCaixaLocal,
   retryOutboxCaixaErrors,
   retryOutboxCancelamentosErrors,
+  retryOutboxClientesErrors,
   retryOutboxErrors,
   retryOutboxFinanceiroErrors,
   retryOutboxVendasErrors,
@@ -91,6 +94,8 @@ export function DesktopTab() {
   const [flushingCancel, setFlushingCancel] = useState(false);
   const [outboxFin, setOutboxFin] = useState<OutboxFinanceiroStats | null>(null);
   const [flushingFin, setFlushingFin] = useState(false);
+  const [outboxClientes, setOutboxClientes] = useState<OutboxStats | null>(null);
+  const [flushingClientes, setFlushingClientes] = useState(false);
   const [caixaAberto, setCaixaAberto] = useState<CaixaLocalAbertoRow | null>(null);
   const [caixaResumo, setCaixaResumo] = useState<CaixaResumoLocal | null>(null);
   const [caixaLancamentos, setCaixaLancamentos] = useState<LancamentoLocalRow[]>([]);
@@ -228,6 +233,24 @@ export function DesktopTab() {
     setOutboxFin(await fetchOutboxFinanceiroStats(localCfg));
   };
 
+  const handleFlushClientes = async () => {
+    if (!localCfg) return;
+    setFlushingClientes(true);
+    try {
+      const { access_token } = await dataClient.auth.getSession();
+      await flushOutboxClientes(localCfg, access_token);
+      setOutboxClientes(await fetchOutboxClientesStats(localCfg));
+    } finally {
+      setFlushingClientes(false);
+    }
+  };
+
+  const handleRetryErrorsClientes = async () => {
+    if (!localCfg) return;
+    await retryOutboxClientesErrors(localCfg);
+    setOutboxClientes(await fetchOutboxClientesStats(localCfg));
+  };
+
   const handleRegenerarLancamentos = async () => {
     if (!localCfg || !caixaAberto?.local_uuid) return;
     setRegenerandoLanc(true);
@@ -261,7 +284,7 @@ export function DesktopTab() {
 
     let alive = true;
     const carregar = async () => {
-      const [info, terms, stats, ob, obv, obc, occ, obf, ca] = await Promise.all([
+      const [info, terms, stats, ob, obv, obc, occ, obf, obcli, ca] = await Promise.all([
         fetchDbInfo(cfg),
         fetchKnownTerminals(cfg),
         fetchDomainStats(cfg),
@@ -270,6 +293,7 @@ export function DesktopTab() {
         fetchOutboxCaixaStats(cfg),
         fetchOutboxCancelamentosStats(cfg),
         fetchOutboxFinanceiroStats(cfg),
+        fetchOutboxClientesStats(cfg),
         fetchCaixaLocalAberto(cfg),
       ]);
       if (!alive) return;
@@ -281,6 +305,7 @@ export function DesktopTab() {
       setOutboxCaixa(obc);
       setOutboxCancel(occ);
       setOutboxFin(obf);
+      setOutboxClientes(obcli);
       setCaixaAberto(ca);
       setCaixaAberto(ca);
 
@@ -311,12 +336,13 @@ export function DesktopTab() {
     void carregar();
     const tFull = setInterval(() => void carregar(), 30_000);
     const tOutbox = setInterval(async () => {
-      const [ob, obv, obc, occ, obf] = await Promise.all([
+      const [ob, obv, obc, occ, obf, obcli] = await Promise.all([
         fetchOutboxStats(cfg),
         fetchOutboxVendasStats(cfg),
         fetchOutboxCaixaStats(cfg),
         fetchOutboxCancelamentosStats(cfg),
         fetchOutboxFinanceiroStats(cfg),
+        fetchOutboxClientesStats(cfg),
       ]);
       if (!alive) return;
       setOutbox(ob);
@@ -324,6 +350,7 @@ export function DesktopTab() {
       setOutboxCaixa(obc);
       setOutboxCancel(occ);
       setOutboxFin(obf);
+      setOutboxClientes(obcli);
     }, 5_000);
     return () => {
       alive = false;
@@ -721,7 +748,7 @@ export function DesktopTab() {
         )}
 
         {role !== "unset" &&
-          (outbox || outboxVendas || outboxCaixa || outboxCancel || outboxFin) && (
+          (outbox || outboxVendas || outboxCaixa || outboxCancel || outboxFin || outboxClientes) && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -751,6 +778,7 @@ export function DesktopTab() {
                           ["Caixa", outboxCaixa],
                           ["Cancelamentos", outboxCancel],
                           ["Financeiro", outboxFin],
+                          ["Clientes", outboxClientes],
                         ] as const
                       ).map(([nome, st]) => {
                         if (!st) return null;
@@ -1272,6 +1300,86 @@ export function DesktopTab() {
           </Card>
         )}
 
+        {role !== "unset" && outboxClientes && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Fila offline — clientes
+              </CardTitle>
+              <div className="flex gap-2">
+                {outboxClientes.error > 0 && (
+                  <Button size="sm" variant="outline" onClick={() => void handleRetryErrorsClientes()}>
+                    Reenfileirar erros
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={flushingClientes || outboxClientes.pending === 0}
+                  onClick={() => void handleFlushClientes()}
+                >
+                  {flushingClientes ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                  )}
+                  Sincronizar agora
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 text-sm sm:grid-cols-4">
+                <Field label="Pendentes" value={String(outboxClientes.pending)} />
+                <Field label="Enviando" value={String(outboxClientes.sending)} />
+                <Field label="Prontas / Pendentes" value={`${outboxClientes.due_now} / ${outboxClientes.pending}`} />
+                <Field label="Enviadas" value={String(outboxClientes.sent)} />
+                <Field label="Com erro" value={String(outboxClientes.error)} />
+                <Field
+                  label="Próx. tentativa auto"
+                  value={
+                    outboxClientes.next_attempt_at_ms
+                      ? new Date(outboxClientes.next_attempt_at_ms).toLocaleString("pt-BR")
+                      : "—"
+                  }
+                />
+                <Field
+                  label="Último auto-flush"
+                  value={
+                    outboxClientes.last_auto_flush_ms
+                      ? `${new Date(outboxClientes.last_auto_flush_ms).toLocaleTimeString("pt-BR")}` +
+                        (outboxClientes.last_auto_attempted != null
+                          ? ` · ${outboxClientes.last_auto_sent ?? 0}/${outboxClientes.last_auto_attempted} ok`
+                          : "")
+                      : "—"
+                  }
+                />
+                <Field
+                  label="Último envio"
+                  value={
+                    outboxClientes.last_sent_at_ms
+                      ? new Date(outboxClientes.last_sent_at_ms).toLocaleString("pt-BR")
+                      : "—"
+                  }
+                />
+                {outboxClientes.last_error && (
+                  <div className="sm:col-span-4">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">Último erro</div>
+                    <div className="mt-0.5 break-all text-xs text-destructive">{outboxClientes.last_error}</div>
+                  </div>
+                )}
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Cadastros de clientes (criar/editar/status/excluir) são gravados
+                primeiro no banco local e empurrados ao upstream. Operações no
+                mesmo cliente offline são colapsadas (ex.: criar+excluir vira
+                no-op) e o <code>remote_id</code> é propagado a vendas/lançamentos
+                pendentes assim que a nuvem confirma.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         {role !== "unset" && caixaResumo && (
           <Card>
             <CardHeader>
@@ -1578,6 +1686,7 @@ export function DesktopTab() {
             caixa: outboxCaixa,
             cancelamentos: outboxCancel,
             financeiro: outboxFin,
+            clientes: outboxClientes,
           }}
         />
 
