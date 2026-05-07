@@ -1869,6 +1869,7 @@ pub fn domain_has_rows(domain: &str) -> DbResult<bool> {
         let table = match domain {
             "produtos" => "produtos_local",
             "clientes_lite" => "clientes_local",
+            "fornecedores" => "fornecedores_local",
             "estoque_saldos" => "estoque_saldos_local",
             "estoque_movimentacoes" => "estoque_movimentacoes_local",
             _ => return Ok(false),
