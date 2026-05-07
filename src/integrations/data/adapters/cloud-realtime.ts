@@ -57,6 +57,34 @@ export class SupabaseRealtimeAdapter implements RealtimeAdapter {
   ): RealtimeStop {
     return defaultSubscribeDomain(domain, handler);
   }
+
+  subscribeTable<TRow = Record<string, unknown>>(
+    filter: RealtimeTableFilter,
+    handler: (event: RealtimeTableEvent<TRow>) => void,
+  ): RealtimeStop {
+    const event = filter.event ?? "*";
+    const channelName = `adhoc-${filter.table}-${filter.filter ?? "all"}-${Math.random().toString(36).slice(2, 8)}`;
+    const channel = supabase.channel(channelName).on(
+      "postgres_changes",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { event, schema: "public", table: filter.table, ...(filter.filter ? { filter: filter.filter } : {}) } as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (payload: any) => {
+        handler({
+          eventType: payload.eventType,
+          new: (payload.new as TRow) ?? null,
+          old: (payload.old as TRow) ?? null,
+        });
+      },
+    );
+    channel.subscribe();
+    let stopped = false;
+    return () => {
+      if (stopped) return;
+      stopped = true;
+      supabase.removeChannel(channel);
+    };
+  }
 }
 
 export const supabaseRealtimeAdapter = new SupabaseRealtimeAdapter();
