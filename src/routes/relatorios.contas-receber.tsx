@@ -185,14 +185,7 @@ function Conteudo() {
   // Lista de clientes para o select
   const clientesQ = useQuery({
     queryKey: ["relatorio_cr_clientes"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("clientes")
-        .select("id, nome, nome_fantasia, documento")
-        .order("nome");
-      if (error) throw error;
-      return data ?? [];
-    },
+    queryFn: () => dataClient.relatorios.clientesOpcoes(),
   });
 
   const lancamentosQ = useQuery({
@@ -201,74 +194,42 @@ function Conteudo() {
       { dataDe, dataAte, campoData, statusFiltro, clienteId },
     ],
     queryFn: async (): Promise<Row[]> => {
-      let q = supabase
-        .from("financeiro_lancamentos")
-        .select(
-          `id, descricao, valor, valor_pago, data_emissao, data_vencimento, data_pagamento, status, forma_pagamento, observacoes, numero_documento, cliente_id, venda_id, conciliado_em,
-           cliente:clientes(id, nome, nome_fantasia, documento, telefone, celular, email),
-           venda:vendas(id, numero, data_emissao, total)`,
-        )
-        .eq("tipo", "receber")
-        .order(
-          campoData === "emissao"
-            ? "data_emissao"
-            : campoData === "pagamento"
-              ? "data_pagamento"
-              : "data_vencimento",
-          { ascending: false },
-        )
-        .limit(2000);
-
-      if (campoData === "vencimento") {
-        q = q.gte("data_vencimento", dataDe).lte("data_vencimento", dataAte);
-      } else if (campoData === "emissao") {
-        q = q.gte("data_emissao", dataDe).lte("data_emissao", dataAte);
-      } else {
-        q = q
-          .not("data_pagamento", "is", null)
-          .gte("data_pagamento", dataDe)
-          .lte("data_pagamento", dataAte);
-      }
-
-      if (clienteId !== "todos") q = q.eq("cliente_id", clienteId);
-
-      const { data, error } = await q;
-      if (error) throw error;
-
-      const rows: Row[] = (data ?? []).map((l: Record<string, unknown>) => {
-        const valor = Number(l.valor) || 0;
-        const pago = Number(l.valor_pago) || 0;
+      const data = await dataClient.relatorios.lancamentosContasReceber({
+        inicio: dataDe,
+        fim: dataAte,
+        campoData,
+        clienteId,
+      });
+      const rows: Row[] = data.map((l) => {
+        const valor = l.valor;
+        const pago = l.valor_pago;
         const saldo = Math.max(0, valor - pago);
-        const cli = l.cliente as Record<string, unknown> | null;
-        const ven = l.venda as Record<string, unknown> | null;
         return {
-          id: String(l.id),
-          descricao: String(l.descricao ?? ""),
+          id: l.id,
+          descricao: l.descricao,
           valor,
           valor_pago: pago,
           saldo,
-          data_emissao: (l.data_emissao as string) ?? null,
-          data_vencimento: String(l.data_vencimento),
-          data_pagamento: (l.data_pagamento as string) ?? null,
+          data_emissao: l.data_emissao,
+          data_vencimento: l.data_vencimento,
+          data_pagamento: l.data_pagamento,
           status: l.status as Row["status"],
-          forma_pagamento: (l.forma_pagamento as string) ?? null,
-          observacoes: (l.observacoes as string) ?? null,
-          numero_documento: (l.numero_documento as string) ?? null,
-          cliente_id: (l.cliente_id as string) ?? null,
-          cliente_nome: cli ? (cli.nome_fantasia as string) || (cli.nome as string) : null,
-          cliente_documento: cli ? ((cli.documento as string) ?? null) : null,
-          cliente_telefone: cli ? ((cli.telefone as string) ?? null) : null,
-          cliente_celular: cli ? ((cli.celular as string) ?? null) : null,
-          cliente_email: cli ? ((cli.email as string) ?? null) : null,
-          venda_id: ven ? ((ven.id as string) ?? null) : null,
-          venda_numero: ven ? ((ven.numero as string) ?? null) : null,
-          venda_data: ven ? ((ven.data_emissao as string) ?? null) : null,
-          venda_total: ven ? Number(ven.total) || 0 : null,
-          conciliado_em: (l.conciliado_em as string) ?? null,
+          forma_pagamento: l.forma_pagamento,
+          observacoes: l.observacoes,
+          numero_documento: l.numero_documento,
+          cliente_id: l.cliente_id,
+          cliente_nome: l.cliente_nome,
+          cliente_documento: l.cliente_documento,
+          cliente_telefone: l.cliente_telefone,
+          cliente_celular: l.cliente_celular,
+          cliente_email: l.cliente_email,
+          venda_id: l.venda_id,
+          venda_numero: l.venda_numero,
+          venda_data: l.venda_data,
+          venda_total: l.venda_total,
+          conciliado_em: l.conciliado_em,
         };
       });
-
-      // status efetivo (vencido)
       return rows.map((r) => ({ ...r, status: statusEfetivo(r) }));
     },
   });
