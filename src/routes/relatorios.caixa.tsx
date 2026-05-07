@@ -49,7 +49,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { ModuloGate } from "@/components/saas/ModuloGate";
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 import { formatBRL } from "@/lib/mock-data";
 import { exportRowsToCSV, type CsvColumn } from "@/lib/export-csv";
 import { cn } from "@/lib/utils";
