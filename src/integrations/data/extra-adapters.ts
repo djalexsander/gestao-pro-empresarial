@@ -44,6 +44,16 @@ export interface AtualizarTerminalInput {
   identificador_dispositivo?: string | null;
 }
 
+export interface AtualizarPermissoesTerminalInput {
+  id: string;
+  pode_pdv: boolean;
+  pode_erp: boolean;
+  pode_financeiro: boolean;
+  pode_configuracoes: boolean;
+  pode_relatorios: boolean;
+  pode_cadastros: boolean;
+}
+
 export interface TerminaisAdapter {
   list(): Promise<TerminalDomain[]>;
   criar(input: CriarTerminalInput): Promise<string>;
@@ -52,6 +62,7 @@ export interface TerminaisAdapter {
   excluir(terminalId: string): Promise<void>;
   gerarToken(terminalId: string): Promise<string>;
   definirServidor(terminalId: string): Promise<void>;
+  atualizarPermissoes(input: AtualizarPermissoesTerminalInput): Promise<void>;
 }
 
 // =============== Notificações ===============
