@@ -40,6 +40,7 @@ import { Route as RelatoriosDreRouteImport } from './routes/relatorios.dre'
 import { Route as RelatoriosContasReceberRouteImport } from './routes/relatorios.contas-receber'
 import { Route as RelatoriosComprasRouteImport } from './routes/relatorios.compras'
 import { Route as RelatoriosCaixaRouteImport } from './routes/relatorios.caixa'
+import { Route as AutorizacoesHistoricoRouteImport } from './routes/autorizacoes.historico'
 import { Route as AdminUsuariosRouteImport } from './routes/admin.usuarios'
 import { Route as AdminQaRouteImport } from './routes/admin.qa'
 import { Route as AdminPlanosRouteImport } from './routes/admin.planos'
@@ -208,6 +209,11 @@ const RelatoriosCaixaRoute = RelatoriosCaixaRouteImport.update({
   path: '/caixa',
   getParentRoute: () => RelatoriosRoute,
 } as any)
+const AutorizacoesHistoricoRoute = AutorizacoesHistoricoRouteImport.update({
+  id: '/autorizacoes/historico',
+  path: '/autorizacoes/historico',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminUsuariosRoute = AdminUsuariosRouteImport.update({
   id: '/usuarios',
   path: '/usuarios',
@@ -302,6 +308,7 @@ export interface FileRoutesByFullPath {
   '/admin/planos': typeof AdminPlanosRoute
   '/admin/qa': typeof AdminQaRoute
   '/admin/usuarios': typeof AdminUsuariosRoute
+  '/autorizacoes/historico': typeof AutorizacoesHistoricoRoute
   '/relatorios/caixa': typeof RelatoriosCaixaRoute
   '/relatorios/compras': typeof RelatoriosComprasRoute
   '/relatorios/contas-receber': typeof RelatoriosContasReceberRoute
@@ -346,6 +353,7 @@ export interface FileRoutesByTo {
   '/admin/planos': typeof AdminPlanosRoute
   '/admin/qa': typeof AdminQaRoute
   '/admin/usuarios': typeof AdminUsuariosRoute
+  '/autorizacoes/historico': typeof AutorizacoesHistoricoRoute
   '/relatorios/caixa': typeof RelatoriosCaixaRoute
   '/relatorios/compras': typeof RelatoriosComprasRoute
   '/relatorios/contas-receber': typeof RelatoriosContasReceberRoute
@@ -392,6 +400,7 @@ export interface FileRoutesById {
   '/admin/planos': typeof AdminPlanosRoute
   '/admin/qa': typeof AdminQaRoute
   '/admin/usuarios': typeof AdminUsuariosRoute
+  '/autorizacoes/historico': typeof AutorizacoesHistoricoRoute
   '/relatorios/caixa': typeof RelatoriosCaixaRoute
   '/relatorios/compras': typeof RelatoriosComprasRoute
   '/relatorios/contas-receber': typeof RelatoriosContasReceberRoute
@@ -439,6 +448,7 @@ export interface FileRouteTypes {
     | '/admin/planos'
     | '/admin/qa'
     | '/admin/usuarios'
+    | '/autorizacoes/historico'
     | '/relatorios/caixa'
     | '/relatorios/compras'
     | '/relatorios/contas-receber'
@@ -483,6 +493,7 @@ export interface FileRouteTypes {
     | '/admin/planos'
     | '/admin/qa'
     | '/admin/usuarios'
+    | '/autorizacoes/historico'
     | '/relatorios/caixa'
     | '/relatorios/compras'
     | '/relatorios/contas-receber'
@@ -528,6 +539,7 @@ export interface FileRouteTypes {
     | '/admin/planos'
     | '/admin/qa'
     | '/admin/usuarios'
+    | '/autorizacoes/historico'
     | '/relatorios/caixa'
     | '/relatorios/compras'
     | '/relatorios/contas-receber'
@@ -563,6 +575,7 @@ export interface RootRouteChildren {
   ProdutosVendidosRoute: typeof ProdutosVendidosRoute
   RelatoriosRoute: typeof RelatoriosRouteWithChildren
   VendasRoute: typeof VendasRoute
+  AutorizacoesHistoricoRoute: typeof AutorizacoesHistoricoRoute
   ApiPublicWebhooksAsaasRoute: typeof ApiPublicWebhooksAsaasRoute
 }
 
@@ -785,6 +798,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RelatoriosCaixaRouteImport
       parentRoute: typeof RelatoriosRoute
     }
+    '/autorizacoes/historico': {
+      id: '/autorizacoes/historico'
+      path: '/autorizacoes/historico'
+      fullPath: '/autorizacoes/historico'
+      preLoaderRoute: typeof AutorizacoesHistoricoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/usuarios': {
       id: '/admin/usuarios'
       path: '/usuarios'
@@ -954,6 +974,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProdutosVendidosRoute: ProdutosVendidosRoute,
   RelatoriosRoute: RelatoriosRouteWithChildren,
   VendasRoute: VendasRoute,
+  AutorizacoesHistoricoRoute: AutorizacoesHistoricoRoute,
   ApiPublicWebhooksAsaasRoute: ApiPublicWebhooksAsaasRoute,
 }
 export const routeTree = rootRouteImport
