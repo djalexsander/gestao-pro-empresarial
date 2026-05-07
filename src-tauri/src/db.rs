@@ -598,6 +598,17 @@ pub fn init() -> DbResult<()> {
         // v12: vínculo com upstream + sync state
         "ALTER TABLE lancamentos_financeiros_local ADD COLUMN remote_id TEXT",
         "ALTER TABLE lancamentos_financeiros_local ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'local_only'",
+        // v18: clientes offline-first.
+        // `local_uuid` = identidade estável local (igual ao `id` quando criado
+        // offline; igual ao `id` remoto quando vindo do snapshot/incremental).
+        // `remote_id` = id real na nuvem (igual ao `id` quando snapshot;
+        // preenchido pelo push da outbox quando criado offline).
+        // `sync_status` ∈ ('synced','local_only','pending','error').
+        "ALTER TABLE clientes_local ADD COLUMN local_uuid TEXT",
+        "ALTER TABLE clientes_local ADD COLUMN remote_id TEXT",
+        "ALTER TABLE clientes_local ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'synced'",
+        "ALTER TABLE clientes_local ADD COLUMN last_error TEXT",
+        "ALTER TABLE clientes_local ADD COLUMN created_offline_at_ms INTEGER",
     ];
     for sql in alters {
         // Erro só ocorre quando a coluna já existe — seguro ignorar.
