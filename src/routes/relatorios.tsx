@@ -20,7 +20,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ModuloGate } from "@/components/saas/ModuloGate";
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 import { type CsvColumn } from "@/lib/export-csv";
 import { ExportFormatDialog } from "@/components/shared/ExportFormatDialog";
 import {
