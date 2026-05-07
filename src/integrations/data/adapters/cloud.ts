@@ -1326,10 +1326,169 @@ const financeiro: DataAdapter["financeiro"] = {
       cliente_nome: r.cliente?.nome ?? null,
     }));
   },
-};
+  async listLancamentosCompleto() {
+    const { data, error } = await supabase
+      .from("financeiro_lancamentos")
+      .select(
+        `id, descricao, valor, valor_pago, data_vencimento, data_pagamento, data_emissao,
+         tipo, status, observacoes, numero_documento, forma_pagamento, created_at,
+         conciliado_em, valor_repasse, taxa_repasse, numero_repasse, observacao_repasse,
+         cliente_id, venda_id, compra_id,
+         fornecedor:fornecedores(razao_social, nome_fantasia, documento, telefone),
+         cliente:clientes(nome, documento, telefone, celular, email),
+         venda:vendas(numero, data_finalizacao, total),
+         compra:compras(numero, data_emissao, total, status),
+         categoria:categorias_financeiras(nome)`,
+      )
+      .order("data_vencimento", { ascending: true });
+    if (error) throw error;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return ((data ?? []) as any[]).map((r): import("../adapter").LancamentoCompletoDomain => ({
+      id: r.id,
+      descricao: r.descricao,
+      valor: r.valor,
+      valor_pago: r.valor_pago,
+      data_vencimento: r.data_vencimento,
+      data_pagamento: r.data_pagamento,
+      data_emissao: r.data_emissao,
+      tipo: r.tipo,
+      status: r.status,
+      observacoes: r.observacoes,
+      numero_documento: r.numero_documento,
+      forma_pagamento: r.forma_pagamento,
+      created_at: r.created_at,
+      conciliado_em: r.conciliado_em,
+      valor_repasse: r.valor_repasse,
+      taxa_repasse: r.taxa_repasse,
+      numero_repasse: r.numero_repasse,
+      observacao_repasse: r.observacao_repasse,
+      cliente_id: r.cliente_id,
+      venda_id: r.venda_id,
+      compra_id: r.compra_id,
+      fornecedor_nome: r.fornecedor?.nome_fantasia ?? r.fornecedor?.razao_social ?? null,
+      fornecedor_documento: r.fornecedor?.documento ?? null,
+      fornecedor_telefone: r.fornecedor?.telefone ?? null,
+      cliente_nome: r.cliente?.nome ?? null,
+      cliente_documento: r.cliente?.documento ?? null,
+      cliente_telefone: r.cliente?.telefone ?? r.cliente?.celular ?? null,
+      cliente_email: r.cliente?.email ?? null,
+      venda_numero: r.venda?.numero ?? null,
+      venda_data: r.venda?.data_finalizacao ?? null,
+      venda_total: r.venda?.total ?? null,
+      compra_numero: r.compra?.numero ?? null,
+      compra_data_emissao: r.compra?.data_emissao ?? null,
+      compra_total: r.compra?.total ?? null,
+      compra_status: r.compra?.status ?? null,
+      categoria_nome: r.categoria?.nome ?? null,
+    }));
+  },
+  async fluxoPorForma({ inicio, fim }) {
+    const inicioTs = `${inicio}T00:00:00`;
+    const fimTs = `${fim}T23:59:59.999`;
 
-// =====================================================================
-// Estoque
+    const { data: vendasData, error: errVendas } = await supabase
+      .from("vendas")
+      .select("id, status, status_pagamento")
+      .gte("data_finalizacao", inicioTs)
+      .lte("data_finalizacao", fimTs)
+      .neq("status", "cancelada")
+      .limit(5000);
+    if (errVendas) throw errVendas;
+
+    const vendaIds = (vendasData ?? []).map((v) => v.id);
+    if (vendaIds.length === 0) return [];
+    const vendaMap = new Map((vendasData ?? []).map((v) => [v.id, v] as const));
+
+    const { data: pagamentos, error: errPag } = await supabase
+      .from("venda_pagamentos")
+      .select("forma_pagamento, valor, valor_recebido, venda_id")
+      .in("venda_id", vendaIds)
+      .limit(10000);
+    if (errPag) throw errPag;
+
+    const { data: lancsVinc, error: errLanc } = await supabase
+      .from("financeiro_lancamentos")
+      .select("venda_id, forma_pagamento, valor, valor_pago, status, conciliado_em")
+      .in("venda_id", vendaIds)
+      .eq("tipo", "receber")
+      .limit(20000);
+    if (errLanc) throw errLanc;
+
+    const lancMap = new Map<string, { recebido: number; total: number }>();
+    for (const l of lancsVinc ?? []) {
+      if (!l.venda_id || !l.forma_pagamento) continue;
+      const key = `${l.venda_id}|${l.forma_pagamento}`;
+      const cur = lancMap.get(key) ?? { recebido: 0, total: 0 };
+      const valor = Number(l.valor) || 0;
+      const pago = Number(l.valor_pago) || 0;
+      cur.total += valor;
+      const efetivado = l.status === "pago" || l.status === "recebido" || !!l.conciliado_em;
+      cur.recebido += efetivado ? valor : pago;
+      lancMap.set(key, cur);
+    }
+
+    const totals = new Map<string, { recebido: number; aReceber: number }>();
+    for (const r of pagamentos ?? []) {
+      const venda = vendaMap.get(r.venda_id);
+      if (!venda) continue;
+      const forma = r.forma_pagamento;
+      const cur = totals.get(forma) ?? { recebido: 0, aReceber: 0 };
+      const valorBruto = Number(r.valor) || 0;
+      if (forma === "ifood" || forma === "fiado" || forma === "outro") {
+        const key = `${r.venda_id}|${forma}`;
+        const lanc = lancMap.get(key);
+        if (lanc) {
+          const recLanc = Math.min(lanc.recebido, valorBruto);
+          cur.recebido += recLanc;
+          cur.aReceber += Math.max(valorBruto - recLanc, 0);
+        } else {
+          cur.aReceber += valorBruto;
+        }
+      } else {
+        const recebido =
+          venda.status_pagamento === "pago"
+            ? valorBruto
+            : venda.status_pagamento === "parcial"
+              ? Number(r.valor_recebido ?? 0)
+              : 0;
+        cur.recebido += recebido;
+        cur.aReceber += valorBruto - recebido;
+      }
+      totals.set(forma, cur);
+    }
+    return Array.from(totals.entries())
+      .map(([forma, v]) => ({ forma, ...v }))
+      .filter((e) => e.recebido > 0 || e.aReceber > 0)
+      .sort((a, b) => b.recebido + b.aReceber - (a.recebido + a.aReceber));
+  },
+  async movimentosCaixaPeriodo({ inicio, fim }) {
+    const inicioTs = `${inicio}T00:00:00`;
+    const fimTs = `${fim}T23:59:59.999`;
+    const { data, error } = await supabase
+      .from("caixa_movimentos")
+      .select("id, tipo, valor, motivo, created_at, caixa_id, venda_id")
+      .gte("created_at", inicioTs)
+      .lte("created_at", fimTs)
+      .order("created_at", { ascending: false })
+      .limit(2000);
+    if (error) throw error;
+    return (data ?? []) as import("../adapter").MovimentoCaixaPeriodoDomain[];
+  },
+  async lancamentosAvulsosPagos({ inicio, fim }) {
+    const { data, error } = await supabase
+      .from("financeiro_lancamentos")
+      .select("id, descricao, tipo, valor, valor_pago, data_pagamento, status, caixa_id, venda_id")
+      .in("status", ["pago", "recebido"])
+      .is("caixa_id", null)
+      .is("venda_id", null)
+      .gte("data_pagamento", inicio)
+      .lte("data_pagamento", fim)
+      .order("data_pagamento", { ascending: false })
+      .limit(2000);
+    if (error) throw error;
+    return (data ?? []) as import("../adapter").LancamentoAvulsoPagoDomain[];
+  },
+};
 // =====================================================================
 const estoque: DataAdapter["estoque"] = {
   async registrarMovimento(
