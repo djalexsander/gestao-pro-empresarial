@@ -61,6 +61,8 @@ struct ServerState {
     cli_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     /// Sinaliza o scheduler de background (outbox de fornecedores) para parar.
     forn_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
+    /// Sinaliza o scheduler de background (outbox de compras) para parar.
+    compras_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     /// Sinaliza o scheduler de backup automático para parar.
     backup_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     upstream: Option<UpstreamConfig>,
@@ -2630,6 +2632,16 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/db/outbox/fornecedores/stats", get(outbox_forn_stats_handler))
         .route("/db/outbox/fornecedores/flush", post(outbox_forn_flush_handler))
         .route("/db/outbox/fornecedores/retry-errors", post(outbox_forn_retry_errors_handler))
+        .route("/db/outbox/compras", get(outbox_compras_list_handler))
+        .route("/db/outbox/compras/stats", get(outbox_compras_stats_handler))
+        .route("/db/outbox/compras/flush", post(outbox_compras_flush_handler))
+        .route("/db/outbox/compras/retry-errors", post(outbox_compras_retry_errors_handler))
+        .route("/api/compras/criar", post(compra_criar_handler))
+        .route("/api/compras/editar-metadados", post(compra_editar_metadados_handler))
+        .route("/api/compras/alterar-status", post(compra_alterar_status_handler))
+        .route("/api/compras/excluir", post(compra_excluir_handler))
+        .route("/api/compras/receber", post(compra_receber_handler))
+        .route("/api/compras/receber-itens", post(compra_receber_itens_handler))
         .route("/api/clientes/criar", post(cliente_criar_handler))
         .route("/api/clientes/editar", post(cliente_editar_handler))
         .route("/api/clientes/alterar-status", post(cliente_alterar_status_handler))
@@ -2858,6 +2870,19 @@ pub async fn start(
         run_outbox_fornecedores_scheduler(forn_ctx, forn_scheduler_rx).await;
     });
 
+    // Scheduler paralelo para a outbox de COMPRAS (offline-first v18 pt.5).
+    let (compras_scheduler_tx, compras_scheduler_rx) = oneshot::channel::<()>();
+    let compras_ctx = AppCtx {
+        upstream: upstream.clone(),
+        http: reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .map_err(|e| format!("Falha ao criar HTTP client (compras scheduler): {e}"))?,
+    };
+    handle.spawn(async move {
+        run_outbox_compras_scheduler(compras_ctx, compras_scheduler_rx).await;
+    });
+
     // Scheduler de backup automático local. Roda 1× por dia, no máximo,
     // controlado por timestamp em meta. Não depende de upstream.
     let (backup_scheduler_tx, backup_scheduler_rx) = oneshot::channel::<()>();
@@ -2881,6 +2906,7 @@ pub async fn start(
         s.fin_scheduler_shutdown_tx = Some(fin_scheduler_tx);
         s.cli_scheduler_shutdown_tx = Some(cli_scheduler_tx);
         s.forn_scheduler_shutdown_tx = Some(forn_scheduler_tx);
+        s.compras_scheduler_shutdown_tx = Some(compras_scheduler_tx);
         s.backup_scheduler_shutdown_tx = Some(backup_scheduler_tx);
         s.upstream = upstream;
         s.terminals.clear();
@@ -2890,7 +2916,10 @@ pub async fn start(
 }
 
 pub fn stop() -> Result<LocalServerStatus, String> {
-    let (tx_opt, sched_opt, vendas_sched_opt, caixa_sched_opt, cancel_sched_opt, fin_sched_opt, cli_sched_opt, forn_sched_opt, backup_sched_opt) = {
+    let (
+        tx_opt, sched_opt, vendas_sched_opt, caixa_sched_opt, cancel_sched_opt,
+        fin_sched_opt, cli_sched_opt, forn_sched_opt, compras_sched_opt, backup_sched_opt
+    ) = {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = false;
         s.port = None;
@@ -2906,6 +2935,7 @@ pub fn stop() -> Result<LocalServerStatus, String> {
             s.fin_scheduler_shutdown_tx.take(),
             s.cli_scheduler_shutdown_tx.take(),
             s.forn_scheduler_shutdown_tx.take(),
+            s.compras_scheduler_shutdown_tx.take(),
             s.backup_scheduler_shutdown_tx.take(),
         )
     };
@@ -2917,6 +2947,7 @@ pub fn stop() -> Result<LocalServerStatus, String> {
     if let Some(tx) = fin_sched_opt { let _ = tx.send(()); }
     if let Some(tx) = cli_sched_opt { let _ = tx.send(()); }
     if let Some(tx) = forn_sched_opt { let _ = tx.send(()); }
+    if let Some(tx) = compras_sched_opt { let _ = tx.send(()); }
     if let Some(tx) = backup_sched_opt { let _ = tx.send(()); }
     Ok(current_status())
 }
@@ -4072,6 +4103,509 @@ async fn run_outbox_fornecedores_scheduler(
         if sent > 0 || failed > 0 {
             eprintln!(
                 "[gestao-pro] outbox fornecedores auto-flush: attempted={} sent={} failed={}",
+                pending.len(), sent, failed,
+            );
+        }
+    }
+}
+
+// ============================================================================
+// COMPRAS — handlers + scheduler offline-first (v18 pt.5)
+// ============================================================================
+
+#[derive(Deserialize)]
+struct CompraCriarRequest {
+    #[serde(flatten)]
+    payload: serde_json::Value,
+}
+
+#[derive(Serialize)]
+struct CompraCriarResponse {
+    compra_id: String,
+    compra_local_uuid: String,
+    compra_remote_id: Option<String>,
+    idempotente: bool,
+    outbox_status: String,
+    remote_response: Option<String>,
+}
+
+async fn compra_criar_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<CompraCriarRequest>,
+) -> Result<Json<CompraCriarResponse>, (StatusCode, String)> {
+    let r = db::compra_criar_local(req.payload)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let mut outbox_status = if r.idempotente { "skipped".to_string() } else { "pending".to_string() };
+    let mut remote_response: Option<String> = None;
+    let mut compra_remote_id = r.compra_remote_id.clone();
+    if !r.idempotente && ctx.upstream.is_some() {
+        if let Ok(items) = db::outbox_compras_list(50, Some("pending")) {
+            if let Some(it) = items.into_iter()
+                .find(|i| i.compra_local_uuid == r.compra_local_uuid && i.action == "criar")
+            {
+                if let Ok(rid) = push_one_outbox_compras(&ctx, &headers, &it.local_uuid).await {
+                    outbox_status = "sent".to_string();
+                    compra_remote_id = Some(rid);
+                    if let Ok(Some(it2)) = db::outbox_compras_get(&it.local_uuid) {
+                        remote_response = it2.remote_id;
+                    }
+                }
+            }
+        }
+    }
+    let compra_id = compra_remote_id.clone().unwrap_or_else(|| r.compra_local_uuid.clone());
+    Ok(Json(CompraCriarResponse {
+        compra_id,
+        compra_local_uuid: r.compra_local_uuid,
+        compra_remote_id,
+        idempotente: r.idempotente,
+        outbox_status,
+        remote_response,
+    }))
+}
+
+#[derive(Serialize)]
+struct CompraSimpleResponse {
+    compra_id: String,
+    compra_local_uuid: String,
+    compra_remote_id: Option<String>,
+    idempotente: bool,
+    outbox_status: String,
+}
+
+#[derive(Deserialize)]
+struct CompraEditarMetadadosRequest {
+    compra_id: String,
+    #[serde(flatten)]
+    payload: serde_json::Value,
+}
+
+async fn compra_editar_metadados_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<CompraEditarMetadadosRequest>,
+) -> Result<Json<CompraSimpleResponse>, (StatusCode, String)> {
+    let lid = db::compra_resolve_local_uuid(&req.compra_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "compra não encontrada".to_string()))?;
+    let mut payload = req.payload;
+    if let Some(o) = payload.as_object_mut() {
+        o.remove("compra_id");
+        o.remove("_compra_id");
+    }
+    let r = db::compra_editar_metadados_local(&lid, payload)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let mut outbox_status = "pending".to_string();
+    if !r.idempotente && ctx.upstream.is_some() {
+        if let Ok(items) = db::outbox_compras_list(50, Some("pending")) {
+            if let Some(it) = items.into_iter()
+                .find(|i| i.compra_local_uuid == r.compra_local_uuid && i.action == "editar_metadados")
+            {
+                if push_one_outbox_compras(&ctx, &headers, &it.local_uuid).await.is_ok() {
+                    outbox_status = "sent".to_string();
+                }
+            }
+        }
+    } else if r.idempotente {
+        outbox_status = "merged".to_string();
+    }
+    Ok(Json(CompraSimpleResponse {
+        compra_id: r.compra_remote_id.clone().unwrap_or_else(|| r.compra_local_uuid.clone()),
+        compra_local_uuid: r.compra_local_uuid,
+        compra_remote_id: r.compra_remote_id,
+        idempotente: r.idempotente,
+        outbox_status,
+    }))
+}
+
+#[derive(Deserialize)]
+struct CompraAlterarStatusRequest {
+    compra_id: String,
+    status: String,
+}
+
+async fn compra_alterar_status_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<CompraAlterarStatusRequest>,
+) -> Result<Json<CompraSimpleResponse>, (StatusCode, String)> {
+    let lid = db::compra_resolve_local_uuid(&req.compra_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "compra não encontrada".to_string()))?;
+    let r = db::compra_alterar_status_local(&lid, &req.status)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let mut outbox_status = "pending".to_string();
+    if !r.idempotente && ctx.upstream.is_some() {
+        if let Ok(items) = db::outbox_compras_list(50, Some("pending")) {
+            if let Some(it) = items.into_iter()
+                .find(|i| i.compra_local_uuid == r.compra_local_uuid && i.action == "alterar_status")
+            {
+                if push_one_outbox_compras(&ctx, &headers, &it.local_uuid).await.is_ok() {
+                    outbox_status = "sent".to_string();
+                }
+            }
+        }
+    } else if r.idempotente {
+        outbox_status = "merged".to_string();
+    }
+    Ok(Json(CompraSimpleResponse {
+        compra_id: r.compra_remote_id.clone().unwrap_or_else(|| r.compra_local_uuid.clone()),
+        compra_local_uuid: r.compra_local_uuid,
+        compra_remote_id: r.compra_remote_id,
+        idempotente: r.idempotente,
+        outbox_status,
+    }))
+}
+
+#[derive(Deserialize)]
+struct CompraExcluirRequest {
+    compra_id: String,
+}
+
+async fn compra_excluir_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<CompraExcluirRequest>,
+) -> Result<Json<CompraSimpleResponse>, (StatusCode, String)> {
+    let lid = db::compra_resolve_local_uuid(&req.compra_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "compra não encontrada".to_string()))?;
+    let r = db::compra_excluir_local(&lid)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let mut outbox_status = if r.idempotente { "skipped".to_string() } else { "pending".to_string() };
+    if !r.idempotente && ctx.upstream.is_some() {
+        if let Ok(items) = db::outbox_compras_list(50, Some("pending")) {
+            if let Some(it) = items.into_iter()
+                .find(|i| i.compra_local_uuid == r.compra_local_uuid && i.action == "excluir")
+            {
+                if push_one_outbox_compras(&ctx, &headers, &it.local_uuid).await.is_ok() {
+                    outbox_status = "sent".to_string();
+                }
+            }
+        }
+    }
+    Ok(Json(CompraSimpleResponse {
+        compra_id: r.compra_remote_id.clone().unwrap_or_else(|| r.compra_local_uuid.clone()),
+        compra_local_uuid: r.compra_local_uuid,
+        compra_remote_id: r.compra_remote_id,
+        idempotente: r.idempotente,
+        outbox_status,
+    }))
+}
+
+#[derive(Deserialize)]
+struct CompraReceberRequest {
+    compra_id: String,
+    #[serde(default)]
+    data_recebimento: Option<String>,
+    #[serde(default)]
+    gerar_financeiro: Option<bool>,
+    #[serde(default)]
+    data_vencimento: Option<String>,
+}
+
+async fn compra_receber_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<CompraReceberRequest>,
+) -> Result<Json<CompraSimpleResponse>, (StatusCode, String)> {
+    let lid = db::compra_resolve_local_uuid(&req.compra_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "compra não encontrada".to_string()))?;
+    let data_rec = req.data_recebimento.unwrap_or_else(||
+        chrono::Utc::now().format("%Y-%m-%d").to_string()
+    );
+    let r = db::compra_receber_local(
+        &lid, &data_rec,
+        req.gerar_financeiro.unwrap_or(true),
+        req.data_vencimento.as_deref(),
+    ).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let mut outbox_status = "pending".to_string();
+    if ctx.upstream.is_some() && r.compra_remote_id.is_some() {
+        if let Ok(items) = db::outbox_compras_list(50, Some("pending")) {
+            if let Some(it) = items.into_iter()
+                .find(|i| i.compra_local_uuid == r.compra_local_uuid && i.action == "receber")
+            {
+                if push_one_outbox_compras(&ctx, &headers, &it.local_uuid).await.is_ok() {
+                    outbox_status = "sent".to_string();
+                }
+            }
+        }
+    }
+    Ok(Json(CompraSimpleResponse {
+        compra_id: r.compra_remote_id.clone().unwrap_or_else(|| r.compra_local_uuid.clone()),
+        compra_local_uuid: r.compra_local_uuid,
+        compra_remote_id: r.compra_remote_id,
+        idempotente: r.idempotente,
+        outbox_status,
+    }))
+}
+
+#[derive(Deserialize)]
+struct CompraReceberItensRequestItem {
+    item_id: String,
+    quantidade: f64,
+}
+
+#[derive(Deserialize)]
+struct CompraReceberItensRequest {
+    compra_id: String,
+    itens: Vec<CompraReceberItensRequestItem>,
+    #[serde(default)]
+    data_recebimento: Option<String>,
+    #[serde(default)]
+    gerar_financeiro: Option<bool>,
+    #[serde(default)]
+    data_vencimento: Option<String>,
+}
+
+async fn compra_receber_itens_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<CompraReceberItensRequest>,
+) -> Result<Json<CompraSimpleResponse>, (StatusCode, String)> {
+    let lid = db::compra_resolve_local_uuid(&req.compra_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "compra não encontrada".to_string()))?;
+    let data_rec = req.data_recebimento.unwrap_or_else(||
+        chrono::Utc::now().format("%Y-%m-%d").to_string()
+    );
+    let itens: Vec<db::CompraReceberItem> = req.itens.into_iter()
+        .map(|i| db::CompraReceberItem { item_id: i.item_id, quantidade: i.quantidade })
+        .collect();
+    let r = db::compra_receber_itens_local(
+        &lid, itens, &data_rec,
+        req.gerar_financeiro.unwrap_or(true),
+        req.data_vencimento.as_deref(),
+    ).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let mut outbox_status = "pending".to_string();
+    if ctx.upstream.is_some() && r.compra_remote_id.is_some() {
+        if let Ok(items) = db::outbox_compras_list(50, Some("pending")) {
+            if let Some(it) = items.into_iter()
+                .find(|i| i.compra_local_uuid == r.compra_local_uuid && i.action == "receber_itens")
+            {
+                if push_one_outbox_compras(&ctx, &headers, &it.local_uuid).await.is_ok() {
+                    outbox_status = "sent".to_string();
+                }
+            }
+        }
+    }
+    Ok(Json(CompraSimpleResponse {
+        compra_id: r.compra_remote_id.clone().unwrap_or_else(|| r.compra_local_uuid.clone()),
+        compra_local_uuid: r.compra_local_uuid,
+        compra_remote_id: r.compra_remote_id,
+        idempotente: r.idempotente,
+        outbox_status,
+    }))
+}
+
+/// Empurra UMA ação da outbox de compras para o upstream. Todas as
+/// ações são roteadas via PostgREST RPC (criar_compra, atualizar_compra_metadados,
+/// alterar_status_compra, excluir_compra, receber_compra, receber_compra_itens),
+/// espelhando os métodos do `cloudAdapter.compras`.
+///
+/// Causalidade: ações != 'criar' exigem `compra_remote_id` resolvido
+/// (via push do `criar` desta mesma compra). Senão re-agenda.
+async fn push_one_outbox_compras(
+    ctx: &AppCtx,
+    headers: &HeaderMap,
+    local_uuid: &str,
+) -> Result<String, String> {
+    let upstream = ctx.upstream.as_ref().ok_or("upstream não configurado")?;
+    let now = now_ms();
+
+    let item = db::outbox_compras_get(local_uuid)
+        .map_err(|e| e.to_string())?
+        .ok_or("item não encontrado na outbox de compras")?;
+    if item.status == "sent" { return Ok(item.remote_id.unwrap_or_default()); }
+
+    if item.action != "criar" && item.compra_remote_id.is_none() {
+        let resolved = db::compra_remote_id_for(&item.compra_local_uuid).ok().flatten();
+        if resolved.is_none() {
+            let _ = db::outbox_compras_mark_error(
+                local_uuid, "aguardando criar da compra sincronizar", now,
+            );
+            return Err("compra original ainda não sincronizada".into());
+        }
+    }
+
+    let mut payload: serde_json::Value =
+        serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
+
+    // Garante _compra_id atualizado caso já tenhamos resolvido.
+    if item.action != "criar" {
+        if let Some(rid) = item.compra_remote_id.clone()
+            .or_else(|| db::compra_remote_id_for(&item.compra_local_uuid).ok().flatten())
+        {
+            if let Some(o) = payload.as_object_mut() {
+                let key = if item.action == "alterar_status" { "_id" } else { "_compra_id" };
+                o.insert(key.into(), serde_json::Value::String(rid));
+            }
+        }
+    }
+
+    db::outbox_compras_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
+
+    let rpc_name = match item.action.as_str() {
+        "criar" => "criar_compra",
+        "editar_metadados" => "atualizar_compra_metadados",
+        "alterar_status" => "alterar_status_compra",
+        "excluir" => "excluir_compra",
+        "receber" => "receber_compra",
+        "receber_itens" => "receber_compra_itens",
+        _ => {
+            let msg = format!("ação desconhecida: {}", item.action);
+            let _ = db::outbox_compras_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
+
+    // Para 'criar', o payload do RPC é o objeto inteiro como _payload.
+    let body = if item.action == "criar" {
+        serde_json::json!({ "_payload": payload })
+    } else {
+        payload
+    };
+
+    let auth = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+
+    let url = format!(
+        "{}/rest/v1/rpc/{}",
+        upstream.base_url.trim_end_matches('/'),
+        rpc_name,
+    );
+    let resp = ctx.http.post(&url)
+        .header("apikey", &upstream.anon_key)
+        .header(axum::http::header::AUTHORIZATION, auth)
+        .header(axum::http::header::CONTENT_TYPE, "application/json")
+        .header(axum::http::header::ACCEPT, "application/json")
+        .json(&body)
+        .send().await
+        .map_err(|e| {
+            let msg = format!("rede: {e}");
+            let _ = db::outbox_compras_mark_error(local_uuid, &msg, now);
+            msg
+        })?;
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        let msg = format!("HTTP {}: {}", status.as_u16(), text);
+        let _ = db::outbox_compras_mark_error(local_uuid, &msg, now);
+        return Err(msg);
+    }
+    // Resolve remote_id da resposta:
+    //  * criar_compra → { id, itens: [...] } ou string id
+    //  * atualizar_compra_metadados/alterar_status_compra/excluir_compra → void
+    //  * receber_compra(_itens) → resultado livre; mantemos compra_remote_id
+    let parsed: serde_json::Value =
+        serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+    let remote_id = match item.action.as_str() {
+        "criar" => parsed.get("id").and_then(|v| v.as_str())
+            .map(String::from)
+            .or_else(|| parsed.as_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| text.trim().trim_matches('"').to_string()),
+        _ => item.compra_remote_id.clone().unwrap_or_default(),
+    };
+    db::outbox_compras_mark_sent(local_uuid, &remote_id, &text, now)
+        .map_err(|e| e.to_string())?;
+    Ok(remote_id)
+}
+
+async fn outbox_compras_stats_handler(
+) -> Result<Json<db::OutboxComprasStats>, (StatusCode, String)> {
+    db::outbox_compras_stats().map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+#[derive(Serialize)]
+struct OutboxComprasListResponse {
+    total: usize,
+    items: Vec<db::OutboxComprasItem>,
+}
+
+async fn outbox_compras_list_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<OutboxComprasListResponse>, (StatusCode, String)> {
+    let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(200);
+    let status = q.get("status").map(|s| s.as_str());
+    let items = db::outbox_compras_list(limit, status)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(OutboxComprasListResponse { total: items.len(), items }))
+}
+
+async fn outbox_compras_flush_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<Json<FlushResponse>, (StatusCode, String)> {
+    let pending = db::outbox_compras_pending_batch_all(100)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let mut sent = 0usize;
+    let mut failed = 0usize;
+    let mut errors: Vec<String> = Vec::new();
+    for it in &pending {
+        match push_one_outbox_compras(&ctx, &headers, &it.local_uuid).await {
+            Ok(_) => sent += 1,
+            Err(e) => { failed += 1; errors.push(format!("{}: {}", it.local_uuid, e)); }
+        }
+    }
+    let _ = db::outbox_compras_record_flush_round(
+        "manual", now_ms(), pending.len() as i64, sent as i64, failed as i64,
+    );
+    Ok(Json(FlushResponse { attempted: pending.len(), sent, failed, errors }))
+}
+
+async fn outbox_compras_retry_errors_handler(
+) -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
+    let n = db::outbox_compras_reset_errors(now_ms())
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(RetryErrorsResponse { requeued: n }))
+}
+
+async fn run_outbox_compras_scheduler(
+    ctx: AppCtx,
+    mut shutdown_rx: oneshot::Receiver<()>,
+) {
+    eprintln!("[gestao-pro] outbox compras scheduler: iniciado");
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_millis(SCHEDULER_TICK_MS)) => {}
+            _ = &mut shutdown_rx => {
+                eprintln!("[gestao-pro] outbox compras scheduler: parado");
+                break;
+            }
+        }
+        if ctx.upstream.is_none() {
+            let _ = db::outbox_compras_record_flush_round("auto", now_ms(), 0, 0, 0);
+            continue;
+        }
+        let pending = match db::outbox_compras_pending_batch(SCHEDULER_BATCH) {
+            Ok(p) => p,
+            Err(e) => { eprintln!("[gestao-pro] outbox compras: batch err: {e}"); continue; }
+        };
+        if pending.is_empty() {
+            let _ = db::outbox_compras_record_flush_round("auto", now_ms(), 0, 0, 0);
+            continue;
+        }
+        let empty = HeaderMap::new();
+        let mut sent = 0i64;
+        let mut failed = 0i64;
+        for it in &pending {
+            match push_one_outbox_compras(&ctx, &empty, &it.local_uuid).await {
+                Ok(_) => sent += 1,
+                Err(_) => failed += 1,
+            }
+        }
+        let _ = db::outbox_compras_record_flush_round(
+            "auto", now_ms(), pending.len() as i64, sent, failed,
+        );
+        if sent > 0 || failed > 0 {
+            eprintln!(
+                "[gestao-pro] outbox compras auto-flush: attempted={} sent={} failed={}",
                 pending.len(), sent, failed,
             );
         }

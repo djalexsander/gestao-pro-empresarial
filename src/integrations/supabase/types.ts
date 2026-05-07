@@ -796,6 +796,7 @@ export type Database = {
           numero: string
           numero_nf: string | null
           observacoes: string | null
+          observacoes_json: Json | null
           outros: number
           owner_id: string
           serie_nf: string | null
@@ -817,6 +818,7 @@ export type Database = {
           numero: string
           numero_nf?: string | null
           observacoes?: string | null
+          observacoes_json?: Json | null
           outros?: number
           owner_id: string
           serie_nf?: string | null
@@ -838,6 +840,7 @@ export type Database = {
           numero?: string
           numero_nf?: string | null
           observacoes?: string | null
+          observacoes_json?: Json | null
           outros?: number
           owner_id?: string
           serie_nf?: string | null
@@ -3550,6 +3553,10 @@ export type Database = {
         }
         Returns: Json
       }
+      alterar_status_compra: {
+        Args: { _id: string; _status: string }
+        Returns: undefined
+      }
       alterar_status_fornecedor: {
         Args: {
           _fornecedor_id: string
@@ -3605,6 +3612,7 @@ export type Database = {
           numero: string
           numero_nf: string | null
           observacoes: string | null
+          observacoes_json: Json | null
           outros: number
           owner_id: string
           serie_nf: string | null
@@ -3856,6 +3864,7 @@ export type Database = {
         }
         Returns: Json
       }
+      criar_compra: { Args: { _payload: Json }; Returns: Json }
       criar_fornecedor: {
         Args: {
           _bairro?: string
@@ -4088,6 +4097,7 @@ export type Database = {
         Returns: Json
       }
       excluir_cliente: { Args: { _cliente_id: string }; Returns: Json }
+      excluir_compra: { Args: { _compra_id: string }; Returns: undefined }
       excluir_fornecedor: { Args: { _fornecedor_id: string }; Returns: Json }
       excluir_lancamento_avulso: {
         Args: { _lancamento_id: string }

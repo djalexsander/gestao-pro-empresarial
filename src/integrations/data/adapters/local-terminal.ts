@@ -35,16 +35,22 @@ import { getDesktopConfig } from "@/integrations/desktop/configStore";
 import {
   abrirCaixaLocal,
   alterarStatusClienteLocal,
+  alterarStatusCompraLocal,
   alterarStatusFornecedorLocal,
   cancelarVendaLocal,
   criarClienteLocal,
+  criarCompraLocal,
   criarFornecedorLocal,
   editarClienteLocal,
+  editarCompraMetadadosLocal,
   editarFornecedorLocal,
   excluirClienteLocal,
+  excluirCompraLocal,
   excluirFornecedorLocal,
   fecharCaixaLocal,
   getBaseUrl,
+  receberCompraItensLocal,
+  receberCompraLocal,
   registrarMovCaixaLocal,
   registrarMovimentoLocal,
   registrarVendaLocal,
@@ -823,6 +829,132 @@ export const localTerminalAdapter: DataAdapter = {
           ),
         () => cloudAdapter.compras.list(input),
       ),
+    criar: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const payload: Record<string, unknown> = {
+          _numero: input.numero,
+          _fornecedor_id: input.fornecedor_id,
+          _data_emissao: input.data_emissao,
+          _data_prevista: input.data_prevista ?? null,
+          _data_vencimento: input.data_vencimento ?? null,
+          _numero_nf: input.numero_nf ?? null,
+          _serie_nf: input.serie_nf ?? null,
+          _desconto: input.desconto ?? 0,
+          _frete: input.frete ?? 0,
+          _outros: input.outros ?? 0,
+          _observacoes: input.observacoes ?? null,
+          _itens: input.itens,
+        };
+        const r = await criarCompraLocal(cfg, payload, token);
+        if (r) {
+          reportDataSource({ source: "local-server", domain: "compras", method: "criar", fallback: false });
+          // O retorno do adapter é uma compra com fornecedor; otimisticamente
+          // deixamos a UI invalidar e re-buscar via list (cache local cobre).
+          return {
+            id: r.compra_id,
+            local_uuid: r.compra_local_uuid,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          } as any;
+        }
+      }
+      const result = await cloudAdapter.compras.criar(input);
+      reportDataSource({ source: "cloud", domain: "compras", method: "criar", fallback: true });
+      return result;
+    },
+    atualizarStatus: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await alterarStatusCompraLocal(cfg, { compra_id: input.id, status: input.status }, token);
+        if (r) {
+          reportDataSource({ source: "local-server", domain: "compras", method: "atualizarStatus", fallback: false });
+          return;
+        }
+      }
+      await cloudAdapter.compras.atualizarStatus(input);
+      reportDataSource({ source: "cloud", domain: "compras", method: "atualizarStatus", fallback: true });
+    },
+    atualizarMetadados: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const payload: Record<string, unknown> = { compra_id: input.id };
+        if ("data_vencimento" in input) payload._data_vencimento = input.data_vencimento ?? null;
+        if ("data_prevista" in input) payload._data_prevista = input.data_prevista ?? null;
+        if ("fornecedor_id" in input) payload._fornecedor_id = input.fornecedor_id ?? null;
+        if ("numero_nf" in input) payload._numero_nf = input.numero_nf ?? null;
+        if ("serie_nf" in input) payload._serie_nf = input.serie_nf ?? null;
+        if ("observacoes" in input) payload._observacoes = input.observacoes ?? null;
+        const r = await editarCompraMetadadosLocal(cfg, payload as Record<string, unknown> & { compra_id: string }, token);
+        if (r) {
+          reportDataSource({ source: "local-server", domain: "compras", method: "atualizarMetadados", fallback: false });
+          return;
+        }
+      }
+      await cloudAdapter.compras.atualizarMetadados(input);
+      reportDataSource({ source: "cloud", domain: "compras", method: "atualizarMetadados", fallback: true });
+    },
+    receber: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await receberCompraLocal(cfg, {
+          compra_id: input.id,
+          data_recebimento: input.data_recebimento,
+          gerar_financeiro: input.gerar_financeiro,
+          data_vencimento: input.data_vencimento,
+        }, token);
+        if (r) {
+          reportDataSource({ source: "local-server", domain: "compras", method: "receber", fallback: false });
+          return { compra_id: r.compra_id, local: true };
+        }
+      }
+      const result = await cloudAdapter.compras.receber(input);
+      reportDataSource({ source: "cloud", domain: "compras", method: "receber", fallback: true });
+      return result;
+    },
+    receberItens: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await receberCompraItensLocal(cfg, {
+          compra_id: input.compra_id,
+          itens: input.itens.map((i) => ({ item_id: i.item_id, quantidade: i.quantidade })),
+          data_recebimento: input.data_recebimento,
+          gerar_financeiro: input.gerar_financeiro,
+          data_vencimento: input.data_vencimento,
+        }, token);
+        if (r) {
+          reportDataSource({ source: "local-server", domain: "compras", method: "receberItens", fallback: false });
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          return { compra_id: r.compra_id, local: true } as any;
+        }
+      }
+      const result = await cloudAdapter.compras.receberItens(input);
+      reportDataSource({ source: "cloud", domain: "compras", method: "receberItens", fallback: true });
+      return result;
+    },
+    excluir: async (compraId) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await excluirCompraLocal(cfg, { compra_id: compraId }, token);
+        if (r) {
+          reportDataSource({ source: "local-server", domain: "compras", method: "excluir", fallback: false });
+          return;
+        }
+      }
+      await cloudAdapter.compras.excluir(compraId);
+      reportDataSource({ source: "cloud", domain: "compras", method: "excluir", fallback: true });
+    },
   },
 
   /**
