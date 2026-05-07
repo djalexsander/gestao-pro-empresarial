@@ -122,46 +122,48 @@ export function CompraDetailDialog({ open, onOpenChange, compraId }: Props) {
                 </div>
               </div>
 
-              {/* Metadados financeiros editáveis */}
-              <div className="rounded-lg border border-border bg-muted/20 p-3">
-                <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  <CalendarClock className="h-3.5 w-3.5" />
-                  Vencimento financeiro
+              {/* Metadados financeiros editáveis — ocultos no acesso rápido do PDV */}
+              {!pdvQuick && (
+                <div className="rounded-lg border border-border bg-muted/20 p-3">
+                  <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <CalendarClock className="h-3.5 w-3.5" />
+                    Vencimento financeiro
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Data de vencimento</Label>
+                      <Input
+                        type="date"
+                        value={editVenc}
+                        onChange={(e) => setEditVenc(e.target.value)}
+                        disabled={compra.status === "cancelada"}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Nº NF</Label>
+                      <Input
+                        value={editNf}
+                        onChange={(e) => setEditNf(e.target.value)}
+                        disabled={compra.status === "cancelada"}
+                      />
+                    </div>
+                    <div className="flex items-end">
+                      <Button
+                        size="sm"
+                        onClick={handleSalvarMeta}
+                        disabled={!metaDirty || updateMeta.isPending || compra.status === "cancelada"}
+                        className="gap-1.5 w-full"
+                      >
+                        <Save className="h-3.5 w-3.5" />
+                        {updateMeta.isPending ? "Salvando..." : "Salvar"}
+                      </Button>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    Alterar o vencimento sincroniza automaticamente o título em <strong>Contas a Pagar</strong>.
+                  </p>
                 </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Data de vencimento</Label>
-                    <Input
-                      type="date"
-                      value={editVenc}
-                      onChange={(e) => setEditVenc(e.target.value)}
-                      disabled={compra.status === "cancelada"}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Nº NF</Label>
-                    <Input
-                      value={editNf}
-                      onChange={(e) => setEditNf(e.target.value)}
-                      disabled={compra.status === "cancelada"}
-                    />
-                  </div>
-                  <div className="flex items-end">
-                    <Button
-                      size="sm"
-                      onClick={handleSalvarMeta}
-                      disabled={!metaDirty || updateMeta.isPending || compra.status === "cancelada"}
-                      className="gap-1.5 w-full"
-                    >
-                      <Save className="h-3.5 w-3.5" />
-                      {updateMeta.isPending ? "Salvando..." : "Salvar"}
-                    </Button>
-                  </div>
-                </div>
-                <p className="mt-2 text-[11px] text-muted-foreground">
-                  Alterar o vencimento sincroniza automaticamente o título em <strong>Contas a Pagar</strong>.
-                </p>
-              </div>
+              )}
 
               <div className="rounded-lg border border-border">
                 <Table>
@@ -232,15 +234,17 @@ export function CompraDetailDialog({ open, onOpenChange, compraId }: Props) {
           <DialogFooter className="gap-2">
             {podeReceber && (
               <>
-                <Button
-                  variant="outline"
-                  className="gap-1.5"
-                  onClick={handleCancelar}
-                  disabled={updateStatus.isPending}
-                >
-                  <XCircle className="h-4 w-4" />
-                  Cancelar compra
-                </Button>
+                {!pdvQuick && (
+                  <Button
+                    variant="outline"
+                    className="gap-1.5"
+                    onClick={handleCancelar}
+                    disabled={updateStatus.isPending}
+                  >
+                    <XCircle className="h-4 w-4" />
+                    Cancelar compra
+                  </Button>
+                )}
                 <Button className="gap-1.5" onClick={() => setReceberOpen(true)}>
                   <PackageCheck className="h-4 w-4" />
                   Receber itens
