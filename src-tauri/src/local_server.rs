@@ -584,6 +584,7 @@ async fn proxy_with_incremental_sync(
                             eprintln!("[gestao-pro] ingest vendas_remote falhou: {e}");
                         }
                     },
+                    "estoque_movimentacoes" => {
                         match db::ingest_movimentacoes(text, now, strategy) {
                             Ok((n, _)) => delta = n as i64,
                             Err(e) => {
