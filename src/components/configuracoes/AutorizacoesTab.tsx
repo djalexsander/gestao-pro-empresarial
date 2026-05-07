@@ -6,28 +6,23 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { ShieldCheck, Loader2, History, KeyRound, Eye } from "lucide-react";
+import { ShieldCheck, Loader2, History, Plus, Eye, Ban, RotateCcw, Trash2, IdCard } from "lucide-react";
 import { toast } from "sonner";
 import {
   useAutorizacoesConfig,
   useSalvarAutorizacoesConfig,
   useAutorizacoesLog,
+  useAutorizacaoCartoes,
+  useSetCartaoAtivo,
+  useExcluirCartaoAutorizacao,
   ACAO_LABELS,
   type AutorizacoesConfig,
 } from "@/hooks/useAutorizacoes";
 import { formatBRL } from "@/lib/mock-data";
 import { CartaoAutorizacaoDialog } from "./CartaoAutorizacaoDialog";
+import { NovoCartaoAutorizacaoDialog } from "./NovoCartaoAutorizacaoDialog";
 import { useEmpresaAtual } from "@/hooks/useEmpresa";
 import { useConfigEmpresa } from "@/hooks/useConfigEmpresa";
-import { supabase } from "@/integrations/supabase/client";
-
-function gerarCodigoSeguro(): string {
-  // 24 chars alfanuméricos sem ambíguos — compatível com leitor de barras CODE128
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const arr = new Uint32Array(24);
-  crypto.getRandomValues(arr);
-  return Array.from(arr, (n) => alphabet[n % alphabet.length]).join("");
-}
 
 const ACOES: Array<{ key: keyof AutorizacoesConfig; label: string; desc: string }> = [
   { key: "exigir_fechar_caixa_divergencia", label: "Fechar caixa com divergência", desc: "Quando o valor contado difere do esperado." },
