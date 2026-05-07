@@ -3,6 +3,7 @@ import type { Session, User } from "@supabase/supabase-js";
 import { dataClient } from "@/integrations/data";
 import { registrarAuditLog } from "@/hooks/useAdmin";
 import { lockErp } from "@/lib/erpUnlock";
+import { withTimeout, TimeoutError } from "@/lib/withTimeout";
 
 interface AuthContextValue {
   user: User | null;
