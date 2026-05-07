@@ -219,7 +219,7 @@ export interface CriarCartaoAutorizacaoInput {
 export interface AutorizacoesAdapter {
   obterConfig(): Promise<AutorizacoesConfigDomain>;
   salvarConfig(payload: Record<string, unknown>): Promise<AutorizacoesConfigDomain>;
-  log(limit?: number): Promise<AutorizacaoLogDomain[]>;
+  log(filtro?: AutorizacaoLogFiltro | number): Promise<AutorizacaoLogDomain[]>;
   validar(input: ValidarAutorizacaoInputDomain): Promise<ValidarAutorizacaoResultDomain>;
   listarCartoes(): Promise<AutorizacaoCartaoDomain[]>;
   criarCartao(input: CriarCartaoAutorizacaoInput): Promise<string>;
