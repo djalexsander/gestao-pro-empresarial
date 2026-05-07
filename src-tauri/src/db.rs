@@ -906,6 +906,35 @@ pub fn init() -> DbResult<()> {
             ON outbox_compras(action, status);
         CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_compras_client_uuid
             ON outbox_compras(client_uuid) WHERE client_uuid IS NOT NULL;
+
+        -- v20: itens de compra locais. Espelha `compra_itens` no remoto.
+        -- `local_uuid` = identidade estável local; `remote_id` resolvido após
+        -- o push do criar da compra. `compra_local_uuid` é a FK lógica.
+        -- `quantidade_recebida` é mantido localmente para refletir
+        -- recebimentos parciais offline (derivação de estoque).
+        CREATE TABLE IF NOT EXISTS compra_itens_local (
+            local_uuid           TEXT PRIMARY KEY,
+            remote_id            TEXT,
+            compra_local_uuid    TEXT NOT NULL,
+            compra_remote_id     TEXT,
+            produto_id           TEXT NOT NULL,
+            variacao_id          TEXT,
+            descricao            TEXT,
+            quantidade           REAL NOT NULL DEFAULT 0,
+            quantidade_recebida  REAL NOT NULL DEFAULT 0,
+            preco_unitario       REAL NOT NULL DEFAULT 0,
+            desconto             REAL NOT NULL DEFAULT 0,
+            total                REAL NOT NULL DEFAULT 0,
+            sync_status          TEXT NOT NULL DEFAULT 'pending',
+            created_at_ms        INTEGER NOT NULL,
+            updated_at_ms        INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_compra_itens_local_compra
+            ON compra_itens_local(compra_local_uuid);
+        CREATE INDEX IF NOT EXISTS idx_compra_itens_local_remote
+            ON compra_itens_local(remote_id) WHERE remote_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_compra_itens_local_compra_remote
+            ON compra_itens_local(compra_remote_id) WHERE compra_remote_id IS NOT NULL;
         "#,
     )?;
     //
