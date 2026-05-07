@@ -399,6 +399,55 @@ export const localTerminalAdapter: DataAdapter = {
 
   clientes: {
     ...cloudAdapter.clientes,
+    /**
+     * Leitura completa do cadastro de clientes. Lê do `clientes_local`
+     * (payload completo armazenado pelo `ingest_clientes`). Filtros
+     * `status` / `busca` são aplicados client-side sobre o resultado local.
+     * Para o volume típico de Clientes (centenas a poucos milhares por
+     * loja) isso é trivial e mantém a tela 100% disponível offline.
+     */
+    list: (input) =>
+      withFallback(
+        "clientes",
+        "list",
+        async () => {
+          const all = await tryLocal<
+            Awaited<ReturnType<DataAdapter["clientes"]["list"]>>
+          >(
+            "clientes",
+            "list",
+            "/api/clientes/lite",
+            // status vazio = todos os status; o filtro real é aplicado abaixo.
+            { status: "" },
+          );
+          if (!Array.isArray(all)) return all;
+          let rows = all;
+          if (input?.status) {
+            rows = rows.filter(
+              (c) => (c as { status?: string }).status === input.status,
+            );
+          }
+          if (input?.busca) {
+            const b = input.busca.trim().toLowerCase();
+            if (b) {
+              rows = rows.filter((c) => {
+                const x = c as {
+                  nome?: string | null;
+                  nome_fantasia?: string | null;
+                  documento?: string | null;
+                };
+                return (
+                  (x.nome ?? "").toLowerCase().includes(b) ||
+                  (x.nome_fantasia ?? "").toLowerCase().includes(b) ||
+                  (x.documento ?? "").toLowerCase().includes(b)
+                );
+              });
+            }
+          }
+          return rows;
+        },
+        () => cloudAdapter.clientes.list(input),
+      ),
     listLite: (input) =>
       withFallback(
         "clientes",
