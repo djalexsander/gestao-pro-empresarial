@@ -126,7 +126,6 @@ function HistoricoAutorizacoesPage() {
       <PageHeader
         title="Histórico de autorizações"
         description="Quem autorizou, quem solicitou e o contexto de cada ação crítica."
-        icon={History}
         actions={
           <Button variant="outline" onClick={exportarCSV} disabled={logs.length === 0}>
             <Download className="mr-2 h-4 w-4" /> Exportar CSV
