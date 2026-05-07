@@ -230,6 +230,27 @@ pub fn init() -> DbResult<()> {
         CREATE INDEX IF NOT EXISTS idx_compras_data ON compras_local(data_emissao_ms);
         CREATE INDEX IF NOT EXISTS idx_compras_fornecedor ON compras_local(fornecedor_id);
 
+        -- v16: Cache de leitura do histórico de vendas (NÃO confundir com
+        -- `vendas_local`, que é o PDV/outbox). Aqui guardamos o payload da
+        -- listagem (`vendas` + cliente embutido) para alimentar /vendas e
+        -- agregações de Dashboard offline. Cursor por updated_at; ordenação
+        -- por created_at_ms desc.
+        CREATE TABLE IF NOT EXISTS vendas_remote_cache (
+            id                   TEXT PRIMARY KEY,
+            numero               TEXT,
+            cliente_id           TEXT,
+            status               TEXT,
+            data_emissao_ms      INTEGER,
+            created_at_ms        INTEGER,
+            payload              TEXT NOT NULL,
+            updated_at_remote_ms INTEGER,
+            synced_at_ms         INTEGER NOT NULL,
+            deleted_at_ms        INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_vendas_remote_status ON vendas_remote_cache(status);
+        CREATE INDEX IF NOT EXISTS idx_vendas_remote_data ON vendas_remote_cache(data_emissao_ms);
+        CREATE INDEX IF NOT EXISTS idx_vendas_remote_created ON vendas_remote_cache(created_at_ms);
+
         -- Saldos: agregados por (produto_id, variacao_id). A chave única
         -- evita duplicatas quando o snapshot é re-ingerido.
         CREATE TABLE IF NOT EXISTS estoque_saldos_local (
