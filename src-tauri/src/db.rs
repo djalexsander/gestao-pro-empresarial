@@ -8753,3 +8753,325 @@ pub fn compra_excluir_local(compra_local_uuid: &str) -> DbResult<CompraEnqueueRe
         })
     })
 }
+
+// -----------------------------------------------------------------
+// Etapa 4 — receber + receber_itens (com derivação local de estoque)
+// -----------------------------------------------------------------
+//
+// Estratégia:
+//   1. Atualiza `quantidade_recebida` no(s) item(ns) afetados.
+//   2. Aplica `apply_mov_to_saldo(entrada)` para cada delta recebido,
+//      registrando uma linha em `estoque_movimentacoes_local` com
+//      `id = local_uuid` (estável, com `_pending: true`). Quando o
+//      upstream replicar a movimentação real, ela vem com outro id e
+//      a UI converge na próxima ingestão.
+//   3. Recalcula status local (recebida / recebida_parcial), reembala
+//      `payload` via `compra_recompute_payload`.
+//   4. Enfileira `receber` ou `receber_itens` em `outbox_compras`. O
+//      scheduler só envia depois que o `criar` resolver `remote_id`
+//      (causalidade) — nada vai upstream se a compra ainda nasceu offline.
+//   5. NÃO geramos lançamento financeiro local: ao executar `receber`
+//      no upstream, a RPC `receber_compra` / `receber_compra_itens` cria
+//      o lançamento. Quando a próxima ingestão de financeiro rodar, a
+//      UI passa a enxergá-lo. Isso evita duplicidade durante o sync.
+
+#[derive(Debug, Serialize)]
+pub struct CompraReceberItem {
+    pub item_id: String,        // pode ser local_uuid ou remote_id
+    pub quantidade: f64,
+}
+
+fn compra_item_resolve_local_uuid(
+    tx: &rusqlite::Transaction<'_>,
+    compra_local_uuid: &str,
+    any_id: &str,
+) -> DbResult<Option<(String, String, String, f64, f64)>> {
+    // Retorna (local_uuid, produto_id, variacao_id, quantidade, quantidade_recebida)
+    let row: Option<(String, String, Option<String>, f64, f64)> = tx.query_row(
+        "SELECT local_uuid, produto_id, variacao_id, quantidade, quantidade_recebida
+           FROM compra_itens_local
+          WHERE compra_local_uuid=?1 AND (local_uuid=?2 OR remote_id=?2)
+          LIMIT 1",
+        params![compra_local_uuid, any_id], |r| Ok((
+            r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
+        )),
+    ).optional()?;
+    Ok(row.map(|(lid, pid, var, qtd, qrec)| (
+        lid, pid, var.unwrap_or_default(), qtd, qrec,
+    )))
+}
+
+fn compra_apply_recebimento_item(
+    tx: &rusqlite::Transaction<'_>,
+    compra_local_uuid: &str,
+    item_local_uuid: &str,
+    produto_id: &str,
+    variacao_id: &str,
+    quantidade_a_receber: f64,
+    custo_unit: Option<f64>,
+    now_ms: i64,
+) -> DbResult<()> {
+    if quantidade_a_receber <= 0.0 { return Ok(()); }
+
+    // 1) Soma quantidade_recebida no item.
+    tx.execute(
+        "UPDATE compra_itens_local
+            SET quantidade_recebida = quantidade_recebida + ?1,
+                sync_status='pending', updated_at_ms=?2
+          WHERE local_uuid=?3",
+        params![quantidade_a_receber, now_ms, item_local_uuid],
+    )?;
+
+    // 2) Aplica saldo + registra movimentação local (entrada).
+    let saldo_anterior = read_saldo_atual(tx, produto_id, variacao_id)?;
+    let saldo_posterior = saldo_anterior + quantidade_a_receber;
+    let mov_local_uuid = random_uuid_v4();
+    let item_payload = serde_json::json!({
+        "id": &mov_local_uuid,
+        "produto_id": produto_id,
+        "variacao_id": if variacao_id.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(variacao_id.into()) },
+        "tipo": "entrada",
+        "quantidade": quantidade_a_receber,
+        "saldo_anterior": saldo_anterior,
+        "saldo_posterior": saldo_posterior,
+        "custo_unitario": custo_unit,
+        "origem": "compra",
+        "observacoes": format!("compra:{}", compra_local_uuid),
+        "data_movimentacao": iso_from_ms_z_pub(now_ms),
+        "_pending": true,
+    }).to_string();
+    tx.execute(
+        "INSERT OR IGNORE INTO estoque_movimentacoes_local(
+            id, produto_id, variacao_id, tipo, quantidade,
+            saldo_anterior, saldo_posterior, custo_unitario,
+            origem, observacoes, data_movimentacao_ms,
+            payload, synced_at_ms
+         ) VALUES (?1,?2,?3,'entrada',?4,?5,?6,?7,'compra',?8,?9,?10,?9)",
+        params![
+            mov_local_uuid, produto_id, variacao_id, quantidade_a_receber,
+            saldo_anterior, saldo_posterior, custo_unit,
+            format!("compra:{}", compra_local_uuid), now_ms, item_payload,
+        ],
+    )?;
+    apply_mov_to_saldo(tx, produto_id, variacao_id, Some("entrada"), quantidade_a_receber, now_ms)?;
+    Ok(())
+}
+
+fn compra_recompute_status(
+    tx: &rusqlite::Transaction<'_>,
+    compra_local_uuid: &str,
+    data_recebimento: Option<&str>,
+    now_ms: i64,
+) -> DbResult<String> {
+    // Calcula status agregado a partir dos itens.
+    let mut stmt = tx.prepare(
+        "SELECT quantidade, quantidade_recebida FROM compra_itens_local
+          WHERE compra_local_uuid=?1",
+    )?;
+    let rows = stmt.query_map(params![compra_local_uuid], |r| Ok((
+        r.get::<_, f64>(0)?, r.get::<_, f64>(1)?,
+    )))?;
+    let mut total_q = 0f64;
+    let mut total_r = 0f64;
+    for row in rows {
+        let (q, r) = row?;
+        total_q += q;
+        total_r += r;
+    }
+    let status = if total_r <= 0.0 {
+        // sem recebimento — mantém o atual
+        let cur: Option<String> = tx.query_row(
+            "SELECT status FROM compras_local WHERE local_uuid=?1",
+            params![compra_local_uuid], |r| r.get(0),
+        ).optional()?;
+        cur.unwrap_or_else(|| "pendente".into())
+    } else if total_r + 1e-9 >= total_q {
+        "recebida".to_string()
+    } else {
+        "recebida_parcial".to_string()
+    };
+
+    // Atualiza payload com data_recebimento + status
+    let raw: Option<String> = tx.query_row(
+        "SELECT payload FROM compras_local WHERE local_uuid=?1",
+        params![compra_local_uuid], |r| r.get(0),
+    ).optional()?;
+    if let Some(rs) = raw {
+        let mut full: serde_json::Value = serde_json::from_str(&rs).unwrap_or(serde_json::json!({}));
+        if let Some(o) = full.as_object_mut() {
+            o.insert("status".into(), serde_json::Value::String(status.clone()));
+            if status == "recebida" {
+                if let Some(dr) = data_recebimento {
+                    o.insert("data_recebimento".into(), serde_json::Value::String(dr.to_string()));
+                }
+            }
+            o.insert("sync_status".into(), serde_json::Value::String("pending".into()));
+        }
+        tx.execute(
+            "UPDATE compras_local SET status=?1, payload=?2, sync_status='pending', synced_at_ms=?3
+              WHERE local_uuid=?4",
+            params![status, full.to_string(), now_ms, compra_local_uuid],
+        )?;
+    }
+    // Recalcula payload completo (subtotal/total/itens com quantidade_recebida atualizada)
+    compra_recompute_payload(tx, compra_local_uuid, now_ms)?;
+    Ok(status)
+}
+
+/// Recebimento total da compra. Aplica entrada de estoque para todo o
+/// pendente de cada item e enfileira `receber` no upstream.
+pub fn compra_receber_local(
+    compra_local_uuid: &str,
+    data_recebimento: &str,
+    gerar_financeiro: bool,
+    data_vencimento: Option<&str>,
+) -> DbResult<CompraEnqueueResult> {
+    with_conn(|conn| {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let tx = conn.unchecked_transaction()?;
+        let remote_id: Option<String> = tx.query_row(
+            "SELECT remote_id FROM compras_local WHERE local_uuid=?1",
+            params![compra_local_uuid], |r| r.get(0),
+        ).optional()?.flatten();
+
+        // Itens com pendente > 0
+        let mut stmt = tx.prepare(
+            "SELECT local_uuid, produto_id, variacao_id, quantidade, quantidade_recebida, preco_unitario
+               FROM compra_itens_local WHERE compra_local_uuid=?1",
+        )?;
+        let rows: Vec<(String, String, String, f64, f64, f64)> = stmt
+            .query_map(params![compra_local_uuid], |r| Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                r.get::<_, f64>(3)?,
+                r.get::<_, f64>(4)?,
+                r.get::<_, f64>(5)?,
+            )))?
+            .collect::<rusqlite::Result<_>>()?;
+        drop(stmt);
+
+        for (lid, pid, var, qtd, qrec, custo) in rows {
+            let pendente = (qtd - qrec).max(0.0);
+            if pendente > 0.0 {
+                compra_apply_recebimento_item(
+                    &tx, compra_local_uuid, &lid, &pid, &var,
+                    pendente, Some(custo), now_ms,
+                )?;
+            }
+        }
+
+        let _status = compra_recompute_status(&tx, compra_local_uuid, Some(data_recebimento), now_ms)?;
+
+        // Outbox: 'receber' (causal — só sai quando remote_id existe).
+        let mut payload = serde_json::json!({
+            "_compra_id": remote_id.clone().unwrap_or_default(),
+            "_data_recebimento": data_recebimento,
+            "_gerar_financeiro": gerar_financeiro,
+        });
+        if let Some(dv) = data_vencimento {
+            payload.as_object_mut().unwrap()
+                .insert("_data_vencimento".into(), serde_json::Value::String(dv.into()));
+        }
+        let outbox_id = random_uuid_v4();
+        tx.execute(
+            "INSERT INTO outbox_compras(
+                local_uuid, client_uuid, compra_local_uuid, compra_remote_id,
+                action, payload, status, attempts, created_at_ms, updated_at_ms, next_attempt_at_ms
+             ) VALUES (?1,NULL,?2,?3,'receber',?4,'pending',0,?5,?5,NULL)",
+            params![outbox_id, compra_local_uuid, remote_id, payload.to_string(), now_ms],
+        )?;
+
+        tx.commit()?;
+        Ok(CompraEnqueueResult {
+            compra_local_uuid: compra_local_uuid.to_string(),
+            compra_remote_id: remote_id,
+            idempotente: false,
+        })
+    })
+}
+
+/// Recebimento parcial — recebe quantidades específicas por item.
+pub fn compra_receber_itens_local(
+    compra_local_uuid: &str,
+    itens: Vec<CompraReceberItem>,
+    data_recebimento: &str,
+    gerar_financeiro: bool,
+    data_vencimento: Option<&str>,
+) -> DbResult<CompraEnqueueResult> {
+    if itens.is_empty() {
+        return Err(DbError("compra_receber_itens_local: itens vazio".into()));
+    }
+    with_conn(|conn| {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let tx = conn.unchecked_transaction()?;
+        let remote_id: Option<String> = tx.query_row(
+            "SELECT remote_id FROM compras_local WHERE local_uuid=?1",
+            params![compra_local_uuid], |r| r.get(0),
+        ).optional()?.flatten();
+
+        // Resolve cada item, valida pendente, aplica recebimento.
+        let mut itens_payload: Vec<serde_json::Value> = Vec::new();
+        for it in &itens {
+            if it.quantidade <= 0.0 { continue; }
+            let resolved = compra_item_resolve_local_uuid(&tx, compra_local_uuid, &it.item_id)?;
+            let (lid, pid, var, qtd, qrec) = match resolved {
+                Some(t) => t,
+                None => return Err(DbError(format!(
+                    "compra_receber_itens_local: item {} não encontrado", it.item_id
+                ))),
+            };
+            let pendente = (qtd - qrec).max(0.0);
+            let receber = it.quantidade.min(pendente);
+            if receber <= 0.0 { continue; }
+            // custo = preco_unitario do item
+            let custo: Option<f64> = tx.query_row(
+                "SELECT preco_unitario FROM compra_itens_local WHERE local_uuid=?1",
+                params![lid], |r| r.get(0),
+            ).optional()?;
+            compra_apply_recebimento_item(
+                &tx, compra_local_uuid, &lid, &pid, &var, receber, custo, now_ms,
+            )?;
+            // Para o upstream, manda o item_id como local_uuid quando sem
+            // remote_id; o scheduler troca por remote_id no momento do envio.
+            let remote_item_id: Option<String> = tx.query_row(
+                "SELECT remote_id FROM compra_itens_local WHERE local_uuid=?1",
+                params![lid], |r| r.get(0),
+            ).optional()?.flatten();
+            itens_payload.push(serde_json::json!({
+                "item_id": remote_item_id.clone().unwrap_or_else(|| lid.clone()),
+                "_local_uuid": lid,
+                "quantidade": receber,
+            }));
+        }
+
+        let status = compra_recompute_status(&tx, compra_local_uuid, Some(data_recebimento), now_ms)?;
+
+        // Outbox: 'receber_itens'
+        let mut payload = serde_json::json!({
+            "_compra_id": remote_id.clone().unwrap_or_default(),
+            "_itens": itens_payload,
+            "_data_recebimento": data_recebimento,
+            "_gerar_financeiro": gerar_financeiro && status == "recebida",
+        });
+        if let Some(dv) = data_vencimento {
+            payload.as_object_mut().unwrap()
+                .insert("_data_vencimento".into(), serde_json::Value::String(dv.into()));
+        }
+        let outbox_id = random_uuid_v4();
+        tx.execute(
+            "INSERT INTO outbox_compras(
+                local_uuid, client_uuid, compra_local_uuid, compra_remote_id,
+                action, payload, status, attempts, created_at_ms, updated_at_ms, next_attempt_at_ms
+             ) VALUES (?1,NULL,?2,?3,'receber_itens',?4,'pending',0,?5,?5,NULL)",
+            params![outbox_id, compra_local_uuid, remote_id, payload.to_string(), now_ms],
+        )?;
+
+        tx.commit()?;
+        Ok(CompraEnqueueResult {
+            compra_local_uuid: compra_local_uuid.to_string(),
+            compra_remote_id: remote_id,
+            idempotente: false,
+        })
+    })
+}
