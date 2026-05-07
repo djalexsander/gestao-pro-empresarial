@@ -3081,6 +3081,14 @@ const empresa: DataAdapter["empresa"] = {
     if (error) throw new Error(error.message);
     return (data ?? []) as import("../extra-adapters").EmpresaIntegracaoDomain[];
   },
+  async integracoesPorTipos(tipos) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.from as any)("empresa_integracoes")
+      .select("tipo_integracao, status, ativo, configuracoes, empresa_id, owner_id")
+      .in("tipo_integracao", tipos);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as import("../extra-adapters").EmpresaIntegracaoDomain[];
+  },
   async upsertIntegracao(input) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error } = await (supabase.from as any)("empresa_integracoes").upsert(input, {
