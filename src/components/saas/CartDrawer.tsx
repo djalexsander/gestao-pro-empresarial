@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Loader2, ShoppingCart, Trash2, Crown, Puzzle, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
 import { dataClient } from "@/integrations/data";
 import {
   Sheet,
