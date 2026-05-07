@@ -748,7 +748,14 @@ fn read_typed(domain: &str, query: &[(&str, String)]) -> Result<String, db::DbEr
                 .unwrap_or(500);
             db::read_compras(limit)
         }
-        "estoque_saldos" => db::read_saldos(),
+        "vendas_remote" => {
+            let limit = query
+                .iter()
+                .find(|(k, _)| *k == "__filter_limit")
+                .and_then(|(_, v)| v.parse::<i64>().ok())
+                .unwrap_or(500);
+            db::read_vendas_remote(limit)
+        }
         "estoque_movimentacoes" => {
             let produto_id = query
                 .iter()
