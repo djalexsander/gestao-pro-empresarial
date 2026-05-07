@@ -994,6 +994,17 @@ async fn db_sync_handler(
             )
             .await
         }
+        "financeiro_lancamentos_completo" => {
+            let params: Vec<(&str, String)> = vec![
+                ("select", financeiro_completo_select().to_string()),
+                ("order", "data_vencimento.asc".into()),
+            ];
+            proxy_with_incremental_sync(
+                &ctx, &headers, "financeiro_lancamentos_completo",
+                "/rest/v1/financeiro_lancamentos", &params, true,
+            )
+            .await
+        }
         "estoque_movimentacoes" | "estoque_saldos" => {
             let params = estoque_movs_base_params();
             proxy_with_incremental_sync(
