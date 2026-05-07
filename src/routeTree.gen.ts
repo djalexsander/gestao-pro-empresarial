@@ -52,7 +52,9 @@ import { Route as AdminEmpresasRouteImport } from './routes/admin.empresas'
 import { Route as AdminConfigComercialRouteImport } from './routes/admin.config-comercial'
 import { Route as AdminAuditoriaRouteImport } from './routes/admin.auditoria'
 import { Route as AdminAssinaturasRouteImport } from './routes/admin.assinaturas'
+import { Route as ApiPublicWebhooksPixRouteImport } from './routes/api/public/webhooks/pix'
 import { Route as ApiPublicWebhooksAsaasRouteImport } from './routes/api/public/webhooks/asaas'
+import { Route as ApiPublicHooksCobrancasWaCronRouteImport } from './routes/api/public/hooks/cobrancas-wa-cron'
 
 const VendasRoute = VendasRouteImport.update({
   id: '/vendas',
@@ -269,11 +271,22 @@ const AdminAssinaturasRoute = AdminAssinaturasRouteImport.update({
   path: '/assinaturas',
   getParentRoute: () => AdminRoute,
 } as any)
+const ApiPublicWebhooksPixRoute = ApiPublicWebhooksPixRouteImport.update({
+  id: '/api/public/webhooks/pix',
+  path: '/api/public/webhooks/pix',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicWebhooksAsaasRoute = ApiPublicWebhooksAsaasRouteImport.update({
   id: '/api/public/webhooks/asaas',
   path: '/api/public/webhooks/asaas',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicHooksCobrancasWaCronRoute =
+  ApiPublicHooksCobrancasWaCronRouteImport.update({
+    id: '/api/public/hooks/cobrancas-wa-cron',
+    path: '/api/public/hooks/cobrancas-wa-cron',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -319,7 +332,9 @@ export interface FileRoutesByFullPath {
   '/relatorios/fluxo-caixa': typeof RelatoriosFluxoCaixaRoute
   '/relatorios/vendas': typeof RelatoriosVendasRoute
   '/admin/': typeof AdminIndexRoute
+  '/api/public/hooks/cobrancas-wa-cron': typeof ApiPublicHooksCobrancasWaCronRoute
   '/api/public/webhooks/asaas': typeof ApiPublicWebhooksAsaasRoute
+  '/api/public/webhooks/pix': typeof ApiPublicWebhooksPixRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -364,7 +379,9 @@ export interface FileRoutesByTo {
   '/relatorios/fluxo-caixa': typeof RelatoriosFluxoCaixaRoute
   '/relatorios/vendas': typeof RelatoriosVendasRoute
   '/admin': typeof AdminIndexRoute
+  '/api/public/hooks/cobrancas-wa-cron': typeof ApiPublicHooksCobrancasWaCronRoute
   '/api/public/webhooks/asaas': typeof ApiPublicWebhooksAsaasRoute
+  '/api/public/webhooks/pix': typeof ApiPublicWebhooksPixRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -411,7 +428,9 @@ export interface FileRoutesById {
   '/relatorios/fluxo-caixa': typeof RelatoriosFluxoCaixaRoute
   '/relatorios/vendas': typeof RelatoriosVendasRoute
   '/admin/': typeof AdminIndexRoute
+  '/api/public/hooks/cobrancas-wa-cron': typeof ApiPublicHooksCobrancasWaCronRoute
   '/api/public/webhooks/asaas': typeof ApiPublicWebhooksAsaasRoute
+  '/api/public/webhooks/pix': typeof ApiPublicWebhooksPixRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -459,7 +478,9 @@ export interface FileRouteTypes {
     | '/relatorios/fluxo-caixa'
     | '/relatorios/vendas'
     | '/admin/'
+    | '/api/public/hooks/cobrancas-wa-cron'
     | '/api/public/webhooks/asaas'
+    | '/api/public/webhooks/pix'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -504,7 +525,9 @@ export interface FileRouteTypes {
     | '/relatorios/fluxo-caixa'
     | '/relatorios/vendas'
     | '/admin'
+    | '/api/public/hooks/cobrancas-wa-cron'
     | '/api/public/webhooks/asaas'
+    | '/api/public/webhooks/pix'
   id:
     | '__root__'
     | '/'
@@ -550,7 +573,9 @@ export interface FileRouteTypes {
     | '/relatorios/fluxo-caixa'
     | '/relatorios/vendas'
     | '/admin/'
+    | '/api/public/hooks/cobrancas-wa-cron'
     | '/api/public/webhooks/asaas'
+    | '/api/public/webhooks/pix'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -576,7 +601,9 @@ export interface RootRouteChildren {
   RelatoriosRoute: typeof RelatoriosRouteWithChildren
   VendasRoute: typeof VendasRoute
   AutorizacoesHistoricoRoute: typeof AutorizacoesHistoricoRoute
+  ApiPublicHooksCobrancasWaCronRoute: typeof ApiPublicHooksCobrancasWaCronRoute
   ApiPublicWebhooksAsaasRoute: typeof ApiPublicWebhooksAsaasRoute
+  ApiPublicWebhooksPixRoute: typeof ApiPublicWebhooksPixRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -882,11 +909,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminAssinaturasRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/api/public/webhooks/pix': {
+      id: '/api/public/webhooks/pix'
+      path: '/api/public/webhooks/pix'
+      fullPath: '/api/public/webhooks/pix'
+      preLoaderRoute: typeof ApiPublicWebhooksPixRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/webhooks/asaas': {
       id: '/api/public/webhooks/asaas'
       path: '/api/public/webhooks/asaas'
       fullPath: '/api/public/webhooks/asaas'
       preLoaderRoute: typeof ApiPublicWebhooksAsaasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/hooks/cobrancas-wa-cron': {
+      id: '/api/public/hooks/cobrancas-wa-cron'
+      path: '/api/public/hooks/cobrancas-wa-cron'
+      fullPath: '/api/public/hooks/cobrancas-wa-cron'
+      preLoaderRoute: typeof ApiPublicHooksCobrancasWaCronRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -975,8 +1016,19 @@ const rootRouteChildren: RootRouteChildren = {
   RelatoriosRoute: RelatoriosRouteWithChildren,
   VendasRoute: VendasRoute,
   AutorizacoesHistoricoRoute: AutorizacoesHistoricoRoute,
+  ApiPublicHooksCobrancasWaCronRoute: ApiPublicHooksCobrancasWaCronRoute,
   ApiPublicWebhooksAsaasRoute: ApiPublicWebhooksAsaasRoute,
+  ApiPublicWebhooksPixRoute: ApiPublicWebhooksPixRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { createStart } from '@tanstack/react-start'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+  }
+}
