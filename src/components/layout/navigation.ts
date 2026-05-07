@@ -87,6 +87,12 @@ export const MODULES: ModuleDef[] = [
         icon: BarChart3,
         description: "Consulta por dia/período",
       },
+      {
+        to: "/autorizacoes/historico",
+        label: "Autorizações",
+        icon: ShieldCheck,
+        description: "Histórico de autorizações gerenciais",
+      },
     ],
   },
   {
