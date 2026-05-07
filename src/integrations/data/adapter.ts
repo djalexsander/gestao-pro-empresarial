@@ -494,6 +494,16 @@ export interface FinanceiroAdapter {
   cobrancaPendente(): Promise<CobrancaPendenteDomain | null>;
   /** Lista lançamentos de fiado (tipo=receber + forma=fiado, exclui cancelados). */
   listFiado(): Promise<FiadoLancamentoDomain[]>;
+  /** Lista títulos pendentes da forma `ifood` (modo lote da conciliação). */
+  listIfoodPendentes(): Promise<IfoodPendenteDomain[]>;
+}
+
+export interface IfoodPendenteDomain {
+  id: string;
+  descricao: string;
+  valor: number;
+  data_emissao: string;
+  cliente_nome: string | null;
 }
 
 export interface FiadoLancamentoDomain {
