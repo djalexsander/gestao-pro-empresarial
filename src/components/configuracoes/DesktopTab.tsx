@@ -256,6 +256,24 @@ export function DesktopTab() {
     setOutboxClientes(await fetchOutboxClientesStats(localCfg));
   };
 
+  const handleFlushFornecedores = async () => {
+    if (!localCfg) return;
+    setFlushingFornecedores(true);
+    try {
+      const { access_token } = await dataClient.auth.getSession();
+      await flushOutboxFornecedores(localCfg, access_token);
+      setOutboxFornecedores(await fetchOutboxFornecedoresStats(localCfg));
+    } finally {
+      setFlushingFornecedores(false);
+    }
+  };
+
+  const handleRetryErrorsFornecedores = async () => {
+    if (!localCfg) return;
+    await retryOutboxFornecedoresErrors(localCfg);
+    setOutboxFornecedores(await fetchOutboxFornecedoresStats(localCfg));
+  };
+
   const handleRegenerarLancamentos = async () => {
     if (!localCfg || !caixaAberto?.local_uuid) return;
     setRegenerandoLanc(true);
