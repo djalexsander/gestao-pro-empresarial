@@ -778,6 +778,7 @@ export function DesktopTab() {
                           ["Caixa", outboxCaixa],
                           ["Cancelamentos", outboxCancel],
                           ["Financeiro", outboxFin],
+                          ["Clientes", outboxClientes],
                         ] as const
                       ).map(([nome, st]) => {
                         if (!st) return null;
