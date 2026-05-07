@@ -421,8 +421,6 @@ export const localTerminalAdapter: DataAdapter = {
 
   clientes: {
     ...cloudAdapter.clientes,
-  clientes: {
-    ...cloudAdapter.clientes,
     /**
      * Writes (Fase 2): vão PRIMEIRO ao servidor local. Lá geram um
      * `local_uuid` estável, gravam no `clientes_local`, enfileiram na
