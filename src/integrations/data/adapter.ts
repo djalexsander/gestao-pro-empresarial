@@ -691,7 +691,7 @@ export interface FuncionariosAdapter {
   desbloquearPin(input: DesbloquearPinOperadorInput): Promise<DesbloquearPinOperadorResult>;
 
   // ---------------------------- Reads (Bloco 15) ----------------------------
-  /** Lista funcionários do tenant. RPC `funcionarios_listar`. */>
+  /** Lista funcionários do tenant. RPC `funcionarios_listar`. */
   list(input?: FuncionariosListInput): Promise<FuncionarioDomain[]>;
   /** Retorna apenas o nome do funcionário, ou null. */
   nomePorId(funcionarioId: string): Promise<string | null>;
