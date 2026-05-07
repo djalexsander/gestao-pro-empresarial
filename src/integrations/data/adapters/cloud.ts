@@ -1765,6 +1765,14 @@ const funcionarios: DataAdapter["funcionarios"] = {
     if (input?.somente_ativos) rows = rows.filter((f) => f.ativo);
     return rows;
   },
+  async nomePorId(funcionarioId) {
+    const { data } = await supabase
+      .from("funcionarios")
+      .select("nome")
+      .eq("id", funcionarioId)
+      .maybeSingle();
+    return (data?.nome as string | undefined) ?? null;
+  },
 };
 
 // ============================================================
