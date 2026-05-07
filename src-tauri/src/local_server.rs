@@ -1820,6 +1820,44 @@ async fn fornecedores_handler(
     proxy_with_incremental_sync(&ctx, &headers, "fornecedores", "/rest/v1/fornecedores", &q_owned, false).await
 }
 
+// ---------- /api/financeiro/lancamentos-completo (v14) ----------
+//
+// Cache "completo" do PostgREST com joins (cliente, fornecedor, venda,
+// compra, categoria) que alimenta a tela /financeiro. A UI faz todos os
+// filtros (tipo, status, período, categoria, fornecedor) client-side em
+// cima desse dataset.
+
+fn financeiro_completo_select() -> &'static str {
+    "id,descricao,valor,valor_pago,data_vencimento,data_pagamento,data_emissao,\
+     tipo,status,observacoes,numero_documento,forma_pagamento,created_at,updated_at,\
+     conciliado_em,valor_repasse,taxa_repasse,numero_repasse,observacao_repasse,\
+     cliente_id,venda_id,compra_id,\
+     fornecedor:fornecedores(razao_social,nome_fantasia,documento,telefone),\
+     cliente:clientes(nome,documento,telefone,celular,email),\
+     venda:vendas(numero,data_finalizacao,total),\
+     compra:compras(numero,data_emissao,total,status),\
+     categoria:categorias_financeiras(nome)"
+}
+
+async fn financeiro_lancamentos_completo_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let params: Vec<(&str, String)> = vec![
+        ("select", financeiro_completo_select().to_string()),
+        ("order", "data_vencimento.asc".into()),
+    ];
+    proxy_with_incremental_sync(
+        &ctx,
+        &headers,
+        "financeiro_lancamentos_completo",
+        "/rest/v1/financeiro_lancamentos",
+        &params,
+        false,
+    )
+    .await
+}
+
 /// GET `/api/caixa/resumo?caixa_id=...` ou `?operador_id=...` para o aberto.
 /// Retorna o resumo local do caixa: totais por forma de pagamento, vendas,
 /// suprimentos, sangrias, esperado em dinheiro e diferença (se fechado).
