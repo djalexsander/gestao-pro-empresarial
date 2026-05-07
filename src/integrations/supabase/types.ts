@@ -161,6 +161,8 @@ export type Database = {
           exigir_fechar_caixa_qualquer: boolean
           exigir_reabrir_caixa: boolean
           exigir_remover_item_venda: boolean
+          exigir_sangria_caixa: boolean
+          exigir_suprimento_caixa: boolean
           metodo_codigo_qr_habilitado: boolean
           metodo_pin_habilitado: boolean
           metodo_senha_master_habilitado: boolean
@@ -181,6 +183,8 @@ export type Database = {
           exigir_fechar_caixa_qualquer?: boolean
           exigir_reabrir_caixa?: boolean
           exigir_remover_item_venda?: boolean
+          exigir_sangria_caixa?: boolean
+          exigir_suprimento_caixa?: boolean
           metodo_codigo_qr_habilitado?: boolean
           metodo_pin_habilitado?: boolean
           metodo_senha_master_habilitado?: boolean
@@ -201,6 +205,8 @@ export type Database = {
           exigir_fechar_caixa_qualquer?: boolean
           exigir_reabrir_caixa?: boolean
           exigir_remover_item_venda?: boolean
+          exigir_sangria_caixa?: boolean
+          exigir_suprimento_caixa?: boolean
           metodo_codigo_qr_habilitado?: boolean
           metodo_pin_habilitado?: boolean
           metodo_senha_master_habilitado?: boolean
@@ -3566,6 +3572,8 @@ export type Database = {
           exigir_fechar_caixa_qualquer: boolean
           exigir_reabrir_caixa: boolean
           exigir_remover_item_venda: boolean
+          exigir_sangria_caixa: boolean
+          exigir_suprimento_caixa: boolean
           metodo_codigo_qr_habilitado: boolean
           metodo_pin_habilitado: boolean
           metodo_senha_master_habilitado: boolean
@@ -3595,6 +3603,8 @@ export type Database = {
           exigir_fechar_caixa_qualquer: boolean
           exigir_reabrir_caixa: boolean
           exigir_remover_item_venda: boolean
+          exigir_sangria_caixa: boolean
+          exigir_suprimento_caixa: boolean
           metodo_codigo_qr_habilitado: boolean
           metodo_pin_habilitado: boolean
           metodo_senha_master_habilitado: boolean
@@ -4435,6 +4445,8 @@ export type Database = {
         | "excluir_lancamento_financeiro"
         | "alterar_valor_confirmado"
         | "reabrir_caixa"
+        | "sangria_caixa"
+        | "suprimento_caixa"
       autorizacao_metodo: "pin_funcionario" | "senha_master" | "codigo_qr"
       autorizacao_status: "autorizado" | "negado"
       cadastro_status: "ativo" | "inativo"
@@ -4673,6 +4685,8 @@ export const Constants = {
         "excluir_lancamento_financeiro",
         "alterar_valor_confirmado",
         "reabrir_caixa",
+        "sangria_caixa",
+        "suprimento_caixa",
       ],
       autorizacao_metodo: ["pin_funcionario", "senha_master", "codigo_qr"],
       autorizacao_status: ["autorizado", "negado"],
