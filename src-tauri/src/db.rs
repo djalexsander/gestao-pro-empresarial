@@ -774,6 +774,69 @@ pub fn init() -> DbResult<()> {
         "#,
     )?;
 
+    // ------------------------------------------------------------------
+    // Caches de relatórios — caixas, movimentos, funcionários e terminais.
+    // Mesma filosofia de `compras_local` / `vendas_remote_cache`: payload
+    // bruto do PostgREST + cursor incremental por updated_at. Usados pelas
+    // telas de relatórios (caixa) sem dependência de internet.
+    // ------------------------------------------------------------------
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS caixas_remote_cache (
+            id                   TEXT PRIMARY KEY,
+            status               TEXT,
+            operador_id          TEXT,
+            terminal_id          TEXT,
+            data_abertura_ms     INTEGER,
+            payload              TEXT NOT NULL,
+            updated_at_remote_ms INTEGER,
+            synced_at_ms         INTEGER NOT NULL,
+            deleted_at_ms        INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_caixas_rc_abertura
+            ON caixas_remote_cache(data_abertura_ms DESC);
+        CREATE INDEX IF NOT EXISTS idx_caixas_rc_status
+            ON caixas_remote_cache(status);
+
+        CREATE TABLE IF NOT EXISTS caixa_movimentos_remote_cache (
+            id                   TEXT PRIMARY KEY,
+            caixa_id             TEXT,
+            tipo                 TEXT,
+            created_at_ms        INTEGER,
+            payload              TEXT NOT NULL,
+            updated_at_remote_ms INTEGER,
+            synced_at_ms         INTEGER NOT NULL,
+            deleted_at_ms        INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_caixa_movs_rc_caixa
+            ON caixa_movimentos_remote_cache(caixa_id, created_at_ms DESC);
+
+        CREATE TABLE IF NOT EXISTS funcionarios_remote_cache (
+            id                   TEXT PRIMARY KEY,
+            nome                 TEXT,
+            ativo                INTEGER,
+            payload              TEXT NOT NULL,
+            updated_at_remote_ms INTEGER,
+            synced_at_ms         INTEGER NOT NULL,
+            deleted_at_ms        INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_func_rc_ativo
+            ON funcionarios_remote_cache(ativo);
+
+        CREATE TABLE IF NOT EXISTS terminais_remote_cache (
+            id                   TEXT PRIMARY KEY,
+            nome                 TEXT,
+            ativo                INTEGER,
+            payload              TEXT NOT NULL,
+            updated_at_remote_ms INTEGER,
+            synced_at_ms         INTEGER NOT NULL,
+            deleted_at_ms        INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_term_rc_ativo
+            ON terminais_remote_cache(ativo);
+        "#,
+    )?;
+
     conn.execute(
         "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
