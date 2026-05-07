@@ -1108,6 +1108,7 @@ export const localTerminalAdapter: DataAdapter = {
         () => cloudAdapter.relatorios.cardNotasFiscais(),
       ),
 
+    cardFluxoCaixa: () =>
       withFallback(
         "relatorios",
         "cardFluxoCaixa",
