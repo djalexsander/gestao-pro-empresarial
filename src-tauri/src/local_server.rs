@@ -829,6 +829,27 @@ fn read_typed(domain: &str, query: &[(&str, String)]) -> Result<String, db::DbEr
         }
         "funcionarios_remote" => db::read_funcionarios_ativos_remote(),
         "terminais_remote" => db::read_terminais_ativos_remote(),
+        "pagamentos_empresa_remote" => {
+            let limit = query
+                .iter()
+                .find(|(k, _)| *k == "__filter_limit")
+                .and_then(|(_, v)| v.parse::<i64>().ok())
+                .unwrap_or(200);
+            db::read_pagamentos_empresa_remote(limit)
+        }
+        "venda_itens_remote" => {
+            let inicio = query
+                .iter()
+                .find(|(k, _)| *k == "__filter_inicio_ms")
+                .and_then(|(_, v)| v.parse::<i64>().ok())
+                .unwrap_or(0);
+            let fim = query
+                .iter()
+                .find(|(k, _)| *k == "__filter_fim_ms")
+                .and_then(|(_, v)| v.parse::<i64>().ok())
+                .unwrap_or(i64::MAX);
+            db::read_venda_itens_remote_periodo(inicio, fim)
+        }
         _ => Err(db::DbError("domínio sem leitura tipada".into())),
     }
 }
