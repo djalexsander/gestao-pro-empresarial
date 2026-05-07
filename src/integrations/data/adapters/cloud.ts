@@ -1302,6 +1302,30 @@ const financeiro: DataAdapter["financeiro"] = {
     if (error) throw new Error(error.message);
     return (data ?? []) as unknown as import("../adapter").FiadoLancamentoDomain[];
   },
+  async listIfoodPendentes() {
+    const { data, error } = await supabase
+      .from("financeiro_lancamentos")
+      .select("id, descricao, valor, data_emissao, cliente:clientes(nome)")
+      .eq("forma_pagamento", "ifood")
+      .eq("status", "pendente")
+      .order("data_emissao", { ascending: true })
+      .limit(500);
+    if (error) throw error;
+    type Row = {
+      id: string;
+      descricao: string;
+      valor: number;
+      data_emissao: string;
+      cliente: { nome: string | null } | null;
+    };
+    return ((data ?? []) as unknown as Row[]).map((r) => ({
+      id: r.id,
+      descricao: r.descricao,
+      valor: Number(r.valor),
+      data_emissao: r.data_emissao,
+      cliente_nome: r.cliente?.nome ?? null,
+    }));
+  },
 };
 
 // =====================================================================
