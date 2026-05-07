@@ -1585,3 +1585,194 @@ export async function cancelarRestauracao(cfg?: TerminalConexaoConfig) {
   const r = await postJson<{ cancelled: boolean }>(cfg, "/backup/restore/cancel");
   return r?.cancelled ?? false;
 }
+
+// ----------------------------------------------------------------------------
+// Clientes (Fase 2) — writes locais com outbox
+// ----------------------------------------------------------------------------
+
+export interface ClienteCriarLocalResponse {
+  cliente_id: string;
+  cliente_local_uuid: string;
+  cliente_remote_id: string | null;
+  idempotente: boolean;
+  outbox_status: "pending" | "sent" | "skipped";
+  remote_response?: string | null;
+}
+
+export interface ClienteSimpleLocalResponse {
+  cliente_id: string;
+  cliente_local_uuid: string;
+  cliente_remote_id: string | null;
+  idempotente: boolean;
+  outbox_status: "pending" | "sent" | "skipped";
+}
+
+async function postJsonAuth<T>(
+  cfg: TerminalConexaoConfig | undefined,
+  path: string,
+  body: unknown,
+  authToken?: string | null,
+  timeoutMs = 8_000,
+): Promise<T | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    };
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    const res = await fetch(`${baseUrl}${path}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body ?? {}),
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    clearTimeout(timer);
+    return null;
+  }
+}
+
+export async function criarClienteLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: Record<string, unknown>,
+  authToken?: string | null,
+): Promise<ClienteCriarLocalResponse | null> {
+  return postJsonAuth<ClienteCriarLocalResponse>(
+    cfg,
+    "/api/clientes/criar",
+    payload,
+    authToken,
+  );
+}
+
+export async function editarClienteLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: Record<string, unknown> & { cliente_id: string },
+  authToken?: string | null,
+): Promise<ClienteSimpleLocalResponse | null> {
+  return postJsonAuth<ClienteSimpleLocalResponse>(
+    cfg,
+    "/api/clientes/editar",
+    payload,
+    authToken,
+  );
+}
+
+export async function alterarStatusClienteLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: { cliente_id: string; status: string },
+  authToken?: string | null,
+): Promise<ClienteSimpleLocalResponse | null> {
+  return postJsonAuth<ClienteSimpleLocalResponse>(
+    cfg,
+    "/api/clientes/alterar-status",
+    payload,
+    authToken,
+  );
+}
+
+export async function excluirClienteLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: { cliente_id: string },
+  authToken?: string | null,
+): Promise<ClienteSimpleLocalResponse | null> {
+  return postJsonAuth<ClienteSimpleLocalResponse>(
+    cfg,
+    "/api/clientes/excluir",
+    payload,
+    authToken,
+  );
+}
+
+// Outbox de clientes — telemetria/operação
+export async function fetchOutboxClientesStats(
+  cfg?: TerminalConexaoConfig,
+): Promise<OutboxStats | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  try {
+    const res = await fetch(`${baseUrl}/db/outbox/clientes/stats`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as OutboxStats;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchOutboxClientesList(
+  cfg: TerminalConexaoConfig | undefined,
+  opts?: { status?: OutboxItem["status"]; limit?: number },
+): Promise<OutboxItem[]> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return [];
+  const url = new URL(`${baseUrl}/db/outbox/clientes`);
+  if (opts?.status) url.searchParams.set("status", opts.status);
+  if (opts?.limit) url.searchParams.set("limit", String(opts.limit));
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const json = (await res.json()) as { items?: OutboxItem[] };
+    return json.items ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function flushOutboxClientes(
+  cfg: TerminalConexaoConfig | undefined,
+  authToken?: string | null,
+): Promise<OutboxFlushResult | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30_000);
+  try {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    const res = await fetch(`${baseUrl}/db/outbox/clientes/flush`, {
+      method: "POST",
+      headers,
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    return (await res.json()) as OutboxFlushResult;
+  } catch {
+    clearTimeout(timer);
+    return null;
+  }
+}
+
+export async function retryOutboxClientesErrors(
+  cfg?: TerminalConexaoConfig,
+): Promise<number> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return 0;
+  try {
+    const res = await fetch(`${baseUrl}/db/outbox/clientes/retry-errors`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return 0;
+    const json = (await res.json()) as { requeued?: number };
+    return json.requeued ?? 0;
+  } catch {
+    return 0;
+  }
+}
