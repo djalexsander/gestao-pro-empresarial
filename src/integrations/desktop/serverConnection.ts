@@ -1776,3 +1776,160 @@ export async function retryOutboxClientesErrors(
     return 0;
   }
 }
+
+// ============================================================================
+// FORNECEDORES — offline-first (v18)
+// ============================================================================
+
+export interface FornecedorCriarLocalResponse {
+  fornecedor_id: string;
+  fornecedor_local_uuid: string;
+  fornecedor_remote_id: string | null;
+  idempotente: boolean;
+  outbox_status: "pending" | "sent" | "skipped";
+  remote_response?: string | null;
+}
+
+export interface FornecedorSimpleLocalResponse {
+  fornecedor_id: string;
+  fornecedor_local_uuid: string;
+  fornecedor_remote_id: string | null;
+  idempotente: boolean;
+  outbox_status: "pending" | "sent" | "skipped";
+}
+
+export async function criarFornecedorLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: Record<string, unknown>,
+  authToken?: string | null,
+): Promise<FornecedorCriarLocalResponse | null> {
+  return postJsonAuth<FornecedorCriarLocalResponse>(
+    cfg,
+    "/api/fornecedores/criar",
+    payload,
+    authToken,
+  );
+}
+
+export async function editarFornecedorLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: Record<string, unknown> & { fornecedor_id: string },
+  authToken?: string | null,
+): Promise<FornecedorSimpleLocalResponse | null> {
+  return postJsonAuth<FornecedorSimpleLocalResponse>(
+    cfg,
+    "/api/fornecedores/editar",
+    payload,
+    authToken,
+  );
+}
+
+export async function alterarStatusFornecedorLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: { fornecedor_id: string; status: string },
+  authToken?: string | null,
+): Promise<FornecedorSimpleLocalResponse | null> {
+  return postJsonAuth<FornecedorSimpleLocalResponse>(
+    cfg,
+    "/api/fornecedores/alterar-status",
+    payload,
+    authToken,
+  );
+}
+
+export async function excluirFornecedorLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: { fornecedor_id: string },
+  authToken?: string | null,
+): Promise<FornecedorSimpleLocalResponse | null> {
+  return postJsonAuth<FornecedorSimpleLocalResponse>(
+    cfg,
+    "/api/fornecedores/excluir",
+    payload,
+    authToken,
+  );
+}
+
+export async function fetchOutboxFornecedoresStats(
+  cfg?: TerminalConexaoConfig,
+): Promise<OutboxStats | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  try {
+    const res = await fetch(`${baseUrl}/db/outbox/fornecedores/stats`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as OutboxStats;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchOutboxFornecedoresList(
+  cfg: TerminalConexaoConfig | undefined,
+  opts?: { status?: OutboxItem["status"]; limit?: number },
+): Promise<OutboxItem[]> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return [];
+  const url = new URL(`${baseUrl}/db/outbox/fornecedores`);
+  if (opts?.status) url.searchParams.set("status", opts.status);
+  if (opts?.limit) url.searchParams.set("limit", String(opts.limit));
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const json = (await res.json()) as { items?: OutboxItem[] };
+    return json.items ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function flushOutboxFornecedores(
+  cfg: TerminalConexaoConfig | undefined,
+  authToken?: string | null,
+): Promise<OutboxFlushResult | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30_000);
+  try {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    const res = await fetch(`${baseUrl}/db/outbox/fornecedores/flush`, {
+      method: "POST",
+      headers,
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    return (await res.json()) as OutboxFlushResult;
+  } catch {
+    clearTimeout(timer);
+    return null;
+  }
+}
+
+export async function retryOutboxFornecedoresErrors(
+  cfg?: TerminalConexaoConfig,
+): Promise<number> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return 0;
+  try {
+    const res = await fetch(`${baseUrl}/db/outbox/fornecedores/retry-errors`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return 0;
+    const json = (await res.json()) as { requeued?: number };
+    return json.requeued ?? 0;
+  } catch {
+    return 0;
+  }
+}
