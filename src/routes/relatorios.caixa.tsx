@@ -49,7 +49,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { ModuloGate } from "@/components/saas/ModuloGate";
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 import { formatBRL } from "@/lib/mock-data";
 import { exportRowsToCSV, type CsvColumn } from "@/lib/export-csv";
 import { cn } from "@/lib/utils";
@@ -192,13 +192,13 @@ function Conteudo() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [{ data: funcs }, { data: terms }] = await Promise.all([
-        supabase.from("funcionarios").select("id, nome").eq("ativo", true).order("nome"),
-        supabase.from("terminais").select("id, nome").eq("ativo", true).order("nome"),
+      const [funcs, terms] = await Promise.all([
+        dataClient.relatorios.funcionariosAtivos(),
+        dataClient.relatorios.terminaisAtivos(),
       ]);
       if (cancelled) return;
-      setOperadores(funcs ?? []);
-      setTerminais(terms ?? []);
+      setOperadores(funcs);
+      setTerminais(terms);
     })();
     return () => {
       cancelled = true;
@@ -211,71 +211,65 @@ function Conteudo() {
     (async () => {
       setLoading(true);
       const { ini, fim } = calcRange(filtros.periodo, filtros.customIni, filtros.customFim);
+      try {
+        const data = await dataClient.relatorios.caixasSessoes({
+          iniIso: ini.toISOString(),
+          fimIso: fim.toISOString(),
+          operadorId: filtros.operador,
+          terminalId: filtros.terminal,
+          status:
+            filtros.status === "aberto"
+              ? "aberto"
+              : filtros.status === "fechado"
+                ? "fechado"
+                : null,
+        });
+        if (cancelled) return;
 
-      let q = supabase
-        .from("caixas")
-        .select(
-          "id, operador_id, terminal_id, data_abertura, data_fechamento, valor_inicial, total_vendas, total_sangrias, total_suprimentos, total_dinheiro, total_pix, total_debito, total_credito, total_boleto, total_ifood, total_fiado, total_outros, valor_esperado, valor_informado, diferenca, status, observacao, observacao_fechamento, qtd_vendas",
-        )
-        .gte("data_abertura", ini.toISOString())
-        .lte("data_abertura", fim.toISOString())
-        .order("data_abertura", { ascending: false })
-        .limit(500);
+        const opMap = new Map(operadores.map((o) => [o.id, o.nome]));
+        const tMap = new Map(terminais.map((t) => [t.id, t.nome]));
 
-      if (filtros.operador !== "todos") q = q.eq("operador_id", filtros.operador);
-      if (filtros.terminal !== "todos") q = q.eq("terminal_id", filtros.terminal);
-      if (filtros.status === "aberto") q = q.eq("status", "aberto");
-      if (filtros.status === "fechado") q = q.eq("status", "fechado");
+        let mapped: CaixaRow[] = data.map((c) => ({
+          id: c.id,
+          operador_id: c.operador_id,
+          operador_nome: (c.operador_id && opMap.get(c.operador_id)) ?? "—",
+          terminal_id: c.terminal_id,
+          terminal_nome: (c.terminal_id && tMap.get(c.terminal_id)) ?? "—",
+          data_abertura: c.data_abertura,
+          data_fechamento: c.data_fechamento,
+          valor_inicial: c.valor_inicial,
+          total_vendas: c.total_vendas,
+          total_sangrias: c.total_sangrias,
+          total_suprimentos: c.total_suprimentos,
+          total_dinheiro: c.total_dinheiro,
+          total_pix: c.total_pix,
+          total_debito: c.total_debito,
+          total_credito: c.total_credito,
+          total_boleto: c.total_boleto,
+          total_ifood: c.total_ifood,
+          total_fiado: c.total_fiado,
+          total_outros: c.total_outros,
+          valor_esperado: c.valor_esperado,
+          valor_informado: c.valor_informado,
+          diferenca: c.diferenca,
+          status: c.status,
+          observacao: c.observacao,
+          observacao_fechamento: c.observacao_fechamento,
+          qtd_vendas: c.qtd_vendas,
+        }));
 
-      const { data, error } = await q;
-      if (cancelled) return;
-      if (error) {
-        toast.error(error.message);
+        if (filtros.status === "divergencia") {
+          mapped = mapped.filter(
+            (r) => r.status === "fechado" && r.diferenca != null && Math.abs(r.diferenca) > 0.009,
+          );
+        }
+
+        setRows(mapped);
+      } catch (e) {
+        if (cancelled) return;
+        toast.error(e instanceof Error ? e.message : "Falha ao carregar");
         setRows([]);
-        setLoading(false);
-        return;
       }
-
-      const opMap = new Map(operadores.map((o) => [o.id, o.nome]));
-      const tMap = new Map(terminais.map((t) => [t.id, t.nome]));
-
-      let mapped: CaixaRow[] = (data ?? []).map((c: any) => ({
-        id: c.id,
-        operador_id: c.operador_id,
-        operador_nome: opMap.get(c.operador_id) ?? "—",
-        terminal_id: c.terminal_id,
-        terminal_nome: tMap.get(c.terminal_id) ?? "—",
-        data_abertura: c.data_abertura,
-        data_fechamento: c.data_fechamento,
-        valor_inicial: Number(c.valor_inicial) || 0,
-        total_vendas: Number(c.total_vendas) || 0,
-        total_sangrias: Number(c.total_sangrias) || 0,
-        total_suprimentos: Number(c.total_suprimentos) || 0,
-        total_dinheiro: Number(c.total_dinheiro) || 0,
-        total_pix: Number(c.total_pix) || 0,
-        total_debito: Number(c.total_debito) || 0,
-        total_credito: Number(c.total_credito) || 0,
-        total_boleto: Number(c.total_boleto) || 0,
-        total_ifood: Number(c.total_ifood) || 0,
-        total_fiado: Number(c.total_fiado) || 0,
-        total_outros: Number(c.total_outros) || 0,
-        valor_esperado: c.valor_esperado != null ? Number(c.valor_esperado) : null,
-        valor_informado: c.valor_informado != null ? Number(c.valor_informado) : null,
-        diferenca: c.diferenca != null ? Number(c.diferenca) : null,
-        status: c.status,
-        observacao: c.observacao,
-        observacao_fechamento: c.observacao_fechamento,
-        qtd_vendas: Number(c.qtd_vendas) || 0,
-      }));
-
-      // Filtro de divergência aplicado em memória (somente fechados com diferença != 0)
-      if (filtros.status === "divergencia") {
-        mapped = mapped.filter(
-          (r) => r.status === "fechado" && r.diferenca != null && Math.abs(r.diferenca) > 0.009,
-        );
-      }
-
-      setRows(mapped);
       setLoading(false);
     })();
     return () => {
@@ -803,27 +797,14 @@ function DetalheCaixaDialog({
     let cancelled = false;
     (async () => {
       setLoadingMovs(true);
-      const { data, error } = await supabase
-        .from("caixa_movimentos")
-        .select("id, caixa_id, tipo, valor, motivo, created_at")
-        .eq("caixa_id", caixa.id)
-        .order("created_at", { ascending: false })
-        .limit(500);
-      if (cancelled) return;
-      if (error) {
-        toast.error(error.message);
+      try {
+        const data = await dataClient.relatorios.caixaMovimentos(caixa.id);
+        if (cancelled) return;
+        setMovs(data);
+      } catch (e) {
+        if (cancelled) return;
+        toast.error(e instanceof Error ? e.message : "Falha ao carregar movimentos");
         setMovs([]);
-      } else {
-        setMovs(
-          (data ?? []).map((m: any) => ({
-            id: m.id,
-            caixa_id: m.caixa_id,
-            tipo: m.tipo,
-            valor: Number(m.valor) || 0,
-            motivo: m.motivo,
-            created_at: m.created_at,
-          })),
-        );
       }
       setLoadingMovs(false);
     })();
@@ -835,17 +816,15 @@ function DetalheCaixaDialog({
   async function salvarObservacao() {
     if (!caixa) return;
     setSalvando(true);
-    const { error } = await supabase
-      .from("caixas")
-      .update({ observacao_fechamento: obs.trim() || null })
-      .eq("id", caixa.id);
-    setSalvando(false);
-    if (error) {
-      toast.error(error.message);
-      return;
+    try {
+      await dataClient.relatorios.atualizarObservacaoCaixa(caixa.id, obs.trim() || null);
+      toast.success("Observação salva.");
+      onUpdate({ ...caixa, observacao_fechamento: obs.trim() || null });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao salvar");
+    } finally {
+      setSalvando(false);
     }
-    toast.success("Observação salva.");
-    onUpdate({ ...caixa, observacao_fechamento: obs.trim() || null });
   }
 
   if (!caixa) return null;

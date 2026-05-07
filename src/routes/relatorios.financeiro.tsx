@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -188,12 +188,12 @@ function Conteudo() {
   // Carrega categorias uma vez
   useEffect(() => {
     (async () => {
-      const { data } = await supabase
-        .from("categorias_financeiras")
-        .select("id, nome, tipo")
-        .eq("ativo", true)
-        .order("nome");
-      setCategorias((data ?? []) as Categoria[]);
+      try {
+        const data = await dataClient.relatorios.categoriasFinanceiras();
+        setCategorias(data as Categoria[]);
+      } catch {
+        setCategorias([]);
+      }
     })();
   }, []);
 
@@ -208,75 +208,24 @@ function Conteudo() {
         aplicado.customFim,
       );
 
-      // 1) lançamentos do período (por data de vencimento — visão gerencial)
-      const { data, error } = await supabase
-        .from("financeiro_lancamentos")
-        .select(
-          `id, descricao, tipo, valor, valor_pago, data_emissao, data_vencimento,
-           data_pagamento, status, forma_pagamento, categoria_id,
-           categoria:categorias_financeiras(id, nome),
-           cliente:clientes(id, nome),
-           fornecedor:fornecedores(id, razao_social, nome_fantasia)`,
-        )
-        .gte("data_vencimento", inicio)
-        .lte("data_vencimento", fim)
-        .neq("status", "cancelado")
-        .order("data_vencimento", { ascending: false })
-        .limit(2000);
-
-      if (cancelled) return;
-      if (error) {
-        toast.error(error.message);
+      try {
+        const data = await dataClient.relatorios.lancamentosFinanceiroPeriodo({ inicio, fim });
+        if (cancelled) return;
+        setRows(data as Lancamento[]);
+      } catch (e) {
+        if (cancelled) return;
+        toast.error(e instanceof Error ? e.message : "Falha ao carregar");
         setRows([]);
-      } else {
-        const mapped: Lancamento[] = (data ?? []).map((l: any) => ({
-          id: l.id,
-          descricao: l.descricao,
-          tipo: l.tipo,
-          valor: Number(l.valor) || 0,
-          valor_pago: Number(l.valor_pago) || 0,
-          data_emissao: l.data_emissao,
-          data_vencimento: l.data_vencimento,
-          data_pagamento: l.data_pagamento,
-          status: l.status,
-          forma_pagamento: l.forma_pagamento,
-          categoria_id: l.categoria_id,
-          categoria_nome: l.categoria?.nome ?? null,
-          cliente_id: l.cliente?.id ?? null,
-          cliente_nome: l.cliente?.nome ?? null,
-          fornecedor_id: l.fornecedor?.id ?? null,
-          fornecedor_nome:
-            l.fornecedor?.nome_fantasia ?? l.fornecedor?.razao_social ?? null,
-        }));
-        setRows(mapped);
       }
 
-      // 2) saldo acumulado = total pago de receitas - total pago de despesas (histórico)
-      const [{ data: rec }, { data: desp }] = await Promise.all([
-        supabase
-          .from("financeiro_lancamentos")
-          .select("valor_pago")
-          .eq("status", "pago")
-          .eq("tipo", "receita"),
-        supabase
-          .from("financeiro_lancamentos")
-          .select("valor_pago")
-          .eq("status", "pago")
-          .eq("tipo", "despesa"),
-      ]);
-      if (!cancelled) {
-        const tRec = (rec ?? []).reduce(
-          (a: number, r: any) => a + (Number(r.valor_pago) || 0),
-          0,
-        );
-        const tDesp = (desp ?? []).reduce(
-          (a: number, r: any) => a + (Number(r.valor_pago) || 0),
-          0,
-        );
-        setSaldoAcumulado(tRec - tDesp);
+      try {
+        const { recebido, pago } = await dataClient.relatorios.saldoAcumuladoFinanceiro();
+        if (!cancelled) setSaldoAcumulado(recebido - pago);
+      } catch {
+        if (!cancelled) setSaldoAcumulado(0);
       }
 
-      setLoading(false);
+      if (!cancelled) setLoading(false);
     })();
     return () => {
       cancelled = true;
