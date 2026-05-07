@@ -3,15 +3,29 @@
  */
 import { supabase } from "@/integrations/supabase/client";
 import type {
+  CaixaCardDomain,
+  CaixaMovimentoDomain,
+  CaixaSessaoDomain,
+  CaixaSessoesFiltro,
+  CategoriaFinanceiraDomain,
+  ClienteOpcaoDomain,
+  CompraCardDomain,
   CompraResumoDomain,
+  ContasReceberFiltro,
   DreTotaisDomain,
   EstoqueProdutoBaseDomain,
   FluxoCaixaLinhaDomain,
+  LancamentoContasReceberDomain,
+  LancamentoFinanceiroDomain,
   MovimentacaoEstoqueAggDomain,
+  NotaFiscalCardDomain,
   NotaFiscalLinhaDomain,
+  OpcaoNomeDomain,
   PagamentoEmpresaDomain,
   RelatorioRangeInput,
   RelatoriosAdapter,
+  SaldoAcumuladoFinanceiroDomain,
+  VendaCardDomain,
 } from "../relatorios-adapter";
 
 export const cloudRelatoriosAdapter: RelatoriosAdapter = {
