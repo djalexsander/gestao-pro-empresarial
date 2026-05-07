@@ -333,24 +333,19 @@ export function BackupSeguranca({ cfg }: Props) {
           <div className="space-y-2 text-xs">
             <div>
               <span className="text-muted-foreground">Origem:</span>{" "}
-              <span className="font-mono">{exportSrc ?? "selecione um backup acima"}</span>
+              <span className="font-mono break-all">{exportSrc ?? "selecione um backup acima"}</span>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Input
-                placeholder="Caminho de destino (ex.: D:\\Backups\\gestao-pro.db)"
-                value={exportDest}
-                onChange={(e) => setExportDest(e.target.value)}
-              />
-              <Button
-                onClick={handleExport}
-                disabled={!!busy || !exportSrc || !exportDest.trim()}
-              >
-                Exportar
-              </Button>
-            </div>
+            <Button
+              onClick={handleExport}
+              disabled={!!busy || !exportSrc || !desktop}
+            >
+              <UploadCloud className="mr-2 h-4 w-4" />
+              Escolher destino e exportar…
+            </Button>
             <div className="text-muted-foreground">
-              Copia o arquivo selecionado para o caminho indicado (HD externo,
-              pendrive ou pasta de rede). Não altera o banco em uso.
+              Abre o explorador do Windows para você escolher onde salvar
+              (HD externo, pendrive, pasta de rede). Não altera o banco em uso.
+              {!desktop && " Disponível apenas no app desktop."}
             </div>
           </div>
         </div>
@@ -362,24 +357,20 @@ export function BackupSeguranca({ cfg }: Props) {
             Restaurar backup
           </div>
           <div className="space-y-2 text-xs">
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Input
-                placeholder="Caminho do arquivo .db a restaurar"
-                value={restorePath}
-                onChange={(e) => setRestorePath(e.target.value)}
-              />
-              <Button
-                variant="destructive"
-                onClick={handleRestore}
-                disabled={!!busy || !restorePath.trim()}
-              >
-                Restaurar
-              </Button>
-            </div>
+            <Button
+              variant="destructive"
+              onClick={handleRestore}
+              disabled={!!busy || !desktop}
+            >
+              <DownloadCloud className="mr-2 h-4 w-4" />
+              Selecionar arquivo .db e restaurar…
+            </Button>
             <div className="text-muted-foreground">
+              Abre o explorador para você escolher o arquivo de backup.
               Antes da restauração: validamos o arquivo, criamos um pre-backup
               do estado atual e agendamos o swap atômico para o próximo boot.
               Depois, basta reiniciar o app.
+              {!desktop && " Disponível apenas no app desktop."}
             </div>
           </div>
         </div>
