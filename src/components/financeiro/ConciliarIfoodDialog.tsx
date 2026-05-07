@@ -1,4 +1,4 @@
-import { dataClient } from "@/integrations/data/client";
+
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Receipt, Wallet, AlertCircle } from "lucide-react";
