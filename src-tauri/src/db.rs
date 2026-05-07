@@ -171,6 +171,26 @@ pub fn init() -> DbResult<()> {
         CREATE INDEX IF NOT EXISTS idx_clientes_nome ON clientes_local(nome);
         CREATE INDEX IF NOT EXISTS idx_clientes_doc ON clientes_local(documento);
 
+        -- v13: Fornecedores locais — mesma estrutura de clientes_local.
+        -- Armazena o payload completo de cada fornecedor (FornecedorDomain),
+        -- permitindo que a tela de Fornecedores funcione 100% offline depois
+        -- da primeira ingestão. Filtros (status, busca) são aplicados
+        -- client-side sobre a leitura local.
+        CREATE TABLE IF NOT EXISTS fornecedores_local (
+            id                   TEXT PRIMARY KEY,
+            razao_social         TEXT,
+            nome_fantasia        TEXT,
+            documento            TEXT,
+            status               TEXT,
+            payload              TEXT NOT NULL,
+            updated_at_remote_ms INTEGER,
+            synced_at_ms         INTEGER NOT NULL,
+            deleted_at_ms        INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_fornecedores_status ON fornecedores_local(status);
+        CREATE INDEX IF NOT EXISTS idx_fornecedores_nome ON fornecedores_local(razao_social);
+        CREATE INDEX IF NOT EXISTS idx_fornecedores_doc ON fornecedores_local(documento);
+
         -- Saldos: agregados por (produto_id, variacao_id). A chave única
         -- evita duplicatas quando o snapshot é re-ingerido.
         CREATE TABLE IF NOT EXISTS estoque_saldos_local (
