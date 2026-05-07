@@ -1,10 +1,7 @@
 /**
- * Relatórios adapter — Onda 7.
+ * Relatórios adapter — Onda 7 + 8.
  *
- * Reúne queries somente-leitura usadas pelas páginas de relatórios. Como os
- * relatórios são em sua maioria recortes de tabelas existentes, expomos
- * métodos por relatório (DRE, fluxo-caixa, fiscal, compras, estoque, etc.)
- * em vez de generalizar.
+ * Reúne queries somente-leitura usadas pelas páginas de relatórios.
  */
 
 export interface RelatorioRangeInput {
@@ -82,6 +79,166 @@ export interface PagamentoEmpresaDomain {
   asaas_billing_type: string | null;
 }
 
+/* ===== Onda 8 ===== */
+
+export interface VendaCardDomain {
+  numero: string;
+  data: string;
+  cliente: string;
+  forma: string;
+  total: number;
+  status: string;
+  pagamento: string;
+}
+
+export interface CompraCardDomain {
+  numero: string;
+  data: string;
+  fornecedor: string;
+  total: number;
+  status: string;
+}
+
+export interface CaixaCardDomain {
+  abertura: string;
+  fechamento: string | null;
+  inicial: number;
+  vendas: number;
+  sangrias: number;
+  suprimentos: number;
+  esperado: number | null;
+  informado: number | null;
+  diferenca: number | null;
+  status: string;
+}
+
+export interface NotaFiscalCardDomain {
+  venda: string;
+  nf: string;
+  serie: string;
+  data: string;
+  total: number;
+  status: string;
+}
+
+export interface CategoriaFinanceiraDomain {
+  id: string;
+  nome: string;
+  tipo: "receita" | "despesa";
+}
+
+export interface LancamentoFinanceiroDomain {
+  id: string;
+  descricao: string;
+  tipo: "receita" | "despesa";
+  valor: number;
+  valor_pago: number;
+  data_emissao: string;
+  data_vencimento: string;
+  data_pagamento: string | null;
+  status: "pago" | "pendente" | "atrasado" | "cancelado";
+  forma_pagamento: string | null;
+  categoria_id: string | null;
+  categoria_nome: string | null;
+  cliente_id: string | null;
+  cliente_nome: string | null;
+  fornecedor_id: string | null;
+  fornecedor_nome: string | null;
+}
+
+export interface LancamentoContasReceberDomain {
+  id: string;
+  descricao: string;
+  valor: number;
+  valor_pago: number;
+  data_emissao: string | null;
+  data_vencimento: string;
+  data_pagamento: string | null;
+  status: string;
+  forma_pagamento: string | null;
+  observacoes: string | null;
+  numero_documento: string | null;
+  cliente_id: string | null;
+  cliente_nome: string | null;
+  cliente_documento: string | null;
+  cliente_telefone: string | null;
+  cliente_celular: string | null;
+  cliente_email: string | null;
+  venda_id: string | null;
+  venda_numero: string | null;
+  venda_data: string | null;
+  venda_total: number | null;
+  conciliado_em: string | null;
+}
+
+export interface ClienteOpcaoDomain {
+  id: string;
+  nome: string;
+  nome_fantasia: string | null;
+  documento: string | null;
+}
+
+export interface ContasReceberFiltro {
+  inicio: string;
+  fim: string;
+  campoData: "vencimento" | "emissao" | "pagamento";
+  clienteId?: string | null;
+}
+
+export interface CaixaSessaoDomain {
+  id: string;
+  operador_id: string | null;
+  terminal_id: string | null;
+  data_abertura: string;
+  data_fechamento: string | null;
+  valor_inicial: number;
+  total_vendas: number;
+  total_sangrias: number;
+  total_suprimentos: number;
+  total_dinheiro: number;
+  total_pix: number;
+  total_debito: number;
+  total_credito: number;
+  total_boleto: number;
+  total_ifood: number;
+  total_fiado: number;
+  total_outros: number;
+  valor_esperado: number | null;
+  valor_informado: number | null;
+  diferenca: number | null;
+  status: "aberto" | "fechado";
+  observacao: string | null;
+  observacao_fechamento: string | null;
+  qtd_vendas: number;
+}
+
+export interface CaixaMovimentoDomain {
+  id: string;
+  caixa_id: string;
+  tipo: string;
+  valor: number;
+  motivo: string | null;
+  created_at: string;
+}
+
+export interface CaixaSessoesFiltro {
+  iniIso: string;
+  fimIso: string;
+  operadorId?: string | null;
+  terminalId?: string | null;
+  status?: "aberto" | "fechado" | null;
+}
+
+export interface OpcaoNomeDomain {
+  id: string;
+  nome: string;
+}
+
+export interface SaldoAcumuladoFinanceiroDomain {
+  recebido: number;
+  pago: number;
+}
+
 export interface RelatoriosAdapter {
   fluxoCaixa(input: RelatorioRangeInput): Promise<FluxoCaixaLinhaDomain[]>;
   compras(input: RelatorioRangeInput): Promise<CompraResumoDomain[]>;
@@ -92,4 +249,29 @@ export interface RelatoriosAdapter {
   }>;
   dreTotais(input: RelatorioRangeInput): Promise<DreTotaisDomain>;
   pagamentosEmpresa(): Promise<PagamentoEmpresaDomain[]>;
+
+  // Onda 8 — exporters do hub /relatorios
+  cardVendas(): Promise<VendaCardDomain[]>;
+  cardCompras(): Promise<CompraCardDomain[]>;
+  cardFluxoCaixa(): Promise<FluxoCaixaLinhaDomain[]>;
+  cardFinanceiro(): Promise<LancamentoFinanceiroDomain[]>;
+  cardContasReceber(): Promise<LancamentoContasReceberDomain[]>;
+  cardCaixas(): Promise<CaixaCardDomain[]>;
+  cardNotasFiscais(): Promise<NotaFiscalCardDomain[]>;
+
+  // Onda 8 — relatorios.financeiro
+  categoriasFinanceiras(): Promise<CategoriaFinanceiraDomain[]>;
+  lancamentosFinanceiroPeriodo(input: RelatorioRangeInput): Promise<LancamentoFinanceiroDomain[]>;
+  saldoAcumuladoFinanceiro(): Promise<SaldoAcumuladoFinanceiroDomain>;
+
+  // Onda 8 — relatorios.contas-receber
+  clientesOpcoes(): Promise<ClienteOpcaoDomain[]>;
+  lancamentosContasReceber(input: ContasReceberFiltro): Promise<LancamentoContasReceberDomain[]>;
+
+  // Onda 8 — relatorios.caixa
+  funcionariosAtivos(): Promise<OpcaoNomeDomain[]>;
+  terminaisAtivos(): Promise<OpcaoNomeDomain[]>;
+  caixasSessoes(input: CaixaSessoesFiltro): Promise<CaixaSessaoDomain[]>;
+  caixaMovimentos(caixaId: string): Promise<CaixaMovimentoDomain[]>;
+  atualizarObservacaoCaixa(caixaId: string, observacao: string | null): Promise<void>;
 }
