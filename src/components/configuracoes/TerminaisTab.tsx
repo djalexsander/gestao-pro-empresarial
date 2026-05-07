@@ -500,7 +500,7 @@ export function TerminaisTab() {
       {/* ===================================================================
           8. SINCRONIZAÇÃO E BACKUP
           =================================================================== */}
-      {isDesktop && role === "server" && (
+      {isDesktop && role === "server" && localCfg && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -511,7 +511,7 @@ export function TerminaisTab() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <BackupSeguranca />
+            <BackupSeguranca cfg={localCfg} />
           </CardContent>
         </Card>
       )}
