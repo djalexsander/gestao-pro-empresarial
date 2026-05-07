@@ -232,25 +232,14 @@ function ConfigDialog({ tipo, atual, open, onOpenChange, onSalvar, salvando }: C
           </>
         )}
 
-        {(tipo === "ifood" || tipo === "mercado_livre" || tipo === "shopee") && (
-          <>
-            <div className="space-y-3">
-              <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
-                A conexão oficial com {meta.titulo} será habilitada em breve. Você pode salvar um
-                token/identificador para ativar a integração assim que disponível.
-              </div>
-              <div className="space-y-1.5">
-                <Label>Token / Identificador</Label>
-                <Input value={mktToken} onChange={(e) => setMktToken(e.target.value)} placeholder="opcional" />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-              <Button onClick={handleSalvarMarketplace} disabled={salvando}>
-                {salvando ? "Salvando..." : "Salvar"}
-              </Button>
-            </DialogFooter>
-          </>
+        {(tipo === "ifood" || tipo === "mercado_livre" || tipo === "shopee") && empresaAtual && (
+          <MarketplaceConfigForm
+            tipo={tipo}
+            empresaId={empresaAtual.id}
+            atual={atual}
+            onSalvar={onSalvar}
+            salvando={salvando}
+          />
         )}
       </DialogContent>
     </Dialog>
