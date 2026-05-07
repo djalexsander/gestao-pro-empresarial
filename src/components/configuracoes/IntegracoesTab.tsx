@@ -18,6 +18,8 @@ import {
 import { dataClient } from "@/integrations/data/client";
 import { useEmpresaAtual } from "@/hooks/useEmpresa";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { WhatsAppConfigForm } from "./WhatsAppConfigForm";
+import { PixConfigForm } from "./PixConfigForm";
 
 type TipoIntegracao = "ifood" | "mercado_livre" | "shopee" | "whatsapp" | "pix";
 type StatusIntegracao = "disconnected" | "configuring" | "connected" | "error" | "disabled";
@@ -197,66 +199,12 @@ interface ConfigDialogProps {
 function ConfigDialog({ tipo, atual, open, onOpenChange, onSalvar, salvando }: ConfigDialogProps) {
   const meta = META[tipo];
   const cfg = atual?.configuracoes ?? {};
-
-  // Pix
-  const [pixChave, setPixChave] = useState<string>(cfg.chave ?? "");
-  const [pixTipo, setPixTipo] = useState<string>(cfg.tipo_chave ?? "cnpj");
-  const [pixNome, setPixNome] = useState<string>(cfg.nome_recebedor ?? "");
-  const [pixCidade, setPixCidade] = useState<string>(cfg.cidade ?? "");
-
-  // WhatsApp
-  const [waAtivo, setWaAtivo] = useState<boolean>(atual?.ativo ?? false);
-  const [waNumeroEmpresa, setWaNumeroEmpresa] = useState<string>(cfg.numero_empresa ?? "");
-  const [waModoEnvio, setWaModoEnvio] = useState<string>(cfg.modo_envio ?? "manual");
-  const [waTipoApi, setWaTipoApi] = useState<string>(cfg.tipo_api ?? "none");
-  const [waDiasAntes, setWaDiasAntes] = useState<number>(cfg.dias_antes ?? 2);
-  const [waDiasApos, setWaDiasApos] = useState<number>(cfg.dias_apos ?? 3);
-  const [waMsgAntes, setWaMsgAntes] = useState<string>(cfg.msg_antes ?? TEMPLATE_WA_DEFAULT);
-  const [waMsgVenc, setWaMsgVenc] = useState<string>(cfg.msg_vencimento ?? TEMPLATE_WA_DEFAULT);
-  const [waMsgApos, setWaMsgApos] = useState<string>(cfg.msg_apos ?? TEMPLATE_WA_DEFAULT);
+  const { empresaAtual } = useEmpresaAtual();
 
   // Marketplaces
   const [mktToken, setMktToken] = useState<string>(cfg.token ?? "");
 
-  const handleSalvar = () => {
-    if (tipo === "pix") {
-      if (!pixChave || !pixNome || !pixCidade) {
-        toast.error("Preencha chave, nome e cidade");
-        return;
-      }
-      onSalvar({
-        tipo_integracao: tipo,
-        status: "connected",
-        ativo: true,
-        nome_exibicao: meta.titulo,
-        configuracoes: { chave: pixChave, tipo_chave: pixTipo, nome_recebedor: pixNome, cidade: pixCidade },
-      });
-      return;
-    }
-    if (tipo === "whatsapp") {
-      const numeroLimpo = waNumeroEmpresa.replace(/\D/g, "");
-      if (waAtivo && !numeroLimpo) {
-        toast.error("Informe o número de WhatsApp da empresa");
-        return;
-      }
-      onSalvar({
-        tipo_integracao: tipo,
-        status: waAtivo ? "connected" : "disabled",
-        ativo: waAtivo,
-        nome_exibicao: meta.titulo,
-        configuracoes: {
-          numero_empresa: numeroLimpo,
-          modo_envio: waModoEnvio,
-          tipo_api: waTipoApi,
-          dias_antes: waDiasAntes,
-          dias_apos: waDiasApos,
-          msg_antes: waMsgAntes,
-          msg_vencimento: waMsgVenc,
-          msg_apos: waMsgApos,
-        },
-      });
-      return;
-    }
+  const handleSalvarMarketplace = () => {
     onSalvar({
       tipo_integracao: tipo,
       status: mktToken ? "configuring" : "disconnected",
@@ -268,7 +216,7 @@ function ConfigDialog({ tipo, atual, open, onOpenChange, onSalvar, salvando }: C
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <meta.Icon className="h-5 w-5" /> {meta.titulo}
@@ -277,142 +225,38 @@ function ConfigDialog({ tipo, atual, open, onOpenChange, onSalvar, salvando }: C
         </DialogHeader>
 
         {tipo === "pix" && (
-          <div className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>Tipo da chave</Label>
-                <Select value={pixTipo} onValueChange={setPixTipo}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cpf">CPF</SelectItem>
-                    <SelectItem value="cnpj">CNPJ</SelectItem>
-                    <SelectItem value="email">E-mail</SelectItem>
-                    <SelectItem value="telefone">Telefone</SelectItem>
-                    <SelectItem value="aleatoria">Aleatória</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Chave Pix</Label>
-                <Input value={pixChave} onChange={(e) => setPixChave(e.target.value)} placeholder="00.000.000/0000-00" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Nome do recebedor</Label>
-                <Input value={pixNome} onChange={(e) => setPixNome(e.target.value)} maxLength={25} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Cidade</Label>
-                <Input value={pixCidade} onChange={(e) => setPixCidade(e.target.value)} maxLength={15} />
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Estas informações são usadas para gerar o Pix copia e cola das contas a receber.
-            </p>
-          </div>
+          <PixConfigForm atual={atual} onSalvar={onSalvar} salvando={salvando} />
         )}
 
-        {tipo === "whatsapp" && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between rounded-md border p-3">
-              <div>
-                <p className="font-medium">Cobranças automáticas</p>
-                <p className="text-xs text-muted-foreground">
-                  Habilita o fluxo de cobrança via WhatsApp (envio manual nesta etapa).
-                </p>
-              </div>
-              <Switch checked={waAtivo} onCheckedChange={setWaAtivo} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Número de WhatsApp da empresa</Label>
-              <Input
-                value={waNumeroEmpresa}
-                onChange={(e) => setWaNumeroEmpresa(e.target.value)}
-                placeholder="55 11 99999-9999 (DDI + DDD + número)"
-                inputMode="tel"
-              />
-              <p className="text-[11px] text-muted-foreground">
-                Usado como remetente nos envios automáticos via API. No envio manual, abre o WhatsApp do operador.
-              </p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>Modo de envio</Label>
-                <Select value={waModoEnvio} onValueChange={setWaModoEnvio}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="manual">Manual (link wa.me)</SelectItem>
-                    <SelectItem value="automatico">Automático (API)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Provedor da API</Label>
-                <Select value={waTipoApi} onValueChange={setWaTipoApi}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Nenhum</SelectItem>
-                    <SelectItem value="whatsapp_cloud">WhatsApp Cloud API (oficial)</SelectItem>
-                    <SelectItem value="zapi">Z-API</SelectItem>
-                    <SelectItem value="twilio">Twilio</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            {waModoEnvio === "automatico" && (
-              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-300">
-                Envio automático requer integração com API oficial do WhatsApp. A estrutura está preparada,
-                mas o disparo automático será habilitado em breve. Por enquanto, use o modo manual.
-              </div>
-            )}
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>Dias antes do vencimento</Label>
-                <Input type="number" min={0} max={30} value={waDiasAntes} onChange={(e) => setWaDiasAntes(Number(e.target.value))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Dias após vencimento (reenvio)</Label>
-                <Input type="number" min={0} max={60} value={waDiasApos} onChange={(e) => setWaDiasApos(Number(e.target.value))} />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Mensagem — antes do vencimento</Label>
-              <Textarea rows={3} value={waMsgAntes} onChange={(e) => setWaMsgAntes(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Mensagem — no vencimento</Label>
-              <Textarea rows={3} value={waMsgVenc} onChange={(e) => setWaMsgVenc(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Mensagem — após vencimento</Label>
-              <Textarea rows={3} value={waMsgApos} onChange={(e) => setWaMsgApos(e.target.value)} />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Variáveis suportadas: <code>{"{{cliente_nome}}"}</code>, <code>{"{{valor}}"}</code>,{" "}
-              <code>{"{{vencimento}}"}</code>, <code>{"{{empresa_nome}}"}</code>,{" "}
-              <code>{"{{pix_copia_cola}}"}</code>.
-            </p>
-          </div>
+        {tipo === "whatsapp" && empresaAtual && (
+          <WhatsAppConfigForm
+            empresaId={empresaAtual.id}
+            atual={atual}
+            onSalvar={onSalvar}
+            salvando={salvando}
+          />
         )}
 
         {(tipo === "ifood" || tipo === "mercado_livre" || tipo === "shopee") && (
-          <div className="space-y-3">
-            <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
-              A conexão oficial com {meta.titulo} será habilitada em breve. Você pode salvar um
-              token/identificador para ativar a integração assim que disponível.
+          <>
+            <div className="space-y-3">
+              <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
+                A conexão oficial com {meta.titulo} será habilitada em breve. Você pode salvar um
+                token/identificador para ativar a integração assim que disponível.
+              </div>
+              <div className="space-y-1.5">
+                <Label>Token / Identificador</Label>
+                <Input value={mktToken} onChange={(e) => setMktToken(e.target.value)} placeholder="opcional" />
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label>Token / Identificador</Label>
-              <Input value={mktToken} onChange={(e) => setMktToken(e.target.value)} placeholder="opcional" />
-            </div>
-          </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
+              <Button onClick={handleSalvarMarketplace} disabled={salvando}>
+                {salvando ? "Salvando..." : "Salvar"}
+              </Button>
+            </DialogFooter>
+          </>
         )}
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button onClick={handleSalvar} disabled={salvando}>
-            {salvando ? "Salvando..." : "Salvar"}
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
