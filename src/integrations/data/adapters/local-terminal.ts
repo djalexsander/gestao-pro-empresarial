@@ -629,6 +629,299 @@ export const localTerminalAdapter: DataAdapter = {
       ),
   },
 
+  /**
+   * Dashboard (v17 — Fase 6): agrega os KPIs a partir dos caches locais já
+   * existentes (vendas_remote_cache, compras_local,
+   * financeiro_lancamentos_local, produtos_local + estoque). Se QUALQUER
+   * leitura local falhar (sem servidor / offline / cache vazio) caímos
+   * inteiro no cloudAdapter — não montamos KPIs parciais. `kpiDetalhe`
+   * continua direto na nuvem nesta fase.
+   */
+  dashboard: {
+    ...cloudAdapter.dashboard,
+    carregar: () =>
+      withFallback(
+        "dashboard",
+        "carregar",
+        async () => {
+          const baseUrl = getServerBaseUrl();
+          if (!baseUrl) return null;
+
+          const [vendasRaw, comprasRaw, lancamentosRaw, produtosRaw, saldosRaw] =
+            await Promise.all([
+              tryLocal<Array<Record<string, unknown>>>(
+                "vendas_remote",
+                "list",
+                "/api/vendas/historico",
+                { limit: "500" },
+              ),
+              tryLocal<Array<Record<string, unknown>>>(
+                "compras",
+                "list",
+                "/api/compras",
+                { limit: "500" },
+              ),
+              tryLocal<Array<Record<string, unknown>>>(
+                "financeiro_lancamentos_completo",
+                "listLancamentosCompleto",
+                "/api/financeiro/lancamentos-completo",
+              ),
+              tryLocal<Array<Record<string, unknown>>>(
+                "produtos",
+                "list",
+                "/api/produtos/list",
+                { status: "ativo" },
+              ),
+              tryLocal<
+                Array<{
+                  produto_id: string;
+                  tipo: string;
+                  quantidade: number | string;
+                }>
+              >("estoque", "saldosLinhas", "/api/estoque/saldos"),
+            ]);
+
+          if (
+            !Array.isArray(vendasRaw) ||
+            !Array.isArray(comprasRaw) ||
+            !Array.isArray(lancamentosRaw) ||
+            !Array.isArray(produtosRaw) ||
+            !Array.isArray(saldosRaw)
+          ) {
+            return null;
+          }
+
+          const MESES = [
+            "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
+            "Jul", "Ago", "Set", "Out", "Nov", "Dez",
+          ];
+          const hoje = new Date();
+          const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+          const inicioMesAnt = new Date(
+            hoje.getFullYear(),
+            hoje.getMonth() - 1,
+            1,
+          );
+          const inicio6Meses = new Date(
+            hoje.getFullYear(),
+            hoje.getMonth() - 5,
+            1,
+          );
+
+          // Vendas: descarta canceladas e considera só janela de 6 meses,
+          // mesmo critério do cloudAdapter.dashboard.carregar.
+          type V = {
+            id: string;
+            numero: string;
+            cliente_id: string | null;
+            cliente?: { nome?: string | null } | null;
+            cliente_nome?: string | null;
+            total: number | string | null;
+            status: string;
+            data_emissao: string;
+          };
+          const vendas = (vendasRaw as V[]).filter((v) => {
+            if (v.status === "cancelada") return false;
+            const d = new Date(v.data_emissao);
+            return d >= inicio6Meses;
+          });
+
+          type C = {
+            id: string;
+            numero: string;
+            fornecedor_id: string | null;
+            fornecedor?: {
+              razao_social?: string | null;
+              nome_fantasia?: string | null;
+            } | null;
+            total: number | string | null;
+            status: string;
+            data_emissao: string;
+          };
+          const compras = (comprasRaw as C[]).filter((c) => {
+            const d = new Date(c.data_emissao);
+            return d >= inicio6Meses;
+          });
+
+          const sumIf = <T extends { data_emissao: string; total: number | string | null }>(
+            arr: T[],
+            from: Date,
+            to?: Date,
+          ) =>
+            arr
+              .filter((x) => {
+                const d = new Date(x.data_emissao);
+                return d >= from && (!to || d < to);
+              })
+              .reduce((s, x) => s + Number(x.total ?? 0), 0);
+
+          const vendasMes = sumIf(vendas, inicioMes);
+          const vendasMesAnterior = sumIf(vendas, inicioMesAnt, inicioMes);
+          const comprasMes = sumIf(compras, inicioMes);
+          const comprasMesAnterior = sumIf(compras, inicioMesAnt, inicioMes);
+          const lucroMes = vendasMes - comprasMes;
+          const margem = vendasMes > 0 ? (lucroMes / vendasMes) * 100 : 0;
+
+          const seriesMap = new Map<string, { vendas: number; compras: number }>();
+          for (let i = 0; i < 6; i++) {
+            const d = new Date(hoje.getFullYear(), hoje.getMonth() - 5 + i, 1);
+            seriesMap.set(`${d.getFullYear()}-${d.getMonth()}`, {
+              vendas: 0,
+              compras: 0,
+            });
+          }
+          for (const v of vendas) {
+            const d = new Date(v.data_emissao);
+            const ref = seriesMap.get(`${d.getFullYear()}-${d.getMonth()}`);
+            if (ref) ref.vendas += Number(v.total ?? 0);
+          }
+          for (const c of compras) {
+            const d = new Date(c.data_emissao);
+            const ref = seriesMap.get(`${d.getFullYear()}-${d.getMonth()}`);
+            if (ref) ref.compras += Number(c.total ?? 0);
+          }
+          const vendasPorMes = Array.from(seriesMap.entries()).map(
+            ([key, val]) => {
+              const [, m] = key.split("-").map(Number);
+              return { month: MESES[m], vendas: val.vendas, compras: val.compras };
+            },
+          );
+
+          // Financeiro — contas em aberto + fluxo do mês.
+          type L = {
+            tipo: string;
+            valor: number | string | null;
+            valor_pago: number | string | null;
+            status: string;
+            data_pagamento: string | null;
+          };
+          const lancamentos = lancamentosRaw as L[];
+          const contasPagarLancs = lancamentos.filter(
+            (l) =>
+              l.tipo === "despesa" &&
+              l.status !== "pago" &&
+              l.status !== "cancelado",
+          );
+          const contasReceberLancs = lancamentos.filter(
+            (l) =>
+              l.tipo === "receita" &&
+              l.status !== "pago" &&
+              l.status !== "cancelado",
+          );
+          const contasPagar = contasPagarLancs.reduce(
+            (s, l) => s + (Number(l.valor) - Number(l.valor_pago ?? 0)),
+            0,
+          );
+          const contasReceber = contasReceberLancs.reduce(
+            (s, l) => s + (Number(l.valor) - Number(l.valor_pago ?? 0)),
+            0,
+          );
+
+          const fluxoMap = new Map<number, { entrada: number; saida: number }>();
+          const diasNoMes = new Date(
+            hoje.getFullYear(),
+            hoje.getMonth() + 1,
+            0,
+          ).getDate();
+          for (let d = 1; d <= diasNoMes; d++)
+            fluxoMap.set(d, { entrada: 0, saida: 0 });
+          for (const l of lancamentos) {
+            if (!l.data_pagamento) continue;
+            const dp = new Date(l.data_pagamento);
+            if (dp < inicioMes) continue;
+            const ref = fluxoMap.get(dp.getDate());
+            if (!ref) continue;
+            if (l.tipo === "receita") ref.entrada += Number(l.valor_pago ?? 0);
+            else if (l.tipo === "despesa")
+              ref.saida += Number(l.valor_pago ?? 0);
+          }
+          const fluxoCaixa = Array.from(fluxoMap.entries()).map(
+            ([dia, val]) => ({
+              day: String(dia).padStart(2, "0"),
+              entrada: val.entrada,
+              saida: val.saida,
+            }),
+          );
+
+          // Estoque baixo — produtos ativos com estoque_minimo > 0 e saldo
+          // calculado a partir das linhas de movimentação locais.
+          type P = {
+            id: string;
+            estoque_minimo: number | string | null;
+            status: string;
+          };
+          const produtosBaixo = (produtosRaw as P[]).filter(
+            (p) =>
+              p.status === "ativo" &&
+              Number(p.estoque_minimo ?? 0) > 0,
+          );
+          const saldos = new Map<string, number>();
+          for (const m of saldosRaw) {
+            const sinal =
+              m.tipo === "entrada" || m.tipo === "devolucao"
+                ? 1
+                : m.tipo === "saida" || m.tipo === "transferencia"
+                  ? -1
+                  : 1;
+            saldos.set(
+              m.produto_id,
+              (saldos.get(m.produto_id) ?? 0) +
+                sinal * Number(m.quantidade),
+            );
+          }
+          let estoqueBaixo = 0;
+          for (const p of produtosBaixo) {
+            const saldo = saldos.get(p.id) ?? 0;
+            if (saldo <= Number(p.estoque_minimo)) estoqueBaixo++;
+          }
+
+          // "ultimas 5" — vendas já vêm em created_at desc do servidor;
+          // compras vêm em data_emissao desc.
+          const ultimasVendas = vendas.slice(0, 5).map((v) => ({
+            id: v.id,
+            numero: v.numero,
+            cliente:
+              v.cliente?.nome ??
+              v.cliente_nome ??
+              (v.cliente_id ? "—" : "Consumidor"),
+            valor: Number(v.total ?? 0),
+            status: v.status,
+            data: v.data_emissao,
+          }));
+          const ultimasCompras = compras.slice(0, 5).map((c) => ({
+            id: c.id,
+            numero: c.numero,
+            fornecedor:
+              c.fornecedor?.nome_fantasia ??
+              c.fornecedor?.razao_social ??
+              "—",
+            valor: Number(c.total ?? 0),
+            status: c.status,
+            data: c.data_emissao,
+          }));
+
+          return {
+            vendasMes,
+            vendasMesAnterior,
+            comprasMes,
+            comprasMesAnterior,
+            lucroMes,
+            margem,
+            contasPagar,
+            qtdContasPagar: contasPagarLancs.length,
+            contasReceber,
+            qtdContasReceber: contasReceberLancs.length,
+            estoqueBaixo,
+            vendasPorMes,
+            fluxoCaixa,
+            ultimasVendas,
+            ultimasCompras,
+          };
+        },
+        () => cloudAdapter.dashboard.carregar(),
+      ),
+  },
+
   caixa: {
     ...cloudAdapter.caixa,
     /**
