@@ -2,9 +2,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { dataClient } from "@/integrations/data";
 import type {
   AutorizacaoAcaoDomain,
+  AutorizacaoCartaoDomain,
   AutorizacaoLogDomain,
   AutorizacaoMetodoDomain,
   AutorizacoesConfigDomain,
+  CriarCartaoAutorizacaoInput,
   ValidarAutorizacaoInputDomain,
   ValidarAutorizacaoResultDomain,
 } from "@/integrations/data/extra-adapters";
@@ -13,6 +15,7 @@ export type AutorizacaoAcao = AutorizacaoAcaoDomain;
 export type AutorizacaoMetodo = AutorizacaoMetodoDomain;
 export type AutorizacoesConfig = AutorizacoesConfigDomain;
 export type AutorizacaoLog = AutorizacaoLogDomain;
+export type AutorizacaoCartao = AutorizacaoCartaoDomain;
 export type ValidarAutorizacaoInput = ValidarAutorizacaoInputDomain;
 
 export function useAutorizacoesConfig() {
