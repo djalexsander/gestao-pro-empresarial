@@ -11,8 +11,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowDownToLine, ArrowUpFromLine, Loader2 } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Loader2, ShieldAlert } from "lucide-react";
+import { toast } from "sonner";
 import { useRegistrarMovimentoCaixa } from "@/hooks/useCaixa";
+import { useAutorizacoesConfig } from "@/hooks/useAutorizacoes";
+import { AutorizacaoGerencialDialog, type AutorizacaoRequest } from "@/components/autorizacoes/AutorizacaoGerencialDialog";
+import { formatBRL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
 interface Props {
