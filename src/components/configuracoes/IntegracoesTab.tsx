@@ -229,12 +229,19 @@ function ConfigDialog({ tipo, atual, open, onOpenChange, onSalvar, salvando }: C
         )}
 
         {tipo === "whatsapp" && empresaAtual && (
-          <WhatsAppConfigForm
-            empresaId={empresaAtual.id}
-            atual={atual}
-            onSalvar={onSalvar}
-            salvando={salvando}
-          />
+          <>
+            <WhatsAppConfigForm
+              empresaId={empresaAtual.id}
+              atual={atual}
+              onSalvar={onSalvar}
+              salvando={salvando}
+            />
+            <div className="mt-3 rounded-md border bg-muted/30 p-3 text-xs">
+              📊 <a href="/cobrancas/whatsapp-logs" className="underline font-medium">
+                Ver histórico de envios e disparar manualmente
+              </a>
+            </div>
+          </>
         )}
 
         {(tipo === "ifood" || tipo === "mercado_livre" || tipo === "shopee") && (

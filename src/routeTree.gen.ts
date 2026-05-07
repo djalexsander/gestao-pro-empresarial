@@ -40,6 +40,7 @@ import { Route as RelatoriosDreRouteImport } from './routes/relatorios.dre'
 import { Route as RelatoriosContasReceberRouteImport } from './routes/relatorios.contas-receber'
 import { Route as RelatoriosComprasRouteImport } from './routes/relatorios.compras'
 import { Route as RelatoriosCaixaRouteImport } from './routes/relatorios.caixa'
+import { Route as CobrancasWhatsappLogsRouteImport } from './routes/cobrancas.whatsapp-logs'
 import { Route as AutorizacoesHistoricoRouteImport } from './routes/autorizacoes.historico'
 import { Route as AdminUsuariosRouteImport } from './routes/admin.usuarios'
 import { Route as AdminQaRouteImport } from './routes/admin.qa'
@@ -52,7 +53,9 @@ import { Route as AdminEmpresasRouteImport } from './routes/admin.empresas'
 import { Route as AdminConfigComercialRouteImport } from './routes/admin.config-comercial'
 import { Route as AdminAuditoriaRouteImport } from './routes/admin.auditoria'
 import { Route as AdminAssinaturasRouteImport } from './routes/admin.assinaturas'
+import { Route as ApiPublicWebhooksPixRouteImport } from './routes/api/public/webhooks/pix'
 import { Route as ApiPublicWebhooksAsaasRouteImport } from './routes/api/public/webhooks/asaas'
+import { Route as ApiPublicHooksCobrancasWaCronRouteImport } from './routes/api/public/hooks/cobrancas-wa-cron'
 
 const VendasRoute = VendasRouteImport.update({
   id: '/vendas',
@@ -209,6 +212,11 @@ const RelatoriosCaixaRoute = RelatoriosCaixaRouteImport.update({
   path: '/caixa',
   getParentRoute: () => RelatoriosRoute,
 } as any)
+const CobrancasWhatsappLogsRoute = CobrancasWhatsappLogsRouteImport.update({
+  id: '/whatsapp-logs',
+  path: '/whatsapp-logs',
+  getParentRoute: () => CobrancasRoute,
+} as any)
 const AutorizacoesHistoricoRoute = AutorizacoesHistoricoRouteImport.update({
   id: '/autorizacoes/historico',
   path: '/autorizacoes/historico',
@@ -269,11 +277,22 @@ const AdminAssinaturasRoute = AdminAssinaturasRouteImport.update({
   path: '/assinaturas',
   getParentRoute: () => AdminRoute,
 } as any)
+const ApiPublicWebhooksPixRoute = ApiPublicWebhooksPixRouteImport.update({
+  id: '/api/public/webhooks/pix',
+  path: '/api/public/webhooks/pix',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicWebhooksAsaasRoute = ApiPublicWebhooksAsaasRouteImport.update({
   id: '/api/public/webhooks/asaas',
   path: '/api/public/webhooks/asaas',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicHooksCobrancasWaCronRoute =
+  ApiPublicHooksCobrancasWaCronRouteImport.update({
+    id: '/api/public/hooks/cobrancas-wa-cron',
+    path: '/api/public/hooks/cobrancas-wa-cron',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -281,7 +300,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/caixa': typeof CaixaRoute
   '/clientes': typeof ClientesRoute
-  '/cobrancas': typeof CobrancasRoute
+  '/cobrancas': typeof CobrancasRouteWithChildren
   '/compras': typeof ComprasRoute
   '/configuracoes': typeof ConfiguracoesRoute
   '/estoque': typeof EstoqueRoute
@@ -309,6 +328,7 @@ export interface FileRoutesByFullPath {
   '/admin/qa': typeof AdminQaRoute
   '/admin/usuarios': typeof AdminUsuariosRoute
   '/autorizacoes/historico': typeof AutorizacoesHistoricoRoute
+  '/cobrancas/whatsapp-logs': typeof CobrancasWhatsappLogsRoute
   '/relatorios/caixa': typeof RelatoriosCaixaRoute
   '/relatorios/compras': typeof RelatoriosComprasRoute
   '/relatorios/contas-receber': typeof RelatoriosContasReceberRoute
@@ -319,14 +339,16 @@ export interface FileRoutesByFullPath {
   '/relatorios/fluxo-caixa': typeof RelatoriosFluxoCaixaRoute
   '/relatorios/vendas': typeof RelatoriosVendasRoute
   '/admin/': typeof AdminIndexRoute
+  '/api/public/hooks/cobrancas-wa-cron': typeof ApiPublicHooksCobrancasWaCronRoute
   '/api/public/webhooks/asaas': typeof ApiPublicWebhooksAsaasRoute
+  '/api/public/webhooks/pix': typeof ApiPublicWebhooksPixRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/caixa': typeof CaixaRoute
   '/clientes': typeof ClientesRoute
-  '/cobrancas': typeof CobrancasRoute
+  '/cobrancas': typeof CobrancasRouteWithChildren
   '/compras': typeof ComprasRoute
   '/configuracoes': typeof ConfiguracoesRoute
   '/estoque': typeof EstoqueRoute
@@ -354,6 +376,7 @@ export interface FileRoutesByTo {
   '/admin/qa': typeof AdminQaRoute
   '/admin/usuarios': typeof AdminUsuariosRoute
   '/autorizacoes/historico': typeof AutorizacoesHistoricoRoute
+  '/cobrancas/whatsapp-logs': typeof CobrancasWhatsappLogsRoute
   '/relatorios/caixa': typeof RelatoriosCaixaRoute
   '/relatorios/compras': typeof RelatoriosComprasRoute
   '/relatorios/contas-receber': typeof RelatoriosContasReceberRoute
@@ -364,7 +387,9 @@ export interface FileRoutesByTo {
   '/relatorios/fluxo-caixa': typeof RelatoriosFluxoCaixaRoute
   '/relatorios/vendas': typeof RelatoriosVendasRoute
   '/admin': typeof AdminIndexRoute
+  '/api/public/hooks/cobrancas-wa-cron': typeof ApiPublicHooksCobrancasWaCronRoute
   '/api/public/webhooks/asaas': typeof ApiPublicWebhooksAsaasRoute
+  '/api/public/webhooks/pix': typeof ApiPublicWebhooksPixRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -373,7 +398,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/caixa': typeof CaixaRoute
   '/clientes': typeof ClientesRoute
-  '/cobrancas': typeof CobrancasRoute
+  '/cobrancas': typeof CobrancasRouteWithChildren
   '/compras': typeof ComprasRoute
   '/configuracoes': typeof ConfiguracoesRoute
   '/estoque': typeof EstoqueRoute
@@ -401,6 +426,7 @@ export interface FileRoutesById {
   '/admin/qa': typeof AdminQaRoute
   '/admin/usuarios': typeof AdminUsuariosRoute
   '/autorizacoes/historico': typeof AutorizacoesHistoricoRoute
+  '/cobrancas/whatsapp-logs': typeof CobrancasWhatsappLogsRoute
   '/relatorios/caixa': typeof RelatoriosCaixaRoute
   '/relatorios/compras': typeof RelatoriosComprasRoute
   '/relatorios/contas-receber': typeof RelatoriosContasReceberRoute
@@ -411,7 +437,9 @@ export interface FileRoutesById {
   '/relatorios/fluxo-caixa': typeof RelatoriosFluxoCaixaRoute
   '/relatorios/vendas': typeof RelatoriosVendasRoute
   '/admin/': typeof AdminIndexRoute
+  '/api/public/hooks/cobrancas-wa-cron': typeof ApiPublicHooksCobrancasWaCronRoute
   '/api/public/webhooks/asaas': typeof ApiPublicWebhooksAsaasRoute
+  '/api/public/webhooks/pix': typeof ApiPublicWebhooksPixRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -449,6 +477,7 @@ export interface FileRouteTypes {
     | '/admin/qa'
     | '/admin/usuarios'
     | '/autorizacoes/historico'
+    | '/cobrancas/whatsapp-logs'
     | '/relatorios/caixa'
     | '/relatorios/compras'
     | '/relatorios/contas-receber'
@@ -459,7 +488,9 @@ export interface FileRouteTypes {
     | '/relatorios/fluxo-caixa'
     | '/relatorios/vendas'
     | '/admin/'
+    | '/api/public/hooks/cobrancas-wa-cron'
     | '/api/public/webhooks/asaas'
+    | '/api/public/webhooks/pix'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -494,6 +525,7 @@ export interface FileRouteTypes {
     | '/admin/qa'
     | '/admin/usuarios'
     | '/autorizacoes/historico'
+    | '/cobrancas/whatsapp-logs'
     | '/relatorios/caixa'
     | '/relatorios/compras'
     | '/relatorios/contas-receber'
@@ -504,7 +536,9 @@ export interface FileRouteTypes {
     | '/relatorios/fluxo-caixa'
     | '/relatorios/vendas'
     | '/admin'
+    | '/api/public/hooks/cobrancas-wa-cron'
     | '/api/public/webhooks/asaas'
+    | '/api/public/webhooks/pix'
   id:
     | '__root__'
     | '/'
@@ -540,6 +574,7 @@ export interface FileRouteTypes {
     | '/admin/qa'
     | '/admin/usuarios'
     | '/autorizacoes/historico'
+    | '/cobrancas/whatsapp-logs'
     | '/relatorios/caixa'
     | '/relatorios/compras'
     | '/relatorios/contas-receber'
@@ -550,7 +585,9 @@ export interface FileRouteTypes {
     | '/relatorios/fluxo-caixa'
     | '/relatorios/vendas'
     | '/admin/'
+    | '/api/public/hooks/cobrancas-wa-cron'
     | '/api/public/webhooks/asaas'
+    | '/api/public/webhooks/pix'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -559,7 +596,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   CaixaRoute: typeof CaixaRoute
   ClientesRoute: typeof ClientesRoute
-  CobrancasRoute: typeof CobrancasRoute
+  CobrancasRoute: typeof CobrancasRouteWithChildren
   ComprasRoute: typeof ComprasRoute
   ConfiguracoesRoute: typeof ConfiguracoesRoute
   EstoqueRoute: typeof EstoqueRoute
@@ -576,7 +613,9 @@ export interface RootRouteChildren {
   RelatoriosRoute: typeof RelatoriosRouteWithChildren
   VendasRoute: typeof VendasRoute
   AutorizacoesHistoricoRoute: typeof AutorizacoesHistoricoRoute
+  ApiPublicHooksCobrancasWaCronRoute: typeof ApiPublicHooksCobrancasWaCronRoute
   ApiPublicWebhooksAsaasRoute: typeof ApiPublicWebhooksAsaasRoute
+  ApiPublicWebhooksPixRoute: typeof ApiPublicWebhooksPixRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -798,6 +837,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RelatoriosCaixaRouteImport
       parentRoute: typeof RelatoriosRoute
     }
+    '/cobrancas/whatsapp-logs': {
+      id: '/cobrancas/whatsapp-logs'
+      path: '/whatsapp-logs'
+      fullPath: '/cobrancas/whatsapp-logs'
+      preLoaderRoute: typeof CobrancasWhatsappLogsRouteImport
+      parentRoute: typeof CobrancasRoute
+    }
     '/autorizacoes/historico': {
       id: '/autorizacoes/historico'
       path: '/autorizacoes/historico'
@@ -882,11 +928,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminAssinaturasRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/api/public/webhooks/pix': {
+      id: '/api/public/webhooks/pix'
+      path: '/api/public/webhooks/pix'
+      fullPath: '/api/public/webhooks/pix'
+      preLoaderRoute: typeof ApiPublicWebhooksPixRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/webhooks/asaas': {
       id: '/api/public/webhooks/asaas'
       path: '/api/public/webhooks/asaas'
       fullPath: '/api/public/webhooks/asaas'
       preLoaderRoute: typeof ApiPublicWebhooksAsaasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/hooks/cobrancas-wa-cron': {
+      id: '/api/public/hooks/cobrancas-wa-cron'
+      path: '/api/public/hooks/cobrancas-wa-cron'
+      fullPath: '/api/public/hooks/cobrancas-wa-cron'
+      preLoaderRoute: typeof ApiPublicHooksCobrancasWaCronRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -924,6 +984,18 @@ const AdminRouteChildren: AdminRouteChildren = {
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
+interface CobrancasRouteChildren {
+  CobrancasWhatsappLogsRoute: typeof CobrancasWhatsappLogsRoute
+}
+
+const CobrancasRouteChildren: CobrancasRouteChildren = {
+  CobrancasWhatsappLogsRoute: CobrancasWhatsappLogsRoute,
+}
+
+const CobrancasRouteWithChildren = CobrancasRoute._addFileChildren(
+  CobrancasRouteChildren,
+)
+
 interface RelatoriosRouteChildren {
   RelatoriosCaixaRoute: typeof RelatoriosCaixaRoute
   RelatoriosComprasRoute: typeof RelatoriosComprasRoute
@@ -958,7 +1030,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   CaixaRoute: CaixaRoute,
   ClientesRoute: ClientesRoute,
-  CobrancasRoute: CobrancasRoute,
+  CobrancasRoute: CobrancasRouteWithChildren,
   ComprasRoute: ComprasRoute,
   ConfiguracoesRoute: ConfiguracoesRoute,
   EstoqueRoute: EstoqueRoute,
@@ -975,7 +1047,9 @@ const rootRouteChildren: RootRouteChildren = {
   RelatoriosRoute: RelatoriosRouteWithChildren,
   VendasRoute: VendasRoute,
   AutorizacoesHistoricoRoute: AutorizacoesHistoricoRoute,
+  ApiPublicHooksCobrancasWaCronRoute: ApiPublicHooksCobrancasWaCronRoute,
   ApiPublicWebhooksAsaasRoute: ApiPublicWebhooksAsaasRoute,
+  ApiPublicWebhooksPixRoute: ApiPublicWebhooksPixRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
