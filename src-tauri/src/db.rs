@@ -2029,6 +2029,251 @@ pub fn read_vendas_remote(limit: i64) -> DbResult<String> {
     })
 }
 
+// ---------- Caches de relatórios: caixas / movimentos / func / term ----------
+
+fn ingest_simple_cache(
+    domain: &str,
+    table: &str,
+    json_text: &str,
+    now_ms: i64,
+    strategy: IngestStrategy,
+    map_extra: impl Fn(&serde_json::Value) -> Vec<Box<dyn rusqlite::ToSql>>,
+    extra_cols: &[&str],
+) -> DbResult<(usize, Option<i64>)> {
+    let arr: serde_json::Value = serde_json::from_str(json_text)
+        .map_err(|e| DbError(format!("ingest {domain}: json inválido: {e}")))?;
+    let items = match arr.as_array() {
+        Some(a) => a,
+        None => return Ok((0, None)),
+    };
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+        let mut count = 0usize;
+        let mut max_remote_ms: Option<i64> = None;
+        {
+            let cols: Vec<&str> = std::iter::once("id")
+                .chain(extra_cols.iter().copied())
+                .chain(["payload", "updated_at_remote_ms", "synced_at_ms", "deleted_at_ms"])
+                .collect();
+            let placeholders: Vec<String> = (1..=cols.len()).map(|i| format!("?{i}")).collect();
+            let updates: Vec<String> = cols
+                .iter()
+                .filter(|c| **c != "id")
+                .map(|c| format!("{c} = excluded.{c}"))
+                .collect();
+            let sql = format!(
+                "INSERT INTO {table}({}) VALUES ({}) ON CONFLICT(id) DO UPDATE SET {}",
+                cols.join(","),
+                placeholders.join(","),
+                updates.join(",")
+            );
+            let mut stmt = tx.prepare(&sql)?;
+            for item in items {
+                let id = match json_str(item, "id") {
+                    Some(s) => s.to_string(),
+                    None => continue,
+                };
+                let updated_ms = json_str(item, "updated_at").and_then(parse_iso_to_ms);
+                if let Some(ms) = updated_ms {
+                    max_remote_ms = Some(max_remote_ms.map_or(ms, |c| c.max(ms)));
+                }
+                let payload = serde_json::to_string(item).unwrap_or_else(|_| "{}".into());
+                let extras = map_extra(item);
+                let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+                params_vec.push(Box::new(id));
+                for v in extras {
+                    params_vec.push(v);
+                }
+                params_vec.push(Box::new(payload));
+                params_vec.push(Box::new(updated_ms));
+                params_vec.push(Box::new(now_ms));
+                params_vec.push(Box::new(None::<i64>));
+                let refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|b| &**b).collect();
+                stmt.execute(refs.as_slice())?;
+                count += 1;
+            }
+        }
+        let total: i64 = tx.query_row(
+            &format!("SELECT COUNT(*) FROM {table} WHERE deleted_at_ms IS NULL"),
+            [],
+            |r| r.get(0),
+        )?;
+        upsert_domain_meta(&tx, DomainMetaUpdate {
+            domain,
+            row_count: total,
+            now_ms,
+            source: "upstream",
+            strategy: strategy.as_str(),
+            delta_count: count as i64,
+            max_remote_updated_ms: max_remote_ms,
+        })?;
+        tx.commit()?;
+        Ok((count, max_remote_ms))
+    })
+}
+
+fn json_array_from_rows<I>(rows: I) -> DbResult<String>
+where
+    I: Iterator<Item = rusqlite::Result<String>>,
+{
+    let mut out = String::from("[");
+    let mut first = true;
+    for r in rows {
+        let payload = r?;
+        if !first {
+            out.push(',');
+        }
+        out.push_str(&payload);
+        first = false;
+    }
+    out.push(']');
+    Ok(out)
+}
+
+pub fn ingest_caixas_remote(
+    json_text: &str,
+    now_ms: i64,
+    strategy: IngestStrategy,
+) -> DbResult<(usize, Option<i64>)> {
+    ingest_simple_cache(
+        "caixas_remote",
+        "caixas_remote_cache",
+        json_text,
+        now_ms,
+        strategy,
+        |item| {
+            vec![
+                Box::new(json_str(item, "status").map(|s| s.to_string())),
+                Box::new(json_str(item, "operador_id").map(|s| s.to_string())),
+                Box::new(json_str(item, "terminal_id").map(|s| s.to_string())),
+                Box::new(json_str(item, "data_abertura").and_then(parse_iso_to_ms)),
+            ]
+        },
+        &["status", "operador_id", "terminal_id", "data_abertura_ms"],
+    )
+}
+
+pub fn read_caixas_remote(limit: i64) -> DbResult<String> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT payload FROM caixas_remote_cache
+             WHERE deleted_at_ms IS NULL
+             ORDER BY data_abertura_ms DESC NULLS LAST
+             LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit], |r| r.get::<_, String>(0))?;
+        json_array_from_rows(rows)
+    })
+}
+
+pub fn ingest_caixa_movimentos_remote(
+    json_text: &str,
+    now_ms: i64,
+    strategy: IngestStrategy,
+) -> DbResult<(usize, Option<i64>)> {
+    ingest_simple_cache(
+        "caixa_movimentos_remote",
+        "caixa_movimentos_remote_cache",
+        json_text,
+        now_ms,
+        strategy,
+        |item| {
+            vec![
+                Box::new(json_str(item, "caixa_id").map(|s| s.to_string())),
+                Box::new(json_str(item, "tipo").map(|s| s.to_string())),
+                Box::new(json_str(item, "created_at").and_then(parse_iso_to_ms)),
+            ]
+        },
+        &["caixa_id", "tipo", "created_at_ms"],
+    )
+}
+
+pub fn read_caixa_movimentos_remote(caixa_id: &str) -> DbResult<String> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT payload FROM caixa_movimentos_remote_cache
+             WHERE deleted_at_ms IS NULL AND caixa_id = ?1
+             ORDER BY created_at_ms DESC NULLS LAST",
+        )?;
+        let rows = stmt.query_map(params![caixa_id], |r| r.get::<_, String>(0))?;
+        json_array_from_rows(rows)
+    })
+}
+
+pub fn ingest_funcionarios_remote(
+    json_text: &str,
+    now_ms: i64,
+    strategy: IngestStrategy,
+) -> DbResult<(usize, Option<i64>)> {
+    ingest_simple_cache(
+        "funcionarios_remote",
+        "funcionarios_remote_cache",
+        json_text,
+        now_ms,
+        strategy,
+        |item| {
+            let ativo = item
+                .get("ativo")
+                .and_then(|v| v.as_bool())
+                .map(|b| if b { 1i64 } else { 0 });
+            vec![
+                Box::new(json_str(item, "nome").map(|s| s.to_string())),
+                Box::new(ativo),
+            ]
+        },
+        &["nome", "ativo"],
+    )
+}
+
+pub fn read_funcionarios_ativos_remote() -> DbResult<String> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT payload FROM funcionarios_remote_cache
+             WHERE deleted_at_ms IS NULL AND ativo = 1
+             ORDER BY nome ASC",
+        )?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        json_array_from_rows(rows)
+    })
+}
+
+pub fn ingest_terminais_remote(
+    json_text: &str,
+    now_ms: i64,
+    strategy: IngestStrategy,
+) -> DbResult<(usize, Option<i64>)> {
+    ingest_simple_cache(
+        "terminais_remote",
+        "terminais_remote_cache",
+        json_text,
+        now_ms,
+        strategy,
+        |item| {
+            let ativo = item
+                .get("ativo")
+                .and_then(|v| v.as_bool())
+                .map(|b| if b { 1i64 } else { 0 });
+            vec![
+                Box::new(json_str(item, "nome").map(|s| s.to_string())),
+                Box::new(ativo),
+            ]
+        },
+        &["nome", "ativo"],
+    )
+}
+
+pub fn read_terminais_ativos_remote() -> DbResult<String> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT payload FROM terminais_remote_cache
+             WHERE deleted_at_ms IS NULL AND ativo = 1
+             ORDER BY nome ASC",
+        )?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        json_array_from_rows(rows)
+    })
+}
+
 //     `data_movimentacao` (timestamp definitivo na nuvem; mais estável
 //     que `updated_at`, que poderia mudar com edição de observação).
 //     Lote = INSERT OR IGNORE pelo `id` → retries idempotentes.
