@@ -20,20 +20,30 @@ export function CartaoAutorizacaoDialog({ open, onOpenChange, codigo, label, emp
 
   useEffect(() => {
     if (!open || !codigo) return;
-    if (qrRef.current) {
-      QRCode.toCanvas(qrRef.current, codigo, { width: 140, margin: 1 }).catch(() => {});
-    }
-    if (barcodeRef.current) {
-      try {
-        JsBarcode(barcodeRef.current, codigo, {
-          format: "CODE128",
-          width: 1.6,
-          height: 50,
-          fontSize: 11,
-          margin: 4,
-        });
-      } catch {/* noop */}
-    }
+    const id = requestAnimationFrame(() => {
+      if (qrRef.current) {
+        QRCode.toCanvas(qrRef.current, codigo, {
+          width: 160,
+          margin: 1,
+          color: { dark: "#000000", light: "#ffffff" },
+        }).catch(() => {});
+      }
+      if (barcodeRef.current) {
+        try {
+          JsBarcode(barcodeRef.current, codigo, {
+            format: "CODE128",
+            width: 2,
+            height: 60,
+            fontSize: 12,
+            margin: 4,
+            background: "#ffffff",
+            lineColor: "#000000",
+            displayValue: true,
+          });
+        } catch {/* noop */}
+      }
+    });
+    return () => cancelAnimationFrame(id);
   }, [open, codigo]);
 
   function imprimir() {
