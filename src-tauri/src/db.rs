@@ -780,6 +780,59 @@ pub fn init() -> DbResult<()> {
         "#,
     )?;
 
+    // v19 — Backfill + Outbox de fornecedores. Mesmo padrão de clientes.
+    let _ = conn.execute(
+        "UPDATE fornecedores_local SET local_uuid = id WHERE local_uuid IS NULL",
+        [],
+    );
+    let _ = conn.execute(
+        "UPDATE fornecedores_local SET remote_id = id WHERE remote_id IS NULL AND sync_status='synced'",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_fornecedores_local_uuid ON fornecedores_local(local_uuid)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_fornecedores_remote_id ON fornecedores_local(remote_id) WHERE remote_id IS NOT NULL",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_fornecedores_sync_status ON fornecedores_local(sync_status)",
+        [],
+    );
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS outbox_fornecedores (
+            local_uuid             TEXT PRIMARY KEY,
+            client_uuid            TEXT,
+            fornecedor_local_uuid  TEXT NOT NULL,
+            fornecedor_remote_id   TEXT,
+            action                 TEXT NOT NULL,
+            payload                TEXT NOT NULL,
+            status                 TEXT NOT NULL DEFAULT 'pending',
+            attempts               INTEGER NOT NULL DEFAULT 0,
+            last_error             TEXT,
+            remote_id              TEXT,
+            remote_response        TEXT,
+            created_at_ms          INTEGER NOT NULL,
+            updated_at_ms          INTEGER NOT NULL,
+            sent_at_ms             INTEGER,
+            next_attempt_at_ms     INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_outbox_fornecedores_status
+            ON outbox_fornecedores(status, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_fornecedores_status_next
+            ON outbox_fornecedores(status, next_attempt_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_fornecedores_for
+            ON outbox_fornecedores(fornecedor_local_uuid, status);
+        CREATE INDEX IF NOT EXISTS idx_outbox_fornecedores_action
+            ON outbox_fornecedores(action, status);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_fornecedores_client_uuid
+            ON outbox_fornecedores(client_uuid) WHERE client_uuid IS NOT NULL;
+        "#,
+    )?;
+
     // ------------------------------------------------------------------
     // v9 — Lançamentos financeiros locais derivados do fechamento do caixa.
     //
