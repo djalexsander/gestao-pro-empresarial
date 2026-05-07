@@ -15,7 +15,7 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { useCart } from "./CartContext";
 import { CobrancaPixDialog, type CobrancaResult } from "./CobrancaPixDialog";
-import { useCobrancaPendente } from "@/hooks/useCobrancaPendente";
+
 
 const fmtBRL = (n: number) =>
   Number(n ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
