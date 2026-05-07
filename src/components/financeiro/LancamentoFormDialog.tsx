@@ -154,13 +154,10 @@ export function LancamentoFormDialog(props: Props) {
   const { data: categorias = [] } = useQuery({
     queryKey: ["categorias_financeiras_ativas"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("categorias_financeiras")
-        .select("id, nome, tipo, ativo")
-        .eq("ativo", true)
-        .order("nome");
-      if (error) throw error;
-      return (data ?? []) as CategoriaFinanceiraLite[];
+      const data = await dataClient.categoriasFinanceiras.list({});
+      return (data ?? []).filter((c) => c.ativo).map((c) => ({
+        id: c.id, nome: c.nome, tipo: c.tipo, ativo: c.ativo,
+      })) as CategoriaFinanceiraLite[];
     },
     enabled: open,
   });
