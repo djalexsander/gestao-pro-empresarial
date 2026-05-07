@@ -1446,6 +1446,124 @@ pub fn read_clientes(status: Option<&str>) -> DbResult<String> {
     })
 }
 
+// ---------- Fornecedores (v13) ----------
+//
+// Ingestão e leitura idênticas em padrão à de clientes. Campo de nome no
+// cadastro é `razao_social` (FornecedorDomain), por isso a coluna indexada
+// muda — o restante segue o mesmo modelo: payload completo + cursor por
+// `updated_at` + tombstone por status.
+
+pub fn ingest_fornecedores(
+    json_text: &str,
+    now_ms: i64,
+    strategy: IngestStrategy,
+) -> DbResult<(usize, Option<i64>)> {
+    let arr: serde_json::Value = serde_json::from_str(json_text)
+        .map_err(|e| DbError(format!("ingest_fornecedores: json inválido: {e}")))?;
+    let items = match arr.as_array() {
+        Some(a) => a,
+        None => return Ok((0, None)),
+    };
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+        let mut count = 0usize;
+        let mut max_remote_ms: Option<i64> = None;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO fornecedores_local(
+                    id, razao_social, nome_fantasia, documento, status, payload,
+                    updated_at_remote_ms, synced_at_ms, deleted_at_ms
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
+                 ON CONFLICT(id) DO UPDATE SET
+                    razao_social         = excluded.razao_social,
+                    nome_fantasia        = excluded.nome_fantasia,
+                    documento            = excluded.documento,
+                    status               = excluded.status,
+                    payload              = excluded.payload,
+                    updated_at_remote_ms = COALESCE(excluded.updated_at_remote_ms, fornecedores_local.updated_at_remote_ms),
+                    synced_at_ms         = excluded.synced_at_ms,
+                    deleted_at_ms        = excluded.deleted_at_ms",
+            )?;
+            for item in items {
+                let id = match json_str(item, "id") {
+                    Some(s) => s.to_string(),
+                    None => continue,
+                };
+                let updated_ms = json_str(item, "updated_at").and_then(parse_iso_to_ms);
+                if let Some(ms) = updated_ms {
+                    max_remote_ms = Some(max_remote_ms.map_or(ms, |c| c.max(ms)));
+                }
+                let status = json_str(item, "status");
+                let deleted_at_ms = if strategy == IngestStrategy::Incremental
+                    && is_tombstoned_status(status)
+                {
+                    Some(now_ms)
+                } else {
+                    None::<i64>
+                };
+                let payload = serde_json::to_string(item).unwrap_or_else(|_| "{}".into());
+                stmt.execute(params![
+                    id,
+                    json_str(item, "razao_social"),
+                    json_str(item, "nome_fantasia"),
+                    json_str(item, "documento"),
+                    status,
+                    payload,
+                    updated_ms,
+                    now_ms,
+                    deleted_at_ms,
+                ])?;
+                count += 1;
+            }
+        }
+        let total: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM fornecedores_local WHERE deleted_at_ms IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        upsert_domain_meta(&tx, DomainMetaUpdate {
+            domain: "fornecedores",
+            row_count: total,
+            now_ms,
+            source: "upstream",
+            strategy: strategy.as_str(),
+            delta_count: count as i64,
+            max_remote_updated_ms: max_remote_ms,
+        })?;
+        tx.commit()?;
+        Ok((count, max_remote_ms))
+    })
+}
+
+pub fn read_fornecedores(status: Option<&str>) -> DbResult<String> {
+    with_conn(|conn| {
+        let mut sql = String::from(
+            "SELECT payload FROM fornecedores_local WHERE deleted_at_ms IS NULL",
+        );
+        let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        if let Some(s) = status {
+            sql.push_str(" AND status = ?");
+            args.push(Box::new(s.to_string()));
+        }
+        sql.push_str(" ORDER BY razao_social ASC");
+        let params_dyn: Vec<&dyn rusqlite::ToSql> = args.iter().map(|b| &**b).collect();
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_dyn.as_slice(), |r| r.get::<_, String>(0))?;
+        let mut out = String::from("[");
+        let mut first = true;
+        for r in rows {
+            let payload = r?;
+            if !first {
+                out.push(',');
+            }
+            out.push_str(&payload);
+            first = false;
+        }
+        out.push(']');
+        Ok(out)
+    })
+}
+
 // ---------- Estoque: movimentações + saldos derivados ----------
 //
 // Modelo desta etapa:
