@@ -2984,17 +2984,43 @@ const autorizacoes: DataAdapter["autorizacoes"] = {
     if (error) throw error;
     return data as import("../extra-adapters").AutorizacoesConfigDomain;
   },
-  async log(limit = 100) {
+  async log(filtro) {
+    const f = typeof filtro === "number" ? { limit: filtro } : (filtro ?? {});
+    const limit = f.limit ?? 100;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any)
+    let q: any = (supabase as any)
       .from("autorizacoes_log")
       .select(
-        "id, acao, metodo, status, contexto, autorizador_nome, valor_envolvido, diferenca_caixa, motivo_negacao, created_at",
+        "id, acao, metodo, status, contexto, contexto_dados, autorizador_nome, autorizador_user_id, autorizador_funcionario_id, solicitante_user_id, solicitante_funcionario_id, valor_envolvido, diferenca_caixa, motivo_negacao, referencia_tipo, referencia_id, terminal_id, created_at, solicitante:funcionarios!autorizacoes_log_solicitante_funcionario_id_fkey(nome)"
       )
       .order("created_at", { ascending: false })
       .limit(limit);
-    if (error) throw error;
-    return (data ?? []) as import("../extra-adapters").AutorizacaoLogDomain[];
+    if (f.inicio) q = q.gte("created_at", f.inicio);
+    if (f.fim) q = q.lte("created_at", f.fim);
+    if (f.acao) q = q.eq("acao", f.acao);
+    if (f.status) q = q.eq("status", f.status);
+    if (f.metodo) q = q.eq("metodo", f.metodo);
+    if (f.autorizador_funcionario_id) q = q.eq("autorizador_funcionario_id", f.autorizador_funcionario_id);
+    if (f.solicitante_funcionario_id) q = q.eq("solicitante_funcionario_id", f.solicitante_funcionario_id);
+    if (f.texto) q = q.ilike("contexto", `%${f.texto}%`);
+    const { data, error } = await q;
+    if (error) {
+      // Fallback caso FK nomeada não exista no schema
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const retry: any = await (supabase as any)
+        .from("autorizacoes_log")
+        .select("id, acao, metodo, status, contexto, contexto_dados, autorizador_nome, autorizador_user_id, autorizador_funcionario_id, solicitante_user_id, solicitante_funcionario_id, valor_envolvido, diferenca_caixa, motivo_negacao, referencia_tipo, referencia_id, terminal_id, created_at")
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (retry.error) throw retry.error;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return ((retry.data ?? []) as any[]).map((r) => ({ ...r, solicitante_nome: null })) as import("../extra-adapters").AutorizacaoLogDomain[];
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return ((data ?? []) as any[]).map((r) => ({
+      ...r,
+      solicitante_nome: r.solicitante?.nome ?? null,
+    })) as import("../extra-adapters").AutorizacaoLogDomain[];
   },
   async validar(input) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
