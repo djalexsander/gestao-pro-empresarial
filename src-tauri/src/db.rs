@@ -9075,3 +9075,430 @@ pub fn compra_receber_itens_local(
         })
     })
 }
+
+// =====================================================================
+// COMPRAS — Outbox plumbing (stats / list / push helpers)
+// =====================================================================
+
+#[derive(Debug, Serialize, Default)]
+pub struct OutboxComprasStats {
+    pub pending: i64,
+    pub sending: i64,
+    pub sent: i64,
+    pub error: i64,
+    pub last_sent_at_ms: Option<i64>,
+    pub last_error: Option<String>,
+    pub due_now: i64,
+    pub next_attempt_at_ms: Option<i64>,
+    pub last_auto_flush_ms: Option<i64>,
+    pub last_auto_flush_sent_ms: Option<i64>,
+    pub last_auto_attempted: Option<i64>,
+    pub last_auto_sent: Option<i64>,
+    pub last_auto_failed: Option<i64>,
+    pub last_manual_flush_ms: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OutboxComprasItem {
+    pub local_uuid: String,
+    pub client_uuid: Option<String>,
+    pub compra_local_uuid: String,
+    pub compra_remote_id: Option<String>,
+    pub action: String,
+    pub payload: String,
+    pub status: String,
+    pub attempts: i64,
+    pub last_error: Option<String>,
+    pub remote_id: Option<String>,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub sent_at_ms: Option<i64>,
+}
+
+const COMPRA_COLS: &str =
+    "local_uuid, client_uuid, compra_local_uuid, compra_remote_id, action, payload,
+     status, attempts, last_error, remote_id, created_at_ms, updated_at_ms, sent_at_ms";
+
+fn map_compra_outbox(r: &rusqlite::Row<'_>) -> rusqlite::Result<OutboxComprasItem> {
+    Ok(OutboxComprasItem {
+        local_uuid: r.get(0)?,
+        client_uuid: r.get(1)?,
+        compra_local_uuid: r.get(2)?,
+        compra_remote_id: r.get(3)?,
+        action: r.get(4)?,
+        payload: r.get(5)?,
+        status: r.get(6)?,
+        attempts: r.get(7)?,
+        last_error: r.get(8)?,
+        remote_id: r.get(9)?,
+        created_at_ms: r.get(10)?,
+        updated_at_ms: r.get(11)?,
+        sent_at_ms: r.get(12)?,
+    })
+}
+
+pub fn outbox_compras_get(local_uuid: &str) -> DbResult<Option<OutboxComprasItem>> {
+    with_conn(|conn| {
+        let sql = format!("SELECT {cols} FROM outbox_compras WHERE local_uuid=?1", cols = COMPRA_COLS);
+        let r = conn.query_row(&sql, params![local_uuid], map_compra_outbox).optional()?;
+        Ok(r)
+    })
+}
+
+/// Pending elegíveis (backoff vencido) ordenados por idade.
+pub fn outbox_compras_pending_batch(limit: i64) -> DbResult<Vec<OutboxComprasItem>> {
+    with_conn(|conn| {
+        let now = chrono::Utc::now().timestamp_millis();
+        let sql = format!(
+            "SELECT {cols} FROM outbox_compras
+              WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1
+              ORDER BY created_at_ms ASC LIMIT ?2",
+            cols = COMPRA_COLS,
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![now, limit], map_compra_outbox)?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    })
+}
+
+pub fn outbox_compras_pending_batch_all(limit: i64) -> DbResult<Vec<OutboxComprasItem>> {
+    with_conn(|conn| {
+        let sql = format!(
+            "SELECT {cols} FROM outbox_compras WHERE status='pending'
+              ORDER BY created_at_ms ASC LIMIT ?1",
+            cols = COMPRA_COLS,
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![limit], map_compra_outbox)?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    })
+}
+
+pub fn outbox_compras_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxComprasItem>> {
+    with_conn(|conn| {
+        if let Some(st) = only_status {
+            let sql = format!(
+                "SELECT {cols} FROM outbox_compras WHERE status=?1
+                  ORDER BY created_at_ms DESC LIMIT ?2",
+                cols = COMPRA_COLS,
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![st, limit], map_compra_outbox)?;
+            let mut out = Vec::new();
+            for r in rows { out.push(r?); }
+            Ok(out)
+        } else {
+            let sql = format!(
+                "SELECT {cols} FROM outbox_compras
+                  ORDER BY created_at_ms DESC LIMIT ?1",
+                cols = COMPRA_COLS,
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![limit], map_compra_outbox)?;
+            let mut out = Vec::new();
+            for r in rows { out.push(r?); }
+            Ok(out)
+        }
+    })
+}
+
+pub fn outbox_compras_mark_sending(local_uuid: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        conn.execute(
+            "UPDATE outbox_compras
+                SET status='sending', updated_at_ms=?2, attempts=attempts+1
+              WHERE local_uuid=?1",
+            params![local_uuid, now_ms],
+        )?;
+        Ok(())
+    })
+}
+
+/// Marca como enviado e propaga `remote_id`:
+///   * action='criar': grava `remote_id` no cabeçalho (`compras_local`),
+///     reescreve `compra_remote_id` em todas as ações pendentes da mesma
+///     compra, atualiza `_compra_id` no payload de cada uma, e tenta
+///     mapear `remote_id` dos itens via `parsed.itens[*].local_uuid` (a
+///     RPC `criar_compra` retorna a compra completa com itens).
+///   * outras ações: se for `receber`/`receber_itens`, propaga
+///     `remote_id` para os itens via `_local_uuid` quando presente no
+///     payload (vide `compra_receber_itens_local`).
+pub fn outbox_compras_mark_sent(
+    local_uuid: &str,
+    remote_id: &str,
+    response: &str,
+    now_ms: i64,
+) -> DbResult<()> {
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+        let item: Option<(String, String, String)> = tx.query_row(
+            "SELECT compra_local_uuid, action, payload
+               FROM outbox_compras WHERE local_uuid=?1",
+            params![local_uuid], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).optional()?;
+        tx.execute(
+            "UPDATE outbox_compras
+                SET status='sent', sent_at_ms=?2, updated_at_ms=?2,
+                    remote_id=?3, remote_response=?4, last_error=NULL,
+                    next_attempt_at_ms=NULL
+              WHERE local_uuid=?1",
+            params![local_uuid, now_ms, remote_id, response],
+        )?;
+        if let Some((compra_lid, action, _payload_in)) = item {
+            if action == "criar" {
+                // Cabeçalho
+                tx.execute(
+                    "UPDATE compras_local
+                        SET remote_id=?1, sync_status='synced', last_error=NULL
+                      WHERE local_uuid=?2",
+                    params![remote_id, compra_lid],
+                )?;
+                // Propaga para outras ações pendentes da mesma compra.
+                tx.execute(
+                    "UPDATE outbox_compras
+                        SET compra_remote_id=?1
+                      WHERE compra_local_uuid=?2 AND compra_remote_id IS NULL",
+                    params![remote_id, compra_lid],
+                )?;
+                let pendentes: Vec<(String, String)> = {
+                    let mut stmt = tx.prepare(
+                        "SELECT local_uuid, payload FROM outbox_compras
+                          WHERE compra_local_uuid=?1 AND action <> 'criar'
+                            AND status IN ('pending','error','sending')",
+                    )?;
+                    let rows = stmt.query_map(params![compra_lid], |r| Ok((r.get(0)?, r.get(1)?)))?;
+                    let mut out = Vec::new();
+                    for r in rows { out.push(r?); }
+                    out
+                };
+                for (lid, raw) in pendentes {
+                    let mut p: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
+                    if let Some(o) = p.as_object_mut() {
+                        if o.get("_compra_id").map(|v| v.as_str().unwrap_or("")).unwrap_or("").is_empty() {
+                            o.insert("_compra_id".into(), serde_json::Value::String(remote_id.into()));
+                        }
+                    }
+                    tx.execute(
+                        "UPDATE outbox_compras SET payload=?2 WHERE local_uuid=?1",
+                        params![lid, p.to_string()],
+                    )?;
+                }
+
+                // Tenta resolver remote_id dos itens a partir do response.
+                // Espera-se um array `itens` com `id` e (idealmente) o
+                // `local_uuid` original (passado no _itens do `criar`).
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(response) {
+                    let itens = parsed.get("itens").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+                    for it in itens {
+                        let rid = it.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        if rid.is_empty() { continue; }
+                        // Match por local_uuid quando o backend devolver,
+                        // senão por (produto_id, variacao_id, quantidade).
+                        if let Some(lid) = it.get("local_uuid").and_then(|v| v.as_str()) {
+                            tx.execute(
+                                "UPDATE compra_itens_local
+                                    SET remote_id=?1, compra_remote_id=?2,
+                                        sync_status='synced', updated_at_ms=?3
+                                  WHERE local_uuid=?4",
+                                params![rid, remote_id, now_ms, lid],
+                            )?;
+                            continue;
+                        }
+                        let pid = it.get("produto_id").and_then(|v| v.as_str()).unwrap_or("");
+                        let var = it.get("variacao_id").and_then(|v| v.as_str()).unwrap_or("");
+                        let qtd = it.get("quantidade").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                        tx.execute(
+                            "UPDATE compra_itens_local
+                                SET remote_id=COALESCE(remote_id, ?1),
+                                    compra_remote_id=?2,
+                                    sync_status='synced',
+                                    updated_at_ms=?3
+                              WHERE compra_local_uuid=?4 AND produto_id=?5
+                                AND COALESCE(variacao_id,'')=?6 AND quantidade=?7
+                                AND remote_id IS NULL",
+                            params![rid, remote_id, now_ms, compra_lid, pid, var, qtd],
+                        )?;
+                    }
+                }
+
+                // Reescreve _itens das ações receber_itens pendentes para
+                // usar remote_id real do item (se já resolvido).
+                let receber_pendentes: Vec<(String, String)> = {
+                    let mut stmt = tx.prepare(
+                        "SELECT local_uuid, payload FROM outbox_compras
+                          WHERE compra_local_uuid=?1 AND action='receber_itens'
+                            AND status IN ('pending','error','sending')",
+                    )?;
+                    let rows = stmt.query_map(params![compra_lid], |r| Ok((r.get(0)?, r.get(1)?)))?;
+                    let mut out = Vec::new();
+                    for r in rows { out.push(r?); }
+                    out
+                };
+                for (lid, raw) in receber_pendentes {
+                    let mut p: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
+                    if let Some(itens) = p.get_mut("_itens").and_then(|v| v.as_array_mut()) {
+                        for it in itens.iter_mut() {
+                            let lu = it.get("_local_uuid").and_then(|v| v.as_str()).map(String::from);
+                            if let Some(lu) = lu {
+                                let rid: Option<Option<String>> = tx.query_row(
+                                    "SELECT remote_id FROM compra_itens_local WHERE local_uuid=?1",
+                                    params![lu], |r| r.get(0),
+                                ).optional()?;
+                                if let Some(Some(rid)) = rid {
+                                    if let Some(o) = it.as_object_mut() {
+                                        o.insert("item_id".into(), serde_json::Value::String(rid));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    tx.execute(
+                        "UPDATE outbox_compras SET payload=?2 WHERE local_uuid=?1",
+                        params![lid, p.to_string()],
+                    )?;
+                }
+            } else {
+                // Conclusão de ação não-criar: se nada mais pendente, marca compra synced.
+                let pendentes_outros: i64 = tx.query_row(
+                    "SELECT COUNT(*) FROM outbox_compras
+                      WHERE compra_local_uuid=?1 AND status IN ('pending','sending')",
+                    params![compra_lid], |r| r.get(0),
+                ).optional()?.unwrap_or(0);
+                if pendentes_outros == 0 {
+                    tx.execute(
+                        "UPDATE compras_local SET sync_status='synced', last_error=NULL
+                          WHERE local_uuid=?1",
+                        params![compra_lid],
+                    )?;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    })
+}
+
+pub fn outbox_compras_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        let attempts: i64 = conn.query_row(
+            "SELECT attempts FROM outbox_compras WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).optional()?.unwrap_or(1);
+        let compra_lid: Option<String> = conn.query_row(
+            "SELECT compra_local_uuid FROM outbox_compras WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).optional()?;
+        if attempts >= MAX_AUTO_ATTEMPTS {
+            conn.execute(
+                "UPDATE outbox_compras
+                    SET status='error', last_error=?2, updated_at_ms=?3,
+                        next_attempt_at_ms=NULL
+                  WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms],
+            )?;
+            if let Some(lid) = compra_lid {
+                let _ = conn.execute(
+                    "UPDATE compras_local SET sync_status='error', last_error=?1
+                      WHERE local_uuid=?2",
+                    params![err, lid],
+                );
+            }
+        } else {
+            let next = now_ms + backoff_ms_for_attempts(attempts);
+            conn.execute(
+                "UPDATE outbox_compras
+                    SET status='pending', last_error=?2, updated_at_ms=?3,
+                        next_attempt_at_ms=?4
+                  WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms, next],
+            )?;
+        }
+        Ok(())
+    })
+}
+
+pub fn outbox_compras_reset_errors(now_ms: i64) -> DbResult<i64> {
+    with_conn(|conn| {
+        let n = conn.execute(
+            "UPDATE outbox_compras
+                SET status='pending', updated_at_ms=?1,
+                    next_attempt_at_ms=NULL, last_error=NULL
+              WHERE status IN ('error','pending') AND last_error IS NOT NULL",
+            params![now_ms],
+        )?;
+        let _ = conn.execute(
+            "UPDATE compras_local SET sync_status='pending', last_error=NULL
+              WHERE sync_status='error'",
+            [],
+        );
+        Ok(n as i64)
+    })
+}
+
+pub fn outbox_compras_stats() -> DbResult<OutboxComprasStats> {
+    with_conn(|conn| {
+        let mut s = OutboxComprasStats::default();
+        let mut stmt = conn.prepare("SELECT status, COUNT(*) FROM outbox_compras GROUP BY status")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        for r in rows {
+            let (st, n) = r?;
+            match st.as_str() {
+                "pending" => s.pending = n,
+                "sending" => s.sending = n,
+                "sent" => s.sent = n,
+                "error" => s.error = n,
+                _ => {}
+            }
+        }
+        s.last_sent_at_ms = conn.query_row(
+            "SELECT MAX(sent_at_ms) FROM outbox_compras WHERE status='sent'",
+            [], |r| r.get::<_, Option<i64>>(0),
+        ).optional()?.flatten();
+        s.last_error = conn.query_row(
+            "SELECT last_error FROM outbox_compras
+              WHERE status='error' ORDER BY updated_at_ms DESC LIMIT 1",
+            [], |r| r.get::<_, Option<String>>(0),
+        ).optional()?.flatten();
+        let now = chrono::Utc::now().timestamp_millis();
+        s.due_now = conn.query_row(
+            "SELECT COUNT(*) FROM outbox_compras
+              WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1",
+            params![now], |r| r.get::<_, i64>(0),
+        ).optional()?.unwrap_or(0);
+        s.next_attempt_at_ms = conn.query_row(
+            "SELECT MIN(COALESCE(next_attempt_at_ms,0))
+               FROM outbox_compras WHERE status='pending'",
+            [], |r| r.get::<_, Option<i64>>(0),
+        ).optional()?.flatten();
+        s.last_auto_flush_ms = meta_get_i64(conn, "outbox_compras_last_auto_flush_ms")?;
+        s.last_auto_flush_sent_ms = meta_get_i64(conn, "outbox_compras_last_auto_flush_sent_ms")?;
+        s.last_auto_attempted = meta_get_i64(conn, "outbox_compras_last_auto_attempted")?;
+        s.last_auto_sent = meta_get_i64(conn, "outbox_compras_last_auto_sent")?;
+        s.last_auto_failed = meta_get_i64(conn, "outbox_compras_last_auto_failed")?;
+        s.last_manual_flush_ms = meta_get_i64(conn, "outbox_compras_last_manual_flush_ms")?;
+        Ok(s)
+    })
+}
+
+pub fn outbox_compras_record_flush_round(
+    kind: &str, now_ms: i64, attempted: i64, sent: i64, failed: i64,
+) -> DbResult<()> {
+    with_conn(|conn| {
+        if kind == "auto" {
+            meta_set_i64(conn, "outbox_compras_last_auto_flush_ms", now_ms)?;
+            meta_set_i64(conn, "outbox_compras_last_auto_attempted", attempted)?;
+            meta_set_i64(conn, "outbox_compras_last_auto_sent", sent)?;
+            meta_set_i64(conn, "outbox_compras_last_auto_failed", failed)?;
+            if sent > 0 {
+                meta_set_i64(conn, "outbox_compras_last_auto_flush_sent_ms", now_ms)?;
+            }
+        } else {
+            meta_set_i64(conn, "outbox_compras_last_manual_flush_ms", now_ms)?;
+        }
+        Ok(())
+    })
+}
