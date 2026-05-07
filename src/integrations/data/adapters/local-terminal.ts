@@ -36,6 +36,7 @@ import {
   abrirCaixaLocal,
   alterarStatusClienteLocal,
   alterarStatusFornecedorLocal,
+  cancelarVendaLocal,
   criarClienteLocal,
   criarFornecedorLocal,
   editarClienteLocal,
