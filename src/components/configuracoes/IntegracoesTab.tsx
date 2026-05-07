@@ -18,6 +18,8 @@ import {
 import { dataClient } from "@/integrations/data/client";
 import { useEmpresaAtual } from "@/hooks/useEmpresa";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { WhatsAppConfigForm } from "./WhatsAppConfigForm";
+import { PixConfigForm } from "./PixConfigForm";
 
 type TipoIntegracao = "ifood" | "mercado_livre" | "shopee" | "whatsapp" | "pix";
 type StatusIntegracao = "disconnected" | "configuring" | "connected" | "error" | "disabled";
