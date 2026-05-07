@@ -104,13 +104,13 @@ interface ItemRow {
   vendaNumero: string;
   dataEmissao: string; // yyyy-mm-dd
   vendaStatus: string;
-  vendaStatusPagamento: string;
+  vendaStatusPagamento: string | null;
   formaPagamento: string | null;
   clienteId: string | null;
   clienteNome: string | null;
   operadorId: string | null;
   caixaId: string | null;
-  produtoId: string;
+  produtoId: string | null;
   produtoNome: string;
   produtoSku: string;
   categoriaId: string | null;
