@@ -797,6 +797,24 @@ fn read_typed(domain: &str, query: &[(&str, String)]) -> Result<String, db::DbEr
                 .unwrap_or(500);
             db::read_movimentacoes(produto_id.as_deref(), limit)
         }
+        "caixas_remote" => {
+            let limit = query
+                .iter()
+                .find(|(k, _)| *k == "__filter_limit")
+                .and_then(|(_, v)| v.parse::<i64>().ok())
+                .unwrap_or(1000);
+            db::read_caixas_remote(limit)
+        }
+        "caixa_movimentos_remote" => {
+            let caixa_id = query
+                .iter()
+                .find(|(k, _)| *k == "__filter_caixa_id")
+                .map(|(_, v)| v.as_str())
+                .unwrap_or("");
+            db::read_caixa_movimentos_remote(caixa_id)
+        }
+        "funcionarios_remote" => db::read_funcionarios_ativos_remote(),
+        "terminais_remote" => db::read_terminais_ativos_remote(),
         _ => Err(db::DbError("domínio sem leitura tipada".into())),
     }
 }
