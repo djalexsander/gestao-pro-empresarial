@@ -41,25 +41,23 @@ export function AutorizacoesTab() {
   const { data: cfg, isLoading } = useAutorizacoesConfig();
   const salvar = useSalvarAutorizacoesConfig();
   const { data: logs = [] } = useAutorizacoesLog(50);
-  const { papel, empresaAtual } = useEmpresaAtual();
+  const { papel } = useEmpresaAtual();
   const { data: empresaCfg } = useConfigEmpresa();
+  const { data: cartoes = [], isLoading: loadingCartoes } = useAutorizacaoCartoes();
+  const setAtivo = useSetCartaoAtivo();
+  const excluirCartao = useExcluirCartaoAutorizacao();
 
   const podeGerenciarCartao = papel === "owner" || papel === "admin";
   const empresaNome =
-    empresaCfg?.nome_fantasia || empresaCfg?.razao_social || empresaAtual?.nome || "";
+    empresaCfg?.nome_fantasia || empresaCfg?.razao_social || "";
 
   const [local, setLocal] = useState<Partial<AutorizacoesConfig>>({});
   const [senhaNova, setSenhaNova] = useState("");
-  const [codigoNovo, setCodigoNovo] = useState("");
-  const [labelQR, setLabelQR] = useState("");
-  const [codigoGerado, setCodigoGerado] = useState<string | null>(null);
-  const [showCartao, setShowCartao] = useState(false);
+  const [showNovoCartao, setShowNovoCartao] = useState(false);
+  const [cartaoRecemCriado, setCartaoRecemCriado] = useState<{ codigo: string; rotulo: string } | null>(null);
 
   useEffect(() => {
-    if (cfg) {
-      setLocal(cfg);
-      setLabelQR(cfg.codigo_qr_label ?? "");
-    }
+    if (cfg) setLocal(cfg);
   }, [cfg]);
 
   if (isLoading || !cfg) {
@@ -75,39 +73,32 @@ export function AutorizacoesTab() {
     set("papeis_autorizadores", Array.from(atuais) as AutorizacoesConfig["papeis_autorizadores"]);
   };
 
-  function handleGerarCodigo() {
-    if (!podeGerenciarCartao) {
-      toast.error("Apenas dono ou admin pode gerar o cartão.");
-      return;
-    }
-    const novo = gerarCodigoSeguro();
-    setCodigoGerado(novo);
-    setCodigoNovo(novo);
-    setShowCartao(true);
-    toast.success("Código gerado. Salve as configurações para ativá-lo.");
-  }
-
   async function handleSalvar() {
-    const payload: Record<string, unknown> = { ...local, codigo_qr_label: labelQR };
+    const payload: Record<string, unknown> = { ...local };
     if (senhaNova) payload.senha_master_nova = senhaNova;
-    if (codigoNovo) payload.codigo_qr_novo = codigoNovo;
-    const codigoAlterado = !!codigoNovo;
     try {
       await salvar.mutateAsync(payload);
-      setSenhaNova(""); setCodigoNovo("");
+      setSenhaNova("");
       toast.success("Autorizações atualizadas.");
-      if (codigoAlterado) {
-        try {
-          const { data: u } = await supabase.auth.getUser();
-          await supabase.from("audit_logs").insert({
-            actor_id: u.user?.id ?? null,
-            actor_email: u.user?.email ?? null,
-            action: "autorizacoes.codigo_qr.alterado",
-            target_type: "autorizacoes_config",
-            metadata: { label: labelQR, empresa: empresaNome },
-          });
-        } catch {/* noop */}
-      }
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function handleRevogar(id: string, ativo: boolean) {
+    try {
+      await setAtivo.mutateAsync({ id, ativo: !ativo });
+      toast.success(ativo ? "Cartão revogado." : "Cartão reativado.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function handleExcluirCartao(id: string) {
+    if (!confirm("Excluir cartão definitivamente? Essa ação não pode ser desfeita.")) return;
+    try {
+      await excluirCartao.mutateAsync(id);
+      toast.success("Cartão excluído.");
     } catch (e) {
       toast.error((e as Error).message);
     }
