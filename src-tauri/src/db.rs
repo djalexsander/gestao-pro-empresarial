@@ -839,8 +839,75 @@ pub fn init() -> DbResult<()> {
         "#,
     )?;
 
-    // ------------------------------------------------------------------
-    // v9 — Lançamentos financeiros locais derivados do fechamento do caixa.
+    // v20 — Backfill + Outbox de compras. Mesmo padrão de clientes/fornecedores,
+    // porém compras carregam itens, impacto em estoque (ao receber) e geram
+    // lançamento financeiro. As ações da outbox cobrem o fluxo completo:
+    //   * 'criar'           → cria a compra (cabeçalho + itens) no upstream
+    //   * 'editar_metadados'→ patch nos campos editáveis (data_*, fornecedor, NF, obs)
+    //   * 'alterar_status'  → muda o status (pendente, cancelada, etc.)
+    //   * 'receber'         → recebe a compra inteira (gera estoque + financeiro)
+    //   * 'receber_itens'   → recebe parcialmente os itens informados
+    //   * 'excluir'         → exclui a compra
+    //
+    // Colapso (idempotência local):
+    //   * editar_metadados pendente + novo editar_metadados → merge no payload
+    //   * alterar_status pendente + novo alterar_status → substitui status
+    //   * criar pendente + editar_metadados/alterar_status → patch no payload do criar
+    //   * criar pendente + excluir → ambos removidos (no-op)
+    //
+    // Causalidade: editar/alterar_status/receber*/excluir só vão upstream
+    // depois que o 'criar' resolver o remote_id da compra.
+    let _ = conn.execute(
+        "UPDATE compras_local SET local_uuid = id WHERE local_uuid IS NULL",
+        [],
+    );
+    let _ = conn.execute(
+        "UPDATE compras_local SET remote_id = id WHERE remote_id IS NULL AND sync_status='synced'",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_compras_local_uuid ON compras_local(local_uuid)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_compras_remote_id ON compras_local(remote_id) WHERE remote_id IS NOT NULL",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_compras_sync_status ON compras_local(sync_status)",
+        [],
+    );
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS outbox_compras (
+            local_uuid          TEXT PRIMARY KEY,
+            client_uuid         TEXT,
+            compra_local_uuid   TEXT NOT NULL,
+            compra_remote_id    TEXT,
+            action              TEXT NOT NULL,
+            payload             TEXT NOT NULL,
+            status              TEXT NOT NULL DEFAULT 'pending',
+            attempts            INTEGER NOT NULL DEFAULT 0,
+            last_error          TEXT,
+            remote_id           TEXT,
+            remote_response     TEXT,
+            created_at_ms       INTEGER NOT NULL,
+            updated_at_ms       INTEGER NOT NULL,
+            sent_at_ms          INTEGER,
+            next_attempt_at_ms  INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_outbox_compras_status
+            ON outbox_compras(status, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_compras_status_next
+            ON outbox_compras(status, next_attempt_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_compras_for
+            ON outbox_compras(compra_local_uuid, status);
+        CREATE INDEX IF NOT EXISTS idx_outbox_compras_action
+            ON outbox_compras(action, status);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_compras_client_uuid
+            ON outbox_compras(client_uuid) WHERE client_uuid IS NOT NULL;
+        "#,
+    )?;
     //
     // Esta tabela é puramente DERIVADA: gerada pelo `fechar_caixa_local` a
     // partir das vendas locais associadas + suprimentos/sangrias. Serve como
