@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i64 = 15;
+const SCHEMA_VERSION: i64 = 16;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -229,6 +229,27 @@ pub fn init() -> DbResult<()> {
         CREATE INDEX IF NOT EXISTS idx_compras_status ON compras_local(status);
         CREATE INDEX IF NOT EXISTS idx_compras_data ON compras_local(data_emissao_ms);
         CREATE INDEX IF NOT EXISTS idx_compras_fornecedor ON compras_local(fornecedor_id);
+
+        -- v16: Cache de leitura do histórico de vendas (NÃO confundir com
+        -- `vendas_local`, que é o PDV/outbox). Aqui guardamos o payload da
+        -- listagem (`vendas` + cliente embutido) para alimentar /vendas e
+        -- agregações de Dashboard offline. Cursor por updated_at; ordenação
+        -- por created_at_ms desc.
+        CREATE TABLE IF NOT EXISTS vendas_remote_cache (
+            id                   TEXT PRIMARY KEY,
+            numero               TEXT,
+            cliente_id           TEXT,
+            status               TEXT,
+            data_emissao_ms      INTEGER,
+            created_at_ms        INTEGER,
+            payload              TEXT NOT NULL,
+            updated_at_remote_ms INTEGER,
+            synced_at_ms         INTEGER NOT NULL,
+            deleted_at_ms        INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_vendas_remote_status ON vendas_remote_cache(status);
+        CREATE INDEX IF NOT EXISTS idx_vendas_remote_data ON vendas_remote_cache(data_emissao_ms);
+        CREATE INDEX IF NOT EXISTS idx_vendas_remote_created ON vendas_remote_cache(created_at_ms);
 
         -- Saldos: agregados por (produto_id, variacao_id). A chave única
         -- evita duplicatas quando o snapshot é re-ingerido.
@@ -1836,15 +1857,115 @@ pub fn read_compras(limit: i64) -> DbResult<String> {
             out.push_str(&payload);
             first = false;
         }
+}
+
+// ---------- Vendas (cache de leitura — v16) ----------
+//
+// Cache do payload da listagem de vendas (com cliente embutido) que
+// alimenta a tela /vendas e as agregações do Dashboard. NÃO substitui
+// `vendas_local` (PDV/outbox).
+
+pub fn ingest_vendas_remote(
+    json_text: &str,
+    now_ms: i64,
+    strategy: IngestStrategy,
+) -> DbResult<(usize, Option<i64>)> {
+    let arr: serde_json::Value = serde_json::from_str(json_text)
+        .map_err(|e| DbError(format!("ingest_vendas_remote: json inválido: {e}")))?;
+    let items = match arr.as_array() {
+        Some(a) => a,
+        None => return Ok((0, None)),
+    };
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+        let mut count = 0usize;
+        let mut max_remote_ms: Option<i64> = None;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO vendas_remote_cache(
+                    id, numero, cliente_id, status, data_emissao_ms,
+                    created_at_ms, payload, updated_at_remote_ms,
+                    synced_at_ms, deleted_at_ms
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,NULL)
+                 ON CONFLICT(id) DO UPDATE SET
+                    numero               = excluded.numero,
+                    cliente_id           = excluded.cliente_id,
+                    status               = excluded.status,
+                    data_emissao_ms      = excluded.data_emissao_ms,
+                    created_at_ms        = excluded.created_at_ms,
+                    payload              = excluded.payload,
+                    updated_at_remote_ms = COALESCE(excluded.updated_at_remote_ms, vendas_remote_cache.updated_at_remote_ms),
+                    synced_at_ms         = excluded.synced_at_ms",
+            )?;
+            for item in items {
+                let id = match json_str(item, "id") {
+                    Some(s) => s.to_string(),
+                    None => continue,
+                };
+                let updated_ms = json_str(item, "updated_at").and_then(parse_iso_to_ms);
+                if let Some(ms) = updated_ms {
+                    max_remote_ms = Some(max_remote_ms.map_or(ms, |c| c.max(ms)));
+                }
+                let data_emi_ms = json_str(item, "data_emissao").and_then(parse_date_only_to_ms);
+                let created_ms = json_str(item, "created_at").and_then(parse_iso_to_ms);
+                let payload = serde_json::to_string(item).unwrap_or_else(|_| "{}".into());
+                stmt.execute(params![
+                    id,
+                    json_str(item, "numero"),
+                    json_str(item, "cliente_id"),
+                    json_str(item, "status"),
+                    data_emi_ms,
+                    created_ms,
+                    payload,
+                    updated_ms,
+                    now_ms,
+                ])?;
+                count += 1;
+            }
+        }
+        let total: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM vendas_remote_cache WHERE deleted_at_ms IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        upsert_domain_meta(&tx, DomainMetaUpdate {
+            domain: "vendas_remote",
+            row_count: total,
+            now_ms,
+            source: "upstream",
+            strategy: strategy.as_str(),
+            delta_count: count as i64,
+            max_remote_updated_ms: max_remote_ms,
+        })?;
+        tx.commit()?;
+        Ok((count, max_remote_ms))
+    })
+}
+
+pub fn read_vendas_remote(limit: i64) -> DbResult<String> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT payload FROM vendas_remote_cache
+             WHERE deleted_at_ms IS NULL
+             ORDER BY created_at_ms DESC NULLS LAST
+             LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit], |r| r.get::<_, String>(0))?;
+        let mut out = String::from("[");
+        let mut first = true;
+        for r in rows {
+            let payload = r?;
+            if !first {
+                out.push(',');
+            }
+            out.push_str(&payload);
+            first = false;
+        }
         out.push(']');
         Ok(out)
     })
 }
 
-//
-// Modelo desta etapa:
-//
-//   * `estoque_movimentacoes_local` é APPEND-ONLY. Cursor de sync é
 //     `data_movimentacao` (timestamp definitivo na nuvem; mais estável
 //     que `updated_at`, que poderia mudar com edição de observação).
 //     Lote = INSERT OR IGNORE pelo `id` → retries idempotentes.
@@ -2147,6 +2268,7 @@ pub fn domain_has_rows(domain: &str) -> DbResult<bool> {
             "clientes_lite" => "clientes_local",
             "fornecedores" => "fornecedores_local",
             "compras" => "compras_local",
+            "vendas_remote" => "vendas_remote_cache",
             "financeiro_lancamentos_completo" => "financeiro_lancamentos_local",
             "estoque_saldos" => "estoque_saldos_local",
             "estoque_movimentacoes" => "estoque_movimentacoes_local",

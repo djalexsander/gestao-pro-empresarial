@@ -577,6 +577,13 @@ async fn proxy_with_incremental_sync(
                             eprintln!("[gestao-pro] ingest compras falhou: {e}");
                         }
                     },
+                    "vendas_remote" => match db::ingest_vendas_remote(text, now, strategy) {
+                        Ok((n, _)) => delta = n as i64,
+                        Err(e) => {
+                            let _ = db::record_sync_error(domain, now, &e.to_string());
+                            eprintln!("[gestao-pro] ingest vendas_remote falhou: {e}");
+                        }
+                    },
                     "estoque_movimentacoes" => {
                         match db::ingest_movimentacoes(text, now, strategy) {
                             Ok((n, _)) => delta = n as i64,
@@ -740,6 +747,14 @@ fn read_typed(domain: &str, query: &[(&str, String)]) -> Result<String, db::DbEr
                 .and_then(|(_, v)| v.parse::<i64>().ok())
                 .unwrap_or(500);
             db::read_compras(limit)
+        }
+        "vendas_remote" => {
+            let limit = query
+                .iter()
+                .find(|(k, _)| *k == "__filter_limit")
+                .and_then(|(_, v)| v.parse::<i64>().ok())
+                .unwrap_or(500);
+            db::read_vendas_remote(limit)
         }
         "estoque_saldos" => db::read_saldos(),
         "estoque_movimentacoes" => {
@@ -1910,6 +1925,30 @@ async fn compras_handler(
     proxy_with_incremental_sync(&ctx, &headers, "compras", "/rest/v1/compras", &params, false).await
 }
 
+// ---------- /api/vendas/historico (v16) ----------
+//
+// Cache de leitura do histórico de vendas (com cliente embutido), espelhando
+// `cloudAdapter.vendas.list`. NÃO confundir com `/api/vendas/registrar`
+// (write do PDV via outbox).
+
+async fn vendas_historico_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(500);
+    let mut params: Vec<(&str, String)> = vec![
+        (
+            "select",
+            "id,numero,cliente_id,data_emissao,data_finalizacao,total,status,status_pagamento,forma_pagamento,caixa_id,operador_id,terminal_id,created_at,updated_at,cliente:clientes(nome)".into(),
+        ),
+        ("order", "created_at.desc".into()),
+        ("limit", limit.to_string()),
+    ];
+    params.push(("__filter_limit", limit.to_string()));
+    proxy_with_incremental_sync(&ctx, &headers, "vendas_remote", "/rest/v1/vendas", &params, false).await
+}
+
 /// GET `/api/caixa/resumo?caixa_id=...` ou `?operador_id=...` para o aberto.
 /// Retorna o resumo local do caixa: totais por forma de pagamento, vendas,
 /// suprimentos, sangrias, esperado em dinheiro e diferença (se fechado).
@@ -2333,6 +2372,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/fornecedores", get(fornecedores_handler))
         .route("/api/financeiro/lancamentos-completo", get(financeiro_lancamentos_completo_handler))
         .route("/api/compras", get(compras_handler))
+        .route("/api/vendas/historico", get(vendas_historico_handler))
         .route("/backup/status", get(backup_status_handler))
         .route("/backup/list", get(backup_list_handler))
         .route("/backup/log", get(backup_log_handler))

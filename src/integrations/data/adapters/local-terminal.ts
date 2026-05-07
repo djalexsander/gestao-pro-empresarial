@@ -256,6 +256,24 @@ export const localTerminalAdapter: DataAdapter = {
   vendas: {
     ...cloudAdapter.vendas,
     /**
+     * Histórico de vendas (v16): leitura offline-first a partir de
+     * `vendas_remote_cache`. Não confundir com o write do PDV
+     * (`finalizar`/`cancelar`), que segue lógica própria abaixo.
+     */
+    list: (input) =>
+      withFallback(
+        "vendas",
+        "list",
+        () =>
+          tryLocal<Awaited<ReturnType<DataAdapter["vendas"]["list"]>>>(
+            "vendas",
+            "list",
+            "/api/vendas/historico",
+            { limit: input?.limit != null ? String(input.limit) : undefined },
+          ),
+        () => cloudAdapter.vendas.list(input),
+      ),
+    /**
      * WRITE LOCAL: a venda vai PRIMEIRO ao servidor local (que grava em
      * SQLite, baixa o estoque local na mesma transação e enfileira na
      * outbox para push posterior à RPC `finalizar_venda_pdv` na nuvem).
