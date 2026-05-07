@@ -39,6 +39,7 @@ function rotasDoModo(modoChave: string): string[] {
       "/clientes",
       "/relatorios",
       "/configuracoes",
+      "/autorizacoes",
     ];
   }
   return [];
