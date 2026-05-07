@@ -840,10 +840,12 @@ async fn clientes_lite_handler(
     headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
-    // Inclui `status` e `updated_at` no select — necessários para tombstone
-    // (status != ativo) e para o cursor de sync incremental.
+    // Pedimos `*` para que o `payload` cacheado em `clientes_local` contenha
+    // TODOS os campos do cadastro — assim o mesmo dataset alimenta tanto o
+    // `listLite` (PDV) quanto o `list` completo (tela de Clientes), sem
+    // precisar de outra rota nem outra ingestão.
     let mut params: Vec<(&str, String)> = vec![
-        ("select", "id,nome,nome_fantasia,documento,status,updated_at".into()),
+        ("select", "*".into()),
         ("order", "nome.asc".into()),
     ];
     // status vazio = todos; ausente = "ativo" (default)
