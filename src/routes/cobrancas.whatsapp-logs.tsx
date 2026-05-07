@@ -28,8 +28,7 @@ const STATUS: Record<string, { label: string; tone: string; Icon: typeof CheckCi
 };
 
 function LogsPage() {
-  const empresa = useEmpresaAtual();
-  const empresaId = empresa.data?.id;
+  const { empresaId } = useEmpresaAtual();
   const qc = useQueryClient();
   const [disparando, setDisparando] = useState(false);
 
