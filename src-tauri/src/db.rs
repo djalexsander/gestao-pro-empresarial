@@ -1694,7 +1694,8 @@ pub fn ingest_clientes_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize>
 pub fn read_clientes(status: Option<&str>) -> DbResult<String> {
     with_conn(|conn| {
         let mut sql = String::from(
-            "SELECT payload FROM clientes_local WHERE deleted_at_ms IS NULL",
+            "SELECT payload, local_uuid, remote_id, sync_status, last_error
+               FROM clientes_local WHERE deleted_at_ms IS NULL",
         );
         let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
         if let Some(s) = status {
@@ -1704,15 +1705,38 @@ pub fn read_clientes(status: Option<&str>) -> DbResult<String> {
         sql.push_str(" ORDER BY nome ASC");
         let params_dyn: Vec<&dyn rusqlite::ToSql> = args.iter().map(|b| &**b).collect();
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(params_dyn.as_slice(), |r| r.get::<_, String>(0))?;
+        let rows = stmt.query_map(params_dyn.as_slice(), |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, Option<String>>(3)?,
+                r.get::<_, Option<String>>(4)?,
+            ))
+        })?;
         let mut out = String::from("[");
         let mut first = true;
         for r in rows {
-            let payload = r?;
-            if !first {
-                out.push(',');
+            let (payload, local_uuid, remote_id, sync_status, last_error) = r?;
+            // Enriquecer payload com metadata local — sem reescrever quando já presente.
+            let mut v: serde_json::Value = serde_json::from_str(&payload)
+                .unwrap_or(serde_json::json!({}));
+            if let Some(o) = v.as_object_mut() {
+                if let Some(lid) = local_uuid {
+                    o.entry("local_uuid").or_insert(serde_json::Value::String(lid));
+                }
+                if let Some(rid) = remote_id {
+                    o.entry("remote_id").or_insert(serde_json::Value::String(rid));
+                }
+                if let Some(ss) = sync_status {
+                    o.insert("sync_status".into(), serde_json::Value::String(ss));
+                }
+                if let Some(err) = last_error {
+                    o.insert("sync_error".into(), serde_json::Value::String(err));
+                }
             }
-            out.push_str(&payload);
+            if !first { out.push(','); }
+            out.push_str(&v.to_string());
             first = false;
         }
         out.push(']');
