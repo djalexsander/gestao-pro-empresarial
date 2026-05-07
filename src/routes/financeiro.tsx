@@ -1328,75 +1328,28 @@ function FluxoCaixaPanel() {
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["financeiro", "fluxo-caixa", inicio, fim],
     queryFn: async (): Promise<FluxoRow[]> => {
-      // Range em timestamp para cobrir o dia inteiro do "fim".
-      const inicioTs = `${inicio}T00:00:00`;
-      const fimTs = `${fim}T23:59:59.999`;
+      const movs = await dataClient.financeiro.movimentosCaixaPeriodo({ inicio, fim });
+      const movRows: FluxoRow[] = movs.map((m) => {
+        const tipo = m.tipo as FluxoTipo;
+        const bruto = Number(m.valor) || 0;
+        let valor = bruto;
+        if (tipo === "sangria" || tipo === "fechamento") valor = -Math.abs(bruto);
+        else valor = Math.abs(bruto);
+        const operacional = tipo === "abertura" || tipo === "fechamento";
+        return {
+          id: `mov-${m.id}`,
+          data: m.created_at,
+          tipo,
+          origem: "caixa",
+          descricao: m.motivo ?? TIPO_LABEL[tipo] ?? "Movimento de caixa",
+          valor,
+          operacional,
+          caixaId: m.caixa_id,
+        };
+      });
 
-      // 1) Movimentos do caixa (abertura, sangria, suprimento, fechamento, venda)
-      const { data: movs, error: errMovs } = await supabase
-        .from("caixa_movimentos")
-        .select("id, tipo, valor, motivo, created_at, caixa_id, venda_id")
-        .gte("created_at", inicioTs)
-        .lte("created_at", fimTs)
-        .order("created_at", { ascending: false })
-        .limit(2000);
-      if (errMovs) throw errMovs;
-
-      const movRows: FluxoRow[] = (movs ?? []).map(
-        (m: {
-          id: string;
-          tipo: string;
-          valor: number;
-          motivo: string | null;
-          created_at: string;
-          caixa_id: string | null;
-        }) => {
-          const tipo = m.tipo as FluxoTipo;
-          const bruto = Number(m.valor) || 0;
-          // Sinal: entrada (+) ou saída (-)
-          let valor = bruto;
-          if (tipo === "sangria" || tipo === "fechamento") valor = -Math.abs(bruto);
-          else valor = Math.abs(bruto);
-          const operacional = tipo === "abertura" || tipo === "fechamento";
-          return {
-            id: `mov-${m.id}`,
-            data: m.created_at,
-            tipo,
-            origem: "caixa",
-            descricao: m.motivo ?? TIPO_LABEL[tipo] ?? "Movimento de caixa",
-            valor,
-            operacional,
-            caixaId: m.caixa_id,
-          };
-        },
-      );
-
-      // 2) Lançamentos financeiros pagos/recebidos NÃO vinculados a caixa
-      //    (evita duplicar vendas que já entram via caixa_movimentos).
-      const { data: lancs, error: errLancs } = await supabase
-        .from("financeiro_lancamentos")
-        .select(
-          "id, descricao, tipo, valor, valor_pago, data_pagamento, status, caixa_id, venda_id",
-        )
-        .in("status", ["pago", "recebido"])
-        .is("caixa_id", null)
-        .is("venda_id", null)
-        .gte("data_pagamento", inicio)
-        .lte("data_pagamento", fim)
-        .order("data_pagamento", { ascending: false })
-        .limit(2000);
-      if (errLancs) throw errLancs;
-
-      type LancRowDb = {
-        id: string;
-        descricao: string;
-        tipo: "receber" | "pagar" | "receita" | "despesa";
-        valor: number;
-        valor_pago: number | null;
-        data_pagamento: string | null;
-        status: string;
-      };
-      const lancRows: FluxoRow[] = ((lancs ?? []) as LancRowDb[]).map((l) => {
+      const lancs = await dataClient.financeiro.lancamentosAvulsosPagos({ inicio, fim });
+      const lancRows: FluxoRow[] = lancs.map((l) => {
         const v = Number(l.valor_pago ?? l.valor) || 0;
         const isReceita = l.tipo === "receber" || l.tipo === "receita";
         return {
