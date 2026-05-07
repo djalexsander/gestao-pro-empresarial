@@ -834,6 +834,32 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_term_rc_ativo
             ON terminais_remote_cache(ativo);
+
+        CREATE TABLE IF NOT EXISTS pagamentos_empresa_remote_cache (
+            id                   TEXT PRIMARY KEY,
+            status               TEXT,
+            created_at_ms        INTEGER,
+            payload              TEXT NOT NULL,
+            updated_at_remote_ms INTEGER,
+            synced_at_ms         INTEGER NOT NULL,
+            deleted_at_ms        INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_pag_emp_rc_created
+            ON pagamentos_empresa_remote_cache(created_at_ms DESC);
+
+        CREATE TABLE IF NOT EXISTS venda_itens_remote_cache (
+            id                   TEXT PRIMARY KEY,
+            venda_id             TEXT,
+            produto_id           TEXT,
+            payload              TEXT NOT NULL,
+            updated_at_remote_ms INTEGER,
+            synced_at_ms         INTEGER NOT NULL,
+            deleted_at_ms        INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_venda_itens_rc_venda
+            ON venda_itens_remote_cache(venda_id);
+        CREATE INDEX IF NOT EXISTS idx_venda_itens_rc_produto
+            ON venda_itens_remote_cache(produto_id);
         "#,
     )?;
 
