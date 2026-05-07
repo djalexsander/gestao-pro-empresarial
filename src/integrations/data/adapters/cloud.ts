@@ -2370,6 +2370,19 @@ const terminais: DataAdapter["terminais"] = {
     });
     if (error) throw error;
   },
+  async atualizarPermissoes(input) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase as any).rpc("terminal_atualizar_permissoes", {
+      _terminal_id: input.id,
+      _pode_pdv: input.pode_pdv,
+      _pode_erp: input.pode_erp,
+      _pode_financeiro: input.pode_financeiro,
+      _pode_configuracoes: input.pode_configuracoes,
+      _pode_relatorios: input.pode_relatorios,
+      _pode_cadastros: input.pode_cadastros,
+    });
+    if (error) throw error;
+  },
 };
 
 const notificacoes: DataAdapter["notificacoes"] = {
