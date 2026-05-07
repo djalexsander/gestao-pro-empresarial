@@ -45,34 +45,29 @@ export function CobrancaPixDialog({
     if (!open || !cobranca?.pagamento_id) return;
     setPago(false);
 
-    const ch = supabase
-      .channel(`pagamento-${cobranca.pagamento_id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "pagamentos",
-          filter: `id=eq.${cobranca.pagamento_id}`,
-        },
-        (payload) => {
-          const novo = payload.new as { status?: string };
-          if (novo?.status === "pago") {
-            setPago(true);
-            toast.success("Pagamento confirmado! Plano/módulo ativado.");
-            qc.invalidateQueries({ queryKey: ["minha-assinatura"] });
-            qc.invalidateQueries({ queryKey: ["planos-disponiveis"] });
-            qc.invalidateQueries({ queryKey: ["modulos-disponiveis-cliente"] });
-            qc.invalidateQueries({ queryKey: ["meus-modulos"] });
-            qc.invalidateQueries({ queryKey: ["cobranca-pendente"] });
-            qc.invalidateQueries({ queryKey: ["meus-pagamentos"] });
-          }
-        },
-      )
-      .subscribe();
+    const stop = realtimeClient.subscribeTable<{ status?: string }>(
+      {
+        table: "pagamentos",
+        event: "UPDATE",
+        filter: `id=eq.${cobranca.pagamento_id}`,
+      },
+      (payload) => {
+        const novo = payload.new;
+        if (novo?.status === "pago") {
+          setPago(true);
+          toast.success("Pagamento confirmado! Plano/módulo ativado.");
+          qc.invalidateQueries({ queryKey: ["minha-assinatura"] });
+          qc.invalidateQueries({ queryKey: ["planos-disponiveis"] });
+          qc.invalidateQueries({ queryKey: ["modulos-disponiveis-cliente"] });
+          qc.invalidateQueries({ queryKey: ["meus-modulos"] });
+          qc.invalidateQueries({ queryKey: ["cobranca-pendente"] });
+          qc.invalidateQueries({ queryKey: ["meus-pagamentos"] });
+        }
+      },
+    );
 
     return () => {
-      supabase.removeChannel(ch);
+      stop();
     };
   }, [open, cobranca?.pagamento_id, qc]);
 
