@@ -8141,28 +8141,6 @@ fn compra_recompute_payload(
 ) -> DbResult<()> {
     // Recalcula subtotal/total e regera o payload JSON usado por
     // read_compras (que lê `compras_local.payload` direto).
-    let header: Option<(
-        String, Option<String>, Option<String>, Option<String>,
-        Option<String>, Option<String>, Option<String>, Option<String>,
-        Option<String>, Option<String>, Option<String>, Option<String>,
-        f64, f64, f64, Option<String>,
-    )> = tx.query_row(
-        "SELECT local_uuid, remote_id, numero, fornecedor_id, status,
-                data_emissao, data_prevista, data_vencimento,
-                data_recebimento, numero_nf, serie_nf, observacoes,
-                desconto, frete, outros, fornecedor_payload
-           FROM compras_local_ext WHERE local_uuid=?1",
-        params![compra_local_uuid], |r| Ok((
-            r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
-            r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?,
-            r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?, r.get(14)?, r.get(15)?,
-        )),
-    ).optional()?;
-    // O view `compras_local_ext` ainda não existe — o helper acima é
-    // intencionalmente um placeholder estrutural pra ser preenchido
-    // quando os 6 handlers estiverem prontos. Por hora, recomputamos
-    // a partir do payload existente em `compras_local`.
-    let _ = header;
     let raw: Option<String> = tx.query_row(
         "SELECT payload FROM compras_local WHERE local_uuid=?1",
         params![compra_local_uuid], |r| r.get(0),
