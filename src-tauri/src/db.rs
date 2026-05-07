@@ -2256,6 +2256,9 @@ pub fn read_compras(limit: i64) -> DbResult<String> {
             out.push_str(&payload);
             first = false;
         }
+        out.push(']');
+        Ok(out)
+    })
 }
 
 // ---------- Vendas (cache de leitura — v16) ----------
