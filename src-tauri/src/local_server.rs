@@ -2906,6 +2906,7 @@ pub async fn start(
         s.fin_scheduler_shutdown_tx = Some(fin_scheduler_tx);
         s.cli_scheduler_shutdown_tx = Some(cli_scheduler_tx);
         s.forn_scheduler_shutdown_tx = Some(forn_scheduler_tx);
+        s.compras_scheduler_shutdown_tx = Some(compras_scheduler_tx);
         s.backup_scheduler_shutdown_tx = Some(backup_scheduler_tx);
         s.upstream = upstream;
         s.terminals.clear();
