@@ -614,7 +614,13 @@ pub fn init() -> DbResult<()> {
         "ALTER TABLE fornecedores_local ADD COLUMN remote_id TEXT",
         "ALTER TABLE fornecedores_local ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'synced'",
         "ALTER TABLE fornecedores_local ADD COLUMN last_error TEXT",
-        "ALTER TABLE fornecedores_local ADD COLUMN created_offline_at_ms INTEGER",
+         "ALTER TABLE fornecedores_local ADD COLUMN created_offline_at_ms INTEGER",
+        // v20: compras offline-first.
+        "ALTER TABLE compras_local ADD COLUMN local_uuid TEXT",
+        "ALTER TABLE compras_local ADD COLUMN remote_id TEXT",
+        "ALTER TABLE compras_local ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'synced'",
+        "ALTER TABLE compras_local ADD COLUMN last_error TEXT",
+        "ALTER TABLE compras_local ADD COLUMN created_offline_at_ms INTEGER",
     ];
     for sql in alters {
         // Erro só ocorre quando a coluna já existe — seguro ignorar.
