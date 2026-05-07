@@ -114,13 +114,17 @@ export function BackupSeguranca({ cfg }: Props) {
     run("Backup manual", () => criarBackupAgora(cfg, "manual"));
 
   const handleRestore = async () => {
-    const path = restorePath.trim();
-    if (!path) {
-      setError("Informe o caminho do arquivo .db a restaurar.");
+    if (!desktop) {
+      setError("Restauração disponível apenas no app desktop.");
       return;
     }
+    const path = await pickDbFile({
+      title: "Selecionar backup .db para restaurar",
+      defaultPath: status?.backups_dir ?? undefined,
+    });
+    if (!path) return;
     if (!confirm(
-      "Restaurar substituirá o banco atual. Um pre-backup automático será criado e o app precisará ser reiniciado. Deseja continuar?",
+      `Restaurar a partir de:\n${path}\n\nIsso substituirá o banco atual. Um pre-backup automático será criado e o app precisará ser reiniciado. Deseja continuar?`,
     )) return;
     await run("Restauração agendada", () => agendarRestauracao(cfg, path));
   };
@@ -130,11 +134,34 @@ export function BackupSeguranca({ cfg }: Props) {
   };
 
   const handleExport = async () => {
-    if (!exportSrc) { setError("Selecione um backup."); return; }
-    const dest = exportDest.trim();
-    if (!dest) { setError("Informe o caminho de destino."); return; }
+    if (!exportSrc) { setError("Selecione um backup na lista acima."); return; }
+    if (!desktop) {
+      setError("Exportação com seletor disponível apenas no app desktop.");
+      return;
+    }
+    const fileName = exportSrc.split(/[\\/]/).pop() ?? "gestao-pro-backup.db";
+    const dest = await pickSaveFile({
+      title: "Salvar cópia do backup",
+      defaultPath: fileName,
+    });
+    if (!dest) return;
     await run("Exportação", () => exportarBackup(cfg, exportSrc, dest));
   };
+
+  const handleOpenFolder = async (path: string | null | undefined) => {
+    if (!path) return;
+    const ok = await revealInExplorer(path);
+    if (ok) toast.success("Pasta aberta no explorador.");
+    else toast.error("Não foi possível abrir a pasta.");
+  };
+
+  const handleCopy = async (path: string | null | undefined, label: string) => {
+    if (!path) return;
+    const ok = await copyToClipboard(path);
+    if (ok) toast.success(`${label} copiado para a área de transferência.`);
+    else toast.error("Não foi possível copiar.");
+  };
+
 
   return (
     <Card>
