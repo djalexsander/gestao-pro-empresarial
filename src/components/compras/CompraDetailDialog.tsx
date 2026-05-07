@@ -24,6 +24,7 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { useCompra, useUpdateCompraStatus, useUpdateCompraMetadados } from "@/hooks/useCompras";
 import { ReceberCompraDialog } from "./ReceberCompraDialog";
+import { usePdvQuickAccess } from "@/contexts/PdvQuickAccessContext";
 
 interface Props {
   open: boolean;
@@ -38,6 +39,7 @@ const fmtNum = (n: number) =>
   Number(n ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 });
 
 export function CompraDetailDialog({ open, onOpenChange, compraId }: Props) {
+  const pdvQuick = usePdvQuickAccess();
   const { data: compra, isLoading } = useCompra(compraId ?? undefined);
   const updateStatus = useUpdateCompraStatus();
   const updateMeta = useUpdateCompraMetadados();
