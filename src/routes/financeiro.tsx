@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { dataClient } from "@/integrations/data/client";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import {
