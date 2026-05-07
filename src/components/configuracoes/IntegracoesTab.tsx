@@ -202,22 +202,9 @@ function ConfigDialog({ tipo, atual, open, onOpenChange, onSalvar, salvando }: C
   const cfg = atual?.configuracoes ?? {};
   const { empresaAtual } = useEmpresaAtual();
 
-  // Marketplaces
-  const [mktToken, setMktToken] = useState<string>(cfg.token ?? "");
-
-  const handleSalvarMarketplace = () => {
-    onSalvar({
-      tipo_integracao: tipo,
-      status: mktToken ? "configuring" : "disconnected",
-      ativo: false,
-      nome_exibicao: meta.titulo,
-      configuracoes: { token: mktToken },
-    });
-  };
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <meta.Icon className="h-5 w-5" /> {meta.titulo}
