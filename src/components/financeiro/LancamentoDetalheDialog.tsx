@@ -749,15 +749,7 @@ function CobrancaActions({ lancamento, saldoRestante }: CobrancaActionsProps) {
   const { data: integracoes = [] } = useQuery({
     queryKey: ["integracoes_cobranca"],
     queryFn: async () => {
-      const { data, error } = await (supabase.from as unknown as (t: string) => {
-        select: (cols: string) => {
-          in: (col: string, vals: string[]) => Promise<{ data: any[] | null; error: { message: string } | null }>;
-        };
-      })("empresa_integracoes")
-        .select("tipo_integracao, status, ativo, configuracoes, empresa_id, owner_id")
-        .in("tipo_integracao", ["pix", "whatsapp"]);
-      if (error) throw new Error(error.message);
-      return data ?? [];
+      return await dataClient.empresa.integracoesPorTipos(["pix", "whatsapp"]);
     },
     staleTime: 30_000,
   });
