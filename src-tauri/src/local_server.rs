@@ -968,11 +968,21 @@ async fn db_sync_handler(
         }
         "clientes_lite" => {
             let params: Vec<(&str, String)> = vec![
-                ("select", "id,nome,nome_fantasia,documento,status,updated_at".into()),
+                ("select", "*".into()),
                 ("order", "nome.asc".into()),
             ];
             proxy_with_incremental_sync(
                 &ctx, &headers, "clientes_lite", "/rest/v1/clientes", &params, true,
+            )
+            .await
+        }
+        "fornecedores" => {
+            let params: Vec<(&str, String)> = vec![
+                ("select", "*".into()),
+                ("order", "razao_social.asc".into()),
+            ];
+            proxy_with_incremental_sync(
+                &ctx, &headers, "fornecedores", "/rest/v1/fornecedores", &params, true,
             )
             .await
         }
