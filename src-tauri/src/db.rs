@@ -2580,6 +2580,10 @@ pub fn domain_has_rows(domain: &str) -> DbResult<bool> {
             "financeiro_lancamentos_completo" => "financeiro_lancamentos_local",
             "estoque_saldos" => "estoque_saldos_local",
             "estoque_movimentacoes" => "estoque_movimentacoes_local",
+            "caixas_remote" => "caixas_remote_cache",
+            "caixa_movimentos_remote" => "caixa_movimentos_remote_cache",
+            "funcionarios_remote" => "funcionarios_remote_cache",
+            "terminais_remote" => "terminais_remote_cache",
             _ => return Ok(false),
         };
         let sql = format!("SELECT COUNT(*) FROM {table}");
