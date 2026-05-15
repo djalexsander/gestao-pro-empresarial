@@ -1169,6 +1169,314 @@ async fn db_sync_handler(
     }))
 }
 
+// ============================================================================
+// ETAPA 3 — Sincronização inicial obrigatória para uso offline
+// ============================================================================
+//
+// Endpoints:
+//   GET  /api/offline/status        → estado de prontidão offline
+//   POST /api/offline/sync-inicial  → roda pull de todos os domínios essenciais
+//
+// Marca de "primeira sync concluída" fica em cache_kv com TTL ~10 anos.
+// Idempotente: pode ser chamado N vezes.
+
+const OFFLINE_DOMAIN: &str = "offline_meta";
+const OFFLINE_KEY_INITIAL: &str = "initial_sync";
+const OFFLINE_TTL_MS: i64 = 1000 * 60 * 60 * 24 * 365 * 10; // ~10 anos
+
+/// Domínios considerados ESSENCIAIS para o app rodar offline.
+/// Cada item: (chave lógica usada na UI/sync, label amigável).
+const OFFLINE_ESSENTIAL_DOMAINS: &[(&str, &str)] = &[
+    ("produtos", "Produtos"),
+    ("clientes_lite", "Clientes"),
+    ("fornecedores", "Fornecedores"),
+    ("estoque_movimentacoes", "Estoque (movimentações + saldos)"),
+    ("financeiro_lancamentos_completo", "Financeiro"),
+];
+
+#[derive(Serialize)]
+struct OfflineDomainStatus {
+    domain: String,
+    label: String,
+    essential: bool,
+    ready: bool,
+    row_count: i64,
+    last_synced_ms: Option<i64>,
+    last_synced_ok: bool,
+    last_error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct OfflineStatusResponse {
+    initial_sync_completed: bool,
+    initial_sync_at_ms: Option<i64>,
+    schema_version: i64,
+    upstream_configured: bool,
+    ready: bool,
+    warnings: Vec<String>,
+    domains: Vec<OfflineDomainStatus>,
+    pending_domains: Vec<String>,
+}
+
+fn read_initial_sync_marker() -> Option<i64> {
+    // TTL longo, mas usamos now=0 para sempre passar o filtro de validade.
+    let payload = db::cache_get(OFFLINE_DOMAIN, OFFLINE_KEY_INITIAL, 0).ok().flatten()?;
+    payload.parse::<i64>().ok()
+}
+
+fn write_initial_sync_marker(at_ms: i64) {
+    let _ = db::cache_put(
+        OFFLINE_DOMAIN,
+        OFFLINE_KEY_INITIAL,
+        &at_ms.to_string(),
+        at_ms,
+        OFFLINE_TTL_MS,
+    );
+}
+
+async fn offline_status_handler(
+    State(ctx): State<AppCtx>,
+) -> Result<Json<OfflineStatusResponse>, (StatusCode, String)> {
+    let info = db::db_info()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let stats = db::list_domain_stats().unwrap_or_default();
+    let stats_map: HashMap<String, db::DomainStat> =
+        stats.into_iter().map(|s| (s.domain.clone(), s)).collect();
+
+    let mut domains = Vec::with_capacity(OFFLINE_ESSENTIAL_DOMAINS.len());
+    let mut pending = Vec::new();
+    let mut all_ready = true;
+
+    for (key, label) in OFFLINE_ESSENTIAL_DOMAINS {
+        let s = stats_map.get(*key);
+        let row_count = s.map(|x| x.row_count).unwrap_or(0);
+        let ready = row_count > 0;
+        if !ready {
+            all_ready = false;
+            pending.push((*key).to_string());
+        }
+        domains.push(OfflineDomainStatus {
+            domain: (*key).to_string(),
+            label: (*label).to_string(),
+            essential: true,
+            ready,
+            row_count,
+            last_synced_ms: s.and_then(|x| x.last_synced_ms),
+            last_synced_ok: s.map(|x| x.last_synced_ok).unwrap_or(false),
+            last_error: s.and_then(|x| x.last_error.clone()),
+        });
+    }
+
+    let initial_at = read_initial_sync_marker();
+    let mut warnings = Vec::new();
+    if !ctx.upstream.is_some() {
+        warnings.push(
+            "Servidor local sem upstream configurado — sincronização inicial \
+             só funciona com internet e credenciais do Lovable Cloud."
+                .into(),
+        );
+    }
+    if initial_at.is_none() {
+        warnings.push(
+            "Sincronização inicial nunca foi concluída neste computador. \
+             Conecte à internet e clique em 'Sincronizar dados para uso offline'."
+                .into(),
+        );
+    }
+    if !all_ready {
+        warnings.push(
+            "Alguns domínios essenciais ainda não têm dados locais. \
+             O modo offline pode ficar incompleto até a sincronização rodar."
+                .into(),
+        );
+    }
+
+    Ok(Json(OfflineStatusResponse {
+        initial_sync_completed: initial_at.is_some(),
+        initial_sync_at_ms: initial_at,
+        schema_version: info.schema_version,
+        upstream_configured: ctx.upstream.is_some(),
+        ready: initial_at.is_some() && all_ready,
+        warnings,
+        domains,
+        pending_domains: pending,
+    }))
+}
+
+#[derive(Serialize)]
+struct OfflineSyncDomainResult {
+    domain: String,
+    label: String,
+    ok: bool,
+    delta: i64,
+    row_count: i64,
+    error: Option<String>,
+    duration_ms: i64,
+}
+
+#[derive(Serialize)]
+struct OfflineSyncResponse {
+    ok: bool,
+    completed_at_ms: i64,
+    upstream_configured: bool,
+    total_delta: i64,
+    results: Vec<OfflineSyncDomainResult>,
+}
+
+async fn offline_sync_inicial_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<Json<OfflineSyncResponse>, (StatusCode, String)> {
+    eprintln!("[OFFLINE_SYNC] início");
+    let upstream_configured = ctx.upstream.is_some();
+    if !upstream_configured {
+        eprintln!("[OFFLINE_SYNC] erro: upstream não configurado");
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Upstream não configurado — impossível baixar dados da nuvem.".into(),
+        ));
+    }
+
+    let mut results = Vec::with_capacity(OFFLINE_ESSENTIAL_DOMAINS.len());
+    let mut total_delta = 0i64;
+    let mut all_ok = true;
+
+    for (key, label) in OFFLINE_ESSENTIAL_DOMAINS {
+        let t0 = now_ms();
+        let outcome = match *key {
+            "produtos" => {
+                let params: Vec<(&str, String)> = vec![
+                    ("select", "*,categoria:categorias_produto(id,nome)".into()),
+                    ("order", "nome.asc".into()),
+                ];
+                proxy_with_incremental_sync(
+                    &ctx, &headers, "produtos", "/rest/v1/produtos", &params, true,
+                )
+                .await
+            }
+            "clientes_lite" => {
+                let params: Vec<(&str, String)> = vec![
+                    ("select", "*".into()),
+                    ("order", "nome.asc".into()),
+                ];
+                proxy_with_incremental_sync(
+                    &ctx, &headers, "clientes_lite", "/rest/v1/clientes", &params, true,
+                )
+                .await
+            }
+            "fornecedores" => {
+                let params: Vec<(&str, String)> = vec![
+                    ("select", "*".into()),
+                    ("order", "razao_social.asc".into()),
+                ];
+                proxy_with_incremental_sync(
+                    &ctx, &headers, "fornecedores", "/rest/v1/fornecedores", &params, true,
+                )
+                .await
+            }
+            "estoque_movimentacoes" => {
+                let params = estoque_movs_base_params();
+                proxy_with_incremental_sync(
+                    &ctx,
+                    &headers,
+                    "estoque_movimentacoes",
+                    "/rest/v1/estoque_movimentacoes",
+                    &params,
+                    true,
+                )
+                .await
+            }
+            "financeiro_lancamentos_completo" => {
+                let params: Vec<(&str, String)> = vec![
+                    ("select", financeiro_completo_select().to_string()),
+                    ("order", "data_vencimento.asc".into()),
+                ];
+                proxy_with_incremental_sync(
+                    &ctx,
+                    &headers,
+                    "financeiro_lancamentos_completo",
+                    "/rest/v1/financeiro_lancamentos",
+                    &params,
+                    true,
+                )
+                .await
+            }
+            _ => Err((StatusCode::BAD_REQUEST, "domínio desconhecido".into())),
+        };
+
+        let dur = now_ms() - t0;
+        let stat = db::list_domain_stats()
+            .ok()
+            .and_then(|v| v.into_iter().find(|s| s.domain == *key));
+        let row_count = stat.as_ref().map(|s| s.row_count).unwrap_or(0);
+
+        match outcome {
+            Ok(resp) => {
+                let h = resp.headers();
+                let delta = h
+                    .get("x-gp-delta")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|s| s.parse::<i64>().ok())
+                    .unwrap_or(0);
+                total_delta += delta;
+                eprintln!(
+                    "[OFFLINE_SYNC] domínio sincronizado: {} (+{} regs em {}ms)",
+                    key, delta, dur
+                );
+                results.push(OfflineSyncDomainResult {
+                    domain: (*key).to_string(),
+                    label: (*label).to_string(),
+                    ok: true,
+                    delta,
+                    row_count,
+                    error: None,
+                    duration_ms: dur,
+                });
+            }
+            Err((status, msg)) => {
+                all_ok = false;
+                eprintln!(
+                    "[OFFLINE_SYNC] erro no domínio {}: HTTP {} — {}",
+                    key,
+                    status.as_u16(),
+                    msg
+                );
+                results.push(OfflineSyncDomainResult {
+                    domain: (*key).to_string(),
+                    label: (*label).to_string(),
+                    ok: false,
+                    delta: 0,
+                    row_count,
+                    error: Some(format!("HTTP {}: {}", status.as_u16(), msg)),
+                    duration_ms: dur,
+                });
+            }
+        }
+    }
+
+    let completed_at = now_ms();
+    if all_ok {
+        write_initial_sync_marker(completed_at);
+        eprintln!(
+            "[OFFLINE_SYNC] concluído com sucesso ({} domínios, +{} regs)",
+            results.len(),
+            total_delta
+        );
+    } else {
+        eprintln!(
+            "[OFFLINE_SYNC] concluído COM ERROS (alguns domínios falharam) — marca não atualizada"
+        );
+    }
+
+    Ok(Json(OfflineSyncResponse {
+        ok: all_ok,
+        completed_at_ms: completed_at,
+        upstream_configured,
+        total_delta,
+        results,
+    }))
+}
+
 // ---------- Writes locais de estoque + outbox ----------
 //
 // `POST /api/estoque/movimentacoes` é o ponto de entrada do TERMINAL para
