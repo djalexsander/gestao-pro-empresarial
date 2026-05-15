@@ -112,3 +112,81 @@ Já em vigor (não foi necessário mexer nesta etapa):
 - **Etapa 3:** outbox de mutations + worker de sync bidirecional.
 - **Etapa 4:** migrar `useFuncionarios` e endpoints administrativos para
   `dataClient` com timeout curto.
+
+---
+
+## Etapa 2 — local-server real (executada)
+
+### O que foi feito
+
+- **`src/integrations/data/adapters/local-server.ts` reescrito.** Não é mais
+  um simples "tag de origem" sobre o cloudAdapter. Agora consome de fato os
+  endpoints HTTP locais expostos pelo backend Tauri/Axum em
+  `127.0.0.1:<porta>`:
+
+  | Domínio | Endpoint local | Origem real |
+  |---|---|---|
+  | `produtos.list`             | `GET /api/produtos/list` | SQLite local + sync incremental |
+  | `clientes.listLite`         | `GET /api/clientes/lite` | SQLite local |
+  | `fornecedores.list`         | `GET /api/fornecedores`  | SQLite local |
+  | `funcionarios.list`         | `GET /api/relatorios/funcionarios-ativos` | SQLite local |
+  | `estoque.saldosLinhas`      | `GET /api/estoque/saldos` | Saldo materializado local |
+  | `estoque.movimentacoes`     | `GET /api/estoque/movimentacoes` | SQLite local |
+
+### Ordem de prioridade implementada
+
+1. **SQLite local** (header `x-gp-source: local-table` / `local-table-stale` /
+   `local-db`) — nunca toca a internet.
+2. **Servidor local foi à nuvem** (header `x-gp-source: upstream`) — o
+   backend Rust faz sync incremental e ingere o resultado no SQLite antes
+   de responder.
+3. **`cloudAdapter` como último recurso** — só quando o servidor local
+   está parado, sem upstream configurado, ou retorna erro/timeout.
+
+Cloud nunca é tentado primeiro e nunca trava a UI: timeout HTTP de 4s no
+adapter + `withTimeoutFallback` da camada superior.
+
+### Cache local automático
+
+Já garantido pelo backend Rust (`proxy_with_incremental_sync` +
+`ingest_typed`): toda página vinda da nuvem é persistida nas tabelas
+SQLite locais (`produtos_local`, `clientes_local`, `fornecedores_local`,
+`estoque_saldos_local`, etc.). Após o primeiro sync, leituras passam a
+ser servidas localmente mesmo sem internet.
+
+### Logs DEV adicionados
+
+- `[LOCAL_DB] produtos.list (origem=local-table)` — leitura veio do SQLite.
+- `[LOCAL_SERVER] clientes.listLite (origem=upstream)` — servidor local
+  precisou refrescar via PostgREST (já materializou no SQLite).
+- `[CLOUD_FALLBACK] funcionarios.list (origem=cloud-fallback)` — servidor
+  local indisponível; caímos direto no Supabase.
+
+Os mesmos eventos continuam sendo publicados em `source-telemetry` para
+componentes de diagnóstico.
+
+### O que NÃO foi alterado
+
+- **cloudAdapter**: intacto.
+- **Supabase client**: intacto.
+- **local-terminal adapter**: intacto (já consumia o servidor local via LAN).
+- **Escritas** (create/update/delete/RPC): seguem por cloudAdapter.
+- **Outbox / sync de mutations**: backend Rust já tem; não foi tocado.
+- **Telas / regras de negócio / cobrança / planos / assinatura**: nada.
+
+### Segurança
+
+- O adapter chama apenas `127.0.0.1:<porta>` — porta local, sem acesso
+  externo.
+- `service_role`, anon key e JWT do usuário **não** são manipulados pelo
+  adapter; quem decide o que enviar à nuvem é o servidor Rust local.
+- Nenhum secret novo foi adicionado ao bundle web.
+
+### Comportamento garantido
+
+- Online: tudo segue funcionando como antes (servidor local sincroniza com
+  a nuvem; em pior caso, fallback cloud direto).
+- Offline (desktop server): produtos, clientes, fornecedores, funcionários
+  e estoque continuam carregando — direto do SQLite local.
+- Terminal LAN: continua usando `local-terminal.ts` (que aponta para
+  outro PC); este adapter de servidor não interfere.
