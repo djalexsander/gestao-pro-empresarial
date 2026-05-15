@@ -227,6 +227,24 @@ export async function validarPinOperador(
       } catch {
         /* noop — não bloqueia o login */
       }
+      // Sub-etapa 4.1: também aquece o verificador no SERVIDOR LOCAL (LAN)
+      // para que outros terminais validem PIN sem internet. Best-effort.
+      try {
+        const cfg = getDesktopConfig().terminal;
+        const ok = await aquecerPinServidor(cfg, {
+          funcionario_id: op.id,
+          nome: op.nome,
+          login: op.login,
+          role: op.role,
+          pin,
+        });
+        if (ok) {
+          // eslint-disable-next-line no-console
+          console.debug("[OFFLINE_AUTH] PIN aquecido no servidor local");
+        }
+      } catch {
+        /* noop — sem servidor local não é erro */
+      }
     }
     return op;
   } catch (err) {
