@@ -148,6 +148,45 @@ async function withFallback<T>(
   return result;
 }
 
+/**
+ * Variante para `buscarPorCodigo`/`buscarPorPlu`. Distingue:
+ *   - 200 + `{ result: ... }` → resposta autoritativa offline (mesmo se null).
+ *   - 503 / network error     → servidor local indisponível.
+ */
+async function tryLocalSearch<T>(
+  domain: string,
+  method: string,
+  path: string,
+  query: Record<string, string | undefined>,
+): Promise<{ kind: "ok"; result: T | null } | { kind: "unavailable" }> {
+  const baseUrl = getServerBaseUrl();
+  if (!baseUrl) return { kind: "unavailable" };
+  const url = new URL(`${baseUrl}${path}`);
+  for (const [k, v] of Object.entries(query)) {
+    if (v != null && v !== "") url.searchParams.set(k, v);
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), HTTP_TIMEOUT_MS);
+  try {
+    const headers = await getAuthHeader();
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers: { Accept: "application/json", ...headers },
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (res.status === 503) return { kind: "unavailable" };
+    if (!res.ok) return { kind: "unavailable" };
+    const json = (await res.json()) as { result: T | null };
+    reportDataSource({ source: "local-server", domain, method, fallback: false });
+    return { kind: "ok", result: json.result ?? null };
+  } catch {
+    clearTimeout(timer);
+    return { kind: "unavailable" };
+  }
+}
+
 // ----------------------------------------------------------------------------
 // Adapter
 // ----------------------------------------------------------------------------
