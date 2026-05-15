@@ -3133,6 +3133,8 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/db/sync", post(db_sync_handler))
         .route("/api/offline/status", get(offline_status_handler))
         .route("/api/offline/sync-inicial", post(offline_sync_inicial_handler))
+        .route("/api/auth/aquecer-pin", post(aquecer_pin_handler))
+        .route("/api/auth/validar-pin", post(validar_pin_handler))
         .route("/db/outbox/estoque", get(outbox_list_handler))
         .route("/db/outbox/estoque/stats", get(outbox_stats_handler))
         .route("/db/outbox/flush", post(outbox_flush_handler))
