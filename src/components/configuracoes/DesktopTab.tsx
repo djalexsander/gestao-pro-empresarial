@@ -68,6 +68,7 @@ import { BackupSeguranca } from "./BackupSeguranca";
 import { AtualizacoesTab } from "./AtualizacoesTab";
 import { ImpressoraConfigCard } from "./ImpressoraConfigCard";
 import { ServerReadinessCard } from "./ServerReadinessCard";
+import { OfflineReadinessCard } from "./OfflineReadinessCard";
 import { PilotoChecklist } from "./PilotoChecklist";
 import { SuporteDiagnosticoCard } from "./SuporteDiagnosticoCard";
 
@@ -502,6 +503,10 @@ export function DesktopTab() {
             serverNome={config.serverNome}
             serverId={config.serverId}
           />
+        )}
+
+        {(isServer || isTerminal) && localCfg && (
+          <OfflineReadinessCard cfg={localCfg} />
         )}
 
         {/* Status de conexão real */}
