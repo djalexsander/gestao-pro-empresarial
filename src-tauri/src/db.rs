@@ -1713,6 +1713,13 @@ pub struct ProdutosFilter<'a> {
 /// que veio de tabela tipada.
 pub fn read_produtos(filter: ProdutosFilter<'_>) -> DbResult<String> {
     with_conn(|conn| {
+        // Etapa 5 — busca priorizada (offline-first PDV):
+        //   bucket 0 → match exato em SKU (códigos batidos no scanner)
+        //   bucket 1 → nome exato
+        //   bucket 2 → nome começa com
+        //   bucket 3 → SKU começa com
+        //   bucket 4 → contém em qualquer lugar
+        // Sem busca: ordena alfabeticamente.
         let mut sql = String::from(
             "SELECT payload FROM produtos_local WHERE deleted_at_ms IS NULL",
         );
@@ -1725,13 +1732,31 @@ pub fn read_produtos(filter: ProdutosFilter<'_>) -> DbResult<String> {
             sql.push_str(" AND categoria_id = ?");
             args.push(Box::new(c.to_string()));
         }
-        if let Some(b) = filter.busca {
-            let pat = format!("%{}%", b.to_lowercase());
-            sql.push_str(" AND (LOWER(nome) LIKE ? OR LOWER(IFNULL(sku,'')) LIKE ?)");
+        if let Some(b) = filter.busca.map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            let lower = b.to_lowercase();
+            let prefix = format!("{}%", lower);
+            let pat = format!("%{}%", lower);
+            sql.push_str(
+                " AND (LOWER(nome) LIKE ? OR LOWER(IFNULL(sku,'')) LIKE ?)",
+            );
             args.push(Box::new(pat.clone()));
-            args.push(Box::new(pat));
+            args.push(Box::new(pat.clone()));
+            sql.push_str(
+                " ORDER BY (CASE
+                    WHEN LOWER(IFNULL(sku,'')) = ? THEN 0
+                    WHEN LOWER(IFNULL(nome,'')) = ? THEN 1
+                    WHEN LOWER(IFNULL(nome,'')) LIKE ? THEN 2
+                    WHEN LOWER(IFNULL(sku,'')) LIKE ? THEN 3
+                    ELSE 4
+                  END), nome ASC",
+            );
+            args.push(Box::new(lower.clone()));
+            args.push(Box::new(lower));
+            args.push(Box::new(prefix.clone()));
+            args.push(Box::new(prefix));
+        } else {
+            sql.push_str(" ORDER BY nome ASC");
         }
-        sql.push_str(" ORDER BY nome ASC");
 
         let params_dyn: Vec<&dyn rusqlite::ToSql> = args.iter().map(|b| &**b).collect();
         let mut stmt = conn.prepare(&sql)?;
@@ -1748,6 +1773,190 @@ pub fn read_produtos(filter: ProdutosFilter<'_>) -> DbResult<String> {
         }
         out.push(']');
         Ok(out)
+    })
+}
+
+// ----------------------------------------------------------------------------
+// Etapa 5 — Busca de produto por código de barras / PLU (PDV offline-first)
+// ----------------------------------------------------------------------------
+
+/// Resultado de uma busca offline contra `produtos_local`.
+///
+///   * `has_data == false`  → ainda não há produtos sincronizados localmente
+///     (caller deve fazer fallback p/ cloud quando online).
+///   * `has_data == true && result.is_none()` → há dados sincronizados, mas o
+///     código não bate com nenhum produto (resposta autoritativa offline).
+///   * `result.is_some()`   → produto encontrado.
+pub struct BuscaLocalOutcome {
+    pub has_data: bool,
+    pub result: Option<serde_json::Value>,
+}
+
+fn produtos_has_data(conn: &Connection) -> rusqlite::Result<bool> {
+    let n: i64 = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM produtos_local WHERE deleted_at_ms IS NULL)",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    Ok(n != 0)
+}
+
+fn payload_str_field(payload: &serde_json::Value, key: &str) -> Option<String> {
+    payload
+        .get(key)
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
+fn payload_f64_field(payload: &serde_json::Value, key: &str) -> f64 {
+    payload
+        .get(key)
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0)
+}
+
+fn payload_bool_field(payload: &serde_json::Value, key: &str) -> bool {
+    payload
+        .get(key)
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
+/// Busca produto por qualquer código (barras, QR, SKU, código interno).
+/// Retorna o JSON pronto para o `ProdutoBuscaResult` da UI.
+pub fn buscar_produto_por_codigo_local(codigo: &str) -> DbResult<BuscaLocalOutcome> {
+    let codigo_t = codigo.trim().to_string();
+    if codigo_t.is_empty() {
+        return Ok(BuscaLocalOutcome { has_data: true, result: None });
+    }
+    with_conn(|conn| {
+        let has_data = produtos_has_data(conn)?;
+        if !has_data {
+            return Ok(BuscaLocalOutcome { has_data: false, result: None });
+        }
+        let mut stmt = conn.prepare(
+            "SELECT p.payload, p.id,
+                    COALESCE(s.quantidade, 0) AS saldo,
+                    CASE
+                      WHEN json_extract(p.payload, '$.codigo_barras') = ?1 THEN 'barras'
+                      WHEN json_extract(p.payload, '$.qr_code') = ?1 THEN 'qr'
+                      WHEN p.sku = ?1 THEN 'sku'
+                      WHEN json_extract(p.payload, '$.codigo_interno') = ?1 THEN 'interno'
+                      ELSE 'sku'
+                    END AS fonte
+             FROM produtos_local p
+             LEFT JOIN estoque_saldos_local s
+                    ON s.produto_id = p.id AND s.variacao_id = ''
+             WHERE p.deleted_at_ms IS NULL
+               AND (
+                 json_extract(p.payload, '$.codigo_barras') = ?1
+                 OR json_extract(p.payload, '$.qr_code') = ?1
+                 OR p.sku = ?1
+                 OR json_extract(p.payload, '$.codigo_interno') = ?1
+               )
+             LIMIT 1",
+        )?;
+        let row: Option<(String, String, f64, String)> = stmt
+            .query_row(params![codigo_t], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, f64>(2).unwrap_or(0.0),
+                    r.get::<_, String>(3)?,
+                ))
+            })
+            .optional()?;
+        let Some((payload_str, produto_id, saldo, fonte)) = row else {
+            return Ok(BuscaLocalOutcome { has_data: true, result: None });
+        };
+        let payload: serde_json::Value =
+            serde_json::from_str(&payload_str).unwrap_or(serde_json::Value::Null);
+        let categoria_nome = payload
+            .get("categoria")
+            .and_then(|c| c.get("nome"))
+            .and_then(|n| n.as_str())
+            .map(|s| s.to_string());
+        let result = serde_json::json!({
+            "produto_id": produto_id,
+            "sku": payload_str_field(&payload, "sku"),
+            "nome": payload_str_field(&payload, "nome"),
+            "codigo_barras": payload_str_field(&payload, "codigo_barras"),
+            "qr_code": payload_str_field(&payload, "qr_code"),
+            "codigo_interno": payload_str_field(&payload, "codigo_interno"),
+            "tipo_identificacao_principal": payload_str_field(&payload, "tipo_identificacao_principal"),
+            "preco_venda": payload_f64_field(&payload, "preco_venda"),
+            "preco_custo": payload_f64_field(&payload, "preco_custo"),
+            "unidade": payload_str_field(&payload, "unidade"),
+            "status": payload_str_field(&payload, "status"),
+            "categoria_id": payload_str_field(&payload, "categoria_id"),
+            "categoria_nome": categoria_nome,
+            "fonte": fonte,
+            "saldo_estoque": saldo,
+        });
+        Ok(BuscaLocalOutcome { has_data: true, result: Some(result) })
+    })
+}
+
+/// Busca produto por PLU (balança). Estratégia: tenta `plu` → `sku` →
+/// `codigo_interno`. Se não bater, repete sem zeros à esquerda.
+pub fn buscar_produto_por_plu_local(plu: &str) -> DbResult<BuscaLocalOutcome> {
+    let plu_t = plu.trim().to_string();
+    if plu_t.is_empty() {
+        return Ok(BuscaLocalOutcome { has_data: true, result: None });
+    }
+    with_conn(|conn| {
+        let has_data = produtos_has_data(conn)?;
+        if !has_data {
+            return Ok(BuscaLocalOutcome { has_data: false, result: None });
+        }
+        fn try_match(
+            conn: &Connection,
+            v: &str,
+        ) -> rusqlite::Result<Option<(String, String)>> {
+            conn.query_row(
+                "SELECT payload, id
+                   FROM produtos_local
+                  WHERE deleted_at_ms IS NULL
+                    AND (
+                      json_extract(payload, '$.plu') = ?1
+                      OR sku = ?1
+                      OR json_extract(payload, '$.codigo_interno') = ?1
+                    )
+                  LIMIT 1",
+                params![v],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+            )
+            .optional()
+        }
+        let mut row = try_match(conn, &plu_t)?;
+        if row.is_none() {
+            let stripped = plu_t.trim_start_matches('0');
+            if !stripped.is_empty() && stripped != plu_t {
+                row = try_match(conn, stripped)?;
+            }
+        }
+        let Some((payload_str, produto_id)) = row else {
+            return Ok(BuscaLocalOutcome { has_data: true, result: None });
+        };
+        let payload: serde_json::Value =
+            serde_json::from_str(&payload_str).unwrap_or(serde_json::Value::Null);
+        let plu_val = payload_str_field(&payload, "plu")
+            .or_else(|| payload_str_field(&payload, "codigo_interno"))
+            .or_else(|| payload_str_field(&payload, "sku"));
+        let result = serde_json::json!({
+            "produto_id": produto_id,
+            "sku": payload_str_field(&payload, "sku"),
+            "nome": payload_str_field(&payload, "nome"),
+            "unidade": payload_str_field(&payload, "unidade"),
+            "preco_venda": payload_f64_field(&payload, "preco_venda"),
+            "vendido_por_peso": payload_bool_field(&payload, "vendido_por_peso"),
+            "aceita_etiqueta_balanca": payload_bool_field(&payload, "aceita_etiqueta_balanca"),
+            "plu": plu_val,
+            "status": payload_str_field(&payload, "status"),
+        });
+        Ok(BuscaLocalOutcome { has_data: true, result: Some(result) })
     })
 }
 
