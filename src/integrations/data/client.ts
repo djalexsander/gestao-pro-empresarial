@@ -18,10 +18,27 @@ import type { DataAdapter } from "./adapter";
 import { cloudAdapter } from "./adapters/cloud";
 import { localServerAdapter } from "./adapters/local-server";
 import { localTerminalAdapter } from "./adapters/local-terminal";
-import { getDataMode } from "./mode";
+import { getDataMode, type DataMode } from "./mode";
+
+let lastLoggedMode: DataMode | null = null;
+function logModeOnce(mode: DataMode) {
+  if (lastLoggedMode === mode) return;
+  lastLoggedMode = mode;
+  const label =
+    mode === "local-server"
+      ? "🖥️  SERVIDOR LOCAL (SQLite/Tauri)"
+      : mode === "local-terminal"
+        ? "💻 TERMINAL LOCAL (HTTP LAN + fallback cloud)"
+        : mode === "hybrid"
+          ? "🔀 HÍBRIDO (local + cloud)"
+          : "☁️  CLOUD (Supabase)";
+  // eslint-disable-next-line no-console
+  console.info(`[dataClient] modo ativo → ${label}`);
+}
 
 function resolveAdapter(): DataAdapter {
   const mode = getDataMode();
+  logModeOnce(mode);
   switch (mode) {
     case "local-server":
       return localServerAdapter;

@@ -28,6 +28,19 @@ let lastEvent: DataSourceEvent | null = null;
 export function reportDataSource(ev: Omit<DataSourceEvent, "at">) {
   const full: DataSourceEvent = { ...ev, at: Date.now() };
   lastEvent = full;
+  if (typeof console !== "undefined" && import.meta.env.DEV) {
+    const icon = ev.fallback
+      ? "⚠️  fallback→cloud"
+      : ev.source === "cloud"
+        ? "☁️ "
+        : ev.source === "local-server"
+          ? "🖥️ "
+          : "💻";
+    // eslint-disable-next-line no-console
+    console.debug(
+      `[dataSource] ${icon} ${ev.source} · ${ev.domain}.${ev.method}`,
+    );
+  }
   for (const l of listeners) {
     try {
       l(full);
