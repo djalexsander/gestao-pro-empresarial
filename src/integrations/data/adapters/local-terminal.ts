@@ -176,6 +176,38 @@ export const localTerminalAdapter: DataAdapter = {
       ),
   },
 
+  // Sub-etapa 4.1: terminais LAN validam PIN do operador no SERVIDOR LOCAL
+  // (SQLite central com PBKDF2). Cloud só é usada como fallback online se o
+  // operador ainda não foi "aquecido" no servidor local. O cache JS do
+  // próprio terminal continua sendo o último recurso (camada superior em
+  // `useFuncionarios`), usado quando o servidor local também está fora.
+  funcionarios: {
+    ...cloudAdapter.funcionarios,
+    validarPin: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        // eslint-disable-next-line no-console
+        console.debug("[OFFLINE_AUTH] terminal validando PIN no servidor LAN");
+        const r = await validarPinServidor(cfg, input.funcionario_id, input.pin);
+        if (r.kind === "ok") {
+          if (r.data.autorizado && r.data.funcionario) {
+            return {
+              id: r.data.funcionario.id,
+              nome: r.data.funcionario.nome,
+              login: r.data.funcionario.login,
+              role: r.data.funcionario.role,
+            };
+          }
+          throw new Error(r.data.motivo ?? "PIN inválido.");
+        }
+        // notReady / unavailable → cai pra cloud (online).
+        // eslint-disable-next-line no-console
+        console.debug("[OFFLINE_AUTH] fallback cloud online — servidor LAN", r.kind);
+      }
+      return cloudAdapter.funcionarios.validarPin(input);
+    },
+  },
+
   estoque: {
     ...cloudAdapter.estoque,
     saldosLinhas: () =>
