@@ -3,34 +3,33 @@ import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { isDesktop } from "@/integrations/data/mode";
 
 /**
- * Banner discreto que aparece quando a internet cai (web puro).
+ * Indicador discreto de offline confirmado (web puro).
  *
- * No desktop (Tauri) NÃO renderizamos esse toast: o `DesktopRoleBadge`
- * no topo da shell já mostra o status real (Servidor/Terminal +
- * conexão + última fonte de dados), então um toast flutuante seria
- * redundante e poluiria a tela.
+ * Só aparece quando `status === "offline"` — ou seja, depois de pelo menos
+ * N falhas consecutivas de probe ou `navigator.onLine === false`.
+ * Estados `checking` e `unstable` NÃO exibem nada para evitar o falso aviso
+ * de "Sem conexão" durante o boot ou em uma falha pontual de rede.
  *
- * No web puro mantemos o aviso porque é a única indicação visual de
- * que dados podem estar desatualizados.
+ * No desktop (Tauri), o `DesktopRoleBadge` no topo já mostra o status real
+ * (Servidor/Terminal + última fonte de dados), então omitimos esse aviso.
  */
 export function OfflineBanner() {
-  const { online } = useNetworkStatus();
-  if (online) return null;
+  const { status } = useNetworkStatus();
+  if (status !== "offline") return null;
   if (isDesktop()) return null;
 
   return (
     <div
       role="status"
       aria-live="polite"
-      className="fixed bottom-4 right-4 z-[60] flex max-w-sm items-center gap-2 rounded-lg border border-amber-500/50 bg-amber-500/15 px-3 py-2 text-xs font-semibold text-amber-800 shadow-lg backdrop-blur dark:bg-amber-500/20 dark:text-amber-200"
+      className="fixed bottom-4 right-4 z-[60] flex max-w-xs items-center gap-2 rounded-full border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive shadow-md backdrop-blur"
     >
       <span className="relative flex h-2 w-2">
-        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-500 opacity-75" />
-        <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-500" />
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-75" />
+        <span className="relative inline-flex h-2 w-2 rounded-full bg-destructive" />
       </span>
-      <WifiOff className="h-4 w-4 shrink-0" aria-hidden />
-      <span>Sem conexão com a internet. Algumas informações podem estar desatualizadas.</span>
+      <WifiOff className="h-3.5 w-3.5 shrink-0" aria-hidden />
+      <span>Offline. Algumas informações podem estar desatualizadas.</span>
     </div>
   );
 }
-

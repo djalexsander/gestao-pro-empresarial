@@ -3,29 +3,31 @@ import { useEffect, useState } from "react";
 /**
  * Hook pra monitorar conexão real com a internet.
  *
- * Estratégia:
- *  - Sinal primário: `navigator.onLine` + eventos `online` / `offline`
- *    do browser (instantâneo, mas notoriamente otimista — pode reportar
- *    "online" quando só há rede local sem saída pra internet, e em
- *    alguns ambientes embarcados pode ficar "offline" sem motivo).
- *  - Por isso confirmamos com um probe HEAD leve contra um endpoint
- *    público estável (Supabase REST). Só marcamos `online: false` quando
- *    o probe falhar — assim evitamos o falso "sem internet" do print do
- *    usuário, que aparecia mesmo com conexão.
- *  - O probe roda no boot, sempre que o evento `online` dispara, ao
- *    voltar foco da janela e a cada 30s em background.
+ * Estados expostos:
+ *  - `checking`  → ainda não confirmamos status (boot / reprobe). Não exibir
+ *                  aviso de offline neste estado.
+ *  - `online`    → último probe confirmou conectividade.
+ *  - `unstable`  → houve **uma** falha de probe; aguardando confirmação.
+ *  - `offline`   → `navigator.onLine === false` **ou** N falhas consecutivas
+ *                  de probe — só agora consideramos offline confirmado.
+ *
+ * Para compat retro com componentes existentes, `online: boolean` permanece:
+ * é `true` em `checking | online | unstable` e `false` apenas em `offline`.
+ * Assim, banners antigos não disparam por "falsa negativa" durante o boot
+ * ou em uma única falha pontual de probe.
  */
 
 const PROBE_INTERVAL_MS = 30_000;
 const PROBE_TIMEOUT_MS = 4_000;
+const FAIL_THRESHOLD = 2;
+
+export type NetworkStatus = "checking" | "online" | "unstable" | "offline";
 
 function getProbeUrl(): string {
   const base = import.meta.env.VITE_SUPABASE_URL as string | undefined;
   if (base && base.length > 0) {
-    // /auth/v1/health responde 200 sem auth e é barato (poucos bytes).
     return `${base.replace(/\/$/, "")}/auth/v1/health`;
   }
-  // Fallback: Cloudflare trace (texto curto, suporta CORS).
   return "https://1.1.1.1/cdn-cgi/trace";
 }
 
@@ -37,13 +39,9 @@ async function probeOnce(): Promise<boolean> {
       method: "GET",
       cache: "no-store",
       signal: ctrl.signal,
-      // `no-cors` garante que mesmo respostas opacas (sem CORS aberto)
-      // contem como "rede ok" — só nos importa se a request completou.
       mode: "no-cors",
     });
     clearTimeout(timer);
-    // Em modo no-cors, type === "opaque" e status === 0; isso ainda
-    // significa que a rede chegou no host. Só falhamos se houver throw.
     return res.type === "opaque" || res.ok;
   } catch {
     clearTimeout(timer);
@@ -51,41 +49,87 @@ async function probeOnce(): Promise<boolean> {
   }
 }
 
-export function useNetworkStatus(): { online: boolean } {
-  const [online, setOnline] = useState<boolean>(() => {
-    if (typeof navigator === "undefined") return true;
-    return navigator.onLine;
+function logStatus(s: NetworkStatus) {
+  if (!import.meta.env.DEV) return;
+  // eslint-disable-next-line no-console
+  console.debug(`[NETWORK_STATUS] ${s}`);
+}
+
+export interface NetworkStatusResult {
+  /** Status detalhado para UI granular (ponto verde/amarelo/vermelho). */
+  status: NetworkStatus;
+  /**
+   * Compat: `true` enquanto não houver offline confirmado.
+   * Falsos-negativos (probe que falhou 1x) NÃO derrubam esse flag.
+   */
+  online: boolean;
+  /** Última verificação (ms epoch). */
+  lastCheckedAt: number | null;
+}
+
+export function useNetworkStatus(): NetworkStatusResult {
+  const [status, setStatus] = useState<NetworkStatus>(() => {
+    if (typeof navigator === "undefined") return "online";
+    return navigator.onLine === false ? "offline" : "checking";
   });
+  const [lastCheckedAt, setLastCheckedAt] = useState<number | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     let cancelled = false;
     let timer: ReturnType<typeof setInterval> | null = null;
+    let failStreak = 0;
+
+    const apply = (next: NetworkStatus) => {
+      if (cancelled) return;
+      setLastCheckedAt(Date.now());
+      setStatus((prev) => {
+        if (prev !== next) logStatus(next);
+        return next;
+      });
+    };
 
     const recheck = async () => {
-      // Se o browser tem 100% de certeza que está offline, confia nele.
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
-        if (!cancelled) setOnline(false);
+        failStreak = FAIL_THRESHOLD;
+        apply("offline");
         return;
       }
+      logStatus("checking");
       const ok = await probeOnce();
-      if (!cancelled) setOnline(ok);
+      if (cancelled) return;
+      if (ok) {
+        failStreak = 0;
+        apply("online");
+        return;
+      }
+      failStreak += 1;
+      if (failStreak >= FAIL_THRESHOLD) {
+        apply("offline");
+      } else {
+        apply("unstable");
+      }
     };
 
     const goOnline = () => {
-      // Não setamos true cego — confirmamos com probe.
-      recheck();
+      // navigator diz que voltou — confirma com probe, não assume cego.
+      failStreak = 0;
+      void recheck();
     };
-    const goOffline = () => setOnline(false);
-    const onFocus = () => recheck();
+    const goOffline = () => {
+      failStreak = FAIL_THRESHOLD;
+      apply("offline");
+    };
+    const onFocus = () => {
+      void recheck();
+    };
 
     window.addEventListener("online", goOnline);
     window.addEventListener("offline", goOffline);
     window.addEventListener("focus", onFocus);
 
-    // Probe inicial e periódico.
-    recheck();
-    timer = setInterval(recheck, PROBE_INTERVAL_MS);
+    void recheck();
+    timer = setInterval(() => void recheck(), PROBE_INTERVAL_MS);
 
     return () => {
       cancelled = true;
@@ -96,5 +140,9 @@ export function useNetworkStatus(): { online: boolean } {
     };
   }, []);
 
-  return { online };
+  return {
+    status,
+    online: status !== "offline",
+    lastCheckedAt,
+  };
 }
