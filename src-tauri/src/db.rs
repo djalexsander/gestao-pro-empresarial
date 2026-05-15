@@ -1104,6 +1104,32 @@ pub fn init() -> DbResult<()> {
             ON venda_itens_remote_cache(venda_id);
         CREATE INDEX IF NOT EXISTS idx_venda_itens_rc_produto
             ON venda_itens_remote_cache(produto_id);
+
+        -- v17 (Sub-etapa 4.1): verificador local seguro de PIN do operador.
+        -- Permite validação offline pelo servidor local (LAN central) sem
+        -- depender do cache JS de cada terminal.
+        --
+        -- IMPORTANTE: NUNCA armazenamos PIN em texto puro. Apenas o hash
+        -- PBKDF2-HMAC-SHA256(salt, pin, iter), gerado localmente após
+        -- validação online bem-sucedida ("aquecimento"). O hash bcrypt do
+        -- banco-fonte (Postgres) NÃO é importado por segurança.
+        CREATE TABLE IF NOT EXISTS operadores_offline (
+            funcionario_id   TEXT PRIMARY KEY,
+            empresa_id       TEXT,
+            nome             TEXT NOT NULL,
+            login            TEXT NOT NULL,
+            role             TEXT NOT NULL,
+            ativo            INTEGER NOT NULL DEFAULT 1,
+            algorithm        TEXT NOT NULL DEFAULT 'pbkdf2-sha256',
+            iterations       INTEGER NOT NULL DEFAULT 80000,
+            salt_b64         TEXT NOT NULL,
+            hash_b64         TEXT NOT NULL,
+            failed_attempts  TEXT NOT NULL DEFAULT '[]',
+            locked_until_ms  INTEGER NOT NULL DEFAULT 0,
+            updated_at_ms    INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_operadores_offline_login
+            ON operadores_offline(login);
         "#,
     )?;
 
