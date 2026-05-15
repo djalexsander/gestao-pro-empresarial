@@ -1477,7 +1477,246 @@ async fn offline_sync_inicial_handler(
     }))
 }
 
-// ---------- Writes locais de estoque + outbox ----------
+// ============================================================================
+// Sub-etapa 4.1 — Validação OFFLINE de PIN do operador (LAN central)
+// ============================================================================
+//
+// Endpoints:
+//   POST /api/auth/aquecer-pin  → grava verificador local PBKDF2 após
+//                                 validação online bem-sucedida.
+//   POST /api/auth/validar-pin  → valida PIN contra o verificador local,
+//                                 com lockout em SQLite.
+//
+// IMPORTANTE: PIN nunca é persistido em texto puro. O hash bcrypt da nuvem
+// não é importado por segurança (não é exportado pela RPC). O fluxo é:
+//
+//   1. Terminal valida PIN ONLINE → cloud responde OK.
+//   2. Terminal envia (funcionario_id, pin) para /api/auth/aquecer-pin
+//      do servidor local. O servidor gera salt+hash PBKDF2 localmente.
+//   3. Próximas validações no terminal (mesmo offline) chamam
+//      /api/auth/validar-pin do servidor local.
+//   4. Se o operador nunca validou online, o servidor local responde 404
+//      e o terminal cai para o fallback de cache JS / cloud quando vier
+//      internet.
+
+const PIN_PBKDF2_ITER: u32 = 80_000;
+const PIN_HASH_LEN: usize = 32;
+const PIN_MAX_FAILS: usize = 5;
+const PIN_FAIL_WINDOW_MS: i64 = 10 * 60_000;
+const PIN_LOCKOUT_MS: i64 = 15 * 60_000;
+
+fn pbkdf2_pin(pin: &str, salt: &[u8], iter: u32) -> Vec<u8> {
+    use hmac::Hmac;
+    use sha2::Sha256;
+    let mut out = vec![0u8; PIN_HASH_LEN];
+    pbkdf2::pbkdf2::<Hmac<Sha256>>(pin.as_bytes(), salt, iter, &mut out)
+        .expect("pbkdf2 should not fail with these params");
+    out
+}
+
+fn b64_encode(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+fn b64_decode(s: &str) -> Option<Vec<u8>> {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.decode(s).ok()
+}
+
+#[derive(Deserialize)]
+struct AquecerPinRequest {
+    funcionario_id: String,
+    empresa_id: Option<String>,
+    nome: String,
+    login: String,
+    role: String,
+    pin: String,
+    #[serde(default = "default_true")]
+    ativo: bool,
+}
+fn default_true() -> bool { true }
+
+#[derive(Serialize)]
+struct AquecerPinResponse {
+    ok: bool,
+    funcionario_id: String,
+    origem: &'static str,
+}
+
+async fn aquecer_pin_handler(
+    Json(req): Json<AquecerPinRequest>,
+) -> Result<Json<AquecerPinResponse>, (StatusCode, String)> {
+    if req.pin.is_empty() || req.funcionario_id.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "funcionario_id e pin são obrigatórios".into()));
+    }
+    let role = match req.role.as_str() {
+        "gerente" | "caixa" => req.role.clone(),
+        _ => "caixa".into(),
+    };
+    let mut salt = [0u8; 16];
+    getrandom::getrandom(&mut salt)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("rand: {e}")))?;
+    let hash = pbkdf2_pin(&req.pin, &salt, PIN_PBKDF2_ITER);
+    let now = now_ms();
+    db::operador_offline_upsert(
+        &req.funcionario_id,
+        req.empresa_id.as_deref(),
+        &req.nome,
+        &req.login,
+        &role,
+        req.ativo,
+        "pbkdf2-sha256",
+        PIN_PBKDF2_ITER as i64,
+        &b64_encode(&salt),
+        &b64_encode(&hash),
+        now,
+    )
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    eprintln!(
+        "[OFFLINE_AUTH] PIN aquecido no servidor local (funcionario_id={})",
+        req.funcionario_id
+    );
+    Ok(Json(AquecerPinResponse {
+        ok: true,
+        funcionario_id: req.funcionario_id,
+        origem: "servidor-local",
+    }))
+}
+
+#[derive(Deserialize)]
+struct ValidarPinLocalRequest {
+    funcionario_id: String,
+    #[allow(dead_code)]
+    empresa_id: Option<String>,
+    pin: String,
+}
+
+#[derive(Serialize)]
+struct ValidarPinLocalResponse {
+    autorizado: bool,
+    funcionario: Option<OperadorLocalFuncionario>,
+    motivo: Option<String>,
+    origem: &'static str,
+}
+
+#[derive(Serialize)]
+struct OperadorLocalFuncionario {
+    id: String,
+    nome: String,
+    login: String,
+    role: String,
+}
+
+async fn validar_pin_handler(
+    Json(req): Json<ValidarPinLocalRequest>,
+) -> Result<Json<ValidarPinLocalResponse>, (StatusCode, String)> {
+    if req.pin.is_empty() || req.funcionario_id.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "funcionario_id e pin são obrigatórios".into()));
+    }
+    let row = db::operador_offline_get(&req.funcionario_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let row = match row {
+        Some(r) => r,
+        None => {
+            // Sem verificador local — caller deve cair para cache JS / cloud.
+            eprintln!(
+                "[OFFLINE_AUTH] PIN recusado no servidor local: operador não preparado ({})",
+                req.funcionario_id
+            );
+            return Err((
+                StatusCode::NOT_FOUND,
+                "Operador ainda não preparado para uso offline neste servidor local."
+                    .into(),
+            ));
+        }
+    };
+    if !row.ativo {
+        return Ok(Json(ValidarPinLocalResponse {
+            autorizado: false,
+            funcionario: None,
+            motivo: Some("Operador inativo.".into()),
+            origem: "servidor-local",
+        }));
+    }
+    let now = now_ms();
+    if row.locked_until_ms > now {
+        let secs = ((row.locked_until_ms - now) / 1000).max(1);
+        eprintln!(
+            "[OFFLINE_AUTH] PIN recusado no servidor local: operador bloqueado por {}s",
+            secs
+        );
+        return Ok(Json(ValidarPinLocalResponse {
+            autorizado: false,
+            funcionario: None,
+            motivo: Some(format!(
+                "Operador temporariamente bloqueado. Tente novamente em {} segundo(s).",
+                secs
+            )),
+            origem: "servidor-local",
+        }));
+    }
+    let salt = match b64_decode(&row.salt_b64) {
+        Some(s) => s,
+        None => {
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, "salt corrompido".into()));
+        }
+    };
+    let expected = match b64_decode(&row.hash_b64) {
+        Some(h) => h,
+        None => {
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, "hash corrompido".into()));
+        }
+    };
+    let actual = pbkdf2_pin(&req.pin, &salt, row.iterations as u32);
+    let ok = {
+        use subtle::ConstantTimeEq;
+        actual.ct_eq(&expected).into()
+    };
+    if !ok {
+        let (count, locked_until) = db::operador_offline_record_failure(
+            &req.funcionario_id,
+            now,
+            PIN_FAIL_WINDOW_MS,
+            PIN_MAX_FAILS,
+            PIN_LOCKOUT_MS,
+        )
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let motivo = if locked_until > now {
+            let secs = ((locked_until - now) / 1000).max(1);
+            format!(
+                "Muitas tentativas inválidas. Operador bloqueado por {} segundo(s).",
+                secs
+            )
+        } else {
+            let restantes = PIN_MAX_FAILS.saturating_sub(count);
+            format!("PIN incorreto. {} tentativa(s) restante(s).", restantes)
+        };
+        eprintln!("[OFFLINE_AUTH] PIN recusado no servidor local: {}", motivo);
+        return Ok(Json(ValidarPinLocalResponse {
+            autorizado: false,
+            funcionario: None,
+            motivo: Some(motivo),
+            origem: "servidor-local",
+        }));
+    }
+    let _ = db::operador_offline_clear_failures(&req.funcionario_id, now);
+    eprintln!(
+        "[OFFLINE_AUTH] PIN validado no servidor local (funcionario_id={})",
+        req.funcionario_id
+    );
+    Ok(Json(ValidarPinLocalResponse {
+        autorizado: true,
+        funcionario: Some(OperadorLocalFuncionario {
+            id: row.funcionario_id,
+            nome: row.nome,
+            login: row.login,
+            role: row.role,
+        }),
+        motivo: None,
+        origem: "servidor-local",
+    }))
+}
 //
 // `POST /api/estoque/movimentacoes` é o ponto de entrada do TERMINAL para
 // gravar uma movimentação. O servidor:
@@ -2894,6 +3133,8 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/db/sync", post(db_sync_handler))
         .route("/api/offline/status", get(offline_status_handler))
         .route("/api/offline/sync-inicial", post(offline_sync_inicial_handler))
+        .route("/api/auth/aquecer-pin", post(aquecer_pin_handler))
+        .route("/api/auth/validar-pin", post(validar_pin_handler))
         .route("/db/outbox/estoque", get(outbox_list_handler))
         .route("/db/outbox/estoque/stats", get(outbox_stats_handler))
         .route("/db/outbox/flush", post(outbox_flush_handler))

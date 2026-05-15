@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i64 = 16;
+const SCHEMA_VERSION: i64 = 17;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -1104,6 +1104,32 @@ pub fn init() -> DbResult<()> {
             ON venda_itens_remote_cache(venda_id);
         CREATE INDEX IF NOT EXISTS idx_venda_itens_rc_produto
             ON venda_itens_remote_cache(produto_id);
+
+        -- v17 (Sub-etapa 4.1): verificador local seguro de PIN do operador.
+        -- Permite validação offline pelo servidor local (LAN central) sem
+        -- depender do cache JS de cada terminal.
+        --
+        -- IMPORTANTE: NUNCA armazenamos PIN em texto puro. Apenas o hash
+        -- PBKDF2-HMAC-SHA256(salt, pin, iter), gerado localmente após
+        -- validação online bem-sucedida ("aquecimento"). O hash bcrypt do
+        -- banco-fonte (Postgres) NÃO é importado por segurança.
+        CREATE TABLE IF NOT EXISTS operadores_offline (
+            funcionario_id   TEXT PRIMARY KEY,
+            empresa_id       TEXT,
+            nome             TEXT NOT NULL,
+            login            TEXT NOT NULL,
+            role             TEXT NOT NULL,
+            ativo            INTEGER NOT NULL DEFAULT 1,
+            algorithm        TEXT NOT NULL DEFAULT 'pbkdf2-sha256',
+            iterations       INTEGER NOT NULL DEFAULT 80000,
+            salt_b64         TEXT NOT NULL,
+            hash_b64         TEXT NOT NULL,
+            failed_attempts  TEXT NOT NULL DEFAULT '[]',
+            locked_until_ms  INTEGER NOT NULL DEFAULT 0,
+            updated_at_ms    INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_operadores_offline_login
+            ON operadores_offline(login);
         "#,
     )?;
 
@@ -9502,6 +9528,160 @@ pub fn outbox_compras_record_flush_round(
         } else {
             meta_set_i64(conn, "outbox_compras_last_manual_flush_ms", now_ms)?;
         }
+        Ok(())
+    })
+}
+
+// ============================================================================
+// Sub-etapa 4.1 — Operadores offline (verificador local seguro de PIN)
+// ============================================================================
+//
+// Estas funções tratam apenas de leitura/gravação SQLite. A regra de hash
+// PBKDF2-HMAC-SHA256 vive em `local_server.rs` (handler de
+// /api/auth/aquecer-pin e /api/auth/validar-pin) — assim este módulo não
+// passa a depender de crates de cripto.
+//
+// IMPORTANTE: nada aqui aceita ou armazena PIN em texto puro. O caller já
+// converte (salt, hash) em base64 antes de chamar `operador_offline_upsert`.
+
+#[derive(Debug, Clone)]
+pub struct OperadorOfflineRow {
+    pub funcionario_id: String,
+    pub empresa_id: Option<String>,
+    pub nome: String,
+    pub login: String,
+    pub role: String,
+    pub ativo: bool,
+    pub algorithm: String,
+    pub iterations: i64,
+    pub salt_b64: String,
+    pub hash_b64: String,
+    pub failed_attempts: Vec<i64>,
+    pub locked_until_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+pub fn operador_offline_get(funcionario_id: &str) -> DbResult<Option<OperadorOfflineRow>> {
+    with_conn(|conn| {
+        conn.query_row(
+            "SELECT funcionario_id, empresa_id, nome, login, role, ativo,
+                    algorithm, iterations, salt_b64, hash_b64,
+                    failed_attempts, locked_until_ms, updated_at_ms
+               FROM operadores_offline WHERE funcionario_id = ?1",
+            params![funcionario_id],
+            |r| {
+                let attempts_json: String = r.get(10)?;
+                let failed_attempts: Vec<i64> =
+                    serde_json::from_str(&attempts_json).unwrap_or_default();
+                Ok(OperadorOfflineRow {
+                    funcionario_id: r.get(0)?,
+                    empresa_id: r.get(1)?,
+                    nome: r.get(2)?,
+                    login: r.get(3)?,
+                    role: r.get(4)?,
+                    ativo: r.get::<_, i64>(5)? != 0,
+                    algorithm: r.get(6)?,
+                    iterations: r.get(7)?,
+                    salt_b64: r.get(8)?,
+                    hash_b64: r.get(9)?,
+                    failed_attempts,
+                    locked_until_ms: r.get(11)?,
+                    updated_at_ms: r.get(12)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(DbError::from)
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn operador_offline_upsert(
+    funcionario_id: &str,
+    empresa_id: Option<&str>,
+    nome: &str,
+    login: &str,
+    role: &str,
+    ativo: bool,
+    algorithm: &str,
+    iterations: i64,
+    salt_b64: &str,
+    hash_b64: &str,
+    now_ms: i64,
+) -> DbResult<()> {
+    with_conn(|conn| {
+        conn.execute(
+            "INSERT INTO operadores_offline(
+                funcionario_id, empresa_id, nome, login, role, ativo,
+                algorithm, iterations, salt_b64, hash_b64,
+                failed_attempts, locked_until_ms, updated_at_ms
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'[]',0,?11)
+             ON CONFLICT(funcionario_id) DO UPDATE SET
+                empresa_id    = excluded.empresa_id,
+                nome          = excluded.nome,
+                login         = excluded.login,
+                role          = excluded.role,
+                ativo         = excluded.ativo,
+                algorithm     = excluded.algorithm,
+                iterations    = excluded.iterations,
+                salt_b64      = excluded.salt_b64,
+                hash_b64      = excluded.hash_b64,
+                updated_at_ms = excluded.updated_at_ms",
+            params![
+                funcionario_id, empresa_id, nome, login, role,
+                if ativo { 1i64 } else { 0i64 },
+                algorithm, iterations, salt_b64, hash_b64, now_ms
+            ],
+        )?;
+        Ok(())
+    })
+}
+
+pub fn operador_offline_record_failure(
+    funcionario_id: &str,
+    now_ms: i64,
+    fail_window_ms: i64,
+    max_fails: usize,
+    lockout_ms: i64,
+) -> DbResult<(usize, i64)> {
+    with_conn(|conn| {
+        let attempts_json: Option<String> = conn
+            .query_row(
+                "SELECT failed_attempts FROM operadores_offline WHERE funcionario_id = ?1",
+                params![funcionario_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let mut attempts: Vec<i64> = attempts_json
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default();
+        attempts.retain(|t| now_ms - *t < fail_window_ms);
+        attempts.push(now_ms);
+        let mut locked_until = 0i64;
+        if attempts.len() >= max_fails {
+            locked_until = now_ms + lockout_ms;
+            attempts.clear();
+        }
+        let new_json = serde_json::to_string(&attempts).unwrap_or_else(|_| "[]".into());
+        conn.execute(
+            "UPDATE operadores_offline
+                SET failed_attempts = ?2, locked_until_ms = ?3, updated_at_ms = ?4
+              WHERE funcionario_id = ?1",
+            params![funcionario_id, new_json, locked_until, now_ms],
+        )?;
+        Ok((attempts.len(), locked_until))
+    })
+}
+
+pub fn operador_offline_clear_failures(funcionario_id: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        conn.execute(
+            "UPDATE operadores_offline
+                SET failed_attempts = '[]', locked_until_ms = 0, updated_at_ms = ?2
+              WHERE funcionario_id = ?1",
+            params![funcionario_id, now_ms],
+        )?;
         Ok(())
     })
 }

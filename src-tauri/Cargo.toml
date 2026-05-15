@@ -38,6 +38,15 @@ hostname = "0.4"
 rusqlite = { version = "0.31", features = ["bundled"] }
 dirs = "5"
 
+# Hash seguro de PIN (PBKDF2-HMAC-SHA256) para validação offline no servidor local.
+# Mantemos somente o necessário; nunca armazenamos PIN em texto puro.
+pbkdf2 = { version = "0.12", default-features = false }
+sha2 = "0.10"
+hmac = "0.12"
+base64 = "0.22"
+getrandom = "0.2"
+subtle = "2"
+
 [profile.release]
 # LTO completo + codegen-units=1 estavam causando STATUS_ACCESS_VIOLATION
 # (crash do rustc/link) no Windows MSVC. "thin" mantém binário pequeno

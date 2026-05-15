@@ -430,6 +430,104 @@ export async function runSyncInicial(
   }
 }
 
+// ============================================================================
+// Sub-etapa 4.1 — PIN do operador validado pelo servidor local (LAN central)
+// ============================================================================
+
+export interface ValidarPinServidorResponse {
+  autorizado: boolean;
+  funcionario: {
+    id: string;
+    nome: string;
+    login: string;
+    role: "gerente" | "caixa";
+  } | null;
+  motivo: string | null;
+  origem: "servidor-local";
+}
+
+/**
+ * Resultado bruto retornado por `validarPinServidor`.
+ *
+ * - `notReady`: o servidor local respondeu 404 → operador ainda não foi
+ *   "aquecido" (sem verificador local). Caller deve cair pra fallback.
+ * - `unavailable`: servidor local não está rodando / inalcançável.
+ *   Caller deve cair pra fallback.
+ */
+export type ValidarPinServidorResult =
+  | { kind: "ok"; data: ValidarPinServidorResponse }
+  | { kind: "notReady" }
+  | { kind: "unavailable" };
+
+export async function validarPinServidor(
+  cfg: TerminalConexaoConfig | undefined,
+  funcionarioId: string,
+  pin: string,
+  empresaId?: string | null,
+): Promise<ValidarPinServidorResult> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return { kind: "unavailable" };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8_000);
+  try {
+    const res = await fetch(`${baseUrl}/api/auth/validar-pin`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        funcionario_id: funcionarioId,
+        empresa_id: empresaId ?? null,
+        pin,
+      }),
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (res.status === 404) return { kind: "notReady" };
+    if (!res.ok) return { kind: "unavailable" };
+    const data = (await res.json()) as ValidarPinServidorResponse;
+    return { kind: "ok", data };
+  } catch {
+    clearTimeout(timer);
+    return { kind: "unavailable" };
+  }
+}
+
+/**
+ * Aquece o verificador local de PIN no servidor após uma validação ONLINE
+ * bem-sucedida. Best-effort: nunca quebra o login do operador.
+ */
+export async function aquecerPinServidor(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: {
+    funcionario_id: string;
+    empresa_id?: string | null;
+    nome: string;
+    login: string;
+    role: "gerente" | "caixa";
+    pin: string;
+    ativo?: boolean;
+  },
+): Promise<boolean> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return false;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 5_000);
+  try {
+    const res = await fetch(`${baseUrl}/api/auth/aquecer-pin`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ ...payload, ativo: payload.ativo ?? true }),
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    return res.ok;
+  } catch {
+    clearTimeout(timer);
+    return false;
+  }
+}
+
 export interface OutboxStats {
   pending: number;
   sending: number;

@@ -248,6 +248,59 @@ export const localServerAdapter: DataAdapter = {
         },
         () => cloudAdapter.funcionarios.list(input),
       ),
+    /**
+     * Sub-etapa 4.1: o servidor LOCAL é a fonte primária de validação de
+     * PIN. Mesmo online, validamos pelo SQLite local — assim a regra é
+     * idêntica ao modo offline e os terminais LAN compartilham o mesmo
+     * verificador. Cloud só entra como fallback quando o servidor local
+     * ainda não tem verificador para esse operador (`notReady`).
+     */
+    validarPin: async (input) => {
+      const baseUrl = await resolveBaseUrl();
+      if (baseUrl) {
+        try {
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 8_000);
+          const res = await fetch(`${baseUrl}/api/auth/validar-pin`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({
+              funcionario_id: input.funcionario_id,
+              pin: input.pin,
+            }),
+            signal: ctrl.signal,
+            cache: "no-store",
+          });
+          clearTimeout(timer);
+          if (res.ok) {
+            const data = (await res.json()) as {
+              autorizado: boolean;
+              funcionario: { id: string; nome: string; login: string; role: "gerente" | "caixa" } | null;
+              motivo: string | null;
+            };
+            if (data.autorizado && data.funcionario) {
+              // eslint-disable-next-line no-console
+              console.debug("[OFFLINE_AUTH] PIN validado no servidor local");
+              return data.funcionario;
+            }
+            // eslint-disable-next-line no-console
+            console.warn("[OFFLINE_AUTH] PIN recusado no servidor local");
+            throw new Error(data.motivo ?? "PIN inválido.");
+          }
+          if (res.status !== 404) {
+            // eslint-disable-next-line no-console
+            console.debug("[OFFLINE_AUTH] fallback cloud online — servidor local indisponível");
+          }
+          // 404 = operador ainda não preparado → cai pra cloud silenciosamente.
+        } catch (err) {
+          if (err instanceof Error && /PIN/i.test(err.message)) throw err;
+          // network/abort → cloud fallback
+          // eslint-disable-next-line no-console
+          console.debug("[OFFLINE_AUTH] fallback cloud online — erro local:", (err as Error)?.message);
+        }
+      }
+      return cloudAdapter.funcionarios.validarPin(input);
+    },
   },
 
   estoque: {

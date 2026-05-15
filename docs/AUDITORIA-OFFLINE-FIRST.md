@@ -241,3 +241,70 @@ A Etapa 4 ficou em **camada JS (localStorage)**, não no Rust/SQLite:
 - Senhas e PINs nunca em texto puro (PBKDF2-SHA-256 + salt aleatório).
 - Login online e fluxo de Supabase intactos.
 - Sem mudança em layout, cobrança, planos ou módulos.
+
+---
+
+## Sub-etapa 4.1 — PIN offline centralizado no servidor local (LAN)
+
+### Problema da etapa 4
+
+A etapa 4 implementou validação offline de PIN apenas no `localStorage` de
+cada terminal (`operadorOfflineCache.ts`). Funciona em máquina única, mas
+em rede LAN cada terminal precisava ter feito sua própria validação online
+antes — não havia uma fonte única de verdade local.
+
+### Modelo correto
+
+- **Servidor local (PC servidor)**: SQLite central com tabela
+  `operadores_offline` armazena `(funcionario_id, empresa_id, nome, login,
+  role, ativo, salt, hash_pbkdf2, iter, failed_attempts, locked_until_ms)`.
+- **Terminais LAN**: validam PIN via `POST /api/auth/validar-pin` do
+  servidor local, sem nunca chamar Supabase direto.
+- **Cache JS** (`operadorOfflineCache.ts`): mantido como **fallback de
+  emergência** para máquina única, ou quando o servidor local está fora.
+- **Cloud (Supabase)**: usada apenas quando online E o operador ainda não
+  foi "aquecido" no servidor local.
+
+### Endpoints novos no Rust (`local_server.rs`)
+
+| Método | Path                       | Função                                     |
+|--------|----------------------------|--------------------------------------------|
+| POST   | `/api/auth/aquecer-pin`    | Grava verificador PBKDF2 (salt+hash) local |
+| POST   | `/api/auth/validar-pin`    | Valida PIN local com lockout em SQLite     |
+
+`aquecer-pin` é chamado automaticamente em `useFuncionarios.validarPinOperador`
+após uma validação ONLINE bem-sucedida (best-effort, não bloqueia o login).
+
+### Política de lockout (paralela ao server-side cloud)
+
+- 5 falhas em 10 min ⇒ bloqueio de 15 min no SQLite local.
+- Tentativas e `locked_until_ms` ficam na própria linha da tabela.
+- Sucesso limpa o contador.
+- Comparação usa `subtle::ConstantTimeEq` para evitar timing attacks.
+
+### Algoritmo de hash
+
+PBKDF2-HMAC-SHA256, 80 000 iterações, salt aleatório de 16 bytes
+(`getrandom`). Mesmo padrão do cache JS, permitindo migração futura sem
+mudança de algoritmo. **PIN nunca é persistido em texto puro**, e o hash
+bcrypt da nuvem **não** é importado (não é exportado pela RPC por segurança).
+
+### Limitações conhecidas (documentadas)
+
+- Operador que **nunca validou PIN online** neste servidor local cai em:
+  - 1ª preferência: cloud (se houver internet);
+  - 2ª preferência: cache JS local do terminal (se já validou online ali antes);
+  - sem essas opções: PIN é recusado com mensagem clara.
+- O verificador local é regenerado a cada validação online (sempre seta o
+  hash corrente do PIN). Mudanças de PIN feitas em outro terminal só se
+  propagam para o servidor local quando algum terminal validar online com
+  o PIN novo.
+
+### Logs DEV
+
+- `[OFFLINE_AUTH] terminal validando PIN no servidor LAN`
+- `[OFFLINE_AUTH] PIN validado no servidor local`
+- `[OFFLINE_AUTH] PIN recusado no servidor local`
+- `[OFFLINE_AUTH] PIN aquecido no servidor local`
+- `[OFFLINE_AUTH] fallback cloud online — servidor LAN <motivo>`
+- `[OFFLINE_AUTH] fallback cache JS local`
