@@ -505,6 +505,10 @@ export function DesktopTab() {
           />
         )}
 
+        {(isServer || isTerminal) && localCfg && (
+          <OfflineReadinessCard cfg={localCfg} />
+        )}
+
         {/* Status de conexão real */}
         {role !== "unset" && (
           <Card>
