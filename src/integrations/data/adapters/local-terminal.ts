@@ -174,6 +174,42 @@ export const localTerminalAdapter: DataAdapter = {
           ),
         () => cloudAdapter.produtos.list(input),
       ),
+    // Etapa 5 — busca de código de barras / PLU vai SEMPRE primeiro ao
+    // servidor local. Se o local responder (mesmo "não encontrado"), a
+    // resposta é autoritativa: não consultamos a nuvem. Cloud só entra
+    // quando o servidor local está totalmente fora do ar.
+    buscarPorCodigo: async (codigo) => {
+      const r = await tryLocalSearch<
+        Awaited<ReturnType<DataAdapter["produtos"]["buscarPorCodigo"]>>
+      >("produtos", "buscarPorCodigo", "/api/produtos/buscar-codigo", { codigo });
+      if (r.kind === "ok") {
+        if (import.meta.env.DEV)
+          // eslint-disable-next-line no-console
+          console.debug("[LOCAL_BUSCA] terminal buscarPorCodigo via servidor local", {
+            codigo,
+            hit: r.result != null,
+          });
+        return r.result;
+      }
+      // eslint-disable-next-line no-console
+      console.debug("[LOCAL_BUSCA] fallback cloud — servidor local indisponível");
+      return cloudAdapter.produtos.buscarPorCodigo(codigo);
+    },
+    buscarPorPlu: async (plu) => {
+      const r = await tryLocalSearch<
+        Awaited<ReturnType<DataAdapter["produtos"]["buscarPorPlu"]>>
+      >("produtos", "buscarPorPlu", "/api/produtos/buscar-plu", { plu });
+      if (r.kind === "ok") {
+        if (import.meta.env.DEV)
+          // eslint-disable-next-line no-console
+          console.debug("[LOCAL_BUSCA] terminal buscarPorPlu via servidor local", {
+            plu,
+            hit: r.result != null,
+          });
+        return r.result;
+      }
+      return cloudAdapter.produtos.buscarPorPlu(plu);
+    },
   },
 
   // Sub-etapa 4.1: terminais LAN validam PIN do operador no SERVIDOR LOCAL
