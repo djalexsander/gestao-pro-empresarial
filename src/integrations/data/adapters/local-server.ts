@@ -65,17 +65,22 @@ async function resolveBaseUrl(): Promise<string | null> {
 
 function logSource(domain: string, method: string, source: string) {
   if (!import.meta.env.DEV) return;
-  // Mapeia o `x-gp-source` do servidor para os 3 prefixos pedidos no plano:
-  //   - local-db / local-table* → [LOCAL_DB]
-  //   - upstream                → [LOCAL_SERVER] (servidor local foi à nuvem
-  //                                buscar agora — ainda é "via servidor local")
-  //   - cloud (fallback)        → [CLOUD_FALLBACK]
-  const tag =
-    source === "cloud-fallback"
-      ? "[CLOUD_FALLBACK]"
-      : source === "upstream"
-        ? "[LOCAL_SERVER]"
-        : "[LOCAL_DB]";
+  // Mapeia o `x-gp-source` do servidor para os prefixos de log do plano:
+  //   - local-db / local-table*       → [LOCAL_DB] / [LOCAL_PRODUTOS] / [LOCAL_ESTOQUE]
+  //   - upstream                      → [LOCAL_SERVER]
+  //   - cloud (fallback)              → [CLOUD_FALLBACK] / [CLOUD_FALLBACK_ESTOQUE]
+  const isEstoque = domain === "estoque";
+  const isProduto = domain === "produtos";
+  let tag = "[LOCAL_DB]";
+  if (source === "cloud-fallback") {
+    tag = isEstoque ? "[CLOUD_FALLBACK_ESTOQUE]" : "[CLOUD_FALLBACK]";
+  } else if (source === "upstream") {
+    tag = "[LOCAL_SERVER]";
+  } else if (isEstoque) {
+    tag = "[LOCAL_ESTOQUE]";
+  } else if (isProduto) {
+    tag = method.startsWith("buscarPor") ? "[LOCAL_BUSCA]" : "[LOCAL_PRODUTOS]";
+  }
   // eslint-disable-next-line no-console
   console.debug(`${tag} ${domain}.${method} (origem=${source})`);
 }
