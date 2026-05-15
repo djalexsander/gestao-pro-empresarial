@@ -335,8 +335,100 @@ export async function fetchDomainStats(
 }
 
 // ----------------------------------------------------------------------------
-// Outbox de estoque — writes locais com fila offline
+// Etapa 3 — Prontidão offline (sincronização inicial obrigatória)
 // ----------------------------------------------------------------------------
+
+export interface OfflineDomainStatus {
+  domain: string;
+  label: string;
+  essential: boolean;
+  ready: boolean;
+  row_count: number;
+  last_synced_ms: number | null;
+  last_synced_ok: boolean;
+  last_error: string | null;
+}
+
+export interface OfflineStatus {
+  initial_sync_completed: boolean;
+  initial_sync_at_ms: number | null;
+  schema_version: number;
+  upstream_configured: boolean;
+  ready: boolean;
+  warnings: string[];
+  domains: OfflineDomainStatus[];
+  pending_domains: string[];
+}
+
+export interface OfflineSyncDomainResult {
+  domain: string;
+  label: string;
+  ok: boolean;
+  delta: number;
+  row_count: number;
+  error: string | null;
+  duration_ms: number;
+}
+
+export interface OfflineSyncResult {
+  ok: boolean;
+  completed_at_ms: number;
+  upstream_configured: boolean;
+  total_delta: number;
+  results: OfflineSyncDomainResult[];
+}
+
+export async function fetchOfflineStatus(
+  cfg?: TerminalConexaoConfig,
+): Promise<OfflineStatus | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(`${baseUrl}/api/offline/status`, {
+      headers: { Accept: "application/json" },
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    return (await res.json()) as OfflineStatus;
+  } catch {
+    clearTimeout(timer);
+    return null;
+  }
+}
+
+/**
+ * Dispara a sincronização inicial obrigatória. Pode demorar (vários domínios
+ * em sequência), por isso o timeout é generoso. Idempotente.
+ */
+export async function runSyncInicial(
+  cfg?: TerminalConexaoConfig,
+): Promise<OfflineSyncResult | { ok: false; error: string }> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return { ok: false, error: "Servidor local não configurado." };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 120_000);
+  try {
+    const res = await fetch(`${baseUrl}/api/offline/sync-inicial`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      return { ok: false, error: `HTTP ${res.status}: ${text || res.statusText}` };
+    }
+    return (await res.json()) as OfflineSyncResult;
+  } catch (err) {
+    clearTimeout(timer);
+    return { ok: false, error: (err as Error)?.message ?? "Falha de rede." };
+  }
+}
 
 export interface OutboxStats {
   pending: number;
