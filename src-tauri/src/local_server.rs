@@ -883,6 +883,66 @@ async fn produtos_list_handler(
     proxy_with_incremental_sync(&ctx, &headers, "produtos", "/rest/v1/produtos", &q_owned, false).await
 }
 
+// ---------- /api/produtos/buscar-codigo & /api/produtos/buscar-plu ----------
+//
+// Etapa 5 (offline-first): scanner de código de barras / leitor de balança
+// no PDV consultam o SQLite local diretamente. NUNCA tocam upstream/cloud.
+//   * 200 + body                       → produto encontrado localmente.
+//   * 200 + `{"result": null}`         → busca local autoritativa, código
+//                                         não existe nesse tenant.
+//   * 503                              → produtos ainda não sincronizados;
+//                                         caller (adapter) decide se cai
+//                                         para cloud (se online) ou recusa.
+//   * 500                              → erro inesperado de banco.
+
+async fn produtos_buscar_codigo_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let codigo = q.get("codigo").map(|s| s.as_str()).unwrap_or("");
+    let outcome = db::buscar_produto_por_codigo_local(codigo)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if !outcome.has_data {
+        let mut resp = (StatusCode::SERVICE_UNAVAILABLE, "produtos_local vazio").into_response();
+        resp.headers_mut()
+            .insert("x-gp-source", axum::http::HeaderValue::from_static("local-empty"));
+        return Ok(resp);
+    }
+    eprintln!(
+        "[LOCAL_BUSCA] produtos.buscarPorCodigo codigo={} hit={}",
+        codigo,
+        outcome.result.is_some()
+    );
+    let body = serde_json::json!({ "result": outcome.result });
+    let mut resp = (StatusCode::OK, axum::Json(body)).into_response();
+    resp.headers_mut()
+        .insert("x-gp-source", axum::http::HeaderValue::from_static("local-table"));
+    Ok(resp)
+}
+
+async fn produtos_buscar_plu_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let plu = q.get("plu").map(|s| s.as_str()).unwrap_or("");
+    let outcome = db::buscar_produto_por_plu_local(plu)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if !outcome.has_data {
+        let mut resp = (StatusCode::SERVICE_UNAVAILABLE, "produtos_local vazio").into_response();
+        resp.headers_mut()
+            .insert("x-gp-source", axum::http::HeaderValue::from_static("local-empty"));
+        return Ok(resp);
+    }
+    eprintln!(
+        "[LOCAL_BUSCA] produtos.buscarPorPlu plu={} hit={}",
+        plu,
+        outcome.result.is_some()
+    );
+    let body = serde_json::json!({ "result": outcome.result });
+    let mut resp = (StatusCode::OK, axum::Json(body)).into_response();
+    resp.headers_mut()
+        .insert("x-gp-source", axum::http::HeaderValue::from_static("local-table"));
+    Ok(resp)
+}
+
 // ---------- /api/estoque/saldos ----------
 //
 // Saldos passam a ser DERIVADOS do sync incremental de movimentações.
