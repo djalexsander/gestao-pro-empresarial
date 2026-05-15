@@ -3204,6 +3204,8 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/db/outbox/vendas/flush", post(outbox_vendas_flush_handler))
         .route("/db/outbox/vendas/retry-errors", post(outbox_vendas_retry_errors_handler))
         .route("/api/produtos/list", get(produtos_list_handler))
+        .route("/api/produtos/buscar-codigo", get(produtos_buscar_codigo_handler))
+        .route("/api/produtos/buscar-plu", get(produtos_buscar_plu_handler))
         .route("/api/estoque/saldos", get(estoque_saldos_handler))
         .route("/api/estoque/movimentacoes", get(estoque_movimentacoes_handler))
         .route(
