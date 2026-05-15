@@ -2892,6 +2892,8 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/db/info", get(db_info_handler))
         .route("/db/domains", get(db_domains_handler))
         .route("/db/sync", post(db_sync_handler))
+        .route("/api/offline/status", get(offline_status_handler))
+        .route("/api/offline/sync-inicial", post(offline_sync_inicial_handler))
         .route("/db/outbox/estoque", get(outbox_list_handler))
         .route("/db/outbox/estoque/stats", get(outbox_stats_handler))
         .route("/db/outbox/flush", post(outbox_flush_handler))
