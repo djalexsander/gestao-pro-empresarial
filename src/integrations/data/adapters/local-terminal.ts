@@ -54,6 +54,7 @@ import {
   registrarMovCaixaLocal,
   registrarMovimentoLocal,
   registrarVendaLocal,
+  validarPinServidor,
 } from "@/integrations/desktop/serverConnection";
 import type {
   AbrirCaixaInput,
