@@ -528,6 +528,7 @@ export async function aquecerPinServidor(
   }
 }
 
+export interface OutboxStats {
   pending: number;
   sending: number;
   sent: number;
