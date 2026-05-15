@@ -248,6 +248,47 @@ export const localServerAdapter: DataAdapter = {
         },
         () => cloudAdapter.funcionarios.list(input),
       ),
+    /**
+     * Sub-etapa 4.1: o servidor LOCAL é a fonte primária de validação de
+     * PIN. Mesmo online, validamos pelo SQLite local — assim a regra é
+     * idêntica ao modo offline e os terminais LAN compartilham o mesmo
+     * verificador. Cloud só entra como fallback quando o servidor local
+     * ainda não tem verificador para esse operador (`notReady`).
+     */
+    validarPin: async (input) => {
+      const baseUrl = await resolveBaseUrl();
+      if (baseUrl) {
+        const r = await validarPinServidor(
+          // O servidor local responde em 127.0.0.1 — `validarPinServidor`
+          // resolve a URL pelo cfg do terminal, mas no modo "servidor"
+          // não temos um cfg de terminal LAN. Usamos um cfg sintético
+          // com o baseUrl que já resolvemos.
+          { url: baseUrl, kind: "url" } as never,
+          input.funcionario_id,
+          input.pin,
+        );
+        if (r.kind === "ok") {
+          if (r.data.autorizado && r.data.funcionario) {
+            // eslint-disable-next-line no-console
+            console.debug("[OFFLINE_AUTH] PIN validado no servidor local");
+            return {
+              id: r.data.funcionario.id,
+              nome: r.data.funcionario.nome,
+              login: r.data.funcionario.login,
+              role: r.data.funcionario.role,
+            };
+          }
+          // eslint-disable-next-line no-console
+          console.warn("[OFFLINE_AUTH] PIN recusado no servidor local");
+          throw new Error(r.data.motivo ?? "PIN inválido.");
+        }
+        // eslint-disable-next-line no-console
+        console.debug(
+          `[OFFLINE_AUTH] fallback cloud online — servidor local ${r.kind}`,
+        );
+      }
+      return cloudAdapter.funcionarios.validarPin(input);
+    },
   },
 
   estoque: {
