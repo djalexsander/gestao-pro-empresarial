@@ -148,6 +148,45 @@ async function withFallback<T>(
   return result;
 }
 
+/**
+ * Variante para `buscarPorCodigo`/`buscarPorPlu`. Distingue:
+ *   - 200 + `{ result: ... }` → resposta autoritativa offline (mesmo se null).
+ *   - 503 / network error     → servidor local indisponível.
+ */
+async function tryLocalSearch<T>(
+  domain: string,
+  method: string,
+  path: string,
+  query: Record<string, string | undefined>,
+): Promise<{ kind: "ok"; result: T | null } | { kind: "unavailable" }> {
+  const baseUrl = getServerBaseUrl();
+  if (!baseUrl) return { kind: "unavailable" };
+  const url = new URL(`${baseUrl}${path}`);
+  for (const [k, v] of Object.entries(query)) {
+    if (v != null && v !== "") url.searchParams.set(k, v);
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), HTTP_TIMEOUT_MS);
+  try {
+    const headers = await getAuthHeader();
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers: { Accept: "application/json", ...headers },
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (res.status === 503) return { kind: "unavailable" };
+    if (!res.ok) return { kind: "unavailable" };
+    const json = (await res.json()) as { result: T | null };
+    reportDataSource({ source: "local-server", domain, method, fallback: false });
+    return { kind: "ok", result: json.result ?? null };
+  } catch {
+    clearTimeout(timer);
+    return { kind: "unavailable" };
+  }
+}
+
 // ----------------------------------------------------------------------------
 // Adapter
 // ----------------------------------------------------------------------------
@@ -174,6 +213,42 @@ export const localTerminalAdapter: DataAdapter = {
           ),
         () => cloudAdapter.produtos.list(input),
       ),
+    // Etapa 5 — busca de código de barras / PLU vai SEMPRE primeiro ao
+    // servidor local. Se o local responder (mesmo "não encontrado"), a
+    // resposta é autoritativa: não consultamos a nuvem. Cloud só entra
+    // quando o servidor local está totalmente fora do ar.
+    buscarPorCodigo: async (codigo) => {
+      const r = await tryLocalSearch<
+        Awaited<ReturnType<DataAdapter["produtos"]["buscarPorCodigo"]>>
+      >("produtos", "buscarPorCodigo", "/api/produtos/buscar-codigo", { codigo });
+      if (r.kind === "ok") {
+        if (import.meta.env.DEV)
+          // eslint-disable-next-line no-console
+          console.debug("[LOCAL_BUSCA] terminal buscarPorCodigo via servidor local", {
+            codigo,
+            hit: r.result != null,
+          });
+        return r.result;
+      }
+      // eslint-disable-next-line no-console
+      console.debug("[LOCAL_BUSCA] fallback cloud — servidor local indisponível");
+      return cloudAdapter.produtos.buscarPorCodigo(codigo);
+    },
+    buscarPorPlu: async (plu) => {
+      const r = await tryLocalSearch<
+        Awaited<ReturnType<DataAdapter["produtos"]["buscarPorPlu"]>>
+      >("produtos", "buscarPorPlu", "/api/produtos/buscar-plu", { plu });
+      if (r.kind === "ok") {
+        if (import.meta.env.DEV)
+          // eslint-disable-next-line no-console
+          console.debug("[LOCAL_BUSCA] terminal buscarPorPlu via servidor local", {
+            plu,
+            hit: r.result != null,
+          });
+        return r.result;
+      }
+      return cloudAdapter.produtos.buscarPorPlu(plu);
+    },
   },
 
   // Sub-etapa 4.1: terminais LAN validam PIN do operador no SERVIDOR LOCAL
