@@ -258,34 +258,46 @@ export const localServerAdapter: DataAdapter = {
     validarPin: async (input) => {
       const baseUrl = await resolveBaseUrl();
       if (baseUrl) {
-        const r = await validarPinServidor(
-          // O servidor local responde em 127.0.0.1 — `validarPinServidor`
-          // resolve a URL pelo cfg do terminal, mas no modo "servidor"
-          // não temos um cfg de terminal LAN. Usamos um cfg sintético
-          // com o baseUrl que já resolvemos.
-          { url: baseUrl, kind: "url" } as never,
-          input.funcionario_id,
-          input.pin,
-        );
-        if (r.kind === "ok") {
-          if (r.data.autorizado && r.data.funcionario) {
-            // eslint-disable-next-line no-console
-            console.debug("[OFFLINE_AUTH] PIN validado no servidor local");
-            return {
-              id: r.data.funcionario.id,
-              nome: r.data.funcionario.nome,
-              login: r.data.funcionario.login,
-              role: r.data.funcionario.role,
+        try {
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 8_000);
+          const res = await fetch(`${baseUrl}/api/auth/validar-pin`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({
+              funcionario_id: input.funcionario_id,
+              pin: input.pin,
+            }),
+            signal: ctrl.signal,
+            cache: "no-store",
+          });
+          clearTimeout(timer);
+          if (res.ok) {
+            const data = (await res.json()) as {
+              autorizado: boolean;
+              funcionario: { id: string; nome: string; login: string; role: "gerente" | "caixa" } | null;
+              motivo: string | null;
             };
+            if (data.autorizado && data.funcionario) {
+              // eslint-disable-next-line no-console
+              console.debug("[OFFLINE_AUTH] PIN validado no servidor local");
+              return data.funcionario;
+            }
+            // eslint-disable-next-line no-console
+            console.warn("[OFFLINE_AUTH] PIN recusado no servidor local");
+            throw new Error(data.motivo ?? "PIN inválido.");
           }
+          if (res.status !== 404) {
+            // eslint-disable-next-line no-console
+            console.debug("[OFFLINE_AUTH] fallback cloud online — servidor local indisponível");
+          }
+          // 404 = operador ainda não preparado → cai pra cloud silenciosamente.
+        } catch (err) {
+          if (err instanceof Error && /PIN/i.test(err.message)) throw err;
+          // network/abort → cloud fallback
           // eslint-disable-next-line no-console
-          console.warn("[OFFLINE_AUTH] PIN recusado no servidor local");
-          throw new Error(r.data.motivo ?? "PIN inválido.");
+          console.debug("[OFFLINE_AUTH] fallback cloud online — erro local:", (err as Error)?.message);
         }
-        // eslint-disable-next-line no-console
-        console.debug(
-          `[OFFLINE_AUTH] fallback cloud online — servidor local ${r.kind}`,
-        );
       }
       return cloudAdapter.funcionarios.validarPin(input);
     },
