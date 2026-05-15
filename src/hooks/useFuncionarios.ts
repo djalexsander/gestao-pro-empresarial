@@ -11,6 +11,8 @@ import {
   OperadorOfflineError,
 } from "@/lib/operadorOfflineCache";
 import { isNetworkAuthError } from "@/lib/erpOfflineCache";
+import { aquecerPinServidor } from "@/integrations/desktop/serverConnection";
+import { getDesktopConfig } from "@/integrations/desktop/configStore";
 
 export type FuncionarioRole = FuncionarioRoleDomain;
 
