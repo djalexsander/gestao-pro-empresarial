@@ -3,6 +3,14 @@ import { toast } from "sonner";
 // supabase removido — tudo via dataClient
 import { dataClient } from "@/integrations/data";
 import type { FuncionarioRoleDomain, OperadorSessaoDomain } from "@/integrations/data";
+import { isDesktop } from "@/integrations/data/mode";
+import {
+  hasOperadorOffline,
+  saveOperadorPin,
+  verifyOperadorPinOffline,
+  OperadorOfflineError,
+} from "@/lib/operadorOfflineCache";
+import { isNetworkAuthError } from "@/lib/erpOfflineCache";
 
 export type FuncionarioRole = FuncionarioRoleDomain;
 
@@ -171,13 +179,75 @@ export async function validarPinOperador(
   pin: string,
   terminalId?: string | null,
 ): Promise<OperadorSessao> {
-  return dataClient.funcionarios.validarPin({
-    funcionario_id: funcionarioId,
-    pin,
-    terminal_id: terminalId ?? null,
-    user_agent:
-      typeof navigator !== "undefined" ? navigator.userAgent ?? null : null,
-  });
+  const desktop = isDesktop();
+  const navigatorOnline =
+    typeof navigator !== "undefined" ? navigator.onLine : true;
+
+  // Desktop totalmente offline → cache local é o único caminho.
+  if (desktop && !navigatorOnline) {
+    if (!hasOperadorOffline(funcionarioId)) {
+      // eslint-disable-next-line no-console
+      console.warn("[OFFLINE_AUTH] PIN recusado localmente — sem cache para o operador");
+      throw new Error(
+        "PIN offline indisponível. Faça a sincronização inicial com internet antes de usar o PDV offline.",
+      );
+    }
+    try {
+      const op = await verifyOperadorPinOffline(funcionarioId, pin);
+      // eslint-disable-next-line no-console
+      console.debug("[OFFLINE_AUTH] PIN validado localmente");
+      return op;
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn("[OFFLINE_AUTH] PIN recusado localmente:", (e as Error).message);
+      throw e instanceof OperadorOfflineError ? new Error(e.message) : (e as Error);
+    }
+  }
+
+  try {
+    const op = await dataClient.funcionarios.validarPin({
+      funcionario_id: funcionarioId,
+      pin,
+      terminal_id: terminalId ?? null,
+      user_agent:
+        typeof navigator !== "undefined" ? navigator.userAgent ?? null : null,
+    });
+    // Aquece o cache local para futuras validações offline (apenas desktop).
+    if (desktop) {
+      try {
+        await saveOperadorPin({
+          funcionario_id: op.id,
+          nome: op.nome,
+          login: op.login,
+          role: op.role,
+          pin,
+        });
+      } catch {
+        /* noop — não bloqueia o login */
+      }
+    }
+    return op;
+  } catch (err) {
+    // Se foi falha de rede em desktop, tenta validar pelo cache local.
+    if (desktop && isNetworkAuthError(err) && hasOperadorOffline(funcionarioId)) {
+      try {
+        const op = await verifyOperadorPinOffline(funcionarioId, pin);
+        // eslint-disable-next-line no-console
+        console.debug("[OFFLINE_AUTH] fallback cloud → PIN validado localmente");
+        return op;
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("[OFFLINE_AUTH] fallback cloud → PIN recusado localmente");
+        throw e instanceof OperadorOfflineError ? new Error(e.message) : (e as Error);
+      }
+    }
+    if (desktop && isNetworkAuthError(err) && !hasOperadorOffline(funcionarioId)) {
+      throw new Error(
+        "Sem conexão e este operador ainda não foi preparado para uso offline. Faça uma validação online primeiro.",
+      );
+    }
+    throw err;
+  }
 }
 
 /**

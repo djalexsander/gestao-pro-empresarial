@@ -190,3 +190,54 @@ componentes de diagnóstico.
   e estoque continuam carregando — direto do SQLite local.
 - Terminal LAN: continua usando `local-terminal.ts` (que aponta para
   outro PC); este adapter de servidor não interfere.
+
+---
+
+## Etapa 4 — Login ERP e PIN do PDV offline
+
+### Login admin/proprietário (já existente)
+
+`src/lib/erpOfflineCache.ts` + `AdminAuthDialog` continuam responsáveis: após
+um login ONLINE bem-sucedido, salvamos um verificador PBKDF2-SHA-256 (salt +
+hash, 120k iter) por e-mail. Em modo desktop, sem internet, a próxima
+abertura do ERP valida senha contra o cache local. Mensagens já cobrem o
+caso "máquina não preparada".
+
+### PIN do operador no PDV — Etapa 4 (novo)
+
+Adicionado `src/lib/operadorOfflineCache.ts` (paralelo ao admin):
+
+- Após **cada validação ONLINE bem-sucedida** de PIN, salva PBKDF2-SHA-256
+  (salt + hash, 80k iter) por `funcionario_id`, junto de `nome`, `login`,
+  `role`. PIN em texto puro nunca é persistido.
+- `validarPinOperador` (em `useFuncionarios.ts`) agora é offline-first:
+  1. Desktop sem internet → valida pelo cache local (lança mensagem amigável
+     se ainda não preparado).
+  2. Online → cloud + warm cache.
+  3. Falha de rede em desktop com cache → fallback local automático.
+- Lockout local espelhando o servidor: 5 falhas/10 min ⇒ 15 min de
+  bloqueio. Auditoria detalhada (`funcionario_tentativas_pin`) continua
+  exclusiva do Supabase — gerada na próxima validação online.
+- Logs DEV: `[OFFLINE_AUTH] PIN validado localmente`,
+  `[OFFLINE_AUTH] PIN recusado localmente`,
+  `[OFFLINE_AUTH] fallback cloud → PIN validado/recusado localmente`.
+
+### Decisão de arquitetura
+
+A Etapa 4 ficou em **camada JS (localStorage)**, não no Rust/SQLite:
+
+- Mesma estratégia já usada para o admin (`erpOfflineCache`) — o cache é
+  por máquina, e o PDV é por máquina (terminal); não há ganho real em
+  centralizar no servidor local Rust.
+- Evita expor `pin_hash` na rede local e evita adicionar crates de
+  cripto (`pbkdf2`, `sha2`, `hmac`) ao binário Tauri agora.
+- Endpoint Rust `/api/auth/validar-pin` fica para uma etapa futura, caso
+  passemos a querer um terminal LAN validar PIN contra o servidor central
+  (hoje cada terminal valida contra o próprio cache, o que é equivalente
+  já que o `saveOperadorPin` ocorre na máquina onde o operador entra).
+
+### Garantias
+
+- Senhas e PINs nunca em texto puro (PBKDF2-SHA-256 + salt aleatório).
+- Login online e fluxo de Supabase intactos.
+- Sem mudança em layout, cobrança, planos ou módulos.
