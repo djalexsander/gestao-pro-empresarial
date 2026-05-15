@@ -160,6 +160,53 @@ async function withCloudFallback<T>(
   return result;
 }
 
+/**
+ * Variante para endpoints de busca pontual (`buscarPorCodigo`/`buscarPorPlu`).
+ * O servidor local responde:
+ *   - 200 + `{ result: T | null }` → resposta autoritativa offline (mesmo se
+ *     `result === null`, NÃO caímos para cloud — produto não existe).
+ *   - 503                          → tabela ainda vazia; deixamos cair para
+ *     cloud quando online.
+ *   - erro de rede / timeout       → idem (cloud fallback).
+ */
+async function tryLocalSearch<T>(
+  domain: string,
+  method: string,
+  path: string,
+  query: Record<string, string | undefined>,
+): Promise<{ kind: "ok"; result: T | null } | { kind: "unavailable" }> {
+  const baseUrl = await resolveBaseUrl();
+  if (!baseUrl) return { kind: "unavailable" };
+  const url = new URL(`${baseUrl}${path}`);
+  for (const [k, v] of Object.entries(query)) {
+    if (v != null && v !== "") url.searchParams.set(k, v);
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), HTTP_TIMEOUT_MS);
+  try {
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (res.status === 503) return { kind: "unavailable" };
+    if (!res.ok) {
+      cachedBaseUrl = null;
+      return { kind: "unavailable" };
+    }
+    const json = (await res.json()) as { result: T | null };
+    logSource(domain, method, res.headers.get("x-gp-source") ?? "local-table");
+    reportDataSource({ source: "local-server", domain, method, fallback: false });
+    return { kind: "ok", result: json.result ?? null };
+  } catch {
+    clearTimeout(timer);
+    cachedBaseUrl = null;
+    return { kind: "unavailable" };
+  }
+}
+
 // ----------------------------------------------------------------------------
 // Adapter
 // ----------------------------------------------------------------------------
@@ -186,6 +233,36 @@ export const localServerAdapter: DataAdapter = {
           ),
         () => cloudAdapter.produtos.list(input),
       ),
+    buscarPorCodigo: async (codigo) => {
+      const r = await tryLocalSearch<
+        Awaited<ReturnType<DataAdapter["produtos"]["buscarPorCodigo"]>>
+      >("produtos", "buscarPorCodigo", "/api/produtos/buscar-codigo", { codigo });
+      if (r.kind === "ok") return r.result;
+      const result = await cloudAdapter.produtos.buscarPorCodigo(codigo);
+      logSource("produtos", "buscarPorCodigo", "cloud-fallback");
+      reportDataSource({
+        source: "cloud",
+        domain: "produtos",
+        method: "buscarPorCodigo",
+        fallback: true,
+      });
+      return result;
+    },
+    buscarPorPlu: async (plu) => {
+      const r = await tryLocalSearch<
+        Awaited<ReturnType<DataAdapter["produtos"]["buscarPorPlu"]>>
+      >("produtos", "buscarPorPlu", "/api/produtos/buscar-plu", { plu });
+      if (r.kind === "ok") return r.result;
+      const result = await cloudAdapter.produtos.buscarPorPlu(plu);
+      logSource("produtos", "buscarPorPlu", "cloud-fallback");
+      reportDataSource({
+        source: "cloud",
+        domain: "produtos",
+        method: "buscarPorPlu",
+        fallback: true,
+      });
+      return result;
+    },
   },
 
   clientes: {
