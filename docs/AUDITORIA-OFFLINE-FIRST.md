@@ -308,3 +308,83 @@ bcrypt da nuvem **não** é importado (não é exportado pela RPC por segurança
 - `[OFFLINE_AUTH] PIN aquecido no servidor local`
 - `[OFFLINE_AUTH] fallback cloud online — servidor LAN <motivo>`
 - `[OFFLINE_AUTH] fallback cache JS local`
+
+---
+
+## Etapa 5 — Produtos & Estoque offline-first (PDV)
+
+### Decisão
+
+Scanner de código de barras e leitor de balança (PLU) são **caminhos
+quentes do PDV**: precisam responder em <50ms e nunca podem depender de
+internet. Antes desta etapa, `produtos.buscarPorCodigo` e `buscarPorPlu`
+caíam diretamente para `cloudAdapter` (RPC `buscar_produto_por_codigo` no
+Supabase) — qualquer instabilidade de rede travava o PDV.
+
+### Estratégia adotada
+
+**Servidor local (Rust + SQLite) é a fonte primária** para os 3 endpoints
+de PDV — list, busca por código, busca por PLU — e idem para `estoque.*`.
+Cloud é apenas fallback de último recurso.
+
+### Endpoints novos (Rust / Axum)
+
+- `GET /api/produtos/buscar-codigo?codigo=<X>` → consulta `produtos_local`
+  por `sku`, `json_extract($.codigo_barras)`, `$.qr_code`, `$.codigo_interno`.
+  Retorna `{ result: ProdutoBuscaResult | null }` com `saldo_estoque` já
+  resolvido via JOIN com `estoque_saldos_local`. Identifica a `fonte` do
+  match (`barras` / `qr` / `sku` / `interno`).
+- `GET /api/produtos/buscar-plu?plu=<X>` → tenta `$.plu` → `sku` →
+  `$.codigo_interno`; repete sem zeros à esquerda.
+
+### Convenção autoritativa offline
+
+Os handlers retornam:
+
+- **200 + `{ result }`** → resposta autoritativa local. Mesmo se
+  `result === null`, o adapter NÃO consulta cloud (produto não existe
+  nesse tenant — não adianta perguntar ao Supabase).
+- **503** → `produtos_local` ainda vazio (sync inicial não rodou).
+  Adapter cai para cloud quando online.
+- **erro de rede / timeout** → idem (cloud fallback se online).
+
+Isso mata o cenário "scanner trava 4s tentando online quando o produto
+nem existe" e garante PDV instantâneo offline.
+
+### Busca priorizada em `produtos.list`
+
+`read_produtos` (com `busca`) agora ordena por relevância antes do
+alfabético:
+
+1. SKU exato
+2. Nome exato
+3. Nome começa com
+4. SKU começa com
+5. Contém em qualquer lugar
+
+### Adapters
+
+- `local-server.ts` (PC servidor / desktop único): local primeiro, cloud
+  como fallback opcional.
+- `local-terminal.ts` (terminal LAN): local **sempre** primeiro; cloud
+  só quando o servidor central está fora — exatamente como a regra
+  pedida ("nunca consultar Supabase diretamente para produtos/estoque
+  em modo terminal").
+
+### Logs DEV
+
+- `[LOCAL_PRODUTOS]` — leitura de produto via SQLite local
+- `[LOCAL_BUSCA]` — busca por código de barras / PLU via local
+- `[LOCAL_ESTOQUE]` — leitura de estoque via local
+- `[LOCAL_SERVER]` — servidor local foi à nuvem agora (ainda local-first)
+- `[CLOUD_FALLBACK]` — produtos / clientes / fornecedores caíram p/ cloud
+- `[CLOUD_FALLBACK_ESTOQUE]` — estoque caiu p/ cloud (raro, alarmante)
+
+### O que NÃO mudou
+
+- Nenhuma regra de negócio de estoque foi tocada.
+- Movimentações de estoque continuam transacionais no SQLite local
+  (`registrar_movimento_local` em `db.rs`) — concorrência LAN já era
+  protegida via `unchecked_transaction()` + saldo materializado em
+  `estoque_saldos_local`.
+- `cloudAdapter` permanece intacto e ainda atende os caminhos não-PDV.
