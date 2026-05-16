@@ -2098,8 +2098,25 @@ async fn registrar_venda_local_handler(
     let input: db::LocalVendaInput = serde_json::from_value(req.raw)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("payload inválido: {e}")))?;
 
+    let forma_log = input.forma_pagamento.clone();
+    let terminal_log = input.terminal_id.clone().unwrap_or_else(|| "server".into());
+    println!(
+        "[LOCAL_SALE] registrar terminal={} forma={} itens={} total={}",
+        terminal_log,
+        forma_log,
+        input.itens.len(),
+        input.total
+    );
+
     let result = db::registrar_venda_local(input, now)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| {
+            println!("[LOCAL_SALE] erro: {e}");
+            (StatusCode::BAD_REQUEST, e.to_string())
+        })?;
+    println!(
+        "[LOCAL_PDV] venda gravada local_uuid={} idempotente={} itens={} total={}",
+        result.local_uuid, result.idempotente, result.qtd_itens, result.total
+    );
 
     let mut outbox_status = "pending".to_string();
     let mut remote_id: Option<String> = None;
@@ -2107,6 +2124,9 @@ async fn registrar_venda_local_handler(
         if let Ok(rid) = push_one_outbox_venda(&ctx, &headers, &result.local_uuid).await {
             outbox_status = "sent".into();
             remote_id = Some(rid);
+            println!("[LOCAL_OUTBOX] venda push OK local={} remote={}", result.local_uuid, rid);
+        } else {
+            println!("[LOCAL_OUTBOX] venda push pendente local={}", result.local_uuid);
         }
     }
 
@@ -3648,8 +3668,18 @@ async fn cancelar_venda_local_handler(
         operador_id: req.operador_id,
         client_uuid: req.client_uuid,
     };
-    let r = db::cancelar_venda_local(input, now)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    println!(
+        "[LOCAL_CANCEL] cancelar venda_local_uuid={} operador={:?}",
+        input.venda_local_uuid, input.operador_id
+    );
+    let r = db::cancelar_venda_local(input, now).map_err(|e| {
+        println!("[LOCAL_CANCEL] erro: {e}");
+        (StatusCode::BAD_REQUEST, e.to_string())
+    })?;
+    println!(
+        "[LOCAL_CANCEL] cancelado local={} idempotente={} itens_estornados={}",
+        r.cancelamento_local_uuid, r.idempotente, r.qtd_itens_estornados
+    );
 
     let mut outbox_status = r.outbox_status.clone();
     let mut remote_response: Option<String> = None;
@@ -3659,6 +3689,9 @@ async fn cancelar_venda_local_handler(
         {
             outbox_status = "sent".into();
             remote_response = Some(resp);
+            println!("[LOCAL_OUTBOX] cancel push OK local={}", r.cancelamento_local_uuid);
+        } else {
+            println!("[LOCAL_OUTBOX] cancel push pendente local={}", r.cancelamento_local_uuid);
         }
     }
 

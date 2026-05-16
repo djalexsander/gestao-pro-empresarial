@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i64 = 18;
+const SCHEMA_VERSION: i64 = 19;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -1163,6 +1163,71 @@ pub fn init() -> DbResult<()> {
             ON estoque_audit_local(produto_id, ts_ms DESC);
         CREATE INDEX IF NOT EXISTS idx_audit_estoque_local_uuid
             ON estoque_audit_local(local_uuid);
+
+        -- ====================================================================
+        -- v19 (Etapa 6): trilhas locais para PDV.
+        --
+        --  * `vendas_audit_local`     — auditoria forense de cada venda/
+        --                                cancelamento, gravada na MESMA
+        --                                transação SQLite de registrar/cancelar.
+        --  * `contas_receber_local`   — título local gerado quando a venda
+        --                                tem forma de pagamento fiado/clientes
+        --                                a receber. Espelha o que o cloud
+        --                                cria após o sync; permite consulta
+        --                                offline e auditoria.
+        --
+        -- Nenhuma das duas é enviada direto à nuvem — `outbox_vendas` já
+        -- carrega tudo. Estas tabelas são leitura local + forense.
+        -- ====================================================================
+        CREATE TABLE IF NOT EXISTS vendas_audit_local (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts_ms           INTEGER NOT NULL,
+            evento          TEXT NOT NULL,   -- 'criada' | 'cancelada'
+            venda_local_uuid TEXT NOT NULL,
+            client_uuid     TEXT,
+            cliente_id      TEXT,
+            operador_id     TEXT,
+            terminal_id     TEXT,
+            forma_pagamento TEXT,
+            qtd_itens       INTEGER NOT NULL DEFAULT 0,
+            total           REAL NOT NULL DEFAULT 0,
+            motivo          TEXT,
+            origem          TEXT,           -- 'servidor' | 'terminal'
+            sync_status     TEXT NOT NULL DEFAULT 'pending'
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_vendas_ts
+            ON vendas_audit_local(ts_ms DESC);
+        CREATE INDEX IF NOT EXISTS idx_audit_vendas_local
+            ON vendas_audit_local(venda_local_uuid);
+        CREATE INDEX IF NOT EXISTS idx_audit_vendas_evento
+            ON vendas_audit_local(evento, ts_ms DESC);
+
+        CREATE TABLE IF NOT EXISTS contas_receber_local (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            local_uuid        TEXT NOT NULL UNIQUE,
+            venda_local_uuid  TEXT NOT NULL,
+            client_uuid       TEXT,
+            cliente_id        TEXT,
+            cliente_nome      TEXT,
+            cliente_cpf       TEXT,
+            cliente_telefone  TEXT,
+            forma_pagamento   TEXT,
+            valor             REAL NOT NULL,
+            valor_pago        REAL NOT NULL DEFAULT 0,
+            vencimento_ms     INTEGER,
+            status            TEXT NOT NULL DEFAULT 'aberto', -- aberto | pago | cancelado
+            observacao        TEXT,
+            origem            TEXT,
+            sync_status       TEXT NOT NULL DEFAULT 'pending',
+            created_at_ms     INTEGER NOT NULL,
+            updated_at_ms     INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_cr_local_status
+            ON contas_receber_local(status, vencimento_ms);
+        CREATE INDEX IF NOT EXISTS idx_cr_local_cliente
+            ON contas_receber_local(cliente_id);
+        CREATE INDEX IF NOT EXISTS idx_cr_local_venda
+            ON contas_receber_local(venda_local_uuid);
         "#,
     )?;
 
@@ -3994,6 +4059,10 @@ pub struct LocalVendaPagamentoInput {
     pub parcelas: Option<i64>,
     #[serde(default)]
     pub observacao: Option<String>,
+    /// Vencimento opcional — usado para gerar `contas_receber_local`
+    /// quando a forma de pagamento é fiado/clientes a receber.
+    #[serde(default)]
+    pub vencimento_ms: Option<i64>,
 }
 
 fn default_true() -> bool { true }
@@ -4096,6 +4165,7 @@ pub fn registrar_venda_local(
                 "troco": p.troco,
                 "parcelas": p.parcelas,
                 "observacao": p.observacao,
+                "vencimento_ms": p.vencimento_ms,
             })
         })
         .collect();
@@ -4279,6 +4349,96 @@ pub fn registrar_venda_local(
              ) VALUES (?1,?2,?3,'pending',0,NULL,NULL,?4,?4,NULL,NULL)",
             params![local_uuid, input.client_uuid, payload_json, now_ms],
         )?;
+
+        // 5) Auditoria local da venda (v19) — mesma transação.
+        let origem_audit = if input.terminal_id.is_some() {
+            "terminal"
+        } else {
+            "servidor"
+        };
+        tx.execute(
+            "INSERT INTO vendas_audit_local(
+                ts_ms, evento, venda_local_uuid, client_uuid, cliente_id,
+                operador_id, terminal_id, forma_pagamento, qtd_itens, total,
+                motivo, origem, sync_status
+             ) VALUES (?1,'criada',?2,?3,?4,?5,?6,?7,?8,?9,NULL,?10,'pending')",
+            params![
+                now_ms,
+                local_uuid,
+                input.client_uuid,
+                input.cliente_id,
+                input.operador_id,
+                input.terminal_id,
+                input.forma_pagamento,
+                qtd_itens,
+                input.total,
+                origem_audit,
+            ],
+        )?;
+
+        // 6) Contas a receber locais — uma linha por pagamento fiado.
+        //    Detecta por substring (cobre "fiado", "clientes_receber",
+        //    "a_receber", etc.) ou por status_pagamento != 'pago'.
+        let is_fiado_forma = |f: &str| {
+            let lf = f.to_ascii_lowercase();
+            lf.contains("fiado") || lf.contains("receber") || lf == "credito_loja"
+        };
+        let mut fiado_linhas = 0i64;
+        for p in &input.pagamentos {
+            if is_fiado_forma(&p.forma_pagamento) {
+                let cr_uuid = random_uuid_v4();
+                tx.execute(
+                    "INSERT INTO contas_receber_local(
+                        local_uuid, venda_local_uuid, client_uuid, cliente_id,
+                        cliente_nome, cliente_cpf, cliente_telefone,
+                        forma_pagamento, valor, valor_pago, vencimento_ms,
+                        status, observacao, origem, sync_status,
+                        created_at_ms, updated_at_ms
+                     ) VALUES (?1,?2,?3,?4,NULL,NULL,NULL,?5,?6,0,?7,'aberto',?8,?9,'pending',?10,?10)",
+                    params![
+                        cr_uuid,
+                        local_uuid,
+                        input.client_uuid,
+                        input.cliente_id,
+                        p.forma_pagamento,
+                        p.valor,
+                        p.vencimento_ms,
+                        p.observacao,
+                        origem_audit,
+                        now_ms,
+                    ],
+                )?;
+                fiado_linhas += 1;
+            }
+        }
+        // Fallback: a venda toda é fiado pela `forma_pagamento` da cabeça
+        // (e nenhum pagamento detalhado foi enviado).
+        if fiado_linhas == 0
+            && input.pagamentos.is_empty()
+            && is_fiado_forma(&input.forma_pagamento)
+        {
+            let cr_uuid = random_uuid_v4();
+            tx.execute(
+                "INSERT INTO contas_receber_local(
+                    local_uuid, venda_local_uuid, client_uuid, cliente_id,
+                    cliente_nome, cliente_cpf, cliente_telefone,
+                    forma_pagamento, valor, valor_pago, vencimento_ms,
+                    status, observacao, origem, sync_status,
+                    created_at_ms, updated_at_ms
+                 ) VALUES (?1,?2,?3,?4,NULL,NULL,NULL,?5,?6,0,NULL,'aberto',?7,?8,'pending',?9,?9)",
+                params![
+                    cr_uuid,
+                    local_uuid,
+                    input.client_uuid,
+                    input.cliente_id,
+                    input.forma_pagamento,
+                    input.total,
+                    input.observacao,
+                    origem_audit,
+                    now_ms,
+                ],
+            )?;
+        }
 
         tx.commit()?;
         Ok(LocalVendaResult {
@@ -6244,6 +6404,34 @@ pub fn cancelar_venda_local(
                 input.operador_id,
                 payload_json,
                 now_ms,
+            ],
+        )?;
+
+        // 5) Cancela quaisquer contas a receber locais geradas por esta venda.
+        //    Não duplica estorno: usa a chave estável (venda_local_uuid) e só
+        //    transiciona 'aberto' → 'cancelado'.
+        tx.execute(
+            "UPDATE contas_receber_local
+                SET status='cancelado', updated_at_ms=?1
+              WHERE venda_local_uuid=?2 AND status='aberto'",
+            params![now_ms, venda_uuid],
+        )?;
+
+        // 6) Auditoria local do cancelamento (v19).
+        tx.execute(
+            "INSERT INTO vendas_audit_local(
+                ts_ms, evento, venda_local_uuid, client_uuid, cliente_id,
+                operador_id, terminal_id, forma_pagamento, qtd_itens, total,
+                motivo, origem, sync_status
+             ) VALUES (?1,'cancelada',?2,?3,NULL,?4,NULL,NULL,?5,?6,?7,'cancelamento','pending')",
+            params![
+                now_ms,
+                venda_uuid,
+                input.client_uuid,
+                input.operador_id,
+                qtd_itens,
+                qtd_total,
+                input.motivo,
             ],
         )?;
 
