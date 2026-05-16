@@ -4350,6 +4350,96 @@ pub fn registrar_venda_local(
             params![local_uuid, input.client_uuid, payload_json, now_ms],
         )?;
 
+        // 5) Auditoria local da venda (v19) — mesma transação.
+        let origem_audit = if input.terminal_id.is_some() {
+            "terminal"
+        } else {
+            "servidor"
+        };
+        tx.execute(
+            "INSERT INTO vendas_audit_local(
+                ts_ms, evento, venda_local_uuid, client_uuid, cliente_id,
+                operador_id, terminal_id, forma_pagamento, qtd_itens, total,
+                motivo, origem, sync_status
+             ) VALUES (?1,'criada',?2,?3,?4,?5,?6,?7,?8,?9,NULL,?10,'pending')",
+            params![
+                now_ms,
+                local_uuid,
+                input.client_uuid,
+                input.cliente_id,
+                input.operador_id,
+                input.terminal_id,
+                input.forma_pagamento,
+                qtd_itens,
+                input.total,
+                origem_audit,
+            ],
+        )?;
+
+        // 6) Contas a receber locais — uma linha por pagamento fiado.
+        //    Detecta por substring (cobre "fiado", "clientes_receber",
+        //    "a_receber", etc.) ou por status_pagamento != 'pago'.
+        let is_fiado_forma = |f: &str| {
+            let lf = f.to_ascii_lowercase();
+            lf.contains("fiado") || lf.contains("receber") || lf == "credito_loja"
+        };
+        let mut fiado_linhas = 0i64;
+        for p in &input.pagamentos {
+            if is_fiado_forma(&p.forma_pagamento) {
+                let cr_uuid = random_uuid_v4();
+                tx.execute(
+                    "INSERT INTO contas_receber_local(
+                        local_uuid, venda_local_uuid, client_uuid, cliente_id,
+                        cliente_nome, cliente_cpf, cliente_telefone,
+                        forma_pagamento, valor, valor_pago, vencimento_ms,
+                        status, observacao, origem, sync_status,
+                        created_at_ms, updated_at_ms
+                     ) VALUES (?1,?2,?3,?4,NULL,NULL,NULL,?5,?6,0,?7,'aberto',?8,?9,'pending',?10,?10)",
+                    params![
+                        cr_uuid,
+                        local_uuid,
+                        input.client_uuid,
+                        input.cliente_id,
+                        p.forma_pagamento,
+                        p.valor,
+                        p.vencimento_ms,
+                        p.observacao,
+                        origem_audit,
+                        now_ms,
+                    ],
+                )?;
+                fiado_linhas += 1;
+            }
+        }
+        // Fallback: a venda toda é fiado pela `forma_pagamento` da cabeça
+        // (e nenhum pagamento detalhado foi enviado).
+        if fiado_linhas == 0
+            && input.pagamentos.is_empty()
+            && is_fiado_forma(&input.forma_pagamento)
+        {
+            let cr_uuid = random_uuid_v4();
+            tx.execute(
+                "INSERT INTO contas_receber_local(
+                    local_uuid, venda_local_uuid, client_uuid, cliente_id,
+                    cliente_nome, cliente_cpf, cliente_telefone,
+                    forma_pagamento, valor, valor_pago, vencimento_ms,
+                    status, observacao, origem, sync_status,
+                    created_at_ms, updated_at_ms
+                 ) VALUES (?1,?2,?3,?4,NULL,NULL,NULL,?5,?6,0,NULL,'aberto',?7,?8,'pending',?9,?9)",
+                params![
+                    cr_uuid,
+                    local_uuid,
+                    input.client_uuid,
+                    input.cliente_id,
+                    input.forma_pagamento,
+                    input.total,
+                    input.observacao,
+                    origem_audit,
+                    now_ms,
+                ],
+            )?;
+        }
+
         tx.commit()?;
         Ok(LocalVendaResult {
             local_uuid,
