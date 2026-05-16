@@ -5072,7 +5072,14 @@ async fn compra_editar_metadados_handler(
         o.remove("_compra_id");
     }
     let r = db::compra_editar_metadados_local(&lid, payload)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_PURCHASE] editar_metadados falha local={lid} err={e}");
+            (StatusCode::BAD_REQUEST, e.to_string())
+        })?;
+    eprintln!(
+        "[LOCAL_PURCHASE] editar_metadados ok local={} remote={:?} idempotente={}",
+        r.compra_local_uuid, r.compra_remote_id, r.idempotente
+    );
     let mut outbox_status = "pending".to_string();
     if !r.idempotente && ctx.upstream.is_some() {
         if let Ok(items) = db::outbox_compras_list(50, Some("pending")) {
