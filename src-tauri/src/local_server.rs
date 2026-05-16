@@ -2649,6 +2649,7 @@ async fn fornecedores_handler(
         params.push(("status", format!("eq.{s}")));
     }
     let q_owned: Vec<(&str, String)> = params.iter().map(|(k, v)| (*k, v.clone())).collect();
+    eprintln!("[LOCAL_SUPPLIER] list status={:?}", status_val);
     proxy_with_incremental_sync(&ctx, &headers, "fornecedores", "/rest/v1/fornecedores", &q_owned, false).await
 }
 
