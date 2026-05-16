@@ -2997,7 +2997,11 @@ async fn financeiro_listar_handler(
 ) -> Result<Json<Vec<db::LancamentoLocalRow>>, (StatusCode, String)> {
     let f = build_financeiro_filtro(&q);
     let rows = db::lancamentos_local_listar(&f)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_FINANCE] listar falha: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
+    eprintln!("[LOCAL_FINANCE] listar ok rows={}", rows.len());
     Ok(Json(rows))
 }
 
@@ -3007,7 +3011,11 @@ async fn financeiro_resumo_handler(
 ) -> Result<Json<db::FinanceiroResumo>, (StatusCode, String)> {
     let f = build_financeiro_filtro(&q);
     let r = db::financeiro_resumo_local(&f)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_FINANCE] resumo falha: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
+    eprintln!("[LOCAL_CASHFLOW] resumo ok");
     Ok(Json(r))
 }
 
@@ -3016,7 +3024,12 @@ async fn financeiro_manual_handler(
     Json(payload): Json<db::LancamentoManualInput>,
 ) -> Result<Json<db::LancamentoManualResult>, (StatusCode, String)> {
     let r = db::lancamento_manual_inserir(&payload)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_FINANCE] manual falha: {e}");
+            (StatusCode::BAD_REQUEST, e.to_string())
+        })?;
+    eprintln!("[LOCAL_FINANCE] manual ok local_uuid={}", r.local_uuid);
+    eprintln!("[LOCAL_FINANCE_OUTBOX] manual enfileirado local_uuid={}", r.local_uuid);
     Ok(Json(r))
 }
 
@@ -3028,7 +3041,11 @@ async fn financeiro_cancelar_handler(
         .ok_or((StatusCode::BAD_REQUEST, "local_uuid é obrigatório".into()))?;
     let motivo = q.get("motivo").map(|s| s.as_str());
     let ok = db::lancamento_cancelar(&lu, motivo)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_FINANCE] cancelar falha: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
+    eprintln!("[LOCAL_FINANCE_AUDIT] cancelamento lancamento={} ok={}", lu, ok);
     Ok(Json(serde_json::json!({ "ok": ok, "local_uuid": lu })))
 }
 
