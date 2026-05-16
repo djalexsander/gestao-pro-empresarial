@@ -512,6 +512,7 @@ export function TerminaisTab() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            <SincronizacaoCard cfg={localCfg} />
             <BackupSeguranca cfg={localCfg} />
           </CardContent>
         </Card>
