@@ -102,6 +102,16 @@ export async function exportarRelatorioCard<T>(
 ) {
   const { prefix, titulo, periodo, resumo, rows, columns } = opts;
 
+  // ETAPA 13 — log offline-first. Toda exportação usa dados já carregados
+  // localmente; nenhum fetch novo é disparado aqui além de logo/empresa
+  // que já entram via cache em fetchEmpresaHeader.
+  if (import.meta.env.DEV) {
+    // eslint-disable-next-line no-console
+    console.debug(
+      `[LOCAL_EXPORT] ${prefix} formato=${formato} linhas=${rows.length}`,
+    );
+  }
+
   if (formato === "csv") {
     const empresa = await fetchEmpresaHeader();
     const cabecalho = montarCabecalhoCSV({
