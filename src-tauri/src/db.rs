@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i64 = 19;
+const SCHEMA_VERSION: i64 = 20;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -1228,6 +1228,36 @@ pub fn init() -> DbResult<()> {
             ON contas_receber_local(cliente_id);
         CREATE INDEX IF NOT EXISTS idx_cr_local_venda
             ON contas_receber_local(venda_local_uuid);
+
+        -- ====================================================================
+        -- v20 (Etapa 7): trilha de auditoria local do caixa.
+        --
+        -- Gravada DENTRO da mesma transação SQLite de abrir/movimentar/fechar
+        -- o caixa, garante registro forense mesmo offline. Não vai à nuvem;
+        -- apenas leitura local + relatórios de auditoria.
+        -- ====================================================================
+        CREATE TABLE IF NOT EXISTS caixa_audit_local (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts_ms             INTEGER NOT NULL,
+            evento            TEXT NOT NULL,   -- 'abertura'|'suprimento'|'sangria'|'fechamento'|'autorizacao'
+            caixa_local_uuid  TEXT NOT NULL,
+            mov_local_uuid    TEXT,
+            client_uuid       TEXT,
+            operador_id       TEXT,
+            terminal_id       TEXT,
+            valor             REAL,
+            motivo            TEXT,
+            valor_informado   REAL,
+            diferenca         REAL,
+            origem            TEXT,            -- 'servidor'|'terminal'
+            sync_status       TEXT NOT NULL DEFAULT 'pending'
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_caixa_ts
+            ON caixa_audit_local(ts_ms DESC);
+        CREATE INDEX IF NOT EXISTS idx_audit_caixa_caixa
+            ON caixa_audit_local(caixa_local_uuid, ts_ms DESC);
+        CREATE INDEX IF NOT EXISTS idx_audit_caixa_evento
+            ON caixa_audit_local(evento, ts_ms DESC);
         "#,
     )?;
 
@@ -4829,6 +4859,18 @@ pub fn abrir_caixa_local(
              ) VALUES (?1,?2,'abrir',?3,?4,'pending',0,NULL,NULL,?5,?5,NULL,NULL)",
             params![local_uuid, input.client_uuid, local_uuid, payload_json, now_ms],
         )?;
+        // v20 — auditoria local (mesma transação).
+        tx.execute(
+            "INSERT INTO caixa_audit_local(
+                ts_ms, evento, caixa_local_uuid, mov_local_uuid, client_uuid,
+                operador_id, terminal_id, valor, motivo, valor_informado,
+                diferenca, origem, sync_status
+             ) VALUES (?1,'abertura',?2,NULL,?3,?4,?5,?6,?7,NULL,NULL,'servidor','pending')",
+            params![
+                now_ms, local_uuid, input.client_uuid, input.operador_id,
+                input.terminal_id, input.valor_inicial, input.observacao,
+            ],
+        )?;
         tx.commit()?;
         Ok(LocalAbrirCaixaResult {
             local_uuid,
@@ -5001,6 +5043,24 @@ pub fn registrar_mov_caixa_local(
             "UPDATE caixa_local SET updated_at_ms=?1 WHERE local_uuid=?2",
             params![now_ms, caixa_local_uuid],
         )?;
+        // v20 — auditoria local (mesma transação).
+        tx.execute(
+            "INSERT INTO caixa_audit_local(
+                ts_ms, evento, caixa_local_uuid, mov_local_uuid, client_uuid,
+                operador_id, terminal_id, valor, motivo, valor_informado,
+                diferenca, origem, sync_status
+             ) VALUES (?1,?2,?3,?4,?5,?6,NULL,?7,?8,NULL,NULL,'servidor','pending')",
+            params![
+                now_ms,
+                input.tipo,            // 'suprimento' ou 'sangria'
+                caixa_local_uuid,
+                local_uuid,
+                input.client_uuid,
+                input.operador_id,
+                input.valor,
+                input.motivo,
+            ],
+        )?;
         tx.commit()?;
         Ok(LocalMovimentoCaixaResult {
             local_uuid,
@@ -5124,6 +5184,31 @@ pub fn fechar_caixa_local(
         // Lançamentos financeiros locais derivados.
         // Idempotente: limpa e reinsere sempre que o caixa é fechado.
         gerar_lancamentos_locais_para_caixa(&tx, &caixa_local_uuid, now_ms)?;
+
+        // v20 — auditoria local de fechamento (mesma transação).
+        // diferenca é a coluna do próprio caixa_local após o UPDATE acima
+        // (não computamos esperado aqui — caixa_resumo_local faz isso).
+        let oper: Option<String> = tx.query_row(
+            "SELECT operador_id FROM caixa_local WHERE local_uuid=?1",
+            params![caixa_local_uuid],
+            |r| r.get::<_, Option<String>>(0),
+        ).optional()?.flatten();
+        let term: Option<String> = tx.query_row(
+            "SELECT terminal_id FROM caixa_local WHERE local_uuid=?1",
+            params![caixa_local_uuid],
+            |r| r.get::<_, Option<String>>(0),
+        ).optional()?.flatten();
+        tx.execute(
+            "INSERT INTO caixa_audit_local(
+                ts_ms, evento, caixa_local_uuid, mov_local_uuid, client_uuid,
+                operador_id, terminal_id, valor, motivo, valor_informado,
+                diferenca, origem, sync_status
+             ) VALUES (?1,'fechamento',?2,?3,?4,?5,?6,NULL,?7,?8,NULL,'servidor','pending')",
+            params![
+                now_ms, caixa_local_uuid, local_uuid, input.client_uuid,
+                oper, term, input.observacao, input.valor_informado,
+            ],
+        )?;
 
         tx.commit()?;
         Ok(LocalFecharCaixaResult {
@@ -5622,6 +5707,11 @@ pub struct CaixaResumoLocal {
     pub total_suprimentos: f64,
     pub total_sangrias: f64,
     pub por_forma: Vec<CaixaResumoFormaRow>,
+    /// Quantidade de itens da outbox de caixa ainda não confirmados na nuvem
+    /// (abertura/movimentos/fechamento) para este caixa. 0 = totalmente sincronizado.
+    pub sync_pending: i64,
+    /// Resumo textual do estado de sincronização: 'synced'|'pending'|'error'.
+    pub sync_status: String,
 }
 
 pub fn caixa_resumo_local(caixa_local_uuid: &str) -> DbResult<Option<CaixaResumoLocal>> {
@@ -5722,6 +5812,18 @@ pub fn caixa_resumo_local(caixa_local_uuid: &str) -> DbResult<Option<CaixaResumo
             (d * 100.0).round() / 100.0
         });
 
+        // v20 — sync status (outbox de caixa para este caixa_local).
+        let (pend, err_cnt): (i64, i64) = conn.query_row(
+            "SELECT
+                COALESCE(SUM(CASE WHEN status IN ('pending','sending') THEN 1 ELSE 0 END),0),
+                COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END),0)
+               FROM outbox_caixa WHERE caixa_local_uuid=?1",
+            params![caixa_local_uuid],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        ).unwrap_or((0, 0));
+        let sync_status = if err_cnt > 0 { "error" }
+            else if pend > 0 { "pending" } else { "synced" }.to_string();
+
         Ok(Some(CaixaResumoLocal {
             caixa_local_uuid: clu,
             remote_id,
@@ -5739,6 +5841,8 @@ pub fn caixa_resumo_local(caixa_local_uuid: &str) -> DbResult<Option<CaixaResumo
             total_suprimentos: (total_sup * 100.0).round() / 100.0,
             total_sangrias: (total_san * 100.0).round() / 100.0,
             por_forma,
+            sync_pending: pend,
+            sync_status,
         }))
     })
 }
