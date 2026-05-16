@@ -5185,6 +5185,31 @@ pub fn fechar_caixa_local(
         // Idempotente: limpa e reinsere sempre que o caixa é fechado.
         gerar_lancamentos_locais_para_caixa(&tx, &caixa_local_uuid, now_ms)?;
 
+        // v20 — auditoria local de fechamento (mesma transação).
+        // diferenca é a coluna do próprio caixa_local após o UPDATE acima
+        // (não computamos esperado aqui — caixa_resumo_local faz isso).
+        let oper: Option<String> = tx.query_row(
+            "SELECT operador_id FROM caixa_local WHERE local_uuid=?1",
+            params![caixa_local_uuid],
+            |r| r.get::<_, Option<String>>(0),
+        ).optional()?.flatten();
+        let term: Option<String> = tx.query_row(
+            "SELECT terminal_id FROM caixa_local WHERE local_uuid=?1",
+            params![caixa_local_uuid],
+            |r| r.get::<_, Option<String>>(0),
+        ).optional()?.flatten();
+        tx.execute(
+            "INSERT INTO caixa_audit_local(
+                ts_ms, evento, caixa_local_uuid, mov_local_uuid, client_uuid,
+                operador_id, terminal_id, valor, motivo, valor_informado,
+                diferenca, origem, sync_status
+             ) VALUES (?1,'fechamento',?2,?3,?4,?5,?6,NULL,?7,?8,NULL,'servidor','pending')",
+            params![
+                now_ms, caixa_local_uuid, local_uuid, input.client_uuid,
+                oper, term, input.observacao, input.valor_informado,
+            ],
+        )?;
+
         tx.commit()?;
         Ok(LocalFecharCaixaResult {
             local_uuid,
