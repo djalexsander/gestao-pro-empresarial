@@ -3250,6 +3250,8 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/produtos/buscar-plu", get(produtos_buscar_plu_handler))
         .route("/api/estoque/saldos", get(estoque_saldos_handler))
         .route("/api/estoque/movimentacoes", get(estoque_movimentacoes_handler))
+        .route("/api/estoque/rebuild", post(estoque_rebuild_handler))
+        .route("/api/estoque/saude", get(estoque_saude_handler))
         .route(
             "/api/estoque/movimentacoes/registrar",
             post(registrar_mov_local_handler),
