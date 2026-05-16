@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Server,
   Monitor,
@@ -11,6 +11,9 @@ import {
   ShieldAlert,
   PlugZap,
   RotateCw,
+  Search,
+  Database,
+  HardDrive,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,20 +26,32 @@ import type { TerminalConexaoConfig } from "@/integrations/desktop/types";
 import {
   pingServidorLocal,
   fetchServerInfo,
+  fetchOfflineStatus,
   type ServerConnInfo,
   type ServerInfoPayload,
+  type OfflineStatus,
 } from "@/integrations/desktop/serverConnection";
+import {
+  descobrirServidoresLan,
+  type ServidorEncontrado,
+} from "@/integrations/desktop/lanDiscovery";
+import {
+  getLocalServerStatus,
+  getLocalSqliteHealth,
+  type LocalServerStatus,
+  type SqliteHealthPayload,
+} from "@/integrations/desktop/tauriBridge";
 
 /**
  * Wizard de primeiro uso do desktop. Bloqueia o app inteiro até a máquina
  * ter um papel definido (`server` ou `terminal`). Reaparece em modo edição
  * quando chamado pela aba Configurações → Desktop.
  *
- * Nesta versão (bloco de implantação comercial) o passo do terminal ganha:
- *   1. validação de host/porta
- *   2. teste de conexão real (`/health`)
- *   3. diagnóstico via `/server-info` (identidade do servidor)
- *   4. confirmação visual de pareamento antes de salvar
+ * Etapa 14 — Implantação comercial:
+ *   - Servidor: tela de confirmação exibindo IP/porta/serverId, status do
+ *     banco SQLite e ponteiros para backup/sincronização.
+ *   - Terminal: descoberta automática de servidores na LAN + entrada manual,
+ *     com validação de /health, /server-info e /api/offline/status.
  */
 export function DesktopSetupWizard({
   onClose,
@@ -47,7 +62,7 @@ export function DesktopSetupWizard({
 }) {
   const { config, definirRole } = useDesktopRole();
   const [step, setStep] = useState<
-    "role" | "terminal-config" | "terminal-test"
+    "role" | "terminal-config" | "terminal-test" | "server-ready"
   >(config.role === "terminal" && modoEdicao ? "terminal-config" : "role");
   const [escolha, setEscolha] = useState<"server" | "terminal" | null>(
     modoEdicao ? (config.role as "server" | "terminal") : null,
@@ -65,13 +80,53 @@ export function DesktopSetupWizard({
   const [testando, setTestando] = useState(false);
   const [conn, setConn] = useState<ServerConnInfo | null>(null);
   const [info, setInfo] = useState<ServerInfoPayload | null>(null);
+  const [offline, setOffline] = useState<OfflineStatus | null>(null);
+
+  // Descoberta LAN
+  const [descobrindo, setDescobrindo] = useState(false);
+  const [progresso, setProgresso] = useState(0);
+  const [encontrados, setEncontrados] = useState<ServidorEncontrado[]>([]);
+  const abortDescobertaRef = useRef<AbortController | null>(null);
+
+  // Estado do próprio servidor (para tela "server-ready")
+  const [daemon, setDaemon] = useState<LocalServerStatus | null>(null);
+  const [sqlite, setSqlite] = useState<SqliteHealthPayload | null>(null);
+  const [carregandoServer, setCarregandoServer] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      abortDescobertaRef.current?.abort();
+    };
+  }, []);
+
+  async function carregarServerReady() {
+    setCarregandoServer(true);
+    try {
+      const [st, sq] = await Promise.all([
+        getLocalServerStatus().catch(() => null),
+        getLocalSqliteHealth().catch(() => null),
+      ]);
+      setDaemon(st);
+      setSqlite(sq);
+      console.log("[DESKTOP_SETUP] server-ready", {
+        running: st?.running,
+        port: st?.port,
+        server_id: st?.server_id,
+        sqlite_ok: sq?.integrity_ok,
+      });
+    } finally {
+      setCarregandoServer(false);
+    }
+  }
 
   function handleEscolher(role: "server" | "terminal") {
     setEscolha(role);
+    console.log("[DESKTOP_SETUP] role escolhida:", role);
     if (role === "server") {
       definirRole("server");
-      toast.success("Esta máquina foi definida como Servidor Local.");
-      onClose?.();
+      toast.success("Esta máquina foi definida como Servidor Principal.");
+      setStep("server-ready");
+      void carregarServerReady();
       return;
     }
     setStep("terminal-config");
@@ -101,18 +156,89 @@ export function DesktopSetupWizard({
     };
   }
 
+  async function handleDescobrir() {
+    if (descobrindo) {
+      abortDescobertaRef.current?.abort();
+      setDescobrindo(false);
+      return;
+    }
+    setEncontrados([]);
+    setProgresso(0);
+    setDescobrindo(true);
+    const ctrl = new AbortController();
+    abortDescobertaRef.current = ctrl;
+    console.log("[SERVER_DISCOVERY] iniciando varredura LAN");
+    try {
+      const lista = await descobrirServidoresLan({
+        signal: ctrl.signal,
+        onProgresso: (p) => setProgresso(p),
+        onEncontrado: (s) => {
+          console.log("[SERVER_DISCOVERY] encontrado", {
+            host: s.host,
+            porta: s.porta,
+            serverId: s.serverId,
+          });
+          setEncontrados((prev) => [...prev, s]);
+        },
+      });
+      console.log("[SERVER_DISCOVERY] concluído", { total: lista.length });
+      if (lista.length === 0) {
+        toast.info(
+          "Nenhum servidor encontrado na rede. Informe o IP manualmente.",
+        );
+      }
+    } catch (e) {
+      console.warn("[SERVER_DISCOVERY] erro", e);
+    } finally {
+      setDescobrindo(false);
+    }
+  }
+
+  function aplicarServidorEncontrado(s: ServidorEncontrado) {
+    setHost(s.host);
+    setPorta(String(s.porta));
+    console.log("[TERMINAL_CONNECT] aplicando servidor encontrado", {
+      host: s.host,
+      porta: s.porta,
+      serverId: s.serverId,
+    });
+    toast.success(`Servidor selecionado: ${s.serverName ?? s.host}`);
+  }
+
   async function handleTestar() {
     const cfg = validarFormulario();
     if (!cfg) return;
     setTestando(true);
     setConn(null);
     setInfo(null);
+    setOffline(null);
+    console.log("[TERMINAL_CONNECT] testando conexão", {
+      host: cfg.host,
+      porta: cfg.porta,
+    });
     try {
       const c = await pingServidorLocal(cfg);
       setConn(c);
+      console.log("[SERVER_VALIDATE] /health", {
+        status: c.status,
+        latenciaMs: c.latenciaMs,
+        serverId: c.serverId,
+      });
       if (c.status === "online") {
-        const i = await fetchServerInfo(cfg);
+        const [i, off] = await Promise.all([
+          fetchServerInfo(cfg),
+          fetchOfflineStatus(cfg),
+        ]);
         setInfo(i);
+        setOffline(off);
+        console.log("[SERVER_VALIDATE] /server-info", {
+          server_id: i?.server_id,
+          server_name: i?.server_name,
+          hostname: i?.hostname,
+        });
+        console.log("[SERVER_VALIDATE] /api/offline/status", {
+          ready: off?.ready,
+        });
       }
       setStep("terminal-test");
     } finally {
@@ -123,7 +249,16 @@ export function DesktopSetupWizard({
   function handleSalvar() {
     const cfg = validarFormulario();
     if (!cfg) return;
+    if (conn?.status !== "online") {
+      toast.error("Não é possível salvar sem confirmar a conexão.");
+      return;
+    }
     setSalvando(true);
+    console.log("[TERMINAL_CONNECT] salvando configuração", {
+      host: cfg.host,
+      porta: cfg.porta,
+      serverId: info?.server_id ?? conn?.serverId,
+    });
     definirRole("terminal", cfg);
     toast.success(`Terminal "${cfg.terminalNome}" configurado.`);
     setSalvando(false);
@@ -144,21 +279,23 @@ export function DesktopSetupWizard({
               "Informe os dados de conexão deste terminal."}
             {step === "terminal-test" &&
               "Verifique se este terminal está enxergando o servidor."}
+            {step === "server-ready" &&
+              "Servidor pronto. Anote estes dados para configurar os terminais."}
           </p>
         </div>
 
         {step === "role" && (
           <div className="grid gap-4 md:grid-cols-2">
             <RoleCard
-              titulo="Servidor Local"
-              descricao="Máquina principal da loja. Hospeda o banco local, recebe os terminais e é onde o backup roda. Precisa ficar ligada durante o expediente."
+              titulo="Servidor Principal"
+              descricao="Computador onde os dados ficam salvos. Hospeda o banco local, recebe os terminais e roda o backup. Deve ficar ligado durante o expediente."
               icon={<Server className="h-10 w-10" />}
               ativo={escolha === "server"}
               onClick={() => handleEscolher("server")}
             />
             <RoleCard
-              titulo="Terminal Cliente"
-              descricao="Caixa/balcão conectado ao servidor da loja na rede local. Acesso focado em PDV e consultas operacionais."
+              titulo="Terminal de Caixa"
+              descricao="Computador que usa os dados do servidor pela rede local. Foco em PDV e consultas operacionais."
               icon={<Monitor className="h-10 w-10" />}
               ativo={escolha === "terminal"}
               onClick={() => handleEscolher("terminal")}
@@ -169,6 +306,67 @@ export function DesktopSetupWizard({
         {step === "terminal-config" && (
           <Card className="p-6 space-y-5">
             <PassosImplantacao etapa={1} />
+
+            {/* Bloco de descoberta automática */}
+            <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="font-medium text-sm">
+                    Procurar servidor na rede
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Localizamos automaticamente o Gestão Pro rodando como
+                    servidor na sua rede local.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant={descobrindo ? "outline" : "default"}
+                  onClick={() => void handleDescobrir()}
+                >
+                  {descobrindo ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Parar ({progresso}%)
+                    </>
+                  ) : (
+                    <>
+                      <Search className="mr-2 h-4 w-4" />
+                      Procurar
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              {encontrados.length > 0 && (
+                <ul className="space-y-2">
+                  {encontrados.map((s, i) => (
+                    <li
+                      key={`${s.host}:${s.porta}:${i}`}
+                      className="flex items-center justify-between gap-3 rounded-md border bg-card p-2 text-sm"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-medium truncate">
+                          {s.serverName ?? s.hostname ?? "Servidor Gestão Pro"}
+                        </div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {s.host}:{s.porta}
+                          {s.serverVersion ? ` • v${s.serverVersion}` : ""}
+                          {s.latenciaMs != null ? ` • ${s.latenciaMs} ms` : ""}
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => aplicarServidorEncontrado(s)}
+                      >
+                        Usar este
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
 
             <div className="space-y-2">
               <Label htmlFor="terminal-nome">Nome deste terminal *</Label>
@@ -212,9 +410,9 @@ export function DesktopSetupWizard({
             <div className="rounded-lg border border-dashed border-border bg-muted/40 p-3 text-xs text-muted-foreground">
               <p>
                 Pegue o <strong>IP</strong> e a <strong>porta</strong> na
-                máquina servidor (Configurações → Desktop → Servidor local).
-                Servidor e terminal precisam estar na mesma rede e a porta
-                liberada no firewall.
+                máquina servidor (Configurações → Desktop → Servidor
+                Principal). Servidor e terminal precisam estar na mesma rede
+                e a porta liberada no firewall.
               </p>
             </div>
 
@@ -242,7 +440,7 @@ export function DesktopSetupWizard({
           <Card className="p-6 space-y-5">
             <PassosImplantacao etapa={2} />
 
-            <DiagnosticoConexao conn={conn} info={info} />
+            <DiagnosticoConexao conn={conn} info={info} offline={offline} />
 
             <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
               <div className="flex gap-2">
@@ -281,6 +479,109 @@ export function DesktopSetupWizard({
                   <Check className="mr-2 h-4 w-4" />
                 )}
                 Confirmar pareamento
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        {step === "server-ready" && (
+          <Card className="p-6 space-y-5">
+            <div className="flex items-center gap-2">
+              <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">
+                <Server className="mr-1 h-3 w-3" /> Servidor Principal ativo
+              </Badge>
+              {carregandoServer && (
+                <span className="text-xs text-muted-foreground inline-flex items-center">
+                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                  atualizando…
+                </span>
+              )}
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <ServerFact
+                label="Hostname"
+                value={daemon?.hostname ?? "—"}
+              />
+              <ServerFact
+                label="Porta"
+                value={daemon?.port != null ? String(daemon.port) : "—"}
+                mono
+              />
+              <ServerFact
+                label="Server ID"
+                value={daemon?.server_id ?? "—"}
+                mono
+              />
+              <ServerFact
+                label="Nome do servidor"
+                value={daemon?.server_name ?? config.serverNome ?? "—"}
+              />
+              <ServerFact
+                label="Versão"
+                value={daemon?.version ?? "—"}
+              />
+              <ServerFact
+                label="Terminais conectados"
+                value={
+                  typeof daemon?.terminals_conectados === "number"
+                    ? String(daemon.terminals_conectados)
+                    : "0"
+                }
+              />
+            </div>
+
+            <div className="rounded-lg border bg-card p-3 space-y-2">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Database className="h-4 w-4" /> Banco de dados local (SQLite)
+              </div>
+              {sqlite ? (
+                <ul className="text-xs text-muted-foreground space-y-1">
+                  <li className="flex items-center gap-2">
+                    {sqlite.integrity_ok ? (
+                      <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+                    ) : (
+                      <ShieldAlert className="h-3.5 w-3.5 text-destructive" />
+                    )}
+                    Integridade: {sqlite.integrity_ok ? "OK" : sqlite.integrity_detail}
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <HardDrive className="h-3.5 w-3.5" />
+                    Tamanho: {(sqlite.db_size_bytes / 1024 / 1024).toFixed(2)} MB
+                    {" • "}journal: {sqlite.journal_mode}
+                  </li>
+                </ul>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Status indisponível neste momento.
+                </p>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-dashed border-border bg-muted/40 p-3 text-xs text-muted-foreground space-y-1">
+              <p>
+                <strong>Backup automático</strong> e{" "}
+                <strong>sincronização com a nuvem</strong> aparecem nos cards
+                da aba Desktop em Configurações.
+              </p>
+              <p>
+                Para conectar um caixa, abra o Gestão Pro nele e escolha
+                <em> Terminal de Caixa</em>, informando o IP{" "}
+                <strong>{daemon?.hostname ?? "deste computador"}</strong> e a
+                porta <strong>{daemon?.port ?? "—"}</strong>.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 pt-2">
+              <Button
+                variant="outline"
+                onClick={() => void carregarServerReady()}
+                disabled={carregandoServer}
+              >
+                <RotateCw className="mr-2 h-4 w-4" /> Atualizar
+              </Button>
+              <Button onClick={onClose}>
+                <Check className="mr-2 h-4 w-4" /> Concluir
               </Button>
             </div>
           </Card>
@@ -331,6 +632,27 @@ function RoleCard({
   );
 }
 
+function ServerFact({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="rounded-md border bg-card p-3">
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
+      <div className={`mt-1 text-sm ${mono ? "font-mono" : "font-medium"}`}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
 function PassosImplantacao({ etapa }: { etapa: 1 | 2 }) {
   const passos = [
     { n: 1, label: "Dados de conexão" },
@@ -376,9 +698,11 @@ function PassosImplantacao({ etapa }: { etapa: 1 | 2 }) {
 function DiagnosticoConexao({
   conn,
   info,
+  offline,
 }: {
   conn: ServerConnInfo;
   info: ServerInfoPayload | null;
+  offline: OfflineStatus | null;
 }) {
   const ok = conn.status === "online";
   const items: Array<{
@@ -426,6 +750,15 @@ function DiagnosticoConexao({
               : ""
           }`
         : "Sem detalhes adicionais.",
+    },
+    {
+      ok: offline ? (offline.ready ? true : "warn") : "warn",
+      label: "Banco offline pronto (/api/offline/status)",
+      detail: offline
+        ? offline.ready
+          ? "Cache local pronto para operar sem internet."
+          : "Cache local ainda não está completo — rode a sincronização inicial no servidor."
+        : "Não foi possível consultar o status offline.",
     },
   ];
 
