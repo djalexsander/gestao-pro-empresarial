@@ -1786,6 +1786,8 @@ export function DesktopTab() {
           </Card>
         )}
 
+        {localCfg && <SincronizacaoCard cfg={localCfg} />}
+
         {localCfg && <BackupSeguranca cfg={localCfg} />}
 
         <ImpressoraConfigCard />
