@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { TerminalPermissoesDialog } from "./TerminalPermissoesDialog";
 import { BackupSeguranca } from "./BackupSeguranca";
+import { SincronizacaoCard } from "./SincronizacaoCard";
 import { toast } from "sonner";
 import {
   useTerminais, useCriarTerminal, useAtualizarTerminal,
@@ -510,7 +511,8 @@ export function TerminaisTab() {
               Backup automático do banco local e fila de envio para a nuvem.
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            <SincronizacaoCard cfg={localCfg} />
             <BackupSeguranca cfg={localCfg} />
           </CardContent>
         </Card>

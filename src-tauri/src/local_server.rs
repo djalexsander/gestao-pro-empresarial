@@ -3537,6 +3537,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/backup/delete", post(backup_delete_handler))
         .route("/backup/restore/schedule", post(backup_restore_schedule_handler))
         .route("/backup/restore/cancel", post(backup_restore_cancel_handler))
+        .route("/api/sync/overview", get(sync_overview_handler))
         .with_state(ctx)
         .layer(cors)
 }
@@ -5582,4 +5583,24 @@ async fn run_outbox_compras_scheduler(
             );
         }
     }
+}
+
+// ============================================================================
+// ETAPA 11 — Sync overview handler
+// ============================================================================
+
+async fn sync_overview_handler() -> Result<Json<db::SyncOverview>, (StatusCode, String)> {
+    let ov = db::sync_overview()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    eprintln!(
+        "[SYNC_OUTBOX] overview pending={} processing={} synced={} error={} conflict={} skipped={} last_sent={:?}",
+        ov.pending, ov.processing, ov.synced, ov.error, ov.conflict, ov.skipped, ov.last_sent_at_ms
+    );
+    if ov.error > 0 {
+        eprintln!("[SYNC_RETRY] {} item(s) em erro aguardando próxima janela", ov.error);
+    }
+    if ov.conflict > 0 {
+        eprintln!("[SYNC_CONFLICT] {} item(s) marcados como conflict", ov.conflict);
+    }
+    Ok(Json(ov))
 }
