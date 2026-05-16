@@ -384,7 +384,9 @@ export function BackupSeguranca({ cfg }: Props) {
               Backups armazenados
             </div>
             <Badge variant="secondary">
-              retenção auto: {status?.auto_retention ?? 14}
+              retenção auto: {status?.auto_retention_daily ?? status?.auto_retention ?? 7}d
+              {" + "}
+              {status?.auto_retention_weekly ?? 4}w
             </Badge>
           </div>
           {files.length === 0 ? (
