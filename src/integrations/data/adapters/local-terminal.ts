@@ -918,6 +918,119 @@ export const localTerminalAdapter: DataAdapter = {
         },
         () => cloudAdapter.financeiro.listLancamentosCompleto(),
       ),
+
+    // -----------------------------------------------------------------
+    // Sub-etapa 8.1 — Clientes a Receber / Fiado offline-first
+    //
+    // listFiado prioriza títulos locais (`contas_receber_local`). Quando
+    // local responde com lista NÃO vazia, devolvemos apenas eles. Caso o
+    // servidor local esteja fora OU ainda não tenha gerado fiados locais,
+    // caímos para a cloud — preserva UX em transição.
+    //
+    // registrarPagamento e cancelarLancamento tentam primeiro o endpoint
+    // local (idempotente por `client_uuid`). Se o título não existir
+    // localmente (id é de origem cloud), caímos para a cloud sem ruído.
+    // -----------------------------------------------------------------
+    listFiado: async () => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        try {
+          const rows = await fetchContasReceberLocal(cfg, { status: "todos", limit: 1000 });
+          if (rows.length > 0) {
+            if (import.meta.env.DEV) {
+              // eslint-disable-next-line no-console
+              console.debug("[LOCAL_RECEIVABLE_UI] listFiado servidor local", {
+                rows: rows.length,
+              });
+            }
+            reportDataSource({ source: "local-server", domain: "financeiro", method: "listFiado", fallback: false });
+            return rows.map(mapContaReceberToFiadoDomain);
+          }
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.debug("[LOCAL_RECEIVABLE_UI] listFiado vazio local — fallback cloud");
+          }
+        } catch {
+          // network → cloud fallback abaixo
+        }
+      }
+      const result = await cloudAdapter.financeiro.listFiado();
+      reportDataSource({ source: "cloud", domain: "financeiro", method: "listFiado", fallback: true });
+      return result;
+    },
+
+    registrarPagamento: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const dataMs = input.data_pagamento
+          ? Date.parse(`${input.data_pagamento}T12:00:00`)
+          : Date.now();
+        const r = await baixarReceberLocal(cfg, {
+          receber_id: input.lancamento_id,
+          valor: input.valor,
+          forma_pagamento: input.forma_pagamento ?? null,
+          data_pagamento_ms: Number.isFinite(dataMs) ? dataMs : Date.now(),
+          observacao: input.observacao ?? null,
+          client_uuid: input.client_uuid ?? null,
+        });
+        if (r) {
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.debug("[LOCAL_RECEIVABLE_UI] baixa servidor local ok", {
+              titulo: r.receber_local_uuid,
+              status: r.status,
+              idempotente: r.idempotente,
+            });
+          }
+          reportDataSource({ source: "local-server", domain: "financeiro", method: "registrarPagamento", fallback: false });
+          return {
+            pagamento_id: r.local_uuid,
+            lancamento_id: r.receber_local_uuid,
+            idempotente: r.idempotente,
+          };
+        }
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.debug("[LOCAL_RECEIVABLE_UI] baixa local falhou — fallback cloud", {
+            lancamento_id: input.lancamento_id,
+          });
+        }
+      }
+      const out = await cloudAdapter.financeiro.registrarPagamento(input);
+      reportDataSource({ source: "cloud", domain: "financeiro", method: "registrarPagamento", fallback: true });
+      return out;
+    },
+
+    cancelarLancamento: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const r = await cancelarReceberLocal(cfg, {
+          receber_id: input.lancamento_id,
+          motivo: input.motivo ?? null,
+        });
+        if (r) {
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.debug("[LOCAL_RECEIVABLE_UI] cancelamento servidor local ok", {
+              titulo: r.receber_local_uuid,
+              status: r.status,
+              idempotente: r.idempotente,
+            });
+          }
+          reportDataSource({ source: "local-server", domain: "financeiro", method: "cancelarLancamento", fallback: false });
+          return { lancamento_id: r.receber_local_uuid, idempotente: r.idempotente };
+        }
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.debug("[LOCAL_RECEIVABLE_UI] cancelamento local falhou — fallback cloud", {
+            lancamento_id: input.lancamento_id,
+          });
+        }
+      }
+      const out = await cloudAdapter.financeiro.cancelarLancamento(input);
+      reportDataSource({ source: "cloud", domain: "financeiro", method: "cancelarLancamento", fallback: true });
+      return out;
+    },
   },
 
   /**
