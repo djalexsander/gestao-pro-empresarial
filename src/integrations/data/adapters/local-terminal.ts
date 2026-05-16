@@ -1231,7 +1231,24 @@ export const localTerminalAdapter: DataAdapter = {
           console.debug("[LOCAL_RECEIVABLE_UI] cancelamento local falhou — fallback cloud", {
             lancamento_id: input.lancamento_id,
           });
+        // Fallthrough Etapa 9: pode ser um título a pagar.
+        const rp = await cancelarPagarLocal(cfg, {
+          pagar_id: input.lancamento_id,
+          motivo: input.motivo ?? null,
+        });
+        if (rp) {
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.debug("[LOCAL_PAYABLE_UI] cancelamento servidor local ok", {
+              titulo: rp.pagar_local_uuid,
+              status: rp.status,
+              idempotente: rp.idempotente,
+            });
+          }
+          reportDataSource({ source: "local-server", domain: "financeiro", method: "cancelarLancamento", fallback: false });
+          return { lancamento_id: rp.pagar_local_uuid, idempotente: rp.idempotente };
         }
+      }
       }
       const out = await cloudAdapter.financeiro.cancelarLancamento(input);
       reportDataSource({ source: "cloud", domain: "financeiro", method: "cancelarLancamento", fallback: true });
