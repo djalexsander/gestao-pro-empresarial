@@ -2997,7 +2997,11 @@ async fn financeiro_listar_handler(
 ) -> Result<Json<Vec<db::LancamentoLocalRow>>, (StatusCode, String)> {
     let f = build_financeiro_filtro(&q);
     let rows = db::lancamentos_local_listar(&f)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_FINANCE] listar falha: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
+    eprintln!("[LOCAL_FINANCE] listar ok rows={}", rows.len());
     Ok(Json(rows))
 }
 
@@ -3007,7 +3011,11 @@ async fn financeiro_resumo_handler(
 ) -> Result<Json<db::FinanceiroResumo>, (StatusCode, String)> {
     let f = build_financeiro_filtro(&q);
     let r = db::financeiro_resumo_local(&f)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_FINANCE] resumo falha: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
+    eprintln!("[LOCAL_CASHFLOW] resumo ok");
     Ok(Json(r))
 }
 
@@ -3016,7 +3024,12 @@ async fn financeiro_manual_handler(
     Json(payload): Json<db::LancamentoManualInput>,
 ) -> Result<Json<db::LancamentoManualResult>, (StatusCode, String)> {
     let r = db::lancamento_manual_inserir(&payload)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_FINANCE] manual falha: {e}");
+            (StatusCode::BAD_REQUEST, e.to_string())
+        })?;
+    eprintln!("[LOCAL_FINANCE] manual ok local_uuid={}", r.local_uuid);
+    eprintln!("[LOCAL_FINANCE_OUTBOX] manual enfileirado local_uuid={}", r.local_uuid);
     Ok(Json(r))
 }
 
@@ -3028,8 +3041,75 @@ async fn financeiro_cancelar_handler(
         .ok_or((StatusCode::BAD_REQUEST, "local_uuid é obrigatório".into()))?;
     let motivo = q.get("motivo").map(|s| s.as_str());
     let ok = db::lancamento_cancelar(&lu, motivo)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_FINANCE] cancelar falha: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
+    eprintln!("[LOCAL_FINANCE_AUDIT] cancelamento lancamento={} ok={}", lu, ok);
     Ok(Json(serde_json::json!({ "ok": ok, "local_uuid": lu })))
+}
+
+// ---------- /api/financeiro/receber (v21 — Etapa 8) ----------
+//
+// Exposição offline-first do `contas_receber_local` + baixa parcial/total
+// + cancelamento. Cada operação é gravada na MESMA transação SQLite do
+// título (`contas_receber_local`) + auditoria (`financeiro_audit_local`).
+
+/// GET /api/financeiro/receber?status=&cliente_id=&desde_ms=&ate_ms=&limit=
+async fn financeiro_receber_listar_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<db::ContaReceberLocalRow>>, (StatusCode, String)> {
+    let f = db::ContasReceberLocalFiltro {
+        status: q.get("status").cloned(),
+        cliente_id: q.get("cliente_id").cloned(),
+        desde_ms: parse_i64(&q, "desde_ms"),
+        ate_ms: parse_i64(&q, "ate_ms"),
+        limit: parse_i64(&q, "limit"),
+    };
+    let rows = db::contas_receber_local_list(&f, now_ms())
+        .map_err(|e| {
+            eprintln!("[LOCAL_RECEIVABLE] list falha: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
+    eprintln!("[LOCAL_RECEIVABLE] list ok rows={}", rows.len());
+    Ok(Json(rows))
+}
+
+/// POST /api/financeiro/receber/baixar — body: BaixarReceberInput
+async fn financeiro_receber_baixar_handler(
+    Json(payload): Json<db::BaixarReceberInput>,
+) -> Result<Json<db::BaixarReceberResult>, (StatusCode, String)> {
+    let now = now_ms();
+    let r = db::baixar_receber_local(payload, now)
+        .map_err(|e| {
+            eprintln!("[LOCAL_RECEIVABLE] baixa falha: {e}");
+            (StatusCode::BAD_REQUEST, e.to_string())
+        })?;
+    eprintln!(
+        "[LOCAL_RECEIVABLE] baixa ok titulo={} pago_total={} restante={} status={} idempotente={}",
+        r.receber_local_uuid, r.valor_pago_total, r.valor_restante, r.status, r.idempotente
+    );
+    eprintln!("[LOCAL_FINANCE_AUDIT] recebimento titulo={} valor={}", r.receber_local_uuid, r.valor);
+    eprintln!("[LOCAL_CASHFLOW] entrada realizada valor={} forma={:?}", r.valor, None::<String>);
+    Ok(Json(r))
+}
+
+/// POST /api/financeiro/receber/cancelar — body: CancelarReceberInput
+async fn financeiro_receber_cancelar_handler(
+    Json(payload): Json<db::CancelarReceberInput>,
+) -> Result<Json<db::CancelarReceberResult>, (StatusCode, String)> {
+    let now = now_ms();
+    let r = db::cancelar_receber_local(payload, now)
+        .map_err(|e| {
+            eprintln!("[LOCAL_RECEIVABLE] cancelar falha: {e}");
+            (StatusCode::BAD_REQUEST, e.to_string())
+        })?;
+    eprintln!(
+        "[LOCAL_RECEIVABLE] cancelado titulo={} status={} idempotente={}",
+        r.receber_local_uuid, r.status, r.idempotente
+    );
+    eprintln!("[LOCAL_FINANCE_AUDIT] cancelamento titulo={}", r.receber_local_uuid);
+    Ok(Json(r))
 }
 
 ///
@@ -3323,6 +3403,9 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/financeiro/resumo", get(financeiro_resumo_handler))
         .route("/api/financeiro/manual", post(financeiro_manual_handler))
         .route("/api/financeiro/cancelar", post(financeiro_cancelar_handler))
+        .route("/api/financeiro/receber", get(financeiro_receber_listar_handler))
+        .route("/api/financeiro/receber/baixar", post(financeiro_receber_baixar_handler))
+        .route("/api/financeiro/receber/cancelar", post(financeiro_receber_cancelar_handler))
         .route("/db/outbox/caixa", get(outbox_caixa_list_handler))
         .route("/db/outbox/caixa/stats", get(outbox_caixa_stats_handler))
         .route("/db/outbox/caixa/flush", post(outbox_caixa_flush_handler))

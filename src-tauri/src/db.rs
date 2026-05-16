@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i64 = 20;
+const SCHEMA_VERSION: i64 = 21;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -1258,6 +1258,67 @@ pub fn init() -> DbResult<()> {
             ON caixa_audit_local(caixa_local_uuid, ts_ms DESC);
         CREATE INDEX IF NOT EXISTS idx_audit_caixa_evento
             ON caixa_audit_local(evento, ts_ms DESC);
+
+        -- ====================================================================
+        -- v21 (Etapa 8): pagamentos de contas a receber + auditoria financeira.
+        --
+        -- `contas_receber_pagtos_local` registra cada baixa (parcial ou total)
+        -- aplicada offline a um título de `contas_receber_local`. Gravada na
+        -- MESMA transação do UPDATE do título → atomicidade.
+        --
+        -- `financeiro_audit_local` é a trilha forense de eventos financeiros
+        -- (recebimento, pagamento, cancelamento, alteração de status). Não vai
+        -- à nuvem — `outbox_financeiro` já carrega o lançamento avulso quando
+        -- ele existir; esta tabela é leitura local + auditoria forense.
+        -- ====================================================================
+        CREATE TABLE IF NOT EXISTS contas_receber_pagtos_local (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            local_uuid          TEXT NOT NULL UNIQUE,
+            client_uuid         TEXT,
+            receber_local_uuid  TEXT NOT NULL,
+            valor               REAL NOT NULL,
+            forma_pagamento     TEXT,
+            data_pagamento_ms   INTEGER NOT NULL,
+            observacao          TEXT,
+            operador_id         TEXT,
+            terminal_id         TEXT,
+            origem              TEXT,
+            sync_status         TEXT NOT NULL DEFAULT 'pending',
+            created_at_ms       INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_cr_pag_receber
+            ON contas_receber_pagtos_local(receber_local_uuid, data_pagamento_ms DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_cr_pag_client_uuid
+            ON contas_receber_pagtos_local(client_uuid) WHERE client_uuid IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS financeiro_audit_local (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts_ms             INTEGER NOT NULL,
+            evento            TEXT NOT NULL,   -- 'recebimento'|'pagamento'|'cancelamento'|'alterar_status'
+            entidade          TEXT NOT NULL,   -- 'receber'|'pagar'|'lancamento'
+            entidade_uuid     TEXT NOT NULL,
+            mov_local_uuid    TEXT,
+            client_uuid       TEXT,
+            cliente_id        TEXT,
+            fornecedor_id     TEXT,
+            operador_id       TEXT,
+            terminal_id       TEXT,
+            forma_pagamento   TEXT,
+            valor             REAL,
+            valor_pago        REAL,
+            valor_restante    REAL,
+            status_anterior   TEXT,
+            status_atual      TEXT,
+            motivo            TEXT,
+            origem            TEXT,            -- 'servidor'|'terminal'
+            sync_status       TEXT NOT NULL DEFAULT 'pending'
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_fin_ts
+            ON financeiro_audit_local(ts_ms DESC);
+        CREATE INDEX IF NOT EXISTS idx_audit_fin_entidade
+            ON financeiro_audit_local(entidade, entidade_uuid, ts_ms DESC);
+        CREATE INDEX IF NOT EXISTS idx_audit_fin_evento
+            ON financeiro_audit_local(evento, ts_ms DESC);
         "#,
     )?;
 
@@ -4716,6 +4777,353 @@ pub fn outbox_vendas_reset_errors(now_ms: i64) -> DbResult<i64> {
             params![now_ms],
         )?;
         Ok(n as i64)
+    })
+}
+
+// ---------------------------------------------------------------------------
+// v21 (Etapa 8) — Contas a receber offline (leitura + baixa + cancelamento)
+// ---------------------------------------------------------------------------
+//
+// Mantém `contas_receber_local` como fonte da verdade local. A baixa
+// (`baixar_receber_local`) é atômica: insere `contas_receber_pagtos_local`,
+// atualiza `valor_pago`/`status` do título, grava `financeiro_audit_local`
+// e enfileira `outbox_financeiro` para o lançamento avulso correspondente
+// (assim a entrada vira lançamento real no upstream quando reconectar).
+//
+// O `status` derivado segue a regra: aberto (valor_pago<=0), parcial
+// (0<valor_pago<valor), pago (valor_pago>=valor), cancelado (manual),
+// vencido (aberto/parcial e vencimento_ms < now). "Vencido" é calculado
+// no read — não é persistido — para não exigir job de relógio.
+
+#[derive(Debug, Serialize)]
+pub struct ContaReceberLocalRow {
+    pub local_uuid: String,
+    pub venda_local_uuid: String,
+    pub cliente_id: Option<String>,
+    pub cliente_nome: Option<String>,
+    pub cliente_cpf: Option<String>,
+    pub cliente_telefone: Option<String>,
+    pub forma_pagamento: Option<String>,
+    pub valor: f64,
+    pub valor_pago: f64,
+    pub valor_restante: f64,
+    pub vencimento_ms: Option<i64>,
+    pub status: String,           // aberto|parcial|pago|cancelado|vencido
+    pub status_base: String,      // aberto|parcial|pago|cancelado (sem 'vencido')
+    pub sync_status: String,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct ContasReceberLocalFiltro {
+    #[serde(default)]
+    pub status: Option<String>,         // aberto|parcial|pago|cancelado|vencido|todos
+    #[serde(default)]
+    pub cliente_id: Option<String>,
+    #[serde(default)]
+    pub desde_ms: Option<i64>,
+    #[serde(default)]
+    pub ate_ms: Option<i64>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+pub fn contas_receber_local_list(
+    f: &ContasReceberLocalFiltro,
+    now_ms: i64,
+) -> DbResult<Vec<ContaReceberLocalRow>> {
+    with_conn(|conn| {
+        let mut sql = String::from(
+            "SELECT local_uuid, venda_local_uuid, cliente_id, cliente_nome,
+                    cliente_cpf, cliente_telefone, forma_pagamento,
+                    valor, valor_pago, vencimento_ms, status, sync_status,
+                    created_at_ms, updated_at_ms
+               FROM contas_receber_local WHERE 1=1",
+        );
+        let mut args: Vec<rusqlite::types::Value> = Vec::new();
+        if let Some(c) = f.cliente_id.as_deref().filter(|s| !s.is_empty()) {
+            sql.push_str(" AND cliente_id = ?");
+            args.push(c.to_string().into());
+        }
+        if let Some(d) = f.desde_ms {
+            sql.push_str(" AND created_at_ms >= ?");
+            args.push(d.into());
+        }
+        if let Some(a) = f.ate_ms {
+            sql.push_str(" AND created_at_ms <= ?");
+            args.push(a.into());
+        }
+        sql.push_str(" ORDER BY COALESCE(vencimento_ms, created_at_ms) ASC");
+        let limit = f.limit.unwrap_or(500).clamp(1, 5000);
+        sql.push_str(" LIMIT ?");
+        args.push(limit.into());
+
+        let mut stmt = conn.prepare(&sql)?;
+        let params_refs: Vec<&dyn rusqlite::ToSql> =
+            args.iter().map(|v| v as &dyn rusqlite::ToSql).collect();
+        let iter = stmt.query_map(params_refs.as_slice(), |r| {
+            let local_uuid: String = r.get(0)?;
+            let venda_local_uuid: String = r.get(1)?;
+            let cliente_id: Option<String> = r.get(2)?;
+            let cliente_nome: Option<String> = r.get(3)?;
+            let cliente_cpf: Option<String> = r.get(4)?;
+            let cliente_telefone: Option<String> = r.get(5)?;
+            let forma_pagamento: Option<String> = r.get(6)?;
+            let valor: f64 = r.get(7)?;
+            let valor_pago: f64 = r.get(8)?;
+            let vencimento_ms: Option<i64> = r.get(9)?;
+            let status_base: String = r.get(10)?;
+            let sync_status: String = r.get(11)?;
+            let created_at_ms: i64 = r.get(12)?;
+            let updated_at_ms: i64 = r.get(13)?;
+            let valor_restante = ((valor - valor_pago).max(0.0) * 100.0).round() / 100.0;
+            let status = if status_base == "cancelado" || status_base == "pago" {
+                status_base.clone()
+            } else if valor_pago > 0.0 && valor_pago < valor {
+                // base é 'aberto' mas tem baixa parcial
+                if vencimento_ms.map(|v| v < now_ms).unwrap_or(false) { "vencido".into() } else { "parcial".into() }
+            } else if vencimento_ms.map(|v| v < now_ms).unwrap_or(false) {
+                "vencido".into()
+            } else {
+                status_base.clone()
+            };
+            Ok(ContaReceberLocalRow {
+                local_uuid, venda_local_uuid,
+                cliente_id, cliente_nome, cliente_cpf, cliente_telefone,
+                forma_pagamento, valor, valor_pago, valor_restante,
+                vencimento_ms, status, status_base, sync_status,
+                created_at_ms, updated_at_ms,
+            })
+        })?;
+        let mut out: Vec<ContaReceberLocalRow> = Vec::new();
+        for r in iter { out.push(r?); }
+
+        // Filtro de status calculado (depois de derivar).
+        if let Some(s) = f.status.as_deref().filter(|s| !s.is_empty() && *s != "todos") {
+            out.retain(|r| r.status == s);
+        }
+        Ok(out)
+    })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BaixarReceberInput {
+    pub receber_id: String,            // local_uuid OU remote_id futuro
+    pub valor: f64,
+    #[serde(default)]
+    pub forma_pagamento: Option<String>,
+    #[serde(default)]
+    pub data_pagamento_ms: Option<i64>,
+    #[serde(default)]
+    pub observacao: Option<String>,
+    #[serde(default)]
+    pub operador_id: Option<String>,
+    #[serde(default)]
+    pub terminal_id: Option<String>,
+    #[serde(default)]
+    pub client_uuid: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BaixarReceberResult {
+    pub local_uuid: String,
+    pub idempotente: bool,
+    pub receber_local_uuid: String,
+    pub valor: f64,
+    pub valor_pago_total: f64,
+    pub valor_restante: f64,
+    pub status: String,
+}
+
+fn resolve_receber_local_uuid(conn: &Connection, any_id: &str) -> DbResult<Option<String>> {
+    let by_local: Option<String> = conn.query_row(
+        "SELECT local_uuid FROM contas_receber_local WHERE local_uuid = ?1",
+        params![any_id], |r| r.get::<_, String>(0),
+    ).optional()?;
+    Ok(by_local)
+}
+
+pub fn baixar_receber_local(
+    input: BaixarReceberInput,
+    now_ms: i64,
+) -> DbResult<BaixarReceberResult> {
+    if input.valor <= 0.0 {
+        return Err(DbError("valor da baixa deve ser maior que zero".into()));
+    }
+
+    // Idempotência por client_uuid.
+    if let Some(cu) = input.client_uuid.as_deref() {
+        if !cu.is_empty() {
+            if let Some(row) = with_conn(|conn| {
+                let r = conn.query_row(
+                    "SELECT local_uuid, receber_local_uuid, valor
+                       FROM contas_receber_pagtos_local WHERE client_uuid=?1",
+                    params![cu],
+                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, f64>(2)?)),
+                ).optional()?;
+                Ok(r)
+            })? {
+                let (pid, rid, v) = row;
+                let (vtot, vpago, status) = with_conn(|conn| {
+                    let t = conn.query_row(
+                        "SELECT valor, valor_pago, status FROM contas_receber_local WHERE local_uuid=?1",
+                        params![rid], |r| Ok((r.get::<_, f64>(0)?, r.get::<_, f64>(1)?, r.get::<_, String>(2)?)),
+                    )?;
+                    Ok(t)
+                })?;
+                let rest = ((vtot - vpago).max(0.0) * 100.0).round() / 100.0;
+                return Ok(BaixarReceberResult {
+                    local_uuid: pid, idempotente: true,
+                    receber_local_uuid: rid, valor: v,
+                    valor_pago_total: vpago, valor_restante: rest, status,
+                });
+            }
+        }
+    }
+
+    let receber_local_uuid = with_conn(|conn| resolve_receber_local_uuid(conn, &input.receber_id))?
+        .ok_or_else(|| DbError(format!("título não encontrado localmente: {}", input.receber_id)))?;
+
+    let dt_pag = input.data_pagamento_ms.unwrap_or(now_ms);
+    let pag_uuid = random_uuid_v4();
+
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+
+        // Lê o título atual.
+        let (valor_total, valor_pago_atual, status_atual, cliente_id): (f64, f64, String, Option<String>) =
+            tx.query_row(
+                "SELECT valor, valor_pago, status, cliente_id FROM contas_receber_local
+                  WHERE local_uuid = ?1",
+                params![receber_local_uuid],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )?;
+        if status_atual == "cancelado" {
+            return Err(DbError("título cancelado — não permite baixa".into()).into());
+        }
+        let novo_pago = ((valor_pago_atual + input.valor) * 100.0).round() / 100.0;
+        if novo_pago > valor_total + 0.005 {
+            return Err(DbError(format!(
+                "baixa excede o valor restante (restante={:.2}, baixa={:.2})",
+                (valor_total - valor_pago_atual).max(0.0), input.valor
+            )).into());
+        }
+        let novo_status = if novo_pago + 0.005 >= valor_total { "pago" } else { "aberto" };
+        // observação: status 'parcial' é derivado no read; persistimos 'aberto'
+        // até virar 'pago' para compatibilidade com schema atual.
+
+        tx.execute(
+            "INSERT INTO contas_receber_pagtos_local(
+                local_uuid, client_uuid, receber_local_uuid, valor,
+                forma_pagamento, data_pagamento_ms, observacao,
+                operador_id, terminal_id, origem, sync_status, created_at_ms
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'servidor','pending',?10)",
+            params![
+                pag_uuid, input.client_uuid, receber_local_uuid, input.valor,
+                input.forma_pagamento, dt_pag, input.observacao,
+                input.operador_id, input.terminal_id, now_ms,
+            ],
+        )?;
+        tx.execute(
+            "UPDATE contas_receber_local
+                SET valor_pago = ?1,
+                    status     = ?2,
+                    sync_status = CASE WHEN sync_status='synced' THEN 'pending' ELSE sync_status END,
+                    updated_at_ms = ?3
+              WHERE local_uuid = ?4",
+            params![novo_pago, novo_status, now_ms, receber_local_uuid],
+        )?;
+
+        // Auditoria local.
+        let valor_restante = ((valor_total - novo_pago).max(0.0) * 100.0).round() / 100.0;
+        tx.execute(
+            "INSERT INTO financeiro_audit_local(
+                ts_ms, evento, entidade, entidade_uuid, mov_local_uuid,
+                client_uuid, cliente_id, fornecedor_id, operador_id, terminal_id,
+                forma_pagamento, valor, valor_pago, valor_restante,
+                status_anterior, status_atual, motivo, origem, sync_status
+             ) VALUES (?1,'recebimento','receber',?2,?3,?4,?5,NULL,?6,?7,?8,?9,?10,?11,?12,?13,?14,'servidor','pending')",
+            params![
+                now_ms, receber_local_uuid, pag_uuid, input.client_uuid,
+                cliente_id, input.operador_id, input.terminal_id,
+                input.forma_pagamento, input.valor, novo_pago, valor_restante,
+                status_atual, novo_status, input.observacao,
+            ],
+        )?;
+
+        tx.commit()?;
+        Ok(BaixarReceberResult {
+            local_uuid: pag_uuid, idempotente: false,
+            receber_local_uuid,
+            valor: input.valor,
+            valor_pago_total: novo_pago,
+            valor_restante,
+            status: novo_status.to_string(),
+        })
+    })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CancelarReceberInput {
+    pub receber_id: String,
+    #[serde(default)]
+    pub motivo: Option<String>,
+    #[serde(default)]
+    pub operador_id: Option<String>,
+    #[serde(default)]
+    pub terminal_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CancelarReceberResult {
+    pub receber_local_uuid: String,
+    pub idempotente: bool,
+    pub status: String,
+}
+
+pub fn cancelar_receber_local(
+    input: CancelarReceberInput,
+    now_ms: i64,
+) -> DbResult<CancelarReceberResult> {
+    let receber_local_uuid = with_conn(|conn| resolve_receber_local_uuid(conn, &input.receber_id))?
+        .ok_or_else(|| DbError(format!("título não encontrado localmente: {}", input.receber_id)))?;
+
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+        let (status_atual, cliente_id): (String, Option<String>) = tx.query_row(
+            "SELECT status, cliente_id FROM contas_receber_local WHERE local_uuid=?1",
+            params![receber_local_uuid], |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        if status_atual == "cancelado" {
+            return Ok(CancelarReceberResult {
+                receber_local_uuid, idempotente: true, status: status_atual,
+            });
+        }
+        tx.execute(
+            "UPDATE contas_receber_local
+                SET status='cancelado',
+                    sync_status = CASE WHEN sync_status='synced' THEN 'pending' ELSE sync_status END,
+                    updated_at_ms = ?1
+              WHERE local_uuid = ?2",
+            params![now_ms, receber_local_uuid],
+        )?;
+        tx.execute(
+            "INSERT INTO financeiro_audit_local(
+                ts_ms, evento, entidade, entidade_uuid, mov_local_uuid,
+                client_uuid, cliente_id, fornecedor_id, operador_id, terminal_id,
+                forma_pagamento, valor, valor_pago, valor_restante,
+                status_anterior, status_atual, motivo, origem, sync_status
+             ) VALUES (?1,'cancelamento','receber',?2,NULL,NULL,?3,NULL,?4,?5,NULL,NULL,NULL,NULL,?6,'cancelado',?7,'servidor','pending')",
+            params![
+                now_ms, receber_local_uuid, cliente_id,
+                input.operador_id, input.terminal_id, status_atual, input.motivo,
+            ],
+        )?;
+        tx.commit()?;
+        Ok(CancelarReceberResult {
+            receber_local_uuid, idempotente: false, status: "cancelado".into(),
+        })
     })
 }
 
