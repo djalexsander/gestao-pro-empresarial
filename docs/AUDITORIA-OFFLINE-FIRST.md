@@ -388,3 +388,30 @@ alfabético:
   protegida via `unchecked_transaction()` + saldo materializado em
   `estoque_saldos_local`.
 - `cloudAdapter` permanece intacto e ainda atende os caminhos não-PDV.
+
+## Etapa 5 — continuação (resiliência do estoque local)
+
+Schema local v18. Aditivo, sem mudança de regra de negócio.
+
+- **Tabela `estoque_audit_local`**: trilha forense gravada na MESMA
+  transação SQLite que `estoque_movimentacoes_local` + `outbox_estoque_movs`.
+  Se a transação falhar, nada fica gravado — inclusive a auditoria. Não é
+  enviada para a nuvem.
+- **`db::rebuild_local_stock()`**: recalcula `estoque_saldos_local` a partir
+  do histórico (SUM com sinal por tipo). Truncate + reinsert atômicos.
+  Endpoint: `POST /api/estoque/rebuild`.
+- **`db::verify_local_stock_health()`**: diagnóstico read-only — saldos
+  negativos, movimentações órfãs, duplicidades, status da outbox.
+  Endpoint: `GET /api/estoque/saude`. Retorna `status: ok | warning | error`.
+- **UI**: `OfflineHealthCard` em Configurações → Desktop. Polling a cada 30s.
+  Botões "Verificar" e "Recalcular saldos".
+- **Logs DEV**: `[LOCAL_STOCK] rebuild ...` e `[LOCAL_STOCK] saude ...`.
+
+Concorrência LAN: os writes de estoque já rodam sob `WAL` + transação
+SQLite atômica (SQLite serializa writers no mesmo arquivo). Saldo negativo
+é bloqueado dentro da transação (`saldo_insuficiente`), antes do commit —
+dois caixas vendendo o mesmo último item recebem erro determinístico no
+segundo, sem race window.
+
+Próximos passos sugeridos: stream SSE `/api/eventos/estoque` para refletir
+mudanças em tempo real entre terminais sem polling.
