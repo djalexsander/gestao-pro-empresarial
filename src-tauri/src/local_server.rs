@@ -5163,7 +5163,14 @@ async fn compra_excluir_handler(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((StatusCode::NOT_FOUND, "compra não encontrada".to_string()))?;
     let r = db::compra_excluir_local(&lid)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_PURCHASE] excluir falha local={lid} err={e}");
+            (StatusCode::BAD_REQUEST, e.to_string())
+        })?;
+    eprintln!(
+        "[LOCAL_PURCHASE] excluir ok local={} idempotente={}",
+        r.compra_local_uuid, r.idempotente
+    );
     let mut outbox_status = if r.idempotente { "skipped".to_string() } else { "pending".to_string() };
     if !r.idempotente && ctx.upstream.is_some() {
         if let Ok(items) = db::outbox_compras_list(50, Some("pending")) {
