@@ -511,7 +511,7 @@ export function TerminaisTab() {
               Backup automático do banco local e fila de envio para a nuvem.
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <SincronizacaoCard cfg={localCfg} />
             <BackupSeguranca cfg={localCfg} />
           </CardContent>
