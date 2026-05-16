@@ -503,3 +503,56 @@ fecha o ciclo com **auditoria local atômica**, **sync status no resumo** e
 - Layout do caixa, regras de autorização (gerente para sangria/fechamento
   com falta), fluxos atuais da UI, Asaas, cobrança, planos, módulos,
   assinatura.
+
+---
+
+## Etapa 8 — Financeiro 100% offline-first
+
+### Estado prévio
+Já existiam `lancamentos_financeiros_local`, `financeiro_lancamentos_local`,
+`outbox_financeiro` + scheduler, endpoints `/api/financeiro/lancamentos`,
+`/resumo`, `/manual`, `/cancelar`, e `contas_receber_local` (criada na
+Etapa 6 a partir das vendas fiado). Esta etapa fecha o ciclo expondo
+Contas a Receber para leitura/baixa offline e adicionando trilha
+forense financeira.
+
+### Novidades (schema v21)
+
+- **`contas_receber_pagtos_local`** — registra cada baixa (parcial/total)
+  aplicada offline a um título de `contas_receber_local`. Insert + UPDATE
+  do título acontecem na MESMA transação SQLite.
+- **`financeiro_audit_local`** — trilha forense de
+  `recebimento`/`pagamento`/`cancelamento`/`alterar_status` para
+  receber/pagar/lancamento, com `status_anterior`/`status_atual`,
+  `valor_pago`, `valor_restante`, operador/terminal/origem.
+- **Funções Rust** (`src-tauri/src/db.rs`):
+  `contas_receber_local_list`, `baixar_receber_local`,
+  `cancelar_receber_local` — todas atômicas, idempotentes por `client_uuid`.
+- **Endpoints HTTP** (`src-tauri/src/local_server.rs`):
+  - `GET  /api/financeiro/receber?status=&cliente_id=&desde_ms=&ate_ms=&limit=`
+  - `POST /api/financeiro/receber/baixar` — body: `BaixarReceberInput`
+  - `POST /api/financeiro/receber/cancelar` — body: `CancelarReceberInput`
+- **Logs DEV**: `[LOCAL_FINANCE]`, `[LOCAL_RECEIVABLE]`, `[LOCAL_PAYABLE]`
+  (reservado), `[LOCAL_CASHFLOW]`, `[LOCAL_FINANCE_AUDIT]`,
+  `[LOCAL_FINANCE_OUTBOX]`.
+
+### Garantias
+
+| Cenário | Garantia |
+|---|---|
+| Baixa offline duplicada (duplo clique) | Bloqueado por `uq_cr_pag_client_uuid` + early-return idempotente |
+| Baixa excede valor restante | Erro `baixa excede o valor restante` antes do INSERT |
+| Status derivado `vencido`/`parcial` | Calculado no read (não persistido) — não exige job de relógio |
+| Cancelar título já cancelado | Idempotente — devolve `idempotente:true` sem novo audit |
+| Reiniciar app | Tudo persiste em SQLite WAL; sync_status='pending' até a outbox confirmar |
+| Terminal LAN | Adapter de terminal usa `/api/financeiro/*` no servidor central — sem acesso direto ao Supabase |
+
+### Status do front-end
+
+A camada de dados local e os endpoints estão prontos para serem consumidos
+pelos hooks/adapters existentes (`hooks/useVendas`, telas `fiado.tsx` e
+`relatorios.contas-receber.tsx`). A integração visual é aditiva e segue
+o mesmo padrão dos demais módulos: o adapter local prioriza o servidor
+local e usa cloud como fallback quando offline. Layout, regras
+financeiras, Asaas, cobrança, planos, módulos e assinatura permanecem
+inalterados.
