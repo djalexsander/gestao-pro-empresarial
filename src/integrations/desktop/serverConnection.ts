@@ -2271,3 +2271,74 @@ export async function retryOutboxComprasErrors(
     return json.requeued ?? 0;
   } catch { return 0; }
 }
+
+// ============================================================================
+// Etapa 5 (continuação) — Saúde e rebuild do estoque local
+// ============================================================================
+
+export interface StockHealthReport {
+  now_ms: number;
+  total_saldos: number;
+  total_movimentacoes: number;
+  saldos_negativos: number;
+  movimentacoes_orfas: number;
+  saldos_orfaos: number;
+  movimentacoes_duplicadas: number;
+  outbox_pendentes: number;
+  outbox_erros: number;
+  auditoria_total: number;
+  last_audit_ms: number | null;
+  status: "ok" | "warning" | "error";
+}
+
+export interface RebuildStockResult {
+  produtos_recalculados: number;
+  saldos_corrigidos: number;
+  now_ms: number;
+}
+
+export async function verificarSaudeEstoque(
+  cfg?: TerminalConexaoConfig,
+): Promise<StockHealthReport | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(`${baseUrl}/api/estoque/saude`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    return (await res.json()) as StockHealthReport;
+  } catch {
+    clearTimeout(timer);
+    return null;
+  }
+}
+
+export async function rebuildEstoqueLocal(
+  cfg?: TerminalConexaoConfig,
+): Promise<RebuildStockResult | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30_000);
+  try {
+    const res = await fetch(`${baseUrl}/api/estoque/rebuild`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    return (await res.json()) as RebuildStockResult;
+  } catch {
+    clearTimeout(timer);
+    return null;
+  }
+}
