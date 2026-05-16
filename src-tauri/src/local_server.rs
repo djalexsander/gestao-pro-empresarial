@@ -2588,6 +2588,12 @@ async fn registrar_caixa_fechar_handler(
     );
     eprintln!("[LOCAL_CASH_AUDIT] fechamento mov={}", result.local_uuid);
 
+    // Etapa 10 — backup automático após fechar caixa (debounced 24h dentro
+    // de maybe_auto_backup, então não vira tempestade de arquivos).
+    if !result.idempotente {
+        backup::trigger_event_backup("caixa_fechar");
+    }
+
     let mut outbox_status = "pending".to_string();
     let mut remote_id: Option<String> = None;
     if !result.idempotente && ctx.upstream.is_some() {
@@ -3527,6 +3533,8 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/backup/log", get(backup_log_handler))
         .route("/backup/create", post(backup_create_handler))
         .route("/backup/export", post(backup_export_handler))
+        .route("/backup/validate", post(backup_validate_handler))
+        .route("/backup/delete", post(backup_delete_handler))
         .route("/backup/restore/schedule", post(backup_restore_schedule_handler))
         .route("/backup/restore/cancel", post(backup_restore_cancel_handler))
         .with_state(ctx)
@@ -4266,12 +4274,14 @@ async fn backup_export_handler(
 #[derive(Deserialize)]
 struct BackupRestoreRequest {
     source_path: String,
+    #[serde(default)]
+    force_other_tenant: Option<bool>,
 }
 
 async fn backup_restore_schedule_handler(
     Json(req): Json<BackupRestoreRequest>,
 ) -> Result<Json<backup::BackupEntry>, (StatusCode, String)> {
-    backup::schedule_restore(&req.source_path)
+    backup::schedule_restore(&req.source_path, req.force_other_tenant.unwrap_or(false))
         .map(Json)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.0))
 }
@@ -4280,6 +4290,32 @@ async fn backup_restore_cancel_handler() -> Result<Json<serde_json::Value>, (Sta
     let cancelled = backup::cancel_restore()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))?;
     Ok(Json(serde_json::json!({ "cancelled": cancelled })))
+}
+
+#[derive(Deserialize)]
+struct BackupValidateRequest {
+    source_path: String,
+}
+
+async fn backup_validate_handler(
+    Json(req): Json<BackupValidateRequest>,
+) -> Result<Json<backup::BackupValidationReport>, (StatusCode, String)> {
+    backup::validate_backup(&req.source_path)
+        .map(Json)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.0))
+}
+
+#[derive(Deserialize)]
+struct BackupDeleteRequest {
+    path: String,
+}
+
+async fn backup_delete_handler(
+    Json(req): Json<BackupDeleteRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let ok = backup::delete_backup(&req.path)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.0))?;
+    Ok(Json(serde_json::json!({ "deleted": ok })))
 }
 
 // ============================================================================

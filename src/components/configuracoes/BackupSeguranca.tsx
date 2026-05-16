@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  CheckCircle2,
   Copy,
   Database,
   DownloadCloud,
@@ -10,6 +11,7 @@ import {
   RotateCw,
   ShieldAlert,
   ShieldCheck,
+  Trash2,
   UploadCloud,
   XCircle,
 } from "lucide-react";
@@ -29,13 +31,16 @@ import {
   agendarRestauracao,
   cancelarRestauracao,
   criarBackupAgora,
+  excluirBackup,
   exportarBackup,
   fetchBackupList,
   fetchBackupLog,
   fetchBackupStatus,
+  validarBackup,
   type BackupFileItem,
   type BackupLogEntry,
   type BackupStatusPayload,
+  type BackupValidationReport,
 } from "@/integrations/desktop/serverConnection";
 import type { TerminalConexaoConfig } from "@/integrations/desktop/types";
 
@@ -123,14 +128,88 @@ export function BackupSeguranca({ cfg }: Props) {
       defaultPath: status?.backups_dir ?? undefined,
     });
     if (!path) return;
+
+    // Etapa 10 — sempre validar antes de agendar.
+    setBusy("Validação");
+    setError(null);
+    setInfo(null);
+    let report: BackupValidationReport | null = null;
+    try {
+      report = await validarBackup(cfg, path);
+    } finally {
+      setBusy(null);
+    }
+    if (!report) { setError("Falha ao validar backup."); return; }
+    if (!report.valid) {
+      setError(`Backup inválido: ${report.errors.join("; ")}`);
+      return;
+    }
+
+    let force = false;
+    if (report.tenant_match === false) {
+      const ok = confirm(
+        `ATENÇÃO: o backup pertence à empresa ${report.empresa_id ?? "?"}, ` +
+        `mas a instância atual é ${report.current_empresa_id ?? "?"}.\n\n` +
+        `Restaurar mesmo assim? Isso pode sobrescrever os dados desta empresa.`,
+      );
+      if (!ok) return;
+      force = true;
+    }
+
+    const warnLine = report.warnings.length
+      ? `\nAvisos:\n- ${report.warnings.join("\n- ")}\n`
+      : "";
     if (!confirm(
-      `Restaurar a partir de:\n${path}\n\nIsso substituirá o banco atual. Um pre-backup automático será criado e o app precisará ser reiniciado. Deseja continuar?`,
+      `Restaurar a partir de:\n${path}\n` +
+      `schema=${report.schema_version ?? "?"} | empresa=${report.empresa_id ?? "?"} | sha256=${report.sha256.slice(0, 12)}…\n` +
+      warnLine +
+      `\nIsso substituirá o banco atual. Um pre-backup automático será criado e o app precisará ser reiniciado. Deseja continuar?`,
     )) return;
-    await run("Restauração agendada", () => agendarRestauracao(cfg, path));
+
+    await run(
+      "Restauração agendada",
+      () => agendarRestauracao(cfg, path, { forceOtherTenant: force }),
+    );
   };
 
   const handleCancelRestore = async () => {
     await run("Restauração cancelada", () => cancelarRestauracao(cfg));
+  };
+
+  const handleValidate = async (path: string) => {
+    setBusy("Validação");
+    setError(null);
+    setInfo(null);
+    try {
+      const r = await validarBackup(cfg, path);
+      if (!r) { setError("Falha ao validar."); return; }
+      const linhas = [
+        `valid=${r.valid}`,
+        `schema=${r.schema_version ?? "?"}`,
+        `empresa=${r.empresa_id ?? "?"}`,
+        `tenant_match=${r.tenant_match ?? "?"}`,
+        `sha256=${r.sha256.slice(0, 16)}…`,
+        `sha256_match=${r.sha256_match ?? "?"}`,
+        ...(r.errors.length ? [`erros: ${r.errors.join("; ")}`] : []),
+        ...(r.warnings.length ? [`avisos: ${r.warnings.join("; ")}`] : []),
+      ];
+      if (r.valid) toast.success("Backup válido", { description: linhas.join(" | ") });
+      else toast.error("Backup inválido", { description: linhas.join(" | ") });
+      setInfo(linhas.join(" | "));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleDelete = async (file: BackupFileItem) => {
+    if (file.kind === "manual") {
+      if (!confirm(
+        `Excluir backup MANUAL "${file.name}"?\n\nManuais não são apagados automaticamente — esta ação é definitiva.`,
+      )) return;
+    } else if (!confirm(`Excluir backup "${file.name}"?`)) {
+      return;
+    }
+    await run("Exclusão", () => excluirBackup(cfg, file.path));
   };
 
   const handleExport = async () => {
@@ -305,7 +384,9 @@ export function BackupSeguranca({ cfg }: Props) {
               Backups armazenados
             </div>
             <Badge variant="secondary">
-              retenção auto: {status?.auto_retention ?? 14}
+              retenção auto: {status?.auto_retention_daily ?? status?.auto_retention ?? 7}d
+              {" + "}
+              {status?.auto_retention_weekly ?? 4}w
             </Badge>
           </div>
           {files.length === 0 ? (
@@ -334,7 +415,19 @@ export function BackupSeguranca({ cfg }: Props) {
                     return (
                       <tr key={f.path} className="border-t border-border">
                         <td className="px-3 py-2 font-mono text-[11px]">
-                          {f.name}
+                          <div>{f.name}</div>
+                          {(f.has_metadata || f.empresa_id || f.app_version) && (
+                            <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
+                              {f.has_metadata && (
+                                <span className="inline-flex items-center gap-0.5">
+                                  <CheckCircle2 className="h-2.5 w-2.5" /> meta
+                                </span>
+                              )}
+                              {f.empresa_id && <span>emp: {f.empresa_id.slice(0, 8)}…</span>}
+                              {f.app_version && <span>v{f.app_version}</span>}
+                              {f.hostname && <span>@{f.hostname}</span>}
+                            </div>
+                          )}
                         </td>
                         <td className="px-3 py-2">
                           <Badge variant={variant}>{f.kind}</Badge>
@@ -345,6 +438,15 @@ export function BackupSeguranca({ cfg }: Props) {
                         </td>
                         <td className="px-3 py-2 text-right">
                           <div className="flex justify-end gap-1">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleValidate(f.path)}
+                              disabled={!!busy}
+                              title="Validar integridade (checksum + schema + tenant)"
+                            >
+                              <ShieldCheck className="h-3 w-3" />
+                            </Button>
                             <Button
                               size="sm"
                               variant={isExportSrc ? "default" : "outline"}
@@ -360,6 +462,15 @@ export function BackupSeguranca({ cfg }: Props) {
                               title="Abrir pasta deste backup"
                             >
                               <FolderOpen className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleDelete(f)}
+                              disabled={!!busy}
+                              title="Excluir backup"
+                            >
+                              <Trash2 className="h-3 w-3" />
                             </Button>
                           </div>
                         </td>
@@ -481,10 +592,12 @@ export function BackupSeguranca({ cfg }: Props) {
         </div>
 
         <p className="text-[11px] text-muted-foreground">
-          Backup automático: 1× por dia, com retenção dos últimos{" "}
-          {status?.auto_retention ?? 14}. Endpoints:{" "}
-          <code>/backup/status</code>, <code>/backup/list</code>,{" "}
+          Backup automático: 1× por dia (e após fechar caixa), retendo{" "}
+          {status?.auto_retention_daily ?? 7} diários +{" "}
+          {status?.auto_retention_weekly ?? 4} semanais. Manuais não são apagados.
+          Endpoints: <code>/backup/status</code>, <code>/backup/list</code>,{" "}
           <code>/backup/log</code>, <code>/backup/create</code>,{" "}
+          <code>/backup/validate</code>, <code>/backup/delete</code>,{" "}
           <code>/backup/export</code>, <code>/backup/restore/schedule</code>.
         </p>
       </CardContent>
