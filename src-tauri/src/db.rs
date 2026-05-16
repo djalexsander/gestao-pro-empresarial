@@ -11368,3 +11368,106 @@ pub fn verify_local_stock_health(now_ms: i64) -> DbResult<StockHealthReport> {
         })
     })
 }
+
+// ============================================================================
+// ETAPA 11 — Visão agregada de sincronização (todas as outboxes)
+// ============================================================================
+//
+// Junta as 8 filas em uma única consulta para o painel "Sincronização" do FE,
+// mapeando o vocabulário interno (`pending|sending|sent|error`) para o
+// padrão da etapa 11 (`pending|processing|synced|error|conflict|skipped`).
+// `conflict` e `skipped` ficam reservados (=0) até o pipeline de
+// reconciliação marcar registros divergentes.
+
+#[derive(Debug, Default, serde::Serialize, Clone)]
+pub struct SyncDomainStats {
+    pub domain: String,
+    pub pending: i64,
+    pub processing: i64,
+    pub synced: i64,
+    pub error: i64,
+    pub conflict: i64,
+    pub skipped: i64,
+    pub last_error: Option<String>,
+    pub last_sent_at_ms: Option<i64>,
+}
+
+#[derive(Debug, Default, serde::Serialize, Clone)]
+pub struct SyncOverview {
+    pub now_ms: i64,
+    pub pending: i64,
+    pub processing: i64,
+    pub synced: i64,
+    pub error: i64,
+    pub conflict: i64,
+    pub skipped: i64,
+    pub last_sent_at_ms: Option<i64>,
+    pub domains: Vec<SyncDomainStats>,
+}
+
+const SYNC_DOMAINS: &[(&str, &str)] = &[
+    ("estoque",        "outbox_estoque_movs"),
+    ("vendas",         "outbox_vendas"),
+    ("cancelamentos",  "outbox_cancelamentos_venda"),
+    ("caixa",          "outbox_caixa"),
+    ("financeiro",     "outbox_financeiro"),
+    ("clientes",       "outbox_clientes"),
+    ("fornecedores",   "outbox_fornecedores"),
+    ("compras",        "outbox_compras"),
+];
+
+pub fn sync_overview() -> DbResult<SyncOverview> {
+    with_conn(|conn| {
+        let mut ov = SyncOverview {
+            now_ms: chrono::Utc::now().timestamp_millis(),
+            ..Default::default()
+        };
+        for (name, table) in SYNC_DOMAINS {
+            let mut d = SyncDomainStats { domain: (*name).to_string(), ..Default::default() };
+            let sql = format!("SELECT status, COUNT(*) FROM {table} GROUP BY status");
+            if let Ok(mut stmt) = conn.prepare(&sql) {
+                let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)));
+                if let Ok(rows) = rows {
+                    for r in rows.flatten() {
+                        let (st, n) = r;
+                        match st.as_str() {
+                            "pending"    => d.pending    += n,
+                            "sending" | "processing" => d.processing += n,
+                            "sent"    | "synced"     => d.synced     += n,
+                            "error"      => d.error      += n,
+                            "conflict"   => d.conflict   += n,
+                            "skipped"    => d.skipped    += n,
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            // last_error
+            let sql = format!(
+                "SELECT last_error FROM {table}
+                  WHERE status='error' AND last_error IS NOT NULL
+                  ORDER BY COALESCE(updated_at_ms, created_at_ms) DESC LIMIT 1"
+            );
+            d.last_error = conn.query_row(&sql, [], |r| r.get::<_, Option<String>>(0))
+                .optional().unwrap_or(None).flatten();
+            // last_sent_at_ms
+            let sql = format!(
+                "SELECT MAX(sent_at_ms) FROM {table} WHERE status IN ('sent','synced')"
+            );
+            d.last_sent_at_ms = conn.query_row(&sql, [], |r| r.get::<_, Option<i64>>(0))
+                .optional().unwrap_or(None).flatten();
+
+            ov.pending    += d.pending;
+            ov.processing += d.processing;
+            ov.synced     += d.synced;
+            ov.error      += d.error;
+            ov.conflict   += d.conflict;
+            ov.skipped    += d.skipped;
+            if let Some(t) = d.last_sent_at_ms {
+                ov.last_sent_at_ms = Some(ov.last_sent_at_ms.map(|x| x.max(t)).unwrap_or(t));
+            }
+            ov.domains.push(d);
+        }
+        Ok(ov)
+    })
+}
