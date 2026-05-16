@@ -2578,7 +2578,15 @@ async fn registrar_caixa_fechar_handler(
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("payload inválido: {e}")))?;
 
     let result = db::fechar_caixa_local(input, now)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_CASH_CLOSE] falha: {e}");
+            (StatusCode::BAD_REQUEST, e.to_string())
+        })?;
+    eprintln!(
+        "[LOCAL_CASH_CLOSE] fechamento={} valor_informado={} idempotente={}",
+        result.local_uuid, result.valor_informado, result.idempotente
+    );
+    eprintln!("[LOCAL_CASH_AUDIT] fechamento mov={}", result.local_uuid);
 
     let mut outbox_status = "pending".to_string();
     let mut remote_id: Option<String> = None;
@@ -2586,6 +2594,9 @@ async fn registrar_caixa_fechar_handler(
         if let Ok(rid) = push_one_outbox_caixa(&ctx, &headers, &result.local_uuid).await {
             outbox_status = "sent".into();
             remote_id = Some(rid);
+            eprintln!("[LOCAL_CASH_OUTBOX] fechar sent fechamento={}", result.local_uuid);
+        } else {
+            eprintln!("[LOCAL_CASH_OUTBOX] fechar pending fechamento={}", result.local_uuid);
         }
     } else if result.idempotente {
         if let Ok(Some(it)) = db::outbox_caixa_get(&result.local_uuid) {
