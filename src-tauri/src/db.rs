@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i64 = 18;
+const SCHEMA_VERSION: i64 = 19;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -1163,6 +1163,71 @@ pub fn init() -> DbResult<()> {
             ON estoque_audit_local(produto_id, ts_ms DESC);
         CREATE INDEX IF NOT EXISTS idx_audit_estoque_local_uuid
             ON estoque_audit_local(local_uuid);
+
+        -- ====================================================================
+        -- v19 (Etapa 6): trilhas locais para PDV.
+        --
+        --  * `vendas_audit_local`     — auditoria forense de cada venda/
+        --                                cancelamento, gravada na MESMA
+        --                                transação SQLite de registrar/cancelar.
+        --  * `contas_receber_local`   — título local gerado quando a venda
+        --                                tem forma de pagamento fiado/clientes
+        --                                a receber. Espelha o que o cloud
+        --                                cria após o sync; permite consulta
+        --                                offline e auditoria.
+        --
+        -- Nenhuma das duas é enviada direto à nuvem — `outbox_vendas` já
+        -- carrega tudo. Estas tabelas são leitura local + forense.
+        -- ====================================================================
+        CREATE TABLE IF NOT EXISTS vendas_audit_local (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts_ms           INTEGER NOT NULL,
+            evento          TEXT NOT NULL,   -- 'criada' | 'cancelada'
+            venda_local_uuid TEXT NOT NULL,
+            client_uuid     TEXT,
+            cliente_id      TEXT,
+            operador_id     TEXT,
+            terminal_id     TEXT,
+            forma_pagamento TEXT,
+            qtd_itens       INTEGER NOT NULL DEFAULT 0,
+            total           REAL NOT NULL DEFAULT 0,
+            motivo          TEXT,
+            origem          TEXT,           -- 'servidor' | 'terminal'
+            sync_status     TEXT NOT NULL DEFAULT 'pending'
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_vendas_ts
+            ON vendas_audit_local(ts_ms DESC);
+        CREATE INDEX IF NOT EXISTS idx_audit_vendas_local
+            ON vendas_audit_local(venda_local_uuid);
+        CREATE INDEX IF NOT EXISTS idx_audit_vendas_evento
+            ON vendas_audit_local(evento, ts_ms DESC);
+
+        CREATE TABLE IF NOT EXISTS contas_receber_local (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            local_uuid        TEXT NOT NULL UNIQUE,
+            venda_local_uuid  TEXT NOT NULL,
+            client_uuid       TEXT,
+            cliente_id        TEXT,
+            cliente_nome      TEXT,
+            cliente_cpf       TEXT,
+            cliente_telefone  TEXT,
+            forma_pagamento   TEXT,
+            valor             REAL NOT NULL,
+            valor_pago        REAL NOT NULL DEFAULT 0,
+            vencimento_ms     INTEGER,
+            status            TEXT NOT NULL DEFAULT 'aberto', -- aberto | pago | cancelado
+            observacao        TEXT,
+            origem            TEXT,
+            sync_status       TEXT NOT NULL DEFAULT 'pending',
+            created_at_ms     INTEGER NOT NULL,
+            updated_at_ms     INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_cr_local_status
+            ON contas_receber_local(status, vencimento_ms);
+        CREATE INDEX IF NOT EXISTS idx_cr_local_cliente
+            ON contas_receber_local(cliente_id);
+        CREATE INDEX IF NOT EXISTS idx_cr_local_venda
+            ON contas_receber_local(venda_local_uuid);
         "#,
     )?;
 
