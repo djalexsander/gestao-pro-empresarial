@@ -3538,6 +3538,9 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/backup/restore/schedule", post(backup_restore_schedule_handler))
         .route("/backup/restore/cancel", post(backup_restore_cancel_handler))
         .route("/api/sync/overview", get(sync_overview_handler))
+        .route("/api/local/sqlite-health", get(sqlite_health_handler))
+        .route("/api/local/diagnostic", get(local_diagnostic_handler))
+        .route("/api/local/port-check", get(local_port_check_handler))
         .with_state(ctx)
         .layer(cors)
 }
