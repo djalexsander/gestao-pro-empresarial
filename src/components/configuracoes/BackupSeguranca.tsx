@@ -128,14 +128,88 @@ export function BackupSeguranca({ cfg }: Props) {
       defaultPath: status?.backups_dir ?? undefined,
     });
     if (!path) return;
+
+    // Etapa 10 — sempre validar antes de agendar.
+    setBusy("Validação");
+    setError(null);
+    setInfo(null);
+    let report: BackupValidationReport | null = null;
+    try {
+      report = await validarBackup(cfg, path);
+    } finally {
+      setBusy(null);
+    }
+    if (!report) { setError("Falha ao validar backup."); return; }
+    if (!report.valid) {
+      setError(`Backup inválido: ${report.errors.join("; ")}`);
+      return;
+    }
+
+    let force = false;
+    if (report.tenant_match === false) {
+      const ok = confirm(
+        `ATENÇÃO: o backup pertence à empresa ${report.empresa_id ?? "?"}, ` +
+        `mas a instância atual é ${report.current_empresa_id ?? "?"}.\n\n` +
+        `Restaurar mesmo assim? Isso pode sobrescrever os dados desta empresa.`,
+      );
+      if (!ok) return;
+      force = true;
+    }
+
+    const warnLine = report.warnings.length
+      ? `\nAvisos:\n- ${report.warnings.join("\n- ")}\n`
+      : "";
     if (!confirm(
-      `Restaurar a partir de:\n${path}\n\nIsso substituirá o banco atual. Um pre-backup automático será criado e o app precisará ser reiniciado. Deseja continuar?`,
+      `Restaurar a partir de:\n${path}\n` +
+      `schema=${report.schema_version ?? "?"} | empresa=${report.empresa_id ?? "?"} | sha256=${report.sha256.slice(0, 12)}…\n` +
+      warnLine +
+      `\nIsso substituirá o banco atual. Um pre-backup automático será criado e o app precisará ser reiniciado. Deseja continuar?`,
     )) return;
-    await run("Restauração agendada", () => agendarRestauracao(cfg, path));
+
+    await run(
+      "Restauração agendada",
+      () => agendarRestauracao(cfg, path, { forceOtherTenant: force }),
+    );
   };
 
   const handleCancelRestore = async () => {
     await run("Restauração cancelada", () => cancelarRestauracao(cfg));
+  };
+
+  const handleValidate = async (path: string) => {
+    setBusy("Validação");
+    setError(null);
+    setInfo(null);
+    try {
+      const r = await validarBackup(cfg, path);
+      if (!r) { setError("Falha ao validar."); return; }
+      const linhas = [
+        `valid=${r.valid}`,
+        `schema=${r.schema_version ?? "?"}`,
+        `empresa=${r.empresa_id ?? "?"}`,
+        `tenant_match=${r.tenant_match ?? "?"}`,
+        `sha256=${r.sha256.slice(0, 16)}…`,
+        `sha256_match=${r.sha256_match ?? "?"}`,
+        ...(r.errors.length ? [`erros: ${r.errors.join("; ")}`] : []),
+        ...(r.warnings.length ? [`avisos: ${r.warnings.join("; ")}`] : []),
+      ];
+      if (r.valid) toast.success("Backup válido", { description: linhas.join(" | ") });
+      else toast.error("Backup inválido", { description: linhas.join(" | ") });
+      setInfo(linhas.join(" | "));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleDelete = async (file: BackupFileItem) => {
+    if (file.kind === "manual") {
+      if (!confirm(
+        `Excluir backup MANUAL "${file.name}"?\n\nManuais não são apagados automaticamente — esta ação é definitiva.`,
+      )) return;
+    } else if (!confirm(`Excluir backup "${file.name}"?`)) {
+      return;
+    }
+    await run("Exclusão", () => excluirBackup(cfg, file.path));
   };
 
   const handleExport = async () => {
