@@ -4859,6 +4859,18 @@ pub fn abrir_caixa_local(
              ) VALUES (?1,?2,'abrir',?3,?4,'pending',0,NULL,NULL,?5,?5,NULL,NULL)",
             params![local_uuid, input.client_uuid, local_uuid, payload_json, now_ms],
         )?;
+        // v20 — auditoria local (mesma transação).
+        tx.execute(
+            "INSERT INTO caixa_audit_local(
+                ts_ms, evento, caixa_local_uuid, mov_local_uuid, client_uuid,
+                operador_id, terminal_id, valor, motivo, valor_informado,
+                diferenca, origem, sync_status
+             ) VALUES (?1,'abertura',?2,NULL,?3,?4,?5,?6,?7,NULL,NULL,'servidor','pending')",
+            params![
+                now_ms, local_uuid, input.client_uuid, input.operador_id,
+                input.terminal_id, input.valor_inicial, input.observacao,
+            ],
+        )?;
         tx.commit()?;
         Ok(LocalAbrirCaixaResult {
             local_uuid,
