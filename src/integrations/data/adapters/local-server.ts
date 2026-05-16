@@ -34,6 +34,7 @@ import type { DataAdapter } from "../adapter";
 import { cloudAdapter } from "./cloud";
 import { reportDataSource } from "../source-telemetry";
 import { getLocalServerStatus } from "@/integrations/desktop/tauriBridge";
+import { buildDashboardFromRaw } from "./offline-dashboard";
 
 const HTTP_TIMEOUT_MS = 4000;
 
@@ -150,13 +151,22 @@ async function withCloudFallback<T>(
   cloudFetcher: () => Promise<T>,
 ): Promise<T> {
   const local = await localFetcher();
-  if (local !== null && local !== undefined) return local;
-  // Servidor local indisponível ou falhou → último recurso é a nuvem.
-  // NÃO trava a UI: se a nuvem também estiver fora, propaga o erro pra
-  // camada superior (que já tem withTimeoutFallback).
+  if (local !== null && local !== undefined) {
+    if (import.meta.env.DEV && (domain === "relatorios" || domain === "dashboard")) {
+      const tag = domain === "dashboard" ? "[LOCAL_DASHBOARD]" : "[LOCAL_REPORTS]";
+      // eslint-disable-next-line no-console
+      console.debug(`${tag} ${domain}.${method} (origem=local-server)`);
+    }
+    return local;
+  }
   const result = await cloudFetcher();
   logSource(domain, method, "cloud-fallback");
   reportDataSource({ source: "cloud", domain, method, fallback: true });
+  if (import.meta.env.DEV && (domain === "relatorios" || domain === "dashboard")) {
+    const tag = domain === "dashboard" ? "[LOCAL_DASHBOARD]" : "[LOCAL_REPORTS]";
+    // eslint-disable-next-line no-console
+    console.debug(`${tag} ${domain}.${method} (origem=cloud-fallback)`);
+  }
   return result;
 }
 
@@ -561,6 +571,59 @@ export const localServerAdapter: DataAdapter = {
       reportDataSource({ source: "cloud", domain: "financeiro", method: "cancelarLancamento", fallback: true });
       return out;
     },
+  },
+
+  // ------------------------------------------------------------------
+  // ETAPA 13 — Dashboard offline-first no modo SERVIDOR.
+  // Mesma lógica do local-terminal, mas falando com 127.0.0.1 via
+  // `resolveBaseUrl`. Se algum endpoint local falhar, cai para a nuvem
+  // sem montar um KPI parcial.
+  // ------------------------------------------------------------------
+  dashboard: {
+    ...cloudAdapter.dashboard,
+    carregar: () =>
+      withCloudFallback(
+        "dashboard",
+        "carregar",
+        async () => {
+          const baseUrl = await resolveBaseUrl();
+          if (!baseUrl) return null;
+          const [vendas, compras, lancamentos, produtos, saldos] = await Promise.all([
+            tryLocal<Array<Record<string, unknown>>>(
+              "vendas_remote", "list", "/api/vendas/historico", { limit: "500" },
+            ),
+            tryLocal<Array<Record<string, unknown>>>(
+              "compras", "list", "/api/compras", { limit: "500" },
+            ),
+            tryLocal<Array<Record<string, unknown>>>(
+              "financeiro_lancamentos_completo",
+              "listLancamentosCompleto",
+              "/api/financeiro/lancamentos-completo",
+            ),
+            tryLocal<Array<Record<string, unknown>>>(
+              "produtos", "list", "/api/produtos/list", { status: "ativo" },
+            ),
+            tryLocal<Array<{ produto_id: string; tipo: string; quantidade: number | string }>>(
+              "estoque", "saldosLinhas", "/api/estoque/saldos",
+            ),
+          ]);
+          const dash = buildDashboardFromRaw({
+            vendas, compras, lancamentos, produtos, saldos,
+          });
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.debug("[LOCAL_DASHBOARD] server carregar", {
+              ok: dash != null,
+              vendasMes: dash?.vendasMes,
+              contasReceber: dash?.contasReceber,
+              contasPagar: dash?.contasPagar,
+              estoqueBaixo: dash?.estoqueBaixo,
+            });
+          }
+          return dash;
+        },
+        () => cloudAdapter.dashboard.carregar(),
+      ),
   },
 };
 
