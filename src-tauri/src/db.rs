@@ -3541,6 +3541,27 @@ pub fn registrar_movimento_local(
             params![local_uuid, input.client_uuid, payload_json, now_ms],
         )?;
 
+        // 4) Trilha de auditoria local (v18) — mesma transação.
+        // Se qualquer passo falhar, NADA acima fica gravado.
+        tx.execute(
+            "INSERT INTO estoque_audit_local(
+                ts_ms, local_uuid, produto_id, variacao_id, tipo,
+                quantidade, saldo_anterior, saldo_posterior, origem,
+                terminal_id, operador_id, sync_status
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,NULL,NULL,'pending')",
+            params![
+                now_ms,
+                local_uuid,
+                input.produto_id,
+                variacao_id,
+                tipo_norm,
+                input.quantidade,
+                saldo_anterior,
+                saldo_posterior,
+                input.origem,
+            ],
+        )?;
+
         tx.commit()?;
         Ok(LocalMovimentacaoResult {
             local_uuid,
