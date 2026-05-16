@@ -4807,7 +4807,14 @@ async fn fornecedor_excluir_handler(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((StatusCode::NOT_FOUND, "fornecedor não encontrado".to_string()))?;
     let r = db::fornecedor_excluir_local(&lid)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_SUPPLIER] excluir falha local={lid} err={e}");
+            (StatusCode::BAD_REQUEST, e.to_string())
+        })?;
+    eprintln!(
+        "[LOCAL_SUPPLIER] excluir ok local={} idempotente={}",
+        r.fornecedor_local_uuid, r.idempotente
+    );
     let mut outbox_status = "pending".to_string();
     if !r.idempotente && ctx.upstream.is_some() {
         if let Ok(items) = db::outbox_fornecedores_list(20, Some("pending")) {
