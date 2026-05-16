@@ -1206,6 +1206,8 @@ export const localTerminalAdapter: DataAdapter = {
       reportDataSource({ source: "cloud", domain: "financeiro", method: "registrarPagamento", fallback: true });
       return out;
     },
+
+    cancelarLancamento: async (input) => {
       const cfg = getDesktopConfig().terminal;
       if (getBaseUrl(cfg)) {
         const r = await cancelarReceberLocal(cfg, {
