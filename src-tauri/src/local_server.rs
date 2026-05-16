@@ -992,7 +992,47 @@ async fn estoque_saldos_handler(
     Ok((parts, saldos).into_response())
 }
 
-// ---------- /api/estoque/movimentacoes ----------
+// ---------- /api/estoque/rebuild ----------
+//
+// Recalcula `estoque_saldos_local` a partir das movimentações locais.
+// Operação defensiva — usar quando suspeitar de divergência entre saldo
+// materializado e histórico. Atômica (transação SQLite única).
+async fn estoque_rebuild_handler() -> Result<Json<db::RebuildStockResult>, (StatusCode, String)> {
+    let now = chrono::Utc::now().timestamp_millis();
+    println!("[LOCAL_STOCK] rebuild solicitado");
+    db::rebuild_local_stock(now)
+        .map(|r| {
+            println!(
+                "[LOCAL_STOCK] rebuild concluído: produtos={}, saldos={}",
+                r.produtos_recalculados, r.saldos_corrigidos
+            );
+            Json(r)
+        })
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+// ---------- /api/estoque/saude ----------
+//
+// Verificador de saúde local: saldos negativos, movimentações órfãs,
+// duplicidades, status da outbox. Apenas leitura.
+async fn estoque_saude_handler() -> Result<Json<db::StockHealthReport>, (StatusCode, String)> {
+    let now = chrono::Utc::now().timestamp_millis();
+    db::verify_local_stock_health(now)
+        .map(|r| {
+            println!(
+                "[LOCAL_STOCK] saude status={} saldos={} movs={} neg={} orfas={} dup={} outbox_err={}",
+                r.status,
+                r.total_saldos,
+                r.total_movimentacoes,
+                r.saldos_negativos,
+                r.movimentacoes_orfas,
+                r.movimentacoes_duplicadas,
+                r.outbox_erros
+            );
+            Json(r)
+        })
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
 //
 // Lista o histórico (com filtro opcional por produto/limit) lendo da
 // tabela local após disparar o mesmo sync incremental. Os filtros são
