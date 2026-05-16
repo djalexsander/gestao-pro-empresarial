@@ -5707,6 +5707,11 @@ pub struct CaixaResumoLocal {
     pub total_suprimentos: f64,
     pub total_sangrias: f64,
     pub por_forma: Vec<CaixaResumoFormaRow>,
+    /// Quantidade de itens da outbox de caixa ainda não confirmados na nuvem
+    /// (abertura/movimentos/fechamento) para este caixa. 0 = totalmente sincronizado.
+    pub sync_pending: i64,
+    /// Resumo textual do estado de sincronização: 'synced'|'pending'|'error'.
+    pub sync_status: String,
 }
 
 pub fn caixa_resumo_local(caixa_local_uuid: &str) -> DbResult<Option<CaixaResumoLocal>> {
