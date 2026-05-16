@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  CheckCircle2,
   Copy,
   Database,
   DownloadCloud,
@@ -10,6 +11,7 @@ import {
   RotateCw,
   ShieldAlert,
   ShieldCheck,
+  Trash2,
   UploadCloud,
   XCircle,
 } from "lucide-react";
