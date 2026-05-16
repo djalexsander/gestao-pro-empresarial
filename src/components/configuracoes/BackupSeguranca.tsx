@@ -592,10 +592,12 @@ export function BackupSeguranca({ cfg }: Props) {
         </div>
 
         <p className="text-[11px] text-muted-foreground">
-          Backup automático: 1× por dia, com retenção dos últimos{" "}
-          {status?.auto_retention ?? 14}. Endpoints:{" "}
-          <code>/backup/status</code>, <code>/backup/list</code>,{" "}
+          Backup automático: 1× por dia (e após fechar caixa), retendo{" "}
+          {status?.auto_retention_daily ?? 7} diários +{" "}
+          {status?.auto_retention_weekly ?? 4} semanais. Manuais não são apagados.
+          Endpoints: <code>/backup/status</code>, <code>/backup/list</code>,{" "}
           <code>/backup/log</code>, <code>/backup/create</code>,{" "}
+          <code>/backup/validate</code>, <code>/backup/delete</code>,{" "}
           <code>/backup/export</code>, <code>/backup/restore/schedule</code>.
         </p>
       </CardContent>
