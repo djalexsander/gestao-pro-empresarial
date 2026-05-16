@@ -5118,7 +5118,14 @@ async fn compra_alterar_status_handler(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((StatusCode::NOT_FOUND, "compra não encontrada".to_string()))?;
     let r = db::compra_alterar_status_local(&lid, &req.status)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_PURCHASE] alterar_status falha local={lid} status={} err={e}", req.status);
+            (StatusCode::BAD_REQUEST, e.to_string())
+        })?;
+    eprintln!(
+        "[LOCAL_PURCHASE] alterar_status ok local={} status={} idempotente={}",
+        r.compra_local_uuid, req.status, r.idempotente
+    );
     let mut outbox_status = "pending".to_string();
     if !r.idempotente && ctx.upstream.is_some() {
         if let Ok(items) = db::outbox_compras_list(50, Some("pending")) {
