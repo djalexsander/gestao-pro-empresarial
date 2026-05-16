@@ -415,3 +415,50 @@ segundo, sem race window.
 
 Próximos passos sugeridos: stream SSE `/api/eventos/estoque` para refletir
 mudanças em tempo real entre terminais sem polling.
+
+## Etapa 6 — Vendas e PDV 100% offline-first
+
+Schema local **v19**. Aditivo, sem alterar fluxo do PDV nem regras de negócio.
+
+### Já existia (intacto)
+- `vendas_local`, `venda_itens_local`, `venda_pagamentos_local`,
+  `outbox_vendas`, `outbox_cancelamentos_venda` — venda atômica em
+  **uma única transação SQLite** (cabeçalho + itens + pagamentos +
+  baixa de estoque via `apply_mov_to_saldo` + outbox).
+- Idempotência por `client_uuid` (cabeçalho + cancelamento).
+- Cancelamento atômico com **devolução de estoque** + regeneração de
+  lançamentos do caixa associado.
+- Vínculo automático com `caixa_local` aberto (match por operador,
+  fallback para o caixa aberto mais recente).
+- Endpoints HTTP `POST /api/vendas/registrar` e
+  `POST /api/vendas/cancelar` (terminais LAN).
+
+### Novidades nesta etapa
+- **`vendas_audit_local`**: trilha forense (`criada` / `cancelada`) gravada
+  na **MESMA transação** da venda/cancelamento — atomicidade total.
+- **`contas_receber_local`**: título local criado quando a forma de
+  pagamento é fiado/clientes a receber (detecção por substring:
+  `fiado`, `receber`, `credito_loja`). Suporta vencimento opcional
+  (`pagamentos[].vencimento_ms`). Cancelar a venda transiciona o título
+  para `cancelado` na mesma transação — nunca duplica estorno.
+- **`LocalVendaPagamentoInput.vencimento_ms`** opcional (backwards-compatível
+  via `serde(default)`); incluído no payload da outbox para a cloud.
+- **Logs DEV** nos handlers HTTP:
+  `[LOCAL_SALE]`, `[LOCAL_PDV]`, `[LOCAL_CANCEL]`, `[LOCAL_OUTBOX]`.
+
+### Garantias de consistência
+
+| Cenário | Garantia |
+|---|---|
+| Duplo clique em Finalizar | Bloqueado por `uq_outbox_vendas_client_uuid` + idempotência por `client_uuid` na função |
+| App reinicia após gravar | Venda persiste em `vendas_local` (WAL); outbox retoma push pelo scheduler |
+| Cancelamento duplicado | Bloqueado por `uq_outbox_canc_venda` (1 cancelamento por venda) + early-return idempotente quando `status='cancelada'` |
+| Crash durante venda | Transação SQLite rollback completo — nenhuma linha de itens/estoque/outbox/auditoria/fiado fica órfã |
+| Terminal LAN | `local-terminal.ts` POSTa em `/api/vendas/registrar` no servidor central; nenhum acesso direto ao Supabase |
+| Máquina única | `local-server.ts` grava direto no SQLite e enfileira na outbox para sync posterior |
+
+### Não alterado
+- Layout do PDV, modal de finalização, regras fiscais/financeiras,
+  Asaas, cobrança, planos, módulos, assinatura.
+- O ciclo de impressão/cupom continua usando `src/lib/cupom-print.ts`
+  e `src/lib/cupom.ts` — já operam com dados locais da venda.
