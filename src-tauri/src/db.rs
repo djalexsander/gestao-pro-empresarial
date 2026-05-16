@@ -4059,6 +4059,10 @@ pub struct LocalVendaPagamentoInput {
     pub parcelas: Option<i64>,
     #[serde(default)]
     pub observacao: Option<String>,
+    /// Vencimento opcional — usado para gerar `contas_receber_local`
+    /// quando a forma de pagamento é fiado/clientes a receber.
+    #[serde(default)]
+    pub vencimento_ms: Option<i64>,
 }
 
 fn default_true() -> bool { true }
