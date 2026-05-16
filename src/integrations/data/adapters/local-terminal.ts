@@ -192,6 +192,79 @@ async function tryLocalSearch<T>(
 }
 
 // ----------------------------------------------------------------------------
+// Mappers locais → domínio
+// ----------------------------------------------------------------------------
+
+function msToIsoDate(ms: number | null | undefined): string | null {
+  if (!ms || !Number.isFinite(ms)) return null;
+  try {
+    return new Date(ms).toISOString().slice(0, 10);
+  } catch {
+    return null;
+  }
+}
+
+function statusContaToFiadoDomain(status: string): string {
+  switch (status) {
+    case "pago":
+      return "recebido";
+    case "parcial":
+      return "parcial";
+    case "cancelado":
+      return "cancelado";
+    case "vencido":
+    case "aberto":
+    default:
+      return "pendente";
+  }
+}
+
+function mapContaReceberToFiadoDomain(
+  r: ContaReceberLocalRow,
+): import("../adapter").FiadoLancamentoDomain {
+  const dataEmissao = msToIsoDate(r.created_at_ms);
+  const dataVenc = msToIsoDate(r.vencimento_ms ?? r.created_at_ms) ?? dataEmissao ?? "";
+  const dataPag =
+    r.valor_pago > 0 || r.status === "pago" ? msToIsoDate(r.updated_at_ms) : null;
+  // Indicador discreto de sync — vai dentro de `observacoes` para não exigir
+  // mudança de layout. Telas que mostram observações já renderizam isso.
+  const obs =
+    r.sync_status && r.sync_status !== "synced"
+      ? `[sync:${r.sync_status}]`
+      : null;
+  return {
+    id: r.local_uuid,
+    descricao: `Venda fiado ${r.venda_local_uuid.slice(0, 8)}`,
+    valor: r.valor,
+    valor_pago: r.valor_pago,
+    data_vencimento: dataVenc,
+    data_emissao: dataEmissao,
+    data_pagamento: dataPag,
+    status: statusContaToFiadoDomain(r.status),
+    observacoes: obs,
+    cliente_id: r.cliente_id,
+    venda_id: r.venda_local_uuid,
+    forma_pagamento: r.forma_pagamento,
+    cliente: r.cliente_id
+      ? {
+          id: r.cliente_id,
+          nome: r.cliente_nome ?? "Cliente",
+          documento: r.cliente_cpf,
+          telefone: r.cliente_telefone,
+          celular: r.cliente_telefone,
+          email: null,
+        }
+      : null,
+    venda: {
+      id: r.venda_local_uuid,
+      numero: r.venda_local_uuid.slice(0, 8),
+      data_finalizacao: dataEmissao,
+      total: r.valor,
+    },
+  };
+}
+
+// ----------------------------------------------------------------------------
 // Adapter
 // ----------------------------------------------------------------------------
 
