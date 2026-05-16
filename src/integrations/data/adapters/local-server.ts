@@ -151,13 +151,22 @@ async function withCloudFallback<T>(
   cloudFetcher: () => Promise<T>,
 ): Promise<T> {
   const local = await localFetcher();
-  if (local !== null && local !== undefined) return local;
-  // Servidor local indisponível ou falhou → último recurso é a nuvem.
-  // NÃO trava a UI: se a nuvem também estiver fora, propaga o erro pra
-  // camada superior (que já tem withTimeoutFallback).
+  if (local !== null && local !== undefined) {
+    if (import.meta.env.DEV && (domain === "relatorios" || domain === "dashboard")) {
+      const tag = domain === "dashboard" ? "[LOCAL_DASHBOARD]" : "[LOCAL_REPORTS]";
+      // eslint-disable-next-line no-console
+      console.debug(`${tag} ${domain}.${method} (origem=local-server)`);
+    }
+    return local;
+  }
   const result = await cloudFetcher();
   logSource(domain, method, "cloud-fallback");
   reportDataSource({ source: "cloud", domain, method, fallback: true });
+  if (import.meta.env.DEV && (domain === "relatorios" || domain === "dashboard")) {
+    const tag = domain === "dashboard" ? "[LOCAL_DASHBOARD]" : "[LOCAL_REPORTS]";
+    // eslint-disable-next-line no-console
+    console.debug(`${tag} ${domain}.${method} (origem=cloud-fallback)`);
+  }
   return result;
 }
 
