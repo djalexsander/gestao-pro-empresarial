@@ -3618,6 +3618,17 @@ pub async fn start(
         .parse()
         .map_err(|e: std::net::AddrParseError| format!("Endereço inválido: {e}"))?;
 
+    // ETAPA 12 — Pré-check de porta. Evita loop infinito de tentativas e
+    // produz mensagem clara para a UI quando outra instância já está
+    // segurando a porta (servidor desktop duplicado, debugger, etc.).
+    if !is_port_available(port) {
+        let msg = format!(
+            "Porta {port} já está em uso. Feche o outro Gestão Pro ou escolha outra porta nas configurações."
+        );
+        eprintln!("[LOCAL_SERVER_PORT] {msg}");
+        return Err(msg);
+    }
+
     let ctx = AppCtx {
         upstream: upstream.clone(),
         http: reqwest::Client::builder()
