@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i64 = 17;
+const SCHEMA_VERSION: i64 = 18;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -1130,6 +1130,39 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_operadores_offline_login
             ON operadores_offline(login);
+
+        -- ====================================================================
+        -- v18 (Etapa 5 continuação): trilha de auditoria local de estoque.
+        --
+        -- Cada movimentação local (entrada/saída/ajuste/devolução) registra
+        -- aqui uma linha de auditoria DENTRO da mesma transação SQLite que
+        -- grava `estoque_movimentacoes_local` + `outbox_estoque_movs`. Se a
+        -- transação falhar, nada fica gravado — inclusive a auditoria.
+        --
+        -- Nunca é enviada para a nuvem; é apenas histórico forense local
+        -- (qual terminal/operador disparou, saldo antes/depois, origem).
+        -- ====================================================================
+        CREATE TABLE IF NOT EXISTS estoque_audit_local (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts_ms           INTEGER NOT NULL,
+            local_uuid      TEXT,
+            produto_id      TEXT NOT NULL,
+            variacao_id     TEXT,
+            tipo            TEXT NOT NULL,
+            quantidade      REAL NOT NULL,
+            saldo_anterior  REAL,
+            saldo_posterior REAL,
+            origem          TEXT,
+            terminal_id     TEXT,
+            operador_id     TEXT,
+            sync_status     TEXT NOT NULL DEFAULT 'pending'
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_estoque_ts
+            ON estoque_audit_local(ts_ms DESC);
+        CREATE INDEX IF NOT EXISTS idx_audit_estoque_produto
+            ON estoque_audit_local(produto_id, ts_ms DESC);
+        CREATE INDEX IF NOT EXISTS idx_audit_estoque_local_uuid
+            ON estoque_audit_local(local_uuid);
         "#,
     )?;
 
