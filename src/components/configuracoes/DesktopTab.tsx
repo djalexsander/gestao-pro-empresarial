@@ -509,6 +509,26 @@ export function DesktopTab() {
           />
         )}
 
+        {isServer && (
+          <SaudeServidorLocalCard
+            daemon={daemon}
+            startOptions={{
+              port: config.terminal?.porta ?? DEFAULT_LOCAL_PORT,
+              serverName:
+                config.serverNome ??
+                config.terminal?.terminalNome ??
+                "Servidor Gestão Pro",
+              serverId: config.serverId ?? null,
+              upstreamUrl:
+                (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? null,
+              upstreamAnonKey:
+                (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as
+                  | string
+                  | undefined) ?? null,
+            }}
+          />
+        )}
+
         {(isServer || isTerminal) && localCfg && (
           <OfflineReadinessCard cfg={localCfg} />
         )}
