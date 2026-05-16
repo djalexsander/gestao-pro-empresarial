@@ -269,8 +269,76 @@ function mapContaReceberToFiadoDomain(
 }
 
 // ----------------------------------------------------------------------------
-// Adapter
+// Etapa 9 — Contas a Pagar offline-first
 // ----------------------------------------------------------------------------
+
+function statusContaPagarToDomain(status: string): string {
+  switch (status) {
+    case "pago":
+      return "pago";
+    case "parcial":
+      return "parcial";
+    case "cancelado":
+      return "cancelado";
+    case "vencido":
+      return "vencido";
+    case "aberto":
+    default:
+      return "pendente";
+  }
+}
+
+function mapContaPagarToLancamentoCompleto(
+  r: ContaPagarLocalRow,
+): import("../adapter").LancamentoCompletoDomain {
+  const dataEmissao = msToIsoDate(r.data_emissao_ms ?? r.created_at_ms);
+  const dataVenc =
+    msToIsoDate(r.vencimento_ms ?? r.created_at_ms) ?? dataEmissao ?? "";
+  const dataPag =
+    r.valor_pago > 0 || r.status === "pago" ? msToIsoDate(r.updated_at_ms) : null;
+  const syncTag =
+    r.sync_status && r.sync_status !== "synced" ? `[sync:${r.sync_status}] ` : "";
+  return {
+    id: r.remote_id ?? r.local_uuid,
+    descricao: `${syncTag}${r.descricao ?? "Conta a pagar"}`,
+    valor: r.valor,
+    valor_pago: r.valor_pago,
+    data_vencimento: dataVenc,
+    data_pagamento: dataPag,
+    data_emissao: dataEmissao,
+    // Mantemos "despesa" para compatibilidade com filtros da tela /financeiro
+    // (que tratam despesa como sinônimo de "pagar").
+    tipo: "despesa" as unknown as "pagar",
+    status: statusContaPagarToDomain(r.status),
+    observacoes: r.observacao ?? null,
+    numero_documento: null,
+    forma_pagamento: r.forma_pagamento,
+    created_at: msToIsoDate(r.created_at_ms),
+    conciliado_em: null,
+    valor_repasse: null,
+    taxa_repasse: null,
+    numero_repasse: null,
+    observacao_repasse: null,
+    cliente_id: null,
+    venda_id: null,
+    compra_id: r.compra_remote_id ?? r.compra_local_uuid,
+    fornecedor_nome: r.fornecedor_nome,
+    fornecedor_documento: null,
+    fornecedor_telefone: null,
+    cliente_nome: null,
+    cliente_documento: null,
+    cliente_telefone: null,
+    cliente_email: null,
+    venda_numero: null,
+    venda_data: null,
+    venda_total: null,
+    compra_numero: null,
+    compra_data_emissao: null,
+    compra_total: null,
+    compra_status: null,
+    categoria_nome: null,
+  };
+}
 
 export const localTerminalAdapter: DataAdapter = {
   ...cloudAdapter,
