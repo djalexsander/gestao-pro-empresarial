@@ -539,6 +539,23 @@ export const localServerAdapter: DataAdapter = {
           // eslint-disable-next-line no-console
           console.debug("[LOCAL_RECEIVABLE_UI] cancelamento local falhou — fallback cloud");
         }
+        // Etapa 9 — fallthrough para títulos a pagar.
+        const rp = await postLocalJson<{
+          pagar_local_uuid: string;
+          idempotente: boolean;
+          status: string;
+        }>("/api/financeiro/pagar/cancelar", {
+          pagar_id: input.lancamento_id,
+          motivo: input.motivo ?? null,
+        });
+        if (rp) {
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.debug("[LOCAL_PAYABLE_UI] cancelamento servidor local ok", rp);
+          }
+          reportDataSource({ source: "local-server", domain: "financeiro", method: "cancelarLancamento", fallback: false });
+          return { lancamento_id: rp.pagar_local_uuid, idempotente: rp.idempotente };
+        }
       }
       const out = await cloudAdapter.financeiro.cancelarLancamento(input);
       reportDataSource({ source: "cloud", domain: "financeiro", method: "cancelarLancamento", fallback: true });
