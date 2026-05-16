@@ -31,13 +31,16 @@ import {
   agendarRestauracao,
   cancelarRestauracao,
   criarBackupAgora,
+  excluirBackup,
   exportarBackup,
   fetchBackupList,
   fetchBackupLog,
   fetchBackupStatus,
+  validarBackup,
   type BackupFileItem,
   type BackupLogEntry,
   type BackupStatusPayload,
+  type BackupValidationReport,
 } from "@/integrations/desktop/serverConnection";
 import type { TerminalConexaoConfig } from "@/integrations/desktop/types";
 
