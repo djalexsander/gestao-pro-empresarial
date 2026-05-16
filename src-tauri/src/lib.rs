@@ -119,6 +119,8 @@ pub fn run() {
             backup_export,
             backup_schedule_restore,
             backup_cancel_restore,
+            backup_validate,
+            backup_delete,
             list_printers,
             print_pdf_bytes,
         ])
