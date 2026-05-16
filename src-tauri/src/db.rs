@@ -5043,6 +5043,24 @@ pub fn registrar_mov_caixa_local(
             "UPDATE caixa_local SET updated_at_ms=?1 WHERE local_uuid=?2",
             params![now_ms, caixa_local_uuid],
         )?;
+        // v20 — auditoria local (mesma transação).
+        tx.execute(
+            "INSERT INTO caixa_audit_local(
+                ts_ms, evento, caixa_local_uuid, mov_local_uuid, client_uuid,
+                operador_id, terminal_id, valor, motivo, valor_informado,
+                diferenca, origem, sync_status
+             ) VALUES (?1,?2,?3,?4,?5,?6,NULL,?7,?8,NULL,NULL,'servidor','pending')",
+            params![
+                now_ms,
+                input.tipo,            // 'suprimento' ou 'sangria'
+                caixa_local_uuid,
+                local_uuid,
+                input.client_uuid,
+                input.operador_id,
+                input.valor,
+                input.motivo,
+            ],
+        )?;
         tx.commit()?;
         Ok(LocalMovimentoCaixaResult {
             local_uuid,
