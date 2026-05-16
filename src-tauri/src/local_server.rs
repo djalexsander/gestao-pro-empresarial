@@ -2449,7 +2449,15 @@ async fn registrar_caixa_abrir_handler(
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("payload inválido: {e}")))?;
 
     let result = db::abrir_caixa_local(input, now)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_CASH_OPEN] falha: {e}");
+            (StatusCode::BAD_REQUEST, e.to_string())
+        })?;
+    eprintln!(
+        "[LOCAL_CASH_OPEN] caixa_local={} idempotente={} valor_inicial={}",
+        result.local_uuid, result.idempotente, result.valor_inicial
+    );
+    eprintln!("[LOCAL_CASH_AUDIT] abertura caixa_local={}", result.local_uuid);
 
     let mut outbox_status = "pending".to_string();
     let mut remote_id: Option<String> = None;
@@ -2457,9 +2465,11 @@ async fn registrar_caixa_abrir_handler(
         if let Ok(rid) = push_one_outbox_caixa(&ctx, &headers, &result.local_uuid).await {
             outbox_status = "sent".into();
             remote_id = Some(rid);
+            eprintln!("[LOCAL_CASH_OUTBOX] abrir sent caixa_local={}", result.local_uuid);
+        } else {
+            eprintln!("[LOCAL_CASH_OUTBOX] abrir pending caixa_local={}", result.local_uuid);
         }
     } else if result.idempotente {
-        // Item idempotente já pode estar sent — devolve o que houver.
         if let Ok(Some(it)) = db::outbox_caixa_get(&result.local_uuid) {
             outbox_status = it.status.clone();
             remote_id = it.remote_id.clone();
