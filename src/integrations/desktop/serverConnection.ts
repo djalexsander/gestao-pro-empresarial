@@ -2724,3 +2724,68 @@ export async function rebuildEstoqueLocal(
     return null;
   }
 }
+
+// ============================================================================
+// Etapa 12 — Saúde do servidor local (SQLite) + diagnóstico exportável
+// ============================================================================
+
+export interface SqliteHealthRemote {
+  schema_version: number;
+  integrity_ok: boolean;
+  integrity_detail: string;
+  quick_ok: boolean;
+  quick_detail: string;
+  journal_mode: string;
+  page_size: number;
+  page_count: number;
+  db_size_bytes: number;
+  wal_size_bytes: number;
+  db_path: string;
+  checked_at_ms: number;
+}
+
+export async function fetchSqliteHealth(
+  cfg?: TerminalConexaoConfig,
+): Promise<SqliteHealthRemote | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const r = await fetch(`${baseUrl}/api/local/sqlite-health`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(t);
+    if (!r.ok) return null;
+    return (await r.json()) as SqliteHealthRemote;
+  } catch {
+    clearTimeout(t);
+    return null;
+  }
+}
+
+export async function fetchLocalDiagnostic(
+  cfg?: TerminalConexaoConfig,
+): Promise<Record<string, unknown> | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const r = await fetch(`${baseUrl}/api/local/diagnostic`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(t);
+    if (!r.ok) return null;
+    return (await r.json()) as Record<string, unknown>;
+  } catch {
+    clearTimeout(t);
+    return null;
+  }
+}
