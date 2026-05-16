@@ -64,6 +64,7 @@ import {
   type ContaPagarLocalRow,
   type ContaReceberLocalRow,
 } from "@/integrations/desktop/serverConnection";
+import { buildDashboardFromRaw } from "./offline-dashboard";
 import type {
   AbrirCaixaInput,
   FecharCaixaInput,
