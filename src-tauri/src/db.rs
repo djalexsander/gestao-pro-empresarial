@@ -6407,6 +6407,34 @@ pub fn cancelar_venda_local(
             ],
         )?;
 
+        // 5) Cancela quaisquer contas a receber locais geradas por esta venda.
+        //    Não duplica estorno: usa a chave estável (venda_local_uuid) e só
+        //    transiciona 'aberto' → 'cancelado'.
+        tx.execute(
+            "UPDATE contas_receber_local
+                SET status='cancelado', updated_at_ms=?1
+              WHERE venda_local_uuid=?2 AND status='aberto'",
+            params![now_ms, venda_uuid],
+        )?;
+
+        // 6) Auditoria local do cancelamento (v19).
+        tx.execute(
+            "INSERT INTO vendas_audit_local(
+                ts_ms, evento, venda_local_uuid, client_uuid, cliente_id,
+                operador_id, terminal_id, forma_pagamento, qtd_itens, total,
+                motivo, origem, sync_status
+             ) VALUES (?1,'cancelada',?2,?3,NULL,?4,NULL,NULL,?5,?6,?7,'cancelamento','pending')",
+            params![
+                now_ms,
+                venda_uuid,
+                input.client_uuid,
+                input.operador_id,
+                qtd_itens,
+                qtd_total,
+                input.motivo,
+            ],
+        )?;
+
         tx.commit()?;
         Ok((qtd_itens, qtd_total))
     })?;
