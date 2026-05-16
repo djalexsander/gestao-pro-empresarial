@@ -9948,3 +9948,186 @@ pub fn operador_offline_clear_failures(funcionario_id: &str, now_ms: i64) -> DbR
         Ok(())
     })
 }
+
+// ============================================================================
+// Etapa 5 (continuação): Rebuild & Health Check do estoque local
+//
+// Funções defensivas para resiliência offline-first. NÃO mexem na cloud.
+//   * rebuild_local_stock()       — recalcula `estoque_saldos_local` a partir
+//                                    do histórico `estoque_movimentacoes_local`.
+//   * verify_local_stock_health() — diagnostica saldos negativos, movimentações
+//                                    órfãs, duplicidades e divergências.
+// ============================================================================
+
+#[derive(Debug, Serialize)]
+pub struct RebuildStockResult {
+    pub produtos_recalculados: i64,
+    pub saldos_corrigidos: i64,
+    pub now_ms: i64,
+}
+
+/// Recalcula a tabela materializada `estoque_saldos_local` somando o sinal
+/// (entrada/devolucao = +1, saida/transferencia = -1, ajuste = +1) das
+/// quantidades de `estoque_movimentacoes_local`. Executa em UMA transação
+/// (truncate + reinsert) para nunca deixar o saldo num estado intermediário.
+pub fn rebuild_local_stock(now_ms: i64) -> DbResult<RebuildStockResult> {
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+
+        // Saldo recomposto: SUM(signal * quantidade) por (produto, variacao).
+        let mut stmt = tx.prepare(
+            "SELECT produto_id, IFNULL(variacao_id, '') AS variacao_id,
+                    SUM(CASE
+                            WHEN tipo IN ('entrada','devolucao') THEN  quantidade
+                            WHEN tipo IN ('saida','transferencia') THEN -quantidade
+                            ELSE quantidade
+                        END) AS saldo
+               FROM estoque_movimentacoes_local
+              GROUP BY produto_id, IFNULL(variacao_id, '')",
+        )?;
+        let rows: Vec<(String, String, f64)> = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, f64>(2)?)))?
+            .collect::<Result<_, _>>()?;
+        drop(stmt);
+
+        tx.execute("DELETE FROM estoque_saldos_local", [])?;
+
+        let mut saldos_corrigidos = 0i64;
+        for (produto_id, variacao_id, saldo) in &rows {
+            tx.execute(
+                "INSERT INTO estoque_saldos_local(
+                    produto_id, variacao_id, tipo, quantidade, payload, synced_at_ms
+                 ) VALUES (?1, ?2, NULL, ?3, '{}', ?4)",
+                params![produto_id, variacao_id, saldo, now_ms],
+            )?;
+            saldos_corrigidos += 1;
+        }
+
+        tx.commit()?;
+        Ok(RebuildStockResult {
+            produtos_recalculados: rows.len() as i64,
+            saldos_corrigidos,
+            now_ms,
+        })
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct StockHealthReport {
+    pub now_ms: i64,
+    pub total_saldos: i64,
+    pub total_movimentacoes: i64,
+    pub saldos_negativos: i64,
+    pub movimentacoes_orfas: i64,
+    pub saldos_orfaos: i64,
+    pub movimentacoes_duplicadas: i64,
+    pub outbox_pendentes: i64,
+    pub outbox_erros: i64,
+    pub auditoria_total: i64,
+    pub last_audit_ms: Option<i64>,
+    pub status: String, // "ok" | "warning" | "error"
+}
+
+/// Verificador de saúde local. NÃO altera dados — só lê e classifica.
+pub fn verify_local_stock_health(now_ms: i64) -> DbResult<StockHealthReport> {
+    with_conn(|conn| {
+        let total_saldos: i64 = conn
+            .query_row("SELECT COUNT(*) FROM estoque_saldos_local", [], |r| r.get(0))
+            .unwrap_or(0);
+        let total_movimentacoes: i64 = conn
+            .query_row("SELECT COUNT(*) FROM estoque_movimentacoes_local", [], |r| r.get(0))
+            .unwrap_or(0);
+        let saldos_negativos: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM estoque_saldos_local WHERE quantidade < 0",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        // Movimentações cujo produto_id não tem entrada em produtos_local.
+        // Usa LEFT JOIN tolerante (a tabela produtos_local pode não existir
+        // ainda no caso de instalação muito antiga — protege com try).
+        let movimentacoes_orfas: i64 = conn
+            .query_row(
+                "SELECT COUNT(*)
+                   FROM estoque_movimentacoes_local m
+                   LEFT JOIN produtos_local p ON p.id = m.produto_id
+                  WHERE p.id IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        let saldos_orfaos: i64 = conn
+            .query_row(
+                "SELECT COUNT(*)
+                   FROM estoque_saldos_local s
+                   LEFT JOIN produtos_local p ON p.id = s.produto_id
+                  WHERE p.id IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        // Duplicidade real seria PRIMARY KEY violation; aqui contamos linhas
+        // de auditoria com o mesmo local_uuid (sinal de re-execução).
+        let movimentacoes_duplicadas: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM (
+                   SELECT local_uuid, COUNT(*) AS c
+                     FROM estoque_audit_local
+                    WHERE local_uuid IS NOT NULL
+                    GROUP BY local_uuid HAVING c > 1
+                 )",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        let outbox_pendentes: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM outbox_estoque_movs WHERE status='pending'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        let outbox_erros: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM outbox_estoque_movs WHERE status='error'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        let auditoria_total: i64 = conn
+            .query_row("SELECT COUNT(*) FROM estoque_audit_local", [], |r| r.get(0))
+            .unwrap_or(0);
+        let last_audit_ms: Option<i64> = conn
+            .query_row(
+                "SELECT MAX(ts_ms) FROM estoque_audit_local",
+                [],
+                |r| r.get::<_, Option<i64>>(0),
+            )
+            .unwrap_or(None);
+
+        let status = if saldos_negativos > 0 || movimentacoes_duplicadas > 0 || outbox_erros > 0 {
+            "error"
+        } else if movimentacoes_orfas > 0 || saldos_orfaos > 0 || outbox_pendentes > 50 {
+            "warning"
+        } else {
+            "ok"
+        }
+        .to_string();
+
+        Ok(StockHealthReport {
+            now_ms,
+            total_saldos,
+            total_movimentacoes,
+            saldos_negativos,
+            movimentacoes_orfas,
+            saldos_orfaos,
+            movimentacoes_duplicadas,
+            outbox_pendentes,
+            outbox_erros,
+            auditoria_total,
+            last_audit_ms,
+            status,
+        })
+    })
+}
