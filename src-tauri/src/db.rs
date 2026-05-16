@@ -5812,6 +5812,18 @@ pub fn caixa_resumo_local(caixa_local_uuid: &str) -> DbResult<Option<CaixaResumo
             (d * 100.0).round() / 100.0
         });
 
+        // v20 — sync status (outbox de caixa para este caixa_local).
+        let (pend, err_cnt): (i64, i64) = conn.query_row(
+            "SELECT
+                COALESCE(SUM(CASE WHEN status IN ('pending','sending') THEN 1 ELSE 0 END),0),
+                COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END),0)
+               FROM outbox_caixa WHERE caixa_local_uuid=?1",
+            params![caixa_local_uuid],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        ).unwrap_or((0, 0));
+        let sync_status = if err_cnt > 0 { "error" }
+            else if pend > 0 { "pending" } else { "synced" }.to_string();
+
         Ok(Some(CaixaResumoLocal {
             caixa_local_uuid: clu,
             remote_id,
@@ -5829,6 +5841,8 @@ pub fn caixa_resumo_local(caixa_local_uuid: &str) -> DbResult<Option<CaixaResumo
             total_suprimentos: (total_sup * 100.0).round() / 100.0,
             total_sangrias: (total_san * 100.0).round() / 100.0,
             por_forma,
+            sync_pending: pend,
+            sync_status,
         }))
     })
 }
