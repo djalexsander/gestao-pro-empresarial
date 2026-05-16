@@ -63,13 +63,27 @@ fn backup_export(source_path: String, dest_path: String) -> Result<backup::Backu
 }
 
 #[tauri::command]
-fn backup_schedule_restore(source_path: String) -> Result<backup::BackupEntry, String> {
-    backup::schedule_restore(&source_path).map_err(|e| e.0)
+fn backup_schedule_restore(
+    source_path: String,
+    force_other_tenant: Option<bool>,
+) -> Result<backup::BackupEntry, String> {
+    backup::schedule_restore(&source_path, force_other_tenant.unwrap_or(false))
+        .map_err(|e| e.0)
 }
 
 #[tauri::command]
 fn backup_cancel_restore() -> Result<bool, String> {
     backup::cancel_restore().map_err(|e| e.0)
+}
+
+#[tauri::command]
+fn backup_validate(source_path: String) -> Result<backup::BackupValidationReport, String> {
+    backup::validate_backup(&source_path).map_err(|e| e.0)
+}
+
+#[tauri::command]
+fn backup_delete(path: String) -> Result<bool, String> {
+    backup::delete_backup(&path).map_err(|e| e.0)
 }
 
 // ---- Impressoras ----
