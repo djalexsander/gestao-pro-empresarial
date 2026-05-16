@@ -1258,6 +1258,67 @@ pub fn init() -> DbResult<()> {
             ON caixa_audit_local(caixa_local_uuid, ts_ms DESC);
         CREATE INDEX IF NOT EXISTS idx_audit_caixa_evento
             ON caixa_audit_local(evento, ts_ms DESC);
+
+        -- ====================================================================
+        -- v21 (Etapa 8): pagamentos de contas a receber + auditoria financeira.
+        --
+        -- `contas_receber_pagtos_local` registra cada baixa (parcial ou total)
+        -- aplicada offline a um título de `contas_receber_local`. Gravada na
+        -- MESMA transação do UPDATE do título → atomicidade.
+        --
+        -- `financeiro_audit_local` é a trilha forense de eventos financeiros
+        -- (recebimento, pagamento, cancelamento, alteração de status). Não vai
+        -- à nuvem — `outbox_financeiro` já carrega o lançamento avulso quando
+        -- ele existir; esta tabela é leitura local + auditoria forense.
+        -- ====================================================================
+        CREATE TABLE IF NOT EXISTS contas_receber_pagtos_local (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            local_uuid          TEXT NOT NULL UNIQUE,
+            client_uuid         TEXT,
+            receber_local_uuid  TEXT NOT NULL,
+            valor               REAL NOT NULL,
+            forma_pagamento     TEXT,
+            data_pagamento_ms   INTEGER NOT NULL,
+            observacao          TEXT,
+            operador_id         TEXT,
+            terminal_id         TEXT,
+            origem              TEXT,
+            sync_status         TEXT NOT NULL DEFAULT 'pending',
+            created_at_ms       INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_cr_pag_receber
+            ON contas_receber_pagtos_local(receber_local_uuid, data_pagamento_ms DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_cr_pag_client_uuid
+            ON contas_receber_pagtos_local(client_uuid) WHERE client_uuid IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS financeiro_audit_local (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts_ms             INTEGER NOT NULL,
+            evento            TEXT NOT NULL,   -- 'recebimento'|'pagamento'|'cancelamento'|'alterar_status'
+            entidade          TEXT NOT NULL,   -- 'receber'|'pagar'|'lancamento'
+            entidade_uuid     TEXT NOT NULL,
+            mov_local_uuid    TEXT,
+            client_uuid       TEXT,
+            cliente_id        TEXT,
+            fornecedor_id     TEXT,
+            operador_id       TEXT,
+            terminal_id       TEXT,
+            forma_pagamento   TEXT,
+            valor             REAL,
+            valor_pago        REAL,
+            valor_restante    REAL,
+            status_anterior   TEXT,
+            status_atual      TEXT,
+            motivo            TEXT,
+            origem            TEXT,            -- 'servidor'|'terminal'
+            sync_status       TEXT NOT NULL DEFAULT 'pending'
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_fin_ts
+            ON financeiro_audit_local(ts_ms DESC);
+        CREATE INDEX IF NOT EXISTS idx_audit_fin_entidade
+            ON financeiro_audit_local(entidade, entidade_uuid, ts_ms DESC);
+        CREATE INDEX IF NOT EXISTS idx_audit_fin_evento
+            ON financeiro_audit_local(evento, ts_ms DESC);
         "#,
     )?;
 
