@@ -4165,6 +4165,7 @@ pub fn registrar_venda_local(
                 "troco": p.troco,
                 "parcelas": p.parcelas,
                 "observacao": p.observacao,
+                "vencimento_ms": p.vencimento_ms,
             })
         })
         .collect();
