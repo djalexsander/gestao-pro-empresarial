@@ -2088,6 +2088,76 @@ export async function excluirBackup(
   return r?.deleted ?? false;
 }
 
+// ============================================================================
+// Etapa 11 — Visão agregada de sincronização (todas as outboxes)
+// ============================================================================
+
+export interface SyncDomainStats {
+  domain: string;
+  pending: number;
+  processing: number;
+  synced: number;
+  error: number;
+  conflict: number;
+  skipped: number;
+  last_error: string | null;
+  last_sent_at_ms: number | null;
+}
+
+export interface SyncOverview {
+  now_ms: number;
+  pending: number;
+  processing: number;
+  synced: number;
+  error: number;
+  conflict: number;
+  skipped: number;
+  last_sent_at_ms: number | null;
+  domains: SyncDomainStats[];
+}
+
+export async function fetchSyncOverview(
+  cfg?: TerminalConexaoConfig,
+): Promise<SyncOverview | null> {
+  return getJson<SyncOverview>(cfg, "/api/sync/overview");
+}
+
+/**
+ * Dispara o flush manual de todas as outboxes em paralelo. Cada flush é
+ * idempotente (client_uuid único), portanto reexecutar com sync já em
+ * andamento não duplica. Retorna o resultado agregado para o painel.
+ */
+export async function sincronizarTudoAgora(
+  cfg: TerminalConexaoConfig | undefined,
+): Promise<{ ok: number; failed: number; perDomain: Record<string, boolean> }> {
+  const flushes: Array<[string, () => Promise<unknown>]> = [
+    ["estoque",       () => flushOutbox(cfg)],
+    ["vendas",        () => flushOutboxVendas(cfg)],
+    ["cancelamentos", () => flushOutboxCancelamentos(cfg)],
+    ["caixa",         () => flushOutboxCaixa(cfg)],
+    ["financeiro",    () => flushOutboxFinanceiro(cfg)],
+    ["clientes",      () => flushOutboxClientes(cfg)],
+    ["fornecedores",  () => flushOutboxFornecedores(cfg)],
+    ["compras",       () => flushOutboxCompras(cfg)],
+  ];
+  const perDomain: Record<string, boolean> = {};
+  let ok = 0, failed = 0;
+  const results = await Promise.allSettled(flushes.map(([, fn]) => fn()));
+  results.forEach((res, i) => {
+    const name = flushes[i][0];
+    const success = res.status === "fulfilled" && res.value !== null;
+    perDomain[name] = success;
+    if (success) ok++; else failed++;
+  });
+  if (typeof console !== "undefined") {
+    console.info(
+      "[SYNC_DONE] flush_all ok=%d failed=%d perDomain=%o",
+      ok, failed, perDomain,
+    );
+  }
+  return { ok, failed, perDomain };
+}
+
 // ----------------------------------------------------------------------------
 // Clientes (Fase 2) — writes locais com outbox
 // ----------------------------------------------------------------------------
