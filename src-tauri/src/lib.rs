@@ -33,6 +33,16 @@ fn local_server_status() -> LocalServerStatus {
     local_server::current_status()
 }
 
+#[tauri::command]
+fn local_port_available(port: u16) -> bool {
+    local_server::is_port_available(port)
+}
+
+#[tauri::command]
+fn local_sqlite_health() -> Result<db::SqliteHealth, String> {
+    db::sqlite_health().map_err(|e| e.0)
+}
+
 // ---- Backup / restauração / exportação ----
 
 #[tauri::command]
@@ -112,6 +122,8 @@ pub fn run() {
             start_local_server,
             stop_local_server,
             local_server_status,
+            local_port_available,
+            local_sqlite_health,
             backup_create,
             backup_status,
             backup_list,

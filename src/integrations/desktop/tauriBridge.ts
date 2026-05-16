@@ -94,3 +94,43 @@ export async function getLocalServerStatus(): Promise<LocalServerStatus> {
     return STATUS_OFF;
   }
 }
+
+// ============================================================================
+// Etapa 12 — SQLite health + verificação de porta livre
+// ============================================================================
+
+export interface SqliteHealthPayload {
+  schema_version: number;
+  integrity_ok: boolean;
+  integrity_detail: string;
+  quick_ok: boolean;
+  quick_detail: string;
+  journal_mode: string;
+  page_size: number;
+  page_count: number;
+  db_size_bytes: number;
+  wal_size_bytes: number;
+  db_path: string;
+  checked_at_ms: number;
+}
+
+export async function getLocalSqliteHealth(): Promise<SqliteHealthPayload | null> {
+  const invoke = await getInvoke();
+  if (!invoke) return null;
+  try {
+    return await invoke<SqliteHealthPayload>("local_sqlite_health");
+  } catch (e) {
+    console.warn("[LOCAL_SQLITE_HEALTH] falhou:", e);
+    return null;
+  }
+}
+
+export async function isLocalPortAvailable(port: number): Promise<boolean | null> {
+  const invoke = await getInvoke();
+  if (!invoke) return null;
+  try {
+    return await invoke<boolean>("local_port_available", { port });
+  } catch {
+    return null;
+  }
+}

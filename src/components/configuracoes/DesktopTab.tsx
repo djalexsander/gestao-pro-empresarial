@@ -73,6 +73,8 @@ import { OfflineReadinessCard } from "./OfflineReadinessCard";
 import { OfflineHealthCard } from "./OfflineHealthCard";
 import { PilotoChecklist } from "./PilotoChecklist";
 import { SuporteDiagnosticoCard } from "./SuporteDiagnosticoCard";
+import { SaudeServidorLocalCard } from "./SaudeServidorLocalCard";
+import { DEFAULT_LOCAL_PORT } from "@/components/desktop/useLocalServerBoot";
 
 /**
  * Aba "Desktop" em Configurações — só faz sentido quando a app está rodando
@@ -504,6 +506,26 @@ export function DesktopTab() {
             dbInfo={dbInfo}
             serverNome={config.serverNome}
             serverId={config.serverId}
+          />
+        )}
+
+        {isServer && (
+          <SaudeServidorLocalCard
+            daemon={daemon}
+            startOptions={{
+              port: config.terminal?.porta ?? DEFAULT_LOCAL_PORT,
+              serverName:
+                config.serverNome ??
+                config.terminal?.terminalNome ??
+                "Servidor Gestão Pro",
+              serverId: config.serverId ?? null,
+              upstreamUrl:
+                (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? null,
+              upstreamAnonKey:
+                (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as
+                  | string
+                  | undefined) ?? null,
+            }}
           />
         )}
 

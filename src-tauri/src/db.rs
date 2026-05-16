@@ -11471,3 +11471,70 @@ pub fn sync_overview() -> DbResult<SyncOverview> {
         Ok(ov)
     })
 }
+
+// ============================================================================
+// Etapa 12 — SQLite health check
+// ============================================================================
+//
+// Diagnóstico leve da integridade do banco local. Não bloqueia escrita.
+// Usado pelo card "Saúde do servidor local" e pelo diagnóstico exportável.
+
+#[derive(Debug, Serialize)]
+pub struct SqliteHealth {
+    pub schema_version: i64,
+    pub integrity_ok: bool,
+    pub integrity_detail: String,
+    pub quick_ok: bool,
+    pub quick_detail: String,
+    pub journal_mode: String,
+    pub page_size: i64,
+    pub page_count: i64,
+    pub db_size_bytes: i64,
+    pub wal_size_bytes: i64,
+    pub db_path: String,
+    pub checked_at_ms: i64,
+}
+
+pub fn sqlite_health() -> DbResult<SqliteHealth> {
+    let path = db_file();
+    let db_size_bytes = std::fs::metadata(&path).map(|m| m.len() as i64).unwrap_or(0);
+    let wal_path = {
+        let mut p = path.clone();
+        let name = p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        p.set_file_name(format!("{name}-wal"));
+        p
+    };
+    let wal_size_bytes = std::fs::metadata(&wal_path).map(|m| m.len() as i64).unwrap_or(0);
+
+    with_conn(|conn| {
+        let integrity_detail: String = conn
+            .query_row("PRAGMA integrity_check(1)", [], |r| r.get(0))
+            .unwrap_or_else(|e| format!("erro: {e}"));
+        let quick_detail: String = conn
+            .query_row("PRAGMA quick_check(1)", [], |r| r.get(0))
+            .unwrap_or_else(|e| format!("erro: {e}"));
+        let journal_mode: String = conn
+            .query_row("PRAGMA journal_mode", [], |r| r.get(0))
+            .unwrap_or_else(|_| "?".into());
+        let page_size: i64 = conn
+            .query_row("PRAGMA page_size", [], |r| r.get(0))
+            .unwrap_or(0);
+        let page_count: i64 = conn
+            .query_row("PRAGMA page_count", [], |r| r.get(0))
+            .unwrap_or(0);
+        Ok(SqliteHealth {
+            schema_version: SCHEMA_VERSION,
+            integrity_ok: integrity_detail.eq_ignore_ascii_case("ok"),
+            integrity_detail,
+            quick_ok: quick_detail.eq_ignore_ascii_case("ok"),
+            quick_detail,
+            journal_mode,
+            page_size,
+            page_count,
+            db_size_bytes,
+            wal_size_bytes,
+            db_path: path.to_string_lossy().to_string(),
+            checked_at_ms: chrono::Utc::now().timestamp_millis(),
+        })
+    })
+}
