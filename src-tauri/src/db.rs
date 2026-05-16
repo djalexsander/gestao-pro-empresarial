@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i64 = 21;
+const SCHEMA_VERSION: i64 = 22;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -1319,6 +1319,81 @@ pub fn init() -> DbResult<()> {
             ON financeiro_audit_local(entidade, entidade_uuid, ts_ms DESC);
         CREATE INDEX IF NOT EXISTS idx_audit_fin_evento
             ON financeiro_audit_local(evento, ts_ms DESC);
+
+        -- ====================================================================
+        -- v22 (Etapa 9): Contas a PAGAR offline + pagamentos.
+        --
+        -- Espelha a estrutura de `contas_receber_local` / pagtos. Cada
+        -- título em `contas_pagar_local` representa uma obrigação gerada
+        -- por uma compra a prazo (ou lançada manualmente). `compra_local_uuid`
+        -- é a FK lógica para `compras_local` quando origem='compra'.
+        --
+        -- Idempotência:
+        --   * uq_contas_pagar_origem_compra → uma única conta por compra
+        --     (impede duplicação em retry de recebimento ou re-execução
+        --     do trigger upstream).
+        --   * client_uuid em pagtos deduplica baixas reenviadas.
+        --
+        -- Gravada na MESMA transação SQLite da operação que a originou
+        -- (receber compra) → atomicidade entre estoque + payable.
+        -- ====================================================================
+        CREATE TABLE IF NOT EXISTS contas_pagar_local (
+            local_uuid              TEXT PRIMARY KEY,
+            client_uuid             TEXT,
+            remote_id               TEXT,
+            origem                  TEXT NOT NULL DEFAULT 'compra',  -- 'compra'|'manual'
+            compra_local_uuid       TEXT,
+            compra_remote_id        TEXT,
+            fornecedor_id           TEXT,
+            fornecedor_nome         TEXT,
+            descricao               TEXT,
+            forma_pagamento         TEXT,
+            valor                   REAL NOT NULL,
+            valor_pago              REAL NOT NULL DEFAULT 0,
+            vencimento_ms           INTEGER,
+            data_emissao_ms         INTEGER,
+            status                  TEXT NOT NULL DEFAULT 'aberto',  -- aberto|pago|cancelado
+            sync_status             TEXT NOT NULL DEFAULT 'pending', -- pending|synced|error
+            last_error              TEXT,
+            observacao              TEXT,
+            operador_id             TEXT,
+            terminal_id             TEXT,
+            created_at_ms           INTEGER NOT NULL,
+            updated_at_ms           INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_contas_pagar_status
+            ON contas_pagar_local(status, COALESCE(vencimento_ms, created_at_ms));
+        CREATE INDEX IF NOT EXISTS idx_contas_pagar_fornecedor
+            ON contas_pagar_local(fornecedor_id) WHERE fornecedor_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_contas_pagar_compra
+            ON contas_pagar_local(compra_local_uuid) WHERE compra_local_uuid IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_contas_pagar_sync_status
+            ON contas_pagar_local(sync_status);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_contas_pagar_client_uuid
+            ON contas_pagar_local(client_uuid) WHERE client_uuid IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_contas_pagar_origem_compra
+            ON contas_pagar_local(compra_local_uuid)
+            WHERE compra_local_uuid IS NOT NULL AND origem='compra';
+
+        CREATE TABLE IF NOT EXISTS contas_pagar_pagtos_local (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            local_uuid          TEXT NOT NULL UNIQUE,
+            client_uuid         TEXT,
+            pagar_local_uuid    TEXT NOT NULL,
+            valor               REAL NOT NULL,
+            forma_pagamento     TEXT,
+            data_pagamento_ms   INTEGER NOT NULL,
+            observacao          TEXT,
+            operador_id         TEXT,
+            terminal_id         TEXT,
+            origem              TEXT,
+            sync_status         TEXT NOT NULL DEFAULT 'pending',
+            created_at_ms       INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_cp_pag_pagar
+            ON contas_pagar_pagtos_local(pagar_local_uuid, data_pagamento_ms DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_cp_pag_client_uuid
+            ON contas_pagar_pagtos_local(client_uuid) WHERE client_uuid IS NOT NULL;
         "#,
     )?;
 
