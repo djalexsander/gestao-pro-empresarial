@@ -416,7 +416,225 @@ export const localServerAdapter: DataAdapter = {
         () => cloudAdapter.estoque.movimentacoes(input),
       ),
   },
+
+  // -----------------------------------------------------------------
+  // Sub-etapa 8.1 — Clientes a Receber / Fiado offline-first
+  // (servidor local = esta máquina). Mesma estratégia do local-terminal.
+  // -----------------------------------------------------------------
+  financeiro: {
+    ...cloudAdapter.financeiro,
+    listFiado: async () => {
+      const baseUrl = await resolveBaseUrl();
+      if (baseUrl) {
+        const rows = await tryLocal<ContaReceberLocalServerRow[]>(
+          "financeiro",
+          "listFiado",
+          "/api/financeiro/receber",
+          { status: "todos", limit: "1000" },
+        );
+        if (Array.isArray(rows) && rows.length > 0) {
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.debug("[LOCAL_RECEIVABLE_UI] listFiado servidor local", { rows: rows.length });
+          }
+          return rows.map(mapContaReceberToFiadoDomainServer);
+        }
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.debug("[LOCAL_RECEIVABLE_UI] listFiado vazio local — fallback cloud");
+        }
+      }
+      const result = await cloudAdapter.financeiro.listFiado();
+      reportDataSource({ source: "cloud", domain: "financeiro", method: "listFiado", fallback: true });
+      return result;
+    },
+
+    registrarPagamento: async (input) => {
+      const baseUrl = await resolveBaseUrl();
+      if (baseUrl) {
+        const dataMs = input.data_pagamento
+          ? Date.parse(`${input.data_pagamento}T12:00:00`)
+          : Date.now();
+        const r = await postLocalJson<{
+          local_uuid: string;
+          idempotente: boolean;
+          receber_local_uuid: string;
+          status: string;
+        }>("/api/financeiro/receber/baixar", {
+          receber_id: input.lancamento_id,
+          valor: input.valor,
+          forma_pagamento: input.forma_pagamento ?? null,
+          data_pagamento_ms: Number.isFinite(dataMs) ? dataMs : Date.now(),
+          observacao: input.observacao ?? null,
+          client_uuid: input.client_uuid ?? null,
+        });
+        if (r) {
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.debug("[LOCAL_RECEIVABLE_UI] baixa servidor local ok", r);
+          }
+          reportDataSource({ source: "local-server", domain: "financeiro", method: "registrarPagamento", fallback: false });
+          return {
+            pagamento_id: r.local_uuid,
+            lancamento_id: r.receber_local_uuid,
+            idempotente: r.idempotente,
+          };
+        }
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.debug("[LOCAL_RECEIVABLE_UI] baixa local falhou — fallback cloud");
+        }
+      }
+      const out = await cloudAdapter.financeiro.registrarPagamento(input);
+      reportDataSource({ source: "cloud", domain: "financeiro", method: "registrarPagamento", fallback: true });
+      return out;
+    },
+
+    cancelarLancamento: async (input) => {
+      const baseUrl = await resolveBaseUrl();
+      if (baseUrl) {
+        const r = await postLocalJson<{
+          receber_local_uuid: string;
+          idempotente: boolean;
+          status: string;
+        }>("/api/financeiro/receber/cancelar", {
+          receber_id: input.lancamento_id,
+          motivo: input.motivo ?? null,
+        });
+        if (r) {
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.debug("[LOCAL_RECEIVABLE_UI] cancelamento servidor local ok", r);
+          }
+          reportDataSource({ source: "local-server", domain: "financeiro", method: "cancelarLancamento", fallback: false });
+          return { lancamento_id: r.receber_local_uuid, idempotente: r.idempotente };
+        }
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.debug("[LOCAL_RECEIVABLE_UI] cancelamento local falhou — fallback cloud");
+        }
+      }
+      const out = await cloudAdapter.financeiro.cancelarLancamento(input);
+      reportDataSource({ source: "cloud", domain: "financeiro", method: "cancelarLancamento", fallback: true });
+      return out;
+    },
+  },
 };
+
+// ----------------------------------------------------------------------------
+// Helpers de mapeamento + POST local (Sub-etapa 8.1)
+// ----------------------------------------------------------------------------
+
+interface ContaReceberLocalServerRow {
+  local_uuid: string;
+  venda_local_uuid: string;
+  cliente_id: string | null;
+  cliente_nome: string | null;
+  cliente_cpf: string | null;
+  cliente_telefone: string | null;
+  forma_pagamento: string | null;
+  valor: number;
+  valor_pago: number;
+  valor_restante: number;
+  vencimento_ms: number | null;
+  status: string;
+  status_base: string;
+  sync_status: string;
+  created_at_ms: number;
+  updated_at_ms: number;
+}
+
+function msToIsoDateServer(ms: number | null | undefined): string | null {
+  if (!ms || !Number.isFinite(ms)) return null;
+  try {
+    return new Date(ms).toISOString().slice(0, 10);
+  } catch {
+    return null;
+  }
+}
+
+function statusContaToFiadoServer(status: string): string {
+  switch (status) {
+    case "pago":
+      return "recebido";
+    case "parcial":
+      return "parcial";
+    case "cancelado":
+      return "cancelado";
+    default:
+      return "pendente";
+  }
+}
+
+function mapContaReceberToFiadoDomainServer(
+  r: ContaReceberLocalServerRow,
+): import("../adapter").FiadoLancamentoDomain {
+  const dataEmissao = msToIsoDateServer(r.created_at_ms);
+  const dataVenc =
+    msToIsoDateServer(r.vencimento_ms ?? r.created_at_ms) ?? dataEmissao ?? "";
+  const dataPag =
+    r.valor_pago > 0 || r.status === "pago"
+      ? msToIsoDateServer(r.updated_at_ms)
+      : null;
+  const obs =
+    r.sync_status && r.sync_status !== "synced" ? `[sync:${r.sync_status}]` : null;
+  return {
+    id: r.local_uuid,
+    descricao: `Venda fiado ${r.venda_local_uuid.slice(0, 8)}`,
+    valor: r.valor,
+    valor_pago: r.valor_pago,
+    data_vencimento: dataVenc,
+    data_emissao: dataEmissao,
+    data_pagamento: dataPag,
+    status: statusContaToFiadoServer(r.status),
+    observacoes: obs,
+    cliente_id: r.cliente_id,
+    venda_id: r.venda_local_uuid,
+    forma_pagamento: r.forma_pagamento,
+    cliente: r.cliente_id
+      ? {
+          id: r.cliente_id,
+          nome: r.cliente_nome ?? "Cliente",
+          documento: r.cliente_cpf,
+          telefone: r.cliente_telefone,
+          celular: r.cliente_telefone,
+          email: null,
+        }
+      : null,
+    venda: {
+      id: r.venda_local_uuid,
+      numero: r.venda_local_uuid.slice(0, 8),
+      data_finalizacao: dataEmissao,
+      total: r.valor,
+    },
+  };
+}
+
+async function postLocalJson<T>(path: string, body: unknown): Promise<T | null> {
+  const baseUrl = await resolveBaseUrl();
+  if (!baseUrl) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), HTTP_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${baseUrl}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (!res.ok) {
+      cachedBaseUrl = null;
+      return null;
+    }
+    return (await res.json()) as T;
+  } catch {
+    clearTimeout(timer);
+    cachedBaseUrl = null;
+    return null;
+  }
+}
 
 // Mantido para compat com imports antigos / testes.
 export const LOCAL_READ_DOMAINS = [

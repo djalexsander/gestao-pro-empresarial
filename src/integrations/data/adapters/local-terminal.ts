@@ -37,6 +37,8 @@ import {
   alterarStatusClienteLocal,
   alterarStatusCompraLocal,
   alterarStatusFornecedorLocal,
+  baixarReceberLocal,
+  cancelarReceberLocal,
   cancelarVendaLocal,
   criarClienteLocal,
   criarCompraLocal,
@@ -48,6 +50,7 @@ import {
   excluirCompraLocal,
   excluirFornecedorLocal,
   fecharCaixaLocal,
+  fetchContasReceberLocal,
   getBaseUrl,
   receberCompraItensLocal,
   receberCompraLocal,
@@ -55,6 +58,7 @@ import {
   registrarMovimentoLocal,
   registrarVendaLocal,
   validarPinServidor,
+  type ContaReceberLocalRow,
 } from "@/integrations/desktop/serverConnection";
 import type {
   AbrirCaixaInput,
@@ -185,6 +189,79 @@ async function tryLocalSearch<T>(
     clearTimeout(timer);
     return { kind: "unavailable" };
   }
+}
+
+// ----------------------------------------------------------------------------
+// Mappers locais → domínio
+// ----------------------------------------------------------------------------
+
+function msToIsoDate(ms: number | null | undefined): string | null {
+  if (!ms || !Number.isFinite(ms)) return null;
+  try {
+    return new Date(ms).toISOString().slice(0, 10);
+  } catch {
+    return null;
+  }
+}
+
+function statusContaToFiadoDomain(status: string): string {
+  switch (status) {
+    case "pago":
+      return "recebido";
+    case "parcial":
+      return "parcial";
+    case "cancelado":
+      return "cancelado";
+    case "vencido":
+    case "aberto":
+    default:
+      return "pendente";
+  }
+}
+
+function mapContaReceberToFiadoDomain(
+  r: ContaReceberLocalRow,
+): import("../adapter").FiadoLancamentoDomain {
+  const dataEmissao = msToIsoDate(r.created_at_ms);
+  const dataVenc = msToIsoDate(r.vencimento_ms ?? r.created_at_ms) ?? dataEmissao ?? "";
+  const dataPag =
+    r.valor_pago > 0 || r.status === "pago" ? msToIsoDate(r.updated_at_ms) : null;
+  // Indicador discreto de sync — vai dentro de `observacoes` para não exigir
+  // mudança de layout. Telas que mostram observações já renderizam isso.
+  const obs =
+    r.sync_status && r.sync_status !== "synced"
+      ? `[sync:${r.sync_status}]`
+      : null;
+  return {
+    id: r.local_uuid,
+    descricao: `Venda fiado ${r.venda_local_uuid.slice(0, 8)}`,
+    valor: r.valor,
+    valor_pago: r.valor_pago,
+    data_vencimento: dataVenc,
+    data_emissao: dataEmissao,
+    data_pagamento: dataPag,
+    status: statusContaToFiadoDomain(r.status),
+    observacoes: obs,
+    cliente_id: r.cliente_id,
+    venda_id: r.venda_local_uuid,
+    forma_pagamento: r.forma_pagamento,
+    cliente: r.cliente_id
+      ? {
+          id: r.cliente_id,
+          nome: r.cliente_nome ?? "Cliente",
+          documento: r.cliente_cpf,
+          telefone: r.cliente_telefone,
+          celular: r.cliente_telefone,
+          email: null,
+        }
+      : null,
+    venda: {
+      id: r.venda_local_uuid,
+      numero: r.venda_local_uuid.slice(0, 8),
+      data_finalizacao: dataEmissao,
+      total: r.valor,
+    },
+  };
 }
 
 // ----------------------------------------------------------------------------
@@ -914,6 +991,119 @@ export const localTerminalAdapter: DataAdapter = {
         },
         () => cloudAdapter.financeiro.listLancamentosCompleto(),
       ),
+
+    // -----------------------------------------------------------------
+    // Sub-etapa 8.1 — Clientes a Receber / Fiado offline-first
+    //
+    // listFiado prioriza títulos locais (`contas_receber_local`). Quando
+    // local responde com lista NÃO vazia, devolvemos apenas eles. Caso o
+    // servidor local esteja fora OU ainda não tenha gerado fiados locais,
+    // caímos para a cloud — preserva UX em transição.
+    //
+    // registrarPagamento e cancelarLancamento tentam primeiro o endpoint
+    // local (idempotente por `client_uuid`). Se o título não existir
+    // localmente (id é de origem cloud), caímos para a cloud sem ruído.
+    // -----------------------------------------------------------------
+    listFiado: async () => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        try {
+          const rows = await fetchContasReceberLocal(cfg, { status: "todos", limit: 1000 });
+          if (rows.length > 0) {
+            if (import.meta.env.DEV) {
+              // eslint-disable-next-line no-console
+              console.debug("[LOCAL_RECEIVABLE_UI] listFiado servidor local", {
+                rows: rows.length,
+              });
+            }
+            reportDataSource({ source: "local-server", domain: "financeiro", method: "listFiado", fallback: false });
+            return rows.map(mapContaReceberToFiadoDomain);
+          }
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.debug("[LOCAL_RECEIVABLE_UI] listFiado vazio local — fallback cloud");
+          }
+        } catch {
+          // network → cloud fallback abaixo
+        }
+      }
+      const result = await cloudAdapter.financeiro.listFiado();
+      reportDataSource({ source: "cloud", domain: "financeiro", method: "listFiado", fallback: true });
+      return result;
+    },
+
+    registrarPagamento: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const dataMs = input.data_pagamento
+          ? Date.parse(`${input.data_pagamento}T12:00:00`)
+          : Date.now();
+        const r = await baixarReceberLocal(cfg, {
+          receber_id: input.lancamento_id,
+          valor: input.valor,
+          forma_pagamento: input.forma_pagamento ?? null,
+          data_pagamento_ms: Number.isFinite(dataMs) ? dataMs : Date.now(),
+          observacao: input.observacao ?? null,
+          client_uuid: input.client_uuid ?? null,
+        });
+        if (r) {
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.debug("[LOCAL_RECEIVABLE_UI] baixa servidor local ok", {
+              titulo: r.receber_local_uuid,
+              status: r.status,
+              idempotente: r.idempotente,
+            });
+          }
+          reportDataSource({ source: "local-server", domain: "financeiro", method: "registrarPagamento", fallback: false });
+          return {
+            pagamento_id: r.local_uuid,
+            lancamento_id: r.receber_local_uuid,
+            idempotente: r.idempotente,
+          };
+        }
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.debug("[LOCAL_RECEIVABLE_UI] baixa local falhou — fallback cloud", {
+            lancamento_id: input.lancamento_id,
+          });
+        }
+      }
+      const out = await cloudAdapter.financeiro.registrarPagamento(input);
+      reportDataSource({ source: "cloud", domain: "financeiro", method: "registrarPagamento", fallback: true });
+      return out;
+    },
+
+    cancelarLancamento: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const r = await cancelarReceberLocal(cfg, {
+          receber_id: input.lancamento_id,
+          motivo: input.motivo ?? null,
+        });
+        if (r) {
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.debug("[LOCAL_RECEIVABLE_UI] cancelamento servidor local ok", {
+              titulo: r.receber_local_uuid,
+              status: r.status,
+              idempotente: r.idempotente,
+            });
+          }
+          reportDataSource({ source: "local-server", domain: "financeiro", method: "cancelarLancamento", fallback: false });
+          return { lancamento_id: r.receber_local_uuid, idempotente: r.idempotente };
+        }
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.debug("[LOCAL_RECEIVABLE_UI] cancelamento local falhou — fallback cloud", {
+            lancamento_id: input.lancamento_id,
+          });
+        }
+      }
+      const out = await cloudAdapter.financeiro.cancelarLancamento(input);
+      reportDataSource({ source: "cloud", domain: "financeiro", method: "cancelarLancamento", fallback: true });
+      return out;
+    },
   },
 
   /**

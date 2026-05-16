@@ -556,3 +556,77 @@ o mesmo padrão dos demais módulos: o adapter local prioriza o servidor
 local e usa cloud como fallback quando offline. Layout, regras
 financeiras, Asaas, cobrança, planos, módulos e assinatura permanecem
 inalterados.
+
+---
+
+## Sub-etapa 8.1 — Ligação das telas de Financeiro aos endpoints locais
+
+Conecta de fato as telas existentes (`/fiado`, `RegistrarPagamentoDialog`,
+relatórios) à camada local construída na Etapa 8, sem reescrever a UI.
+
+### Mudanças
+
+- **`src/integrations/desktop/serverConnection.ts`** — três fetchers HTTP:
+  - `fetchContasReceberLocal(cfg, filtro)` → `GET /api/financeiro/receber`
+  - `baixarReceberLocal(cfg, input)` → `POST /api/financeiro/receber/baixar`
+  - `cancelarReceberLocal(cfg, input)` → `POST /api/financeiro/receber/cancelar`
+  + tipos `ContaReceberLocalRow`, `BaixarReceberLocalInput/Result`,
+  `CancelarReceberLocalInput/Result`, `ContasReceberLocalFiltro`.
+
+- **`src/integrations/data/adapters/local-terminal.ts`** (terminal LAN) e
+  **`src/integrations/data/adapters/local-server.ts`** (PC servidor):
+  override do bloco `financeiro` com três métodos:
+  - `listFiado()` → tenta local primeiro; mapeia
+    `ContaReceberLocalRow → FiadoLancamentoDomain`. Se a lista local vier
+    vazia (ainda não houve fiado offline) ou o servidor local estiver
+    inacessível, faz fallback para a cloud.
+  - `registrarPagamento(input)` → tenta `baixar_receber_local`. Se o
+    título não existe localmente (ids de origem cloud) ou o local está
+    fora, faz fallback para `cloudAdapter.financeiro.registrarPagamento`.
+    Idempotência é preservada via `client_uuid` em ambos os caminhos.
+  - `cancelarLancamento(input)` → mesmo padrão, tenta
+    `cancelar_receber_local` primeiro.
+
+### Indicador discreto de sincronização
+
+A coluna `sync_status` do título local (`synced` | `pending` | `error`)
+é injetada no campo `observacoes` da `FiadoLancamentoDomain` como
+prefixo `[sync:pending]` ou `[sync:error]` apenas quando não está
+`synced`. Telas existentes que renderizam observações já mostram o
+indicador sem alteração de layout.
+
+### Ordem de prioridade (mantida)
+
+1. Endpoint local (`/api/financeiro/receber*`)
+2. Cache/local data (já coberto pelos endpoints, que leem SQLite)
+3. `cloudAdapter` — somente quando online e local indisponível/sem dados
+
+Nenhum caminho dispara cloud primeiro em modo desktop/local.
+
+### Logs DEV adicionados
+
+- `[LOCAL_RECEIVABLE_UI]` — chamadas de leitura/baixa/cancelamento via
+  servidor local nos adapters.
+- `[LOCAL_FINANCE_UI]` / `[LOCAL_CASHFLOW_UI]` — reservados para
+  futuras telas de fluxo de caixa quando passarem a consumir
+  `/api/financeiro/lancamentos` e `/api/financeiro/resumo`
+  diretamente. Os endpoints já existem desde a Etapa 8.
+
+### Garantias (atualização)
+
+| Cenário | Comportamento |
+|---|---|
+| PDV faz venda fiado offline | Já gravava `contas_receber_local`; agora aparece em `/fiado` direto do local |
+| Baixa parcial/total offline | UI chama `dataClient.financeiro.registrarPagamento` → adapter detecta modo local e usa `POST /api/financeiro/receber/baixar` |
+| Cancelamento offline | Mesmo caminho via `POST /api/financeiro/receber/cancelar` |
+| Reiniciar app | Dados persistem em SQLite WAL; sync_status indicado discretamente |
+| Sincronizar depois | Outbox financeira (`outbox_financeiro`) cuida do push — sem duplicar baixas (idempotência por `client_uuid`) |
+| Online sem fiado local | Cai automaticamente para cloud (sem regressão para usuários só-cloud) |
+
+### Não alterado
+
+- Layout principal das telas `/fiado`, relatórios e dialog de pagamento.
+- Regras financeiras, cobrança SaaS, Asaas, planos, módulos e assinatura.
+- Estrutura do `dataClient` exposto à UI — a troca acontece somente
+  dentro do adapter selecionado em runtime conforme modo (cloud,
+  servidor local, terminal LAN).
