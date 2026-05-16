@@ -37,6 +37,8 @@ import {
   alterarStatusClienteLocal,
   alterarStatusCompraLocal,
   alterarStatusFornecedorLocal,
+  baixarReceberLocal,
+  cancelarReceberLocal,
   cancelarVendaLocal,
   criarClienteLocal,
   criarCompraLocal,
@@ -48,6 +50,7 @@ import {
   excluirCompraLocal,
   excluirFornecedorLocal,
   fecharCaixaLocal,
+  fetchContasReceberLocal,
   getBaseUrl,
   receberCompraItensLocal,
   receberCompraLocal,
@@ -55,6 +58,7 @@ import {
   registrarMovimentoLocal,
   registrarVendaLocal,
   validarPinServidor,
+  type ContaReceberLocalRow,
 } from "@/integrations/desktop/serverConnection";
 import type {
   AbrirCaixaInput,
