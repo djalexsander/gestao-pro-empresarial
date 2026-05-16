@@ -5027,6 +5027,11 @@ async fn compra_criar_handler(
         }
     }
     let compra_id = compra_remote_id.clone().unwrap_or_else(|| r.compra_local_uuid.clone());
+    eprintln!(
+        "[LOCAL_PURCHASE] criar ok local={} remote={:?} idempotente={} outbox={}",
+        r.compra_local_uuid, compra_remote_id, r.idempotente, outbox_status
+    );
+    eprintln!("[LOCAL_PURCHASE_OUTBOX] enqueue action=criar local={}", r.compra_local_uuid);
     Ok(Json(CompraCriarResponse {
         compra_id,
         compra_local_uuid: r.compra_local_uuid,
