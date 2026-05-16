@@ -5604,3 +5604,87 @@ async fn sync_overview_handler() -> Result<Json<db::SyncOverview>, (StatusCode, 
     }
     Ok(Json(ov))
 }
+
+// ============================================================================
+// ETAPA 12 — Hardening: SQLite health, port check, diagnóstico exportável
+// ============================================================================
+
+/// Verifica se uma porta TCP local está disponível para bind no 0.0.0.0.
+/// Retorna `Ok(true)` se a porta pôde ser aberta (e foi fechada em seguida),
+/// `Ok(false)` se está ocupada.
+pub fn is_port_available(port: u16) -> bool {
+    match std::net::TcpListener::bind(("0.0.0.0", port)) {
+        Ok(_) => true,
+        Err(_) => false,
+    }
+}
+
+#[derive(Serialize)]
+struct PortCheckResponse {
+    port: u16,
+    available: bool,
+}
+
+async fn local_port_check_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Json<PortCheckResponse> {
+    let port: u16 = q.get("port").and_then(|s| s.parse().ok()).unwrap_or(0);
+    let avail = if port > 0 { is_port_available(port) } else { false };
+    eprintln!("[LOCAL_SERVER_PORT] check port={port} available={avail}");
+    Json(PortCheckResponse { port, available: avail })
+}
+
+async fn sqlite_health_handler() -> Result<Json<db::SqliteHealth>, (StatusCode, String)> {
+    let h = db::sqlite_health()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    eprintln!(
+        "[LOCAL_SQLITE_HEALTH] integrity_ok={} quick_ok={} journal={} pages={} size={}B wal={}B",
+        h.integrity_ok, h.quick_ok, h.journal_mode, h.page_count, h.db_size_bytes, h.wal_size_bytes
+    );
+    Ok(Json(h))
+}
+
+#[derive(Serialize)]
+struct DiagnosticReport {
+    generated_at_ms: i64,
+    app: &'static str,
+    app_version: &'static str,
+    protocol_version: u32,
+    server: serde_json::Value,
+    sqlite: Option<db::SqliteHealth>,
+    sync: Option<db::SyncOverview>,
+    backup: Option<serde_json::Value>,
+}
+
+async fn local_diagnostic_handler() -> Json<DiagnosticReport> {
+    let snap = STATE.lock().ok().map(|s| {
+        serde_json::json!({
+            "running": s.running,
+            "port": s.port,
+            "started_at_ms": s.started_at_ms,
+            "server_id": s.server_id,
+            "server_name": s.server_name,
+            "hostname": s.hostname,
+            "host_ip": local_ip(),
+            "upstream_configured": s.upstream.is_some(),
+            "terminals_conectados": s.terminals.len(),
+        })
+    }).unwrap_or(serde_json::json!({}));
+
+    let sqlite = db::sqlite_health().ok();
+    let sync = db::sync_overview().ok();
+    let backup = backup::status().ok().and_then(|s| serde_json::to_value(s).ok());
+
+    eprintln!("[LOCAL_DIAGNOSTIC] snapshot gerado");
+
+    Json(DiagnosticReport {
+        generated_at_ms: now_ms(),
+        app: APP_NAME,
+        app_version: APP_VERSION,
+        protocol_version: PROTOCOL_VERSION,
+        server: snap,
+        sqlite,
+        sync,
+        backup,
+    })
+}
