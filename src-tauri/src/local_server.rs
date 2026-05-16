@@ -1036,6 +1036,7 @@ async fn estoque_saude_handler() -> Result<Json<db::StockHealthReport>, (StatusC
 
 // ---------- /api/estoque/movimentacoes ----------
 //
+// Lista o histórico (com filtro opcional por produto/limit) lendo da
 // tabela local após disparar o mesmo sync incremental. Os filtros são
 // passados como pseudo-keys no base_query (`__filter_*`) para que
 // `read_typed` os pegue na hora de ler localmente, sem virar query do
