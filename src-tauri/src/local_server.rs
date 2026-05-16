@@ -2714,6 +2714,7 @@ async fn compras_handler(
     // Pseudo-filtro só para a leitura local (não vai ao upstream — proxy_get
     // só repassa as chaves conhecidas do PostgREST).
     params.push(("__filter_limit", limit.to_string()));
+    eprintln!("[LOCAL_PURCHASE] list limit={limit}");
     proxy_with_incremental_sync(&ctx, &headers, "compras", "/rest/v1/compras", &params, false).await
 }
 
