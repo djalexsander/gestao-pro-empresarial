@@ -562,6 +562,59 @@ export const localServerAdapter: DataAdapter = {
       return out;
     },
   },
+
+  // ------------------------------------------------------------------
+  // ETAPA 13 — Dashboard offline-first no modo SERVIDOR.
+  // Mesma lógica do local-terminal, mas falando com 127.0.0.1 via
+  // `resolveBaseUrl`. Se algum endpoint local falhar, cai para a nuvem
+  // sem montar um KPI parcial.
+  // ------------------------------------------------------------------
+  dashboard: {
+    ...cloudAdapter.dashboard,
+    carregar: () =>
+      withCloudFallback(
+        "dashboard",
+        "carregar",
+        async () => {
+          const baseUrl = await resolveBaseUrl();
+          if (!baseUrl) return null;
+          const [vendas, compras, lancamentos, produtos, saldos] = await Promise.all([
+            tryLocal<Array<Record<string, unknown>>>(
+              "vendas_remote", "list", "/api/vendas/historico", { limit: "500" },
+            ),
+            tryLocal<Array<Record<string, unknown>>>(
+              "compras", "list", "/api/compras", { limit: "500" },
+            ),
+            tryLocal<Array<Record<string, unknown>>>(
+              "financeiro_lancamentos_completo",
+              "listLancamentosCompleto",
+              "/api/financeiro/lancamentos-completo",
+            ),
+            tryLocal<Array<Record<string, unknown>>>(
+              "produtos", "list", "/api/produtos/list", { status: "ativo" },
+            ),
+            tryLocal<Array<{ produto_id: string; tipo: string; quantidade: number | string }>>(
+              "estoque", "saldosLinhas", "/api/estoque/saldos",
+            ),
+          ]);
+          const dash = buildDashboardFromRaw({
+            vendas, compras, lancamentos, produtos, saldos,
+          });
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.debug("[LOCAL_DASHBOARD] server carregar", {
+              ok: dash != null,
+              vendasMes: dash?.vendasMes,
+              contasReceber: dash?.contasReceber,
+              contasPagar: dash?.contasPagar,
+              estoqueBaixo: dash?.estoqueBaixo,
+            });
+          }
+          return dash;
+        },
+        () => cloudAdapter.dashboard.carregar(),
+      ),
+  },
 };
 
 // ----------------------------------------------------------------------------
