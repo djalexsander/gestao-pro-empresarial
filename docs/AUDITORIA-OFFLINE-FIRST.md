@@ -704,3 +704,73 @@ cancelamento e auditoria locais.
   expõem dados específicos para integração futura sem mudar layout.
 - Regras de negócio, cobrança, planos, Asaas, módulos, layout
   principal — intocados.
+
+---
+
+## Etapa 15 — Checklist final de release offline
+
+Rotina obrigatória antes de gerar nova versão para o cliente. Todos os
+itens devem ser validados manualmente no ambiente de homologação **com o
+cabo de rede desconectado** (exceto onde indicado).
+
+### Bateria operacional (sem internet)
+
+- [ ] **Login ERP offline** — abrir o app sem rede e autenticar com
+      credenciais já salvas localmente.
+- [ ] **PIN PDV offline** — entrar no PDV usando o PIN do operador.
+- [ ] **Abrir caixa offline** — abertura grava em SQLite e fica visível
+      após reiniciar o app.
+- [ ] **Vender offline** — venda à vista, baixa de estoque local,
+      cupom impresso.
+- [ ] **Venda fiado offline** — gera conta a receber local atrelada ao
+      cliente.
+- [ ] **Baixar cliente a receber offline** — recebimento atualiza
+      status local e cai no caixa aberto.
+- [ ] **Registrar compra offline** — entrada de mercadoria aumenta
+      estoque local.
+- [ ] **Compra gera contas a pagar** — compra a prazo cria título em
+      Contas a Pagar (1 título por compra, idempotente).
+- [ ] **Baixar conta a pagar offline** — pagamento atualiza status do
+      título sem internet.
+- [ ] **Fechar caixa offline** — fechamento consolida totais e mantém
+      histórico local após restart.
+- [ ] **Backup local** — gerar backup manual em Configurações → Desktop
+      e abrir a pasta destino.
+- [ ] **Restore backup** — restaurar um backup recente; o app reinicia
+      e os dados aparecem corretos.
+- [ ] **Sincronizar depois** — religar a internet e rodar a
+      sincronização: nada duplica, conflitos ficam visíveis.
+- [ ] **Terminal LAN conectado ao servidor** — caixa secundário grava
+      vendas/caixa pelo servidor local (sem usar a nuvem).
+
+### Diagnóstico automático
+
+Antes do checklist manual, rodar:
+
+> **Configurações → Desktop → Diagnóstico offline → "Executar diagnóstico offline"**
+
+O painel deve fechar com um dos veredictos:
+
+| Veredito                  | Significado                                                                     |
+| ------------------------- | ------------------------------------------------------------------------------- |
+| **Pronto para uso offline** | Todos os checks verdes — pode liberar a versão.                                |
+| **Atenção**               | Há avisos (ex.: outboxes acumuladas, backup antigo). Revise antes de liberar.   |
+| **Erro crítico**          | SQLite corrompido, servidor parado, sync inicial pendente ou cache vazio.       |
+
+Verificações cobertas pelo diagnóstico:
+
+- SQLite (integridade + tamanho + journal mode);
+- Servidor local Rust (running + porta);
+- Status do backup (último backup conhecido);
+- Sincronização agregada (pendentes / erros / conflitos);
+- Outboxes pendentes (totais acumulados);
+- Sincronização inicial (`/api/offline/status`);
+- PIN do PDV preparado (usuários com PIN sincronizados);
+- Produtos no cache local (>0);
+- Estoque no cache local (>0);
+- Caixa local (informativo).
+
+### Fora de escopo desta etapa
+
+- Regras de negócio, telas principais, Supabase, cloudAdapter,
+  cobrança, planos, módulos, Asaas — intocados.
