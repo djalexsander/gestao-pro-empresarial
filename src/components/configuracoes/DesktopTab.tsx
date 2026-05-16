@@ -69,6 +69,7 @@ import { AtualizacoesTab } from "./AtualizacoesTab";
 import { ImpressoraConfigCard } from "./ImpressoraConfigCard";
 import { ServerReadinessCard } from "./ServerReadinessCard";
 import { OfflineReadinessCard } from "./OfflineReadinessCard";
+import { OfflineHealthCard } from "./OfflineHealthCard";
 import { PilotoChecklist } from "./PilotoChecklist";
 import { SuporteDiagnosticoCard } from "./SuporteDiagnosticoCard";
 
@@ -507,6 +508,10 @@ export function DesktopTab() {
 
         {(isServer || isTerminal) && localCfg && (
           <OfflineReadinessCard cfg={localCfg} />
+        )}
+
+        {(isServer || isTerminal) && localCfg && (
+          <OfflineHealthCard cfg={localCfg} />
         )}
 
         {/* Status de conexão real */}
