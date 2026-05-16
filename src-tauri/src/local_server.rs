@@ -2588,6 +2588,12 @@ async fn registrar_caixa_fechar_handler(
     );
     eprintln!("[LOCAL_CASH_AUDIT] fechamento mov={}", result.local_uuid);
 
+    // Etapa 10 — backup automático após fechar caixa (debounced 24h dentro
+    // de maybe_auto_backup, então não vira tempestade de arquivos).
+    if !result.idempotente {
+        backup::trigger_event_backup("caixa_fechar");
+    }
+
     let mut outbox_status = "pending".to_string();
     let mut remote_id: Option<String> = None;
     if !result.idempotente && ctx.upstream.is_some() {
