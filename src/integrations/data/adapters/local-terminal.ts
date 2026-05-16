@@ -151,9 +151,22 @@ async function withFallback<T>(
   cloudFetcher: () => Promise<T>,
 ): Promise<T> {
   const local = await localFetcher();
-  if (local !== null && local !== undefined) return local;
+  if (local !== null && local !== undefined) {
+    // ETAPA 13 — logs DEV de leitura offline para Dashboard / Relatórios.
+    if (import.meta.env.DEV && (domain === "relatorios" || domain === "dashboard")) {
+      const tag = domain === "dashboard" ? "[LOCAL_DASHBOARD]" : "[LOCAL_REPORTS]";
+      // eslint-disable-next-line no-console
+      console.debug(`${tag} ${domain}.${method} (origem=local)`);
+    }
+    return local;
+  }
   const result = await cloudFetcher();
   reportDataSource({ source: "cloud", domain, method, fallback: true });
+  if (import.meta.env.DEV && (domain === "relatorios" || domain === "dashboard")) {
+    const tag = domain === "dashboard" ? "[LOCAL_DASHBOARD]" : "[LOCAL_REPORTS]";
+    // eslint-disable-next-line no-console
+    console.debug(`${tag} ${domain}.${method} (origem=cloud-fallback)`);
+  }
   return result;
 }
 
