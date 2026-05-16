@@ -415,7 +415,19 @@ export function BackupSeguranca({ cfg }: Props) {
                     return (
                       <tr key={f.path} className="border-t border-border">
                         <td className="px-3 py-2 font-mono text-[11px]">
-                          {f.name}
+                          <div>{f.name}</div>
+                          {(f.has_metadata || f.empresa_id || f.app_version) && (
+                            <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
+                              {f.has_metadata && (
+                                <span className="inline-flex items-center gap-0.5">
+                                  <CheckCircle2 className="h-2.5 w-2.5" /> meta
+                                </span>
+                              )}
+                              {f.empresa_id && <span>emp: {f.empresa_id.slice(0, 8)}…</span>}
+                              {f.app_version && <span>v{f.app_version}</span>}
+                              {f.hostname && <span>@{f.hostname}</span>}
+                            </div>
+                          )}
                         </td>
                         <td className="px-3 py-2">
                           <Badge variant={variant}>{f.kind}</Badge>
@@ -426,6 +438,15 @@ export function BackupSeguranca({ cfg }: Props) {
                         </td>
                         <td className="px-3 py-2 text-right">
                           <div className="flex justify-end gap-1">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleValidate(f.path)}
+                              disabled={!!busy}
+                              title="Validar integridade (checksum + schema + tenant)"
+                            >
+                              <ShieldCheck className="h-3 w-3" />
+                            </Button>
                             <Button
                               size="sm"
                               variant={isExportSrc ? "default" : "outline"}
@@ -441,6 +462,15 @@ export function BackupSeguranca({ cfg }: Props) {
                               title="Abrir pasta deste backup"
                             >
                               <FolderOpen className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleDelete(f)}
+                              disabled={!!busy}
+                              title="Excluir backup"
+                            >
+                              <Trash2 className="h-3 w-3" />
                             </Button>
                           </div>
                         </td>
