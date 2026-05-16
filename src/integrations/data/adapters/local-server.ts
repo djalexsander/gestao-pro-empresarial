@@ -34,6 +34,7 @@ import type { DataAdapter } from "../adapter";
 import { cloudAdapter } from "./cloud";
 import { reportDataSource } from "../source-telemetry";
 import { getLocalServerStatus } from "@/integrations/desktop/tauriBridge";
+import { buildDashboardFromRaw } from "./offline-dashboard";
 
 const HTTP_TIMEOUT_MS = 4000;
 
