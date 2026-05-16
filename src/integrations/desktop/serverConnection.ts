@@ -1927,10 +1927,17 @@ export interface BackupStatusPayload {
   last_auto_backup_ms: number | null;
   last_restore_ms: number | null;
   restore_pending: boolean;
-  auto_retention: number;
+  auto_retention_daily?: number;
+  auto_retention_weekly?: number;
+  /** @deprecated mantido para compat; back-end novo expõe daily/weekly */
+  auto_retention?: number;
   auto_interval_ms: number;
   total_backups: number;
   total_size_bytes: number;
+  current_empresa_id?: string | null;
+  current_schema_version?: string | null;
+  app_version?: string;
+  hostname?: string;
 }
 
 export interface BackupFileItem {
@@ -1939,6 +1946,11 @@ export interface BackupFileItem {
   size_bytes: number;
   modified_ms: number;
   kind: string;
+  has_metadata?: boolean;
+  empresa_id?: string | null;
+  schema_version?: string | null;
+  app_version?: string | null;
+  hostname?: string | null;
 }
 
 export interface BackupLogEntry {
@@ -1949,6 +1961,23 @@ export interface BackupLogEntry {
   size_bytes: number | null;
   message: string | null;
   created_at_ms: number;
+}
+
+export interface BackupValidationReport {
+  valid: boolean;
+  path: string;
+  size_bytes: number;
+  sha256: string;
+  sha256_match: boolean | null;
+  schema_version: string | null;
+  empresa_id: string | null;
+  current_empresa_id: string | null;
+  tenant_match: boolean | null;
+  app_version: string | null;
+  hostname: string | null;
+  has_metadata: boolean;
+  errors: string[];
+  warnings: string[];
 }
 
 async function getJson<T>(
