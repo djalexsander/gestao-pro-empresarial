@@ -10473,6 +10473,17 @@ pub fn compra_receber_local(
 
         let _status = compra_recompute_status(&tx, compra_local_uuid, Some(data_recebimento), now_ms)?;
 
+        // v22 (Etapa 9): gera contas a pagar local quando a compra for
+        // a prazo (vencimento informado) e o usuário pedir financeiro.
+        // Idempotente via uq_contas_pagar_origem_compra.
+        if gerar_financeiro {
+            let venc_ms = data_vencimento.and_then(parse_date_only_to_ms);
+            if venc_ms.is_some() {
+                let _ = criar_pagar_from_compra_tx(&tx, compra_local_uuid, venc_ms, now_ms)?;
+            }
+        }
+
+
         // Outbox: 'receber' (causal — só sai quando remote_id existe).
         let mut payload = serde_json::json!({
             "_compra_id": remote_id.clone().unwrap_or_default(),
