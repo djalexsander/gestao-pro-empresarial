@@ -1651,6 +1651,137 @@ export async function retryOutboxFinanceiroErrors(
 }
 
 // =============================================================================
+// v21 — Contas a Receber locais (Sub-etapa 8.1)
+// =============================================================================
+//
+// Exposição offline-first do `contas_receber_local`:
+//   GET  /api/financeiro/receber            → lista de títulos locais
+//   POST /api/financeiro/receber/baixar     → baixa parcial/total atômica
+//   POST /api/financeiro/receber/cancelar   → cancelamento atômico
+//
+// Estes endpoints já são gravados na MESMA transação SQLite do título +
+// auditoria (`financeiro_audit_local`) e enfileirados na outbox para o
+// scheduler local promover à cloud quando voltar.
+
+export interface ContasReceberLocalFiltro {
+  status?: string; // aberto|parcial|pago|cancelado|vencido|todos
+  cliente_id?: string;
+  desde_ms?: number;
+  ate_ms?: number;
+  limit?: number;
+}
+
+export interface ContaReceberLocalRow {
+  local_uuid: string;
+  venda_local_uuid: string;
+  cliente_id: string | null;
+  cliente_nome: string | null;
+  cliente_cpf: string | null;
+  cliente_telefone: string | null;
+  forma_pagamento: string | null;
+  valor: number;
+  valor_pago: number;
+  valor_restante: number;
+  vencimento_ms: number | null;
+  status: string; // derivado: aberto|parcial|pago|cancelado|vencido
+  status_base: string;
+  sync_status: string; // synced|pending|error
+  created_at_ms: number;
+  updated_at_ms: number;
+}
+
+export interface BaixarReceberLocalInput {
+  receber_id: string;
+  valor: number;
+  forma_pagamento?: string | null;
+  data_pagamento_ms?: number | null;
+  observacao?: string | null;
+  operador_id?: string | null;
+  terminal_id?: string | null;
+  client_uuid?: string | null;
+}
+
+export interface BaixarReceberLocalResult {
+  local_uuid: string;
+  idempotente: boolean;
+  receber_local_uuid: string;
+  valor: number;
+  valor_pago_total: number;
+  valor_restante: number;
+  status: string;
+}
+
+export interface CancelarReceberLocalInput {
+  receber_id: string;
+  motivo?: string | null;
+  operador_id?: string | null;
+  terminal_id?: string | null;
+}
+
+export interface CancelarReceberLocalResult {
+  receber_local_uuid: string;
+  idempotente: boolean;
+  status: string;
+}
+
+export async function fetchContasReceberLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  filtro: ContasReceberLocalFiltro = {},
+): Promise<ContaReceberLocalRow[]> {
+  const query: Record<string, string> = {};
+  for (const [k, v] of Object.entries(filtro)) {
+    if (v === undefined || v === null || v === "") continue;
+    query[k] = String(v);
+  }
+  const rows = await getLocalJson<ContaReceberLocalRow[]>(
+    cfg,
+    "/api/financeiro/receber",
+    query,
+  );
+  return rows ?? [];
+}
+
+export async function baixarReceberLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  input: BaixarReceberLocalInput,
+): Promise<BaixarReceberLocalResult | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  try {
+    const res = await fetch(`${baseUrl}/api/financeiro/receber/baixar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(input),
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as BaixarReceberLocalResult;
+  } catch {
+    return null;
+  }
+}
+
+export async function cancelarReceberLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  input: CancelarReceberLocalInput,
+): Promise<CancelarReceberLocalResult | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  try {
+    const res = await fetch(`${baseUrl}/api/financeiro/receber/cancelar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(input),
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as CancelarReceberLocalResult;
+  } catch {
+    return null;
+  }
+}
+
+// =============================================================================
 // Backup / Restauração / Exportação (v13 — Bloco de segurança)
 // =============================================================================
 
