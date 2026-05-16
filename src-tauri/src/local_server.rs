@@ -2512,7 +2512,18 @@ async fn registrar_caixa_movimento_handler(
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("payload inválido: {e}")))?;
 
     let result = db::registrar_mov_caixa_local(input, now)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_CASH_MOVE] falha: {e}");
+            (StatusCode::BAD_REQUEST, e.to_string())
+        })?;
+    eprintln!(
+        "[LOCAL_CASH_MOVE] {} valor={} caixa_local={} mov={} idempotente={}",
+        result.tipo, result.valor, result.caixa_local_uuid, result.local_uuid, result.idempotente
+    );
+    eprintln!(
+        "[LOCAL_CASH_AUDIT] {} caixa_local={} mov={}",
+        result.tipo, result.caixa_local_uuid, result.local_uuid
+    );
 
     let mut outbox_status = "pending".to_string();
     let mut remote_id: Option<String> = None;
@@ -2520,6 +2531,9 @@ async fn registrar_caixa_movimento_handler(
         if let Ok(rid) = push_one_outbox_caixa(&ctx, &headers, &result.local_uuid).await {
             outbox_status = "sent".into();
             remote_id = Some(rid);
+            eprintln!("[LOCAL_CASH_OUTBOX] movimento sent mov={}", result.local_uuid);
+        } else {
+            eprintln!("[LOCAL_CASH_OUTBOX] movimento pending mov={}", result.local_uuid);
         }
     } else if result.idempotente {
         if let Ok(Some(it)) = db::outbox_caixa_get(&result.local_uuid) {
