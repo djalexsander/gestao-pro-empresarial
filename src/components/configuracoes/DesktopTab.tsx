@@ -65,6 +65,7 @@ import {
 } from "@/integrations/desktop/serverConnection";
 import { dataClient } from "@/integrations/data";
 import { BackupSeguranca } from "./BackupSeguranca";
+import { DiagnosticoOfflineCard } from "./DiagnosticoOfflineCard";
 import { SincronizacaoCard } from "./SincronizacaoCard";
 import { AtualizacoesTab } from "./AtualizacoesTab";
 import { ImpressoraConfigCard } from "./ImpressoraConfigCard";
@@ -1812,6 +1813,8 @@ export function DesktopTab() {
         {localCfg && <SincronizacaoCard cfg={localCfg} />}
 
         {localCfg && <BackupSeguranca cfg={localCfg} />}
+
+        <DiagnosticoOfflineCard cfg={localCfg} />
 
         <ImpressoraConfigCard />
 
