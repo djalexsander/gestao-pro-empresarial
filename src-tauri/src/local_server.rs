@@ -3537,6 +3537,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/backup/delete", post(backup_delete_handler))
         .route("/backup/restore/schedule", post(backup_restore_schedule_handler))
         .route("/backup/restore/cancel", post(backup_restore_cancel_handler))
+        .route("/api/sync/overview", get(sync_overview_handler))
         .with_state(ctx)
         .layer(cors)
 }
