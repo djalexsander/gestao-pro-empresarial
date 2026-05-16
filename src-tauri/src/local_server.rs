@@ -4724,7 +4724,14 @@ async fn fornecedor_editar_handler(
         o.remove("_fornecedor_id");
     }
     let r = db::fornecedor_editar_local(&lid, payload)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_SUPPLIER] editar falha local={lid} err={e}");
+            (StatusCode::BAD_REQUEST, e.to_string())
+        })?;
+    eprintln!(
+        "[LOCAL_SUPPLIER] editar ok local={} remote={:?} idempotente={}",
+        r.fornecedor_local_uuid, r.fornecedor_remote_id, r.idempotente
+    );
     let mut outbox_status = "pending".to_string();
     if !r.idempotente && ctx.upstream.is_some() {
         if let Ok(items) = db::outbox_fornecedores_list(20, Some("pending")) {
