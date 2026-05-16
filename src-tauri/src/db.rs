@@ -1228,6 +1228,36 @@ pub fn init() -> DbResult<()> {
             ON contas_receber_local(cliente_id);
         CREATE INDEX IF NOT EXISTS idx_cr_local_venda
             ON contas_receber_local(venda_local_uuid);
+
+        -- ====================================================================
+        -- v20 (Etapa 7): trilha de auditoria local do caixa.
+        --
+        -- Gravada DENTRO da mesma transação SQLite de abrir/movimentar/fechar
+        -- o caixa, garante registro forense mesmo offline. Não vai à nuvem;
+        -- apenas leitura local + relatórios de auditoria.
+        -- ====================================================================
+        CREATE TABLE IF NOT EXISTS caixa_audit_local (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts_ms             INTEGER NOT NULL,
+            evento            TEXT NOT NULL,   -- 'abertura'|'suprimento'|'sangria'|'fechamento'|'autorizacao'
+            caixa_local_uuid  TEXT NOT NULL,
+            mov_local_uuid    TEXT,
+            client_uuid       TEXT,
+            operador_id       TEXT,
+            terminal_id       TEXT,
+            valor             REAL,
+            motivo            TEXT,
+            valor_informado   REAL,
+            diferenca         REAL,
+            origem            TEXT,            -- 'servidor'|'terminal'
+            sync_status       TEXT NOT NULL DEFAULT 'pending'
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_caixa_ts
+            ON caixa_audit_local(ts_ms DESC);
+        CREATE INDEX IF NOT EXISTS idx_audit_caixa_caixa
+            ON caixa_audit_local(caixa_local_uuid, ts_ms DESC);
+        CREATE INDEX IF NOT EXISTS idx_audit_caixa_evento
+            ON caixa_audit_local(evento, ts_ms DESC);
         "#,
     )?;
 
