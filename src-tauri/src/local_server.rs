@@ -5272,11 +5272,19 @@ async fn compra_receber_itens_handler(
     let itens: Vec<db::CompraReceberItem> = req.itens.into_iter()
         .map(|i| db::CompraReceberItem { item_id: i.item_id, quantidade: i.quantidade })
         .collect();
+    let qtd_itens = itens.len();
     let r = db::compra_receber_itens_local(
         &lid, itens, &data_rec,
         req.gerar_financeiro.unwrap_or(true),
         req.data_vencimento.as_deref(),
-    ).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    ).map_err(|e| {
+        eprintln!("[LOCAL_PURCHASE] receber_itens falha local={lid} qtd={qtd_itens} err={e}");
+        (StatusCode::BAD_REQUEST, e.to_string())
+    })?;
+    eprintln!(
+        "[LOCAL_PURCHASE] receber_itens ok local={} qtd_itens={} remote={:?} idempotente={}",
+        r.compra_local_uuid, qtd_itens, r.compra_remote_id, r.idempotente
+    );
     let mut outbox_status = "pending".to_string();
     if ctx.upstream.is_some() && r.compra_remote_id.is_some() {
         if let Ok(items) = db::outbox_compras_list(50, Some("pending")) {
