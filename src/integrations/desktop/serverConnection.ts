@@ -2060,15 +2060,32 @@ export async function exportarBackup(
 export async function agendarRestauracao(
   cfg: TerminalConexaoConfig | undefined,
   source_path: string,
+  options?: { forceOtherTenant?: boolean },
 ) {
   return postJson<BackupLogEntry>(cfg, "/backup/restore/schedule", {
     source_path,
+    force_other_tenant: options?.forceOtherTenant ?? false,
   });
 }
 
 export async function cancelarRestauracao(cfg?: TerminalConexaoConfig) {
   const r = await postJson<{ cancelled: boolean }>(cfg, "/backup/restore/cancel");
   return r?.cancelled ?? false;
+}
+
+export async function validarBackup(
+  cfg: TerminalConexaoConfig | undefined,
+  source_path: string,
+) {
+  return postJson<BackupValidationReport>(cfg, "/backup/validate", { source_path });
+}
+
+export async function excluirBackup(
+  cfg: TerminalConexaoConfig | undefined,
+  path: string,
+) {
+  const r = await postJson<{ deleted: boolean }>(cfg, "/backup/delete", { path });
+  return r?.deleted ?? false;
 }
 
 // ----------------------------------------------------------------------------
