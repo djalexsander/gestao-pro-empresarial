@@ -1176,13 +1176,36 @@ export const localTerminalAdapter: DataAdapter = {
             lancamento_id: input.lancamento_id,
           });
         }
+        // Fallthrough Etapa 9: pode ser um título a pagar (`contas_pagar_local`).
+        const rp = await baixarPagarLocal(cfg, {
+          pagar_id: input.lancamento_id,
+          valor: input.valor,
+          forma_pagamento: input.forma_pagamento ?? null,
+          data_pagamento_ms: Number.isFinite(dataMs) ? dataMs : Date.now(),
+          observacao: input.observacao ?? null,
+          client_uuid: input.client_uuid ?? null,
+        });
+        if (rp) {
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.debug("[LOCAL_PAYABLE_UI] baixa servidor local ok", {
+              titulo: rp.pagar_local_uuid,
+              status: rp.status,
+              idempotente: rp.idempotente,
+            });
+          }
+          reportDataSource({ source: "local-server", domain: "financeiro", method: "registrarPagamento", fallback: false });
+          return {
+            pagamento_id: rp.local_uuid,
+            lancamento_id: rp.pagar_local_uuid,
+            idempotente: rp.idempotente,
+          };
+        }
       }
       const out = await cloudAdapter.financeiro.registrarPagamento(input);
       reportDataSource({ source: "cloud", domain: "financeiro", method: "registrarPagamento", fallback: true });
       return out;
     },
-
-    cancelarLancamento: async (input) => {
       const cfg = getDesktopConfig().terminal;
       if (getBaseUrl(cfg)) {
         const r = await cancelarReceberLocal(cfg, {
