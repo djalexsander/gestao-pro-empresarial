@@ -65,6 +65,7 @@ import {
 } from "@/integrations/desktop/serverConnection";
 import { dataClient } from "@/integrations/data";
 import { BackupSeguranca } from "./BackupSeguranca";
+import { SincronizacaoCard } from "./SincronizacaoCard";
 import { AtualizacoesTab } from "./AtualizacoesTab";
 import { ImpressoraConfigCard } from "./ImpressoraConfigCard";
 import { ServerReadinessCard } from "./ServerReadinessCard";
