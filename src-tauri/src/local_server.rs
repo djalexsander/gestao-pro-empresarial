@@ -3527,6 +3527,8 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/backup/log", get(backup_log_handler))
         .route("/backup/create", post(backup_create_handler))
         .route("/backup/export", post(backup_export_handler))
+        .route("/backup/validate", post(backup_validate_handler))
+        .route("/backup/delete", post(backup_delete_handler))
         .route("/backup/restore/schedule", post(backup_restore_schedule_handler))
         .route("/backup/restore/cancel", post(backup_restore_cancel_handler))
         .with_state(ctx)
