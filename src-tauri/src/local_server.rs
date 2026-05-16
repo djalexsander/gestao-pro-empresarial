@@ -3112,7 +3112,68 @@ async fn financeiro_receber_cancelar_handler(
     Ok(Json(r))
 }
 
-///
+// ---------- /api/financeiro/pagar (v22 — Etapa 9) ----------
+//
+// Contas a PAGAR offline. Espelho do /api/financeiro/receber. Cada
+// operação é gravada na MESMA transação SQLite do título
+// (`contas_pagar_local`) + auditoria (`financeiro_audit_local`).
+// A criação automática nasce de `compra_receber_local` quando a
+// compra é a prazo (vencimento informado) e o usuário pediu
+// gerar_financeiro — atomicamente com a entrada de estoque.
+
+async fn financeiro_pagar_listar_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<db::ContaPagarLocalRow>>, (StatusCode, String)> {
+    let f = db::ContasPagarLocalFiltro {
+        status: q.get("status").cloned(),
+        fornecedor_id: q.get("fornecedor_id").cloned(),
+        compra_id: q.get("compra_id").cloned(),
+        desde_ms: parse_i64(&q, "desde_ms"),
+        ate_ms: parse_i64(&q, "ate_ms"),
+        limit: parse_i64(&q, "limit"),
+    };
+    let rows = db::contas_pagar_local_list(&f, now_ms()).map_err(|e| {
+        eprintln!("[LOCAL_PAYABLE] list falha: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    })?;
+    eprintln!("[LOCAL_PAYABLE] list ok rows={}", rows.len());
+    Ok(Json(rows))
+}
+
+async fn financeiro_pagar_baixar_handler(
+    Json(payload): Json<db::BaixarPagarInput>,
+) -> Result<Json<db::BaixarPagarResult>, (StatusCode, String)> {
+    let now = now_ms();
+    let r = db::baixar_pagar_local(payload, now).map_err(|e| {
+        eprintln!("[LOCAL_PAYABLE] baixa falha: {e}");
+        (StatusCode::BAD_REQUEST, e.to_string())
+    })?;
+    eprintln!(
+        "[LOCAL_PAYABLE] baixa ok titulo={} pago_total={} restante={} status={} idempotente={}",
+        r.pagar_local_uuid, r.valor_pago_total, r.valor_restante, r.status, r.idempotente
+    );
+    eprintln!("[LOCAL_FINANCE_AUDIT] pagamento titulo={} valor={}", r.pagar_local_uuid, r.valor);
+    eprintln!("[LOCAL_CASHFLOW] saida realizada valor={} forma={:?}", r.valor, None::<String>);
+    Ok(Json(r))
+}
+
+async fn financeiro_pagar_cancelar_handler(
+    Json(payload): Json<db::CancelarPagarInput>,
+) -> Result<Json<db::CancelarPagarResult>, (StatusCode, String)> {
+    let now = now_ms();
+    let r = db::cancelar_pagar_local(payload, now).map_err(|e| {
+        eprintln!("[LOCAL_PAYABLE] cancelar falha: {e}");
+        (StatusCode::BAD_REQUEST, e.to_string())
+    })?;
+    eprintln!(
+        "[LOCAL_PAYABLE] cancelado titulo={} status={} idempotente={}",
+        r.pagar_local_uuid, r.status, r.idempotente
+    );
+    eprintln!("[LOCAL_FINANCE_AUDIT] cancelamento_pagar titulo={}", r.pagar_local_uuid);
+    Ok(Json(r))
+}
+
+
 ///   - `abrir`     → RPC `abrir_caixa`      → devolve UUID do caixa criado
 ///   - `movimento` → RPC `caixa_registrar_movimento` → devolve id do movimento
 ///   - `fechar`    → RPC `fechar_caixa`     → devolve JSON; usamos `caixa_id`
@@ -3406,6 +3467,9 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/financeiro/receber", get(financeiro_receber_listar_handler))
         .route("/api/financeiro/receber/baixar", post(financeiro_receber_baixar_handler))
         .route("/api/financeiro/receber/cancelar", post(financeiro_receber_cancelar_handler))
+        .route("/api/financeiro/pagar", get(financeiro_pagar_listar_handler))
+        .route("/api/financeiro/pagar/baixar", post(financeiro_pagar_baixar_handler))
+        .route("/api/financeiro/pagar/cancelar", post(financeiro_pagar_cancelar_handler))
         .route("/db/outbox/caixa", get(outbox_caixa_list_handler))
         .route("/db/outbox/caixa/stats", get(outbox_caixa_stats_handler))
         .route("/db/outbox/caixa/flush", post(outbox_caixa_flush_handler))
@@ -4963,6 +5027,11 @@ async fn compra_criar_handler(
         }
     }
     let compra_id = compra_remote_id.clone().unwrap_or_else(|| r.compra_local_uuid.clone());
+    eprintln!(
+        "[LOCAL_PURCHASE] criar ok local={} remote={:?} idempotente={} outbox={}",
+        r.compra_local_uuid, compra_remote_id, r.idempotente, outbox_status
+    );
+    eprintln!("[LOCAL_PURCHASE_OUTBOX] enqueue action=criar local={}", r.compra_local_uuid);
     Ok(Json(CompraCriarResponse {
         compra_id,
         compra_local_uuid: r.compra_local_uuid,

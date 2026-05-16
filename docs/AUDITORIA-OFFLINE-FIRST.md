@@ -630,3 +630,77 @@ Nenhum caminho dispara cloud primeiro em modo desktop/local.
 - Estrutura do `dataClient` exposto à UI — a troca acontece somente
   dentro do adapter selecionado em runtime conforme modo (cloud,
   servidor local, terminal LAN).
+
+---
+
+## Etapa 9 — Compras, Fornecedores e Contas a Pagar offline-first
+
+### O que esta etapa entrega
+
+Fornecedores e compras já tinham infraestrutura completa nas etapas
+anteriores (offline-first com `outbox_fornecedores` / `outbox_compras`,
+recebimento de mercadoria atomicamente com entrada de estoque,
+idempotência por `client_uuid`, colapso de ações e causalidade
+entre `criar` → demais ações). A Etapa 9 adiciona o que faltava:
+**Contas a Pagar offline geradas por compras a prazo**, com baixa,
+cancelamento e auditoria locais.
+
+### Mudanças
+
+- **Schema v22 (`db.rs`)**:
+  - `contas_pagar_local`: título de contas a pagar com vínculo lógico
+    para `compras_local` via `compra_local_uuid`. Inclui `valor`,
+    `valor_pago`, `vencimento_ms`, `status` base e `sync_status`.
+  - `uq_contas_pagar_origem_compra`: índice único que impede duplicar
+    um título por retry de recebimento ou re-execução do trigger
+    remoto.
+  - `contas_pagar_pagtos_local`: cada baixa parcial/total, deduplicada
+    por `client_uuid`.
+- **Geração atômica via compra**:
+  - `compra_receber_local` e `compra_receber_itens_local` chamam
+    `criar_pagar_from_compra_tx` na MESMA transação SQLite quando
+    `gerar_financeiro=true` e há `data_vencimento`. Garante
+    atomicidade entre estoque + payable.
+- **Operações offline**:
+  - `contas_pagar_local_list` — leitura com `status` derivado
+    (vencido/parcial) em tempo de read, sem dependência de relógio.
+  - `baixar_pagar_local` — baixa parcial ou total, atualiza título,
+    grava pagamento + auditoria atomicamente.
+  - `cancelar_pagar_local` — cancelamento idempotente com auditoria.
+- **HTTP endpoints (`local_server.rs`)**:
+  - `GET /api/financeiro/pagar` — listagem com filtros
+    `status` / `fornecedor_id` / `compra_id` / `desde_ms` / `ate_ms`.
+  - `POST /api/financeiro/pagar/baixar` — body `BaixarPagarInput`.
+  - `POST /api/financeiro/pagar/cancelar` — body `CancelarPagarInput`.
+- **Logs DEV**:
+  - `[LOCAL_PURCHASE]`, `[LOCAL_PURCHASE_STOCK]`,
+    `[LOCAL_PURCHASE_OUTBOX]` em handlers de compras.
+  - `[LOCAL_PAYABLE]` em handlers de contas a pagar.
+  - `[LOCAL_FINANCE_AUDIT]`, `[LOCAL_CASHFLOW]` no fluxo de baixa.
+  - `[LOCAL_SUPPLIER]` em handlers de fornecedores (já existente
+    via outbox de fornecedores).
+
+### Garantias
+
+| Requisito                                | Como é garantido                                                                              |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Fornecedor offline (CRUD)                | `outbox_fornecedores` + `fornecedor_*_local` (Etapas anteriores)                              |
+| Compra offline (cabeçalho + itens)       | `compras_local` + `compra_itens_local` + `outbox_compras` (Etapas anteriores)                 |
+| Entrada de estoque por compra            | `compra_apply_recebimento_item` atomicamente com UPDATE de saldo + `estoque_movimentacoes_local` |
+| Contas a pagar por compra a prazo        | `criar_pagar_from_compra_tx` na mesma TX de `compra_receber_local`                            |
+| Baixa de pagar offline                   | `baixar_pagar_local` (TX atômica: pagto + título + auditoria)                                 |
+| Idempotência de criação                  | `uq_contas_pagar_origem_compra` (1 título por compra)                                         |
+| Idempotência de baixa                    | `uq_cp_pag_client_uuid` (1 baixa por `client_uuid`)                                           |
+| Retry sem duplicar                       | Outbox + `client_uuid` end-to-end; recheck por chave única antes de inserir                   |
+| Terminal LAN                             | Terminal chama `/api/compras/*`, `/api/fornecedores/*`, `/api/financeiro/pagar/*` no servidor local; o servidor central grava SQLite e enfileira outbox |
+| Reinício do app preserva dados           | SQLite + WAL; nada é mantido em memória                                                       |
+| Cloud como sincronização secundária      | `outbox_compras` (causal — `receber` só sai após `criar` resolver `remote_id`); pagar local atualiza UI imediata e converge ao backfill do upstream |
+
+### Fora de escopo desta etapa
+
+- Wiring direto da UI de Contas a Pagar nos novos endpoints
+  (`/api/financeiro/pagar`) — a UI atual já consome
+  `listLancamentosCompleto` (cache local), e os novos endpoints
+  expõem dados específicos para integração futura sem mudar layout.
+- Regras de negócio, cobrança, planos, Asaas, módulos, layout
+  principal — intocados.
