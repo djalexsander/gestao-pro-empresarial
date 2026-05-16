@@ -462,3 +462,44 @@ Schema local **v19**. Aditivo, sem alterar fluxo do PDV nem regras de negócio.
   Asaas, cobrança, planos, módulos, assinatura.
 - O ciclo de impressão/cupom continua usando `src/lib/cupom-print.ts`
   e `src/lib/cupom.ts` — já operam com dados locais da venda.
+
+---
+
+## Etapa 7 — Caixa 100% offline-first
+
+### Estado
+Toda a operação de caixa — abrir, suprimento, sangria, fechamento — já
+gravava no SQLite local desde a v9 e enfileirava na `outbox_caixa`
+(`abrir`/`movimento`/`fechar`) com retry + backoff exponencial. Esta etapa
+fecha o ciclo com **auditoria local atômica**, **sync status no resumo** e
+**observabilidade DEV**.
+
+### Novidades
+
+- **`caixa_audit_local` (schema v20)** — trilha forense gravada na
+  **MESMA transação** SQLite da abertura/movimento/fechamento. Não vai
+  à nuvem (a `outbox_caixa` já carrega tudo), serve para auditoria
+  offline local. Eventos: `abertura`, `suprimento`, `sangria`,
+  `fechamento`, `autorizacao` (reservado).
+- **`CaixaResumoLocal.sync_pending` + `sync_status`** — o resumo agora
+  expõe quantos itens da `outbox_caixa` ainda estão pending/sending/error
+  para o caixa em questão, classificando como `synced` / `pending` / `error`.
+- **Logs DEV** nos handlers HTTP:
+  `[LOCAL_CASH_OPEN]`, `[LOCAL_CASH_MOVE]`, `[LOCAL_CASH_CLOSE]`,
+  `[LOCAL_CASH_AUDIT]`, `[LOCAL_CASH_OUTBOX]`, `[LOCAL_CASH]`.
+
+### Garantias
+
+| Cenário | Garantia |
+|---|---|
+| Reabrir caixa para mesmo operador | Idempotente: devolve o caixa aberto existente em vez de criar outro |
+| Duplo clique em Sangria / Suprimento | Bloqueado por `uq_outbox_caixa_client_uuid` + idempotência por `client_uuid` |
+| Fechar caixa duas vezes | `fechar_caixa_local` exige `status='aberto'` (erro claro) e a outbox é deduplicada por `client_uuid` |
+| Crash durante movimento | Rollback total — caixa, mov, outbox e auditoria saem juntos ou não saem |
+| Terminal LAN | `local-terminal.ts` POSTa em `/api/caixa/*` no servidor central — nenhum acesso direto a Supabase para caixa |
+| Vínculo venda↔caixa | `registrar_venda_local` já resolve o caixa aberto por operador e grava em `vendas_local.caixa_local_uuid` automaticamente |
+
+### Não alterado
+- Layout do caixa, regras de autorização (gerente para sangria/fechamento
+  com falta), fluxos atuais da UI, Asaas, cobrança, planos, módulos,
+  assinatura.
