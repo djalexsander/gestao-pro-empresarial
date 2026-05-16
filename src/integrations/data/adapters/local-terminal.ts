@@ -37,7 +37,9 @@ import {
   alterarStatusClienteLocal,
   alterarStatusCompraLocal,
   alterarStatusFornecedorLocal,
+  baixarPagarLocal,
   baixarReceberLocal,
+  cancelarPagarLocal,
   cancelarReceberLocal,
   cancelarVendaLocal,
   criarClienteLocal,
@@ -50,6 +52,7 @@ import {
   excluirCompraLocal,
   excluirFornecedorLocal,
   fecharCaixaLocal,
+  fetchContasPagarLocal,
   fetchContasReceberLocal,
   getBaseUrl,
   receberCompraItensLocal,
@@ -58,6 +61,7 @@ import {
   registrarMovimentoLocal,
   registrarVendaLocal,
   validarPinServidor,
+  type ContaPagarLocalRow,
   type ContaReceberLocalRow,
 } from "@/integrations/desktop/serverConnection";
 import type {
@@ -265,8 +269,76 @@ function mapContaReceberToFiadoDomain(
 }
 
 // ----------------------------------------------------------------------------
-// Adapter
+// Etapa 9 — Contas a Pagar offline-first
 // ----------------------------------------------------------------------------
+
+function statusContaPagarToDomain(status: string): string {
+  switch (status) {
+    case "pago":
+      return "pago";
+    case "parcial":
+      return "parcial";
+    case "cancelado":
+      return "cancelado";
+    case "vencido":
+      return "vencido";
+    case "aberto":
+    default:
+      return "pendente";
+  }
+}
+
+function mapContaPagarToLancamentoCompleto(
+  r: ContaPagarLocalRow,
+): import("../adapter").LancamentoCompletoDomain {
+  const dataEmissao = msToIsoDate(r.data_emissao_ms ?? r.created_at_ms);
+  const dataVenc =
+    msToIsoDate(r.vencimento_ms ?? r.created_at_ms) ?? dataEmissao ?? "";
+  const dataPag =
+    r.valor_pago > 0 || r.status === "pago" ? msToIsoDate(r.updated_at_ms) : null;
+  const syncTag =
+    r.sync_status && r.sync_status !== "synced" ? `[sync:${r.sync_status}] ` : "";
+  return {
+    id: r.remote_id ?? r.local_uuid,
+    descricao: `${syncTag}${r.descricao ?? "Conta a pagar"}`,
+    valor: r.valor,
+    valor_pago: r.valor_pago,
+    data_vencimento: dataVenc,
+    data_pagamento: dataPag,
+    data_emissao: dataEmissao,
+    // Mantemos "despesa" para compatibilidade com filtros da tela /financeiro
+    // (que tratam despesa como sinônimo de "pagar").
+    tipo: "despesa" as unknown as "pagar",
+    status: statusContaPagarToDomain(r.status),
+    observacoes: r.observacao ?? null,
+    numero_documento: null,
+    forma_pagamento: r.forma_pagamento,
+    created_at: msToIsoDate(r.created_at_ms),
+    conciliado_em: null,
+    valor_repasse: null,
+    taxa_repasse: null,
+    numero_repasse: null,
+    observacao_repasse: null,
+    cliente_id: null,
+    venda_id: null,
+    compra_id: r.compra_remote_id ?? r.compra_local_uuid,
+    fornecedor_nome: r.fornecedor_nome,
+    fornecedor_documento: null,
+    fornecedor_telefone: null,
+    cliente_nome: null,
+    cliente_documento: null,
+    cliente_telefone: null,
+    cliente_email: null,
+    venda_numero: null,
+    venda_data: null,
+    venda_total: null,
+    compra_numero: null,
+    compra_data_emissao: null,
+    compra_total: null,
+    compra_status: null,
+    categoria_nome: null,
+  };
+}
 
 export const localTerminalAdapter: DataAdapter = {
   ...cloudAdapter,
@@ -935,62 +1007,98 @@ export const localTerminalAdapter: DataAdapter = {
    */
   financeiro: {
     ...cloudAdapter.financeiro,
-    listLancamentosCompleto: () =>
-      withFallback(
-        "financeiro",
-        "listLancamentosCompleto",
-        async () => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const raw = await tryLocal<any[]>(
-            "financeiro_lancamentos_completo",
-            "listLancamentosCompleto",
-            "/api/financeiro/lancamentos-completo",
-          );
-          if (!Array.isArray(raw)) return null;
-          return raw.map(
-            (r): import("../adapter").LancamentoCompletoDomain => ({
-              id: r.id,
-              descricao: r.descricao,
-              valor: r.valor,
-              valor_pago: r.valor_pago,
-              data_vencimento: r.data_vencimento,
-              data_pagamento: r.data_pagamento,
-              data_emissao: r.data_emissao,
-              tipo: r.tipo,
-              status: r.status,
-              observacoes: r.observacoes,
-              numero_documento: r.numero_documento,
-              forma_pagamento: r.forma_pagamento,
-              created_at: r.created_at,
-              conciliado_em: r.conciliado_em,
-              valor_repasse: r.valor_repasse,
-              taxa_repasse: r.taxa_repasse,
-              numero_repasse: r.numero_repasse,
-              observacao_repasse: r.observacao_repasse,
-              cliente_id: r.cliente_id,
-              venda_id: r.venda_id,
-              compra_id: r.compra_id,
-              fornecedor_nome:
-                r.fornecedor?.nome_fantasia ?? r.fornecedor?.razao_social ?? null,
-              fornecedor_documento: r.fornecedor?.documento ?? null,
-              fornecedor_telefone: r.fornecedor?.telefone ?? null,
-              cliente_nome: r.cliente?.nome ?? null,
-              cliente_documento: r.cliente?.documento ?? null,
-              cliente_telefone: r.cliente?.telefone ?? r.cliente?.celular ?? null,
-              cliente_email: r.cliente?.email ?? null,
-              venda_numero: r.venda?.numero ?? null,
-              venda_data: r.venda?.data_finalizacao ?? null,
-              venda_total: r.venda?.total ?? null,
-              compra_numero: r.compra?.numero ?? null,
-              compra_data_emissao: r.compra?.data_emissao ?? null,
-              compra_total: r.compra?.total ?? null,
-              compra_status: r.compra?.status ?? null,
-              categoria_nome: r.categoria?.nome ?? null,
-            }),
-          );
-        },
-        () => cloudAdapter.financeiro.listLancamentosCompleto(),
-      ),
+    listLancamentosCompleto: async () => {
+      // Cache remoto (proxied) primeiro; depois mescla títulos a pagar
+      // locais (`contas_pagar_local`) que ainda não vieram da nuvem ou
+      // foram gerados offline a partir de `compra_receber_local`.
+      const cfg = getDesktopConfig().terminal;
+      let remoteRows: import("../adapter").LancamentoCompletoDomain[] | null = null;
+      try {
+        remoteRows = await withFallback(
+          "financeiro",
+          "listLancamentosCompleto",
+          async () => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const raw = await tryLocal<any[]>(
+              "financeiro_lancamentos_completo",
+              "listLancamentosCompleto",
+              "/api/financeiro/lancamentos-completo",
+            );
+            if (!Array.isArray(raw)) return null;
+            return raw.map(
+              (r): import("../adapter").LancamentoCompletoDomain => ({
+                id: r.id,
+                descricao: r.descricao,
+                valor: r.valor,
+                valor_pago: r.valor_pago,
+                data_vencimento: r.data_vencimento,
+                data_pagamento: r.data_pagamento,
+                data_emissao: r.data_emissao,
+                tipo: r.tipo,
+                status: r.status,
+                observacoes: r.observacoes,
+                numero_documento: r.numero_documento,
+                forma_pagamento: r.forma_pagamento,
+                created_at: r.created_at,
+                conciliado_em: r.conciliado_em,
+                valor_repasse: r.valor_repasse,
+                taxa_repasse: r.taxa_repasse,
+                numero_repasse: r.numero_repasse,
+                observacao_repasse: r.observacao_repasse,
+                cliente_id: r.cliente_id,
+                venda_id: r.venda_id,
+                compra_id: r.compra_id,
+                fornecedor_nome:
+                  r.fornecedor?.nome_fantasia ?? r.fornecedor?.razao_social ?? null,
+                fornecedor_documento: r.fornecedor?.documento ?? null,
+                fornecedor_telefone: r.fornecedor?.telefone ?? null,
+                cliente_nome: r.cliente?.nome ?? null,
+                cliente_documento: r.cliente?.documento ?? null,
+                cliente_telefone: r.cliente?.telefone ?? r.cliente?.celular ?? null,
+                cliente_email: r.cliente?.email ?? null,
+                venda_numero: r.venda?.numero ?? null,
+                venda_data: r.venda?.data_finalizacao ?? null,
+                venda_total: r.venda?.total ?? null,
+                compra_numero: r.compra?.numero ?? null,
+                compra_data_emissao: r.compra?.data_emissao ?? null,
+                compra_total: r.compra?.total ?? null,
+                compra_status: r.compra?.status ?? null,
+                categoria_nome: r.categoria?.nome ?? null,
+              }),
+            );
+          },
+          () => cloudAdapter.financeiro.listLancamentosCompleto(),
+        );
+      } catch {
+        remoteRows = [];
+      }
+      const base = remoteRows ?? [];
+      // Mescla locais a pagar não represados ainda no cache remoto.
+      if (getBaseUrl(cfg)) {
+        try {
+          const locais = await fetchContasPagarLocal(cfg, { status: "todos", limit: 1000 });
+          if (locais.length > 0) {
+            const remoteIds = new Set(base.map((b) => b.id));
+            const mesclar = locais
+              .filter((l) => !(l.remote_id && remoteIds.has(l.remote_id)))
+              .map(mapContaPagarToLancamentoCompleto);
+            if (mesclar.length > 0) {
+              if (import.meta.env.DEV) {
+                // eslint-disable-next-line no-console
+                console.debug("[LOCAL_PAYABLE_UI] merge listLancamentos", {
+                  remotos: base.length,
+                  locais: mesclar.length,
+                });
+              }
+              return [...base, ...mesclar];
+            }
+          }
+        } catch {
+          // sem rede local, devolve só o cache remoto
+        }
+      }
+      return base;
+    },
 
     // -----------------------------------------------------------------
     // Sub-etapa 8.1 — Clientes a Receber / Fiado offline-first
@@ -1068,6 +1176,31 @@ export const localTerminalAdapter: DataAdapter = {
             lancamento_id: input.lancamento_id,
           });
         }
+        // Fallthrough Etapa 9: pode ser um título a pagar (`contas_pagar_local`).
+        const rp = await baixarPagarLocal(cfg, {
+          pagar_id: input.lancamento_id,
+          valor: input.valor,
+          forma_pagamento: input.forma_pagamento ?? null,
+          data_pagamento_ms: Number.isFinite(dataMs) ? dataMs : Date.now(),
+          observacao: input.observacao ?? null,
+          client_uuid: input.client_uuid ?? null,
+        });
+        if (rp) {
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.debug("[LOCAL_PAYABLE_UI] baixa servidor local ok", {
+              titulo: rp.pagar_local_uuid,
+              status: rp.status,
+              idempotente: rp.idempotente,
+            });
+          }
+          reportDataSource({ source: "local-server", domain: "financeiro", method: "registrarPagamento", fallback: false });
+          return {
+            pagamento_id: rp.local_uuid,
+            lancamento_id: rp.pagar_local_uuid,
+            idempotente: rp.idempotente,
+          };
+        }
       }
       const out = await cloudAdapter.financeiro.registrarPagamento(input);
       reportDataSource({ source: "cloud", domain: "financeiro", method: "registrarPagamento", fallback: true });
@@ -1098,7 +1231,24 @@ export const localTerminalAdapter: DataAdapter = {
           console.debug("[LOCAL_RECEIVABLE_UI] cancelamento local falhou — fallback cloud", {
             lancamento_id: input.lancamento_id,
           });
+        // Fallthrough Etapa 9: pode ser um título a pagar.
+        const rp = await cancelarPagarLocal(cfg, {
+          pagar_id: input.lancamento_id,
+          motivo: input.motivo ?? null,
+        });
+        if (rp) {
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.debug("[LOCAL_PAYABLE_UI] cancelamento servidor local ok", {
+              titulo: rp.pagar_local_uuid,
+              status: rp.status,
+              idempotente: rp.idempotente,
+            });
+          }
+          reportDataSource({ source: "local-server", domain: "financeiro", method: "cancelarLancamento", fallback: false });
+          return { lancamento_id: rp.pagar_local_uuid, idempotente: rp.idempotente };
         }
+      }
       }
       const out = await cloudAdapter.financeiro.cancelarLancamento(input);
       reportDataSource({ source: "cloud", domain: "financeiro", method: "cancelarLancamento", fallback: true });

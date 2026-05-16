@@ -2649,6 +2649,7 @@ async fn fornecedores_handler(
         params.push(("status", format!("eq.{s}")));
     }
     let q_owned: Vec<(&str, String)> = params.iter().map(|(k, v)| (*k, v.clone())).collect();
+    eprintln!("[LOCAL_SUPPLIER] list status={:?}", status_val);
     proxy_with_incremental_sync(&ctx, &headers, "fornecedores", "/rest/v1/fornecedores", &q_owned, false).await
 }
 
@@ -2713,6 +2714,7 @@ async fn compras_handler(
     // Pseudo-filtro só para a leitura local (não vai ao upstream — proxy_get
     // só repassa as chaves conhecidas do PostgREST).
     params.push(("__filter_limit", limit.to_string()));
+    eprintln!("[LOCAL_PURCHASE] list limit={limit}");
     proxy_with_incremental_sync(&ctx, &headers, "compras", "/rest/v1/compras", &params, false).await
 }
 
@@ -4659,7 +4661,14 @@ async fn fornecedor_criar_handler(
     Json(req): Json<FornecedorCriarRequest>,
 ) -> Result<Json<FornecedorCriarResponse>, (StatusCode, String)> {
     let r = db::fornecedor_criar_local(req.payload)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_SUPPLIER] criar falha err={e}");
+            (StatusCode::BAD_REQUEST, e.to_string())
+        })?;
+    eprintln!(
+        "[LOCAL_SUPPLIER] criar ok local={} remote={:?} idempotente={}",
+        r.fornecedor_local_uuid, r.fornecedor_remote_id, r.idempotente
+    );
     let mut outbox_status = "pending".to_string();
     let mut remote_response: Option<String> = None;
     let mut fornecedor_remote_id = r.fornecedor_remote_id.clone();
@@ -4717,7 +4726,14 @@ async fn fornecedor_editar_handler(
         o.remove("_fornecedor_id");
     }
     let r = db::fornecedor_editar_local(&lid, payload)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_SUPPLIER] editar falha local={lid} err={e}");
+            (StatusCode::BAD_REQUEST, e.to_string())
+        })?;
+    eprintln!(
+        "[LOCAL_SUPPLIER] editar ok local={} remote={:?} idempotente={}",
+        r.fornecedor_local_uuid, r.fornecedor_remote_id, r.idempotente
+    );
     let mut outbox_status = "pending".to_string();
     if !r.idempotente && ctx.upstream.is_some() {
         if let Ok(items) = db::outbox_fornecedores_list(20, Some("pending")) {
@@ -4752,7 +4768,14 @@ async fn fornecedor_alterar_status_handler(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((StatusCode::NOT_FOUND, "fornecedor não encontrado".to_string()))?;
     let r = db::fornecedor_alterar_status_local(&lid, &req.status)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_SUPPLIER] alterar_status falha local={lid} status={} err={e}", req.status);
+            (StatusCode::BAD_REQUEST, e.to_string())
+        })?;
+    eprintln!(
+        "[LOCAL_SUPPLIER] alterar_status ok local={} status={} idempotente={}",
+        r.fornecedor_local_uuid, req.status, r.idempotente
+    );
     let mut outbox_status = "pending".to_string();
     if !r.idempotente && ctx.upstream.is_some() {
         if let Ok(items) = db::outbox_fornecedores_list(20, Some("pending")) {
@@ -4786,7 +4809,14 @@ async fn fornecedor_excluir_handler(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((StatusCode::NOT_FOUND, "fornecedor não encontrado".to_string()))?;
     let r = db::fornecedor_excluir_local(&lid)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_SUPPLIER] excluir falha local={lid} err={e}");
+            (StatusCode::BAD_REQUEST, e.to_string())
+        })?;
+    eprintln!(
+        "[LOCAL_SUPPLIER] excluir ok local={} idempotente={}",
+        r.fornecedor_local_uuid, r.idempotente
+    );
     let mut outbox_status = "pending".to_string();
     if !r.idempotente && ctx.upstream.is_some() {
         if let Ok(items) = db::outbox_fornecedores_list(20, Some("pending")) {
@@ -5072,7 +5102,14 @@ async fn compra_editar_metadados_handler(
         o.remove("_compra_id");
     }
     let r = db::compra_editar_metadados_local(&lid, payload)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_PURCHASE] editar_metadados falha local={lid} err={e}");
+            (StatusCode::BAD_REQUEST, e.to_string())
+        })?;
+    eprintln!(
+        "[LOCAL_PURCHASE] editar_metadados ok local={} remote={:?} idempotente={}",
+        r.compra_local_uuid, r.compra_remote_id, r.idempotente
+    );
     let mut outbox_status = "pending".to_string();
     if !r.idempotente && ctx.upstream.is_some() {
         if let Ok(items) = db::outbox_compras_list(50, Some("pending")) {
@@ -5111,7 +5148,14 @@ async fn compra_alterar_status_handler(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((StatusCode::NOT_FOUND, "compra não encontrada".to_string()))?;
     let r = db::compra_alterar_status_local(&lid, &req.status)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_PURCHASE] alterar_status falha local={lid} status={} err={e}", req.status);
+            (StatusCode::BAD_REQUEST, e.to_string())
+        })?;
+    eprintln!(
+        "[LOCAL_PURCHASE] alterar_status ok local={} status={} idempotente={}",
+        r.compra_local_uuid, req.status, r.idempotente
+    );
     let mut outbox_status = "pending".to_string();
     if !r.idempotente && ctx.upstream.is_some() {
         if let Ok(items) = db::outbox_compras_list(50, Some("pending")) {
@@ -5149,7 +5193,14 @@ async fn compra_excluir_handler(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((StatusCode::NOT_FOUND, "compra não encontrada".to_string()))?;
     let r = db::compra_excluir_local(&lid)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_PURCHASE] excluir falha local={lid} err={e}");
+            (StatusCode::BAD_REQUEST, e.to_string())
+        })?;
+    eprintln!(
+        "[LOCAL_PURCHASE] excluir ok local={} idempotente={}",
+        r.compra_local_uuid, r.idempotente
+    );
     let mut outbox_status = if r.idempotente { "skipped".to_string() } else { "pending".to_string() };
     if !r.idempotente && ctx.upstream.is_some() {
         if let Ok(items) = db::outbox_compras_list(50, Some("pending")) {
@@ -5251,11 +5302,19 @@ async fn compra_receber_itens_handler(
     let itens: Vec<db::CompraReceberItem> = req.itens.into_iter()
         .map(|i| db::CompraReceberItem { item_id: i.item_id, quantidade: i.quantidade })
         .collect();
+    let qtd_itens = itens.len();
     let r = db::compra_receber_itens_local(
         &lid, itens, &data_rec,
         req.gerar_financeiro.unwrap_or(true),
         req.data_vencimento.as_deref(),
-    ).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    ).map_err(|e| {
+        eprintln!("[LOCAL_PURCHASE] receber_itens falha local={lid} qtd={qtd_itens} err={e}");
+        (StatusCode::BAD_REQUEST, e.to_string())
+    })?;
+    eprintln!(
+        "[LOCAL_PURCHASE] receber_itens ok local={} qtd_itens={} remote={:?} idempotente={}",
+        r.compra_local_uuid, qtd_itens, r.compra_remote_id, r.idempotente
+    );
     let mut outbox_status = "pending".to_string();
     if ctx.upstream.is_some() && r.compra_remote_id.is_some() {
         if let Ok(items) = db::outbox_compras_list(50, Some("pending")) {
