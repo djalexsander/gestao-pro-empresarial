@@ -4659,7 +4659,14 @@ async fn fornecedor_criar_handler(
     Json(req): Json<FornecedorCriarRequest>,
 ) -> Result<Json<FornecedorCriarResponse>, (StatusCode, String)> {
     let r = db::fornecedor_criar_local(req.payload)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| {
+            eprintln!("[LOCAL_SUPPLIER] criar falha err={e}");
+            (StatusCode::BAD_REQUEST, e.to_string())
+        })?;
+    eprintln!(
+        "[LOCAL_SUPPLIER] criar ok local={} remote={:?} idempotente={}",
+        r.fornecedor_local_uuid, r.fornecedor_remote_id, r.idempotente
+    );
     let mut outbox_status = "pending".to_string();
     let mut remote_response: Option<String> = None;
     let mut fornecedor_remote_id = r.fornecedor_remote_id.clone();
