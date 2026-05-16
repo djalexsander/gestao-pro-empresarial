@@ -10568,6 +10568,14 @@ pub fn compra_receber_itens_local(
 
         let status = compra_recompute_status(&tx, compra_local_uuid, Some(data_recebimento), now_ms)?;
 
+        // v22 (Etapa 9): só gera pagar quando integralmente recebida E gerar_financeiro com vencimento.
+        if gerar_financeiro && status == "recebida" {
+            let venc_ms = data_vencimento.and_then(parse_date_only_to_ms);
+            if venc_ms.is_some() {
+                let _ = criar_pagar_from_compra_tx(&tx, compra_local_uuid, venc_ms, now_ms)?;
+            }
+        }
+
         // Outbox: 'receber_itens'
         let mut payload = serde_json::json!({
             "_compra_id": remote_id.clone().unwrap_or_default(),
