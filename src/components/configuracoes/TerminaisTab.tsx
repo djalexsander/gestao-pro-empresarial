@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { TerminalPermissoesDialog } from "./TerminalPermissoesDialog";
 import { BackupSeguranca } from "./BackupSeguranca";
+import { SincronizacaoCard } from "./SincronizacaoCard";
 import { toast } from "sonner";
 import {
   useTerminais, useCriarTerminal, useAtualizarTerminal,
