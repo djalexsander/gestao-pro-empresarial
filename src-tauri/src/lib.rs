@@ -122,6 +122,8 @@ pub fn run() {
             start_local_server,
             stop_local_server,
             local_server_status,
+            local_port_available,
+            local_sqlite_health,
             backup_create,
             backup_status,
             backup_list,
