@@ -125,8 +125,8 @@ export function DiagnosticoOfflineCard({
         detail: "Status de backup indisponível.",
       });
     } else {
-      const ultimo = backup.last_backup_at_ms
-        ? new Date(backup.last_backup_at_ms).toLocaleString("pt-BR")
+      const ultimo = backup.last_backup_ms
+        ? new Date(backup.last_backup_ms).toLocaleString("pt-BR")
         : null;
       const sev: Severity = ultimo ? "ok" : "warn";
       out.push({
