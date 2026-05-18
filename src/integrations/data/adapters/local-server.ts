@@ -324,21 +324,78 @@ export const localServerAdapter: DataAdapter = {
         "funcionarios",
         "list",
         async () => {
-          const rows = await tryLocal<
-            Awaited<ReturnType<DataAdapter["funcionarios"]["list"]>>
-          >(
+          const somenteAtivos = input?.somente_ativos === true;
+          // Para a aba admin (somente_ativos != true) pedimos TODOS ao
+          // servidor local (inclui inativos). Para PDV (apenas ativos)
+          // mantemos o endpoint padrão.
+          const query = somenteAtivos
+            ? undefined
+            : { incluir_inativos: "1" };
+          const raw = await tryLocal<unknown>(
             "funcionarios",
             "list",
             "/api/relatorios/funcionarios-ativos",
+            query,
           );
-          if (!rows) return null;
-          // O endpoint local devolve apenas ativos. Se o caller pediu
-          // todos (somente_ativos != true), fallback pra cloud para
-          // garantir paridade de dados.
-          if (input?.somente_ativos === false) return null;
+          if (!Array.isArray(raw)) {
+            if (import.meta.env.DEV) {
+              // eslint-disable-next-line no-console
+              console.debug("[FUNCIONARIOS_LOCAL] sem cache local → cloud");
+            }
+            return null;
+          }
+          // Normaliza payload bruto vindo do PostgREST para o formato
+          // FuncionarioDomain consumido pela UI.
+          const rows = raw
+            .map((r) => {
+              const row = r as Record<string, unknown>;
+              const id = typeof row.id === "string" ? row.id : null;
+              if (!id) return null;
+              return {
+                id,
+                nome: String(row.nome ?? ""),
+                login: String(row.login ?? ""),
+                role:
+                  row.role === "gerente"
+                    ? ("gerente" as const)
+                    : ("caixa" as const),
+                ativo: row.ativo !== false,
+                ultimo_acesso:
+                  typeof row.ultimo_acesso === "string"
+                    ? row.ultimo_acesso
+                    : null,
+                created_at:
+                  typeof row.created_at === "string"
+                    ? row.created_at
+                    : typeof row.updated_at === "string"
+                      ? (row.updated_at as string)
+                      : new Date(0).toISOString(),
+              };
+            })
+            .filter(
+              (x): x is import("../types").FuncionarioDomain => x !== null,
+            );
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.debug(
+              `[FUNCIONARIOS_LIST] origem=local-server total=${rows.length} somente_ativos=${somenteAtivos}`,
+            );
+          }
+          // Se o cache veio vazio, evita "Nenhum funcionário cadastrado"
+          // enganoso e cai para cloud (pode ser cache ainda não sincronizado).
+          if (rows.length === 0) return null;
+          return somenteAtivos ? rows.filter((f) => f.ativo) : rows;
+        },
+        async () => {
+          const rows = await cloudAdapter.funcionarios.list(input);
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.debug(
+              `[FUNCIONARIOS_LIST] origem=cloud total=${rows.length}`,
+            );
+          }
           return rows;
         },
-        () => cloudAdapter.funcionarios.list(input),
       ),
     /**
      * Sub-etapa 4.1: o servidor LOCAL é a fonte primária de validação de
