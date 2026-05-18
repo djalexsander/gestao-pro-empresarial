@@ -526,6 +526,15 @@ async fn proxy_with_incremental_sync(
     }
 
     // 4) Vai ao upstream.
+    let has_jwt = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.starts_with("Bearer ") && s.len() > 20)
+        .unwrap_or(false);
+    eprintln!(
+        "[OFFLINE_SYNC] {} → upstream GET {} (jwt={}, strategy={})",
+        domain, path, has_jwt, strategy.as_str()
+    );
     let upstream_result = proxy_get(ctx, headers, path, &q).await;
 
     match upstream_result {
@@ -534,8 +543,16 @@ async fn proxy_with_incremental_sync(
             let bytes = axum::body::to_bytes(body, 1024 * 1024 * 8)
                 .await
                 .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Falha lendo body: {e}")))?;
+            eprintln!(
+                "[OFFLINE_SYNC] {} ← HTTP {} ({} bytes)",
+                domain,
+                parts.status.as_u16(),
+                bytes.len()
+            );
 
             if !parts.status.is_success() {
+                let preview = std::str::from_utf8(&bytes).unwrap_or("").chars().take(300).collect::<String>();
+                eprintln!("[OFFLINE_SYNC] {} upstream erro body: {}", domain, preview);
                 let _ = db::record_sync_error(
                     domain,
                     now,
@@ -547,6 +564,19 @@ async fn proxy_with_incremental_sync(
             // Ingestão tipada cursor-aware.
             let mut delta = 0i64;
             if let Ok(text) = std::str::from_utf8(&bytes) {
+                // Diagnóstico: contar itens do JSON ANTES do ingest. Se o
+                // upstream devolveu 200 + [] (RLS escondendo tudo), o ingest
+                // não vai persistir nada mesmo que tudo "pareça" certo.
+                let items_recv: i64 = serde_json::from_str::<serde_json::Value>(text)
+                    .ok()
+                    .and_then(|v| v.as_array().map(|a| a.len() as i64))
+                    .unwrap_or(-1);
+                eprintln!(
+                    "[OFFLINE_SYNC] {} items_recebidos={} (snippet: {})",
+                    domain,
+                    items_recv,
+                    text.chars().take(120).collect::<String>()
+                );
                 match domain {
                     "produtos" => match db::ingest_produtos(text, now, strategy) {
                         Ok((n, _)) => delta = n as i64,
@@ -644,6 +674,16 @@ async fn proxy_with_incremental_sync(
                     _ => {}
                 }
                 let _ = db::cache_put(domain, &key, "{\"_marker\":1}", now, CACHE_TTL_MS);
+                eprintln!(
+                    "[OFFLINE_SYNC] {} persistidos={} (delta SQLite)",
+                    domain, delta
+                );
+                if items_recv > 0 && delta == 0 {
+                    eprintln!(
+                        "[OFFLINE_SYNC] {} ALERTA: upstream entregou {} itens mas ingest persistiu 0 — verifique payload/parsing",
+                        domain, items_recv
+                    );
+                }
             }
 
             // Devolve estado consolidado da tabela local — sempre.
