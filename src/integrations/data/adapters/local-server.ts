@@ -273,6 +273,118 @@ export const localServerAdapter: DataAdapter = {
       });
       return result;
     },
+    // -------- WRITES offline-first (Fase 1 v24) --------
+    criar: async (input) => {
+      const body = toUnderscoredBody(input as unknown as Record<string, unknown>);
+      const r = await postLocalAuth<ProdutoMutLocal>("/api/produtos/criar", body);
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "produtos", method: "criar", fallback: false });
+        if (import.meta.env.DEV) console.debug(`[PRODUTOS_LOCAL_CREATE] id=${r.produto_id} idempotente=${r.idempotente} outbox=${r.outbox_status}`);
+        return { produto_id: r.produto_id, idempotente: r.idempotente };
+      }
+      const result = await cloudAdapter.produtos.criar(input);
+      reportDataSource({ source: "cloud", domain: "produtos", method: "criar", fallback: true });
+      return result;
+    },
+    editar: async (input) => {
+      const { produto_id, ...rest } = input as unknown as Record<string, unknown> & { produto_id: string };
+      const body = { produto_id, ...toUnderscoredBody(rest) };
+      const r = await postLocalAuth<ProdutoMutLocal>("/api/produtos/editar", body);
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "produtos", method: "editar", fallback: false });
+        if (import.meta.env.DEV) console.debug(`[PRODUTOS_OUTBOX] editar id=${r.produto_id} outbox=${r.outbox_status}`);
+        return { produto_id: r.produto_id };
+      }
+      const result = await cloudAdapter.produtos.editar(input);
+      reportDataSource({ source: "cloud", domain: "produtos", method: "editar", fallback: true });
+      return result;
+    },
+    alterarStatus: async (input) => {
+      const r = await postLocalAuth<ProdutoMutLocal>("/api/produtos/alterar-status", {
+        produto_id: input.produto_id, status: input.status,
+      });
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "produtos", method: "alterarStatus", fallback: false });
+        if (import.meta.env.DEV) console.debug(`[PRODUTOS_OUTBOX] alterar_status id=${r.produto_id} status=${input.status} outbox=${r.outbox_status}`);
+        return { produto_id: r.produto_id, status: input.status };
+      }
+      const result = await cloudAdapter.produtos.alterarStatus(input);
+      reportDataSource({ source: "cloud", domain: "produtos", method: "alterarStatus", fallback: true });
+      return result;
+    },
+    excluir: async (produtoId) => {
+      const r = await postLocalAuth<ProdutoMutLocal>("/api/produtos/excluir", { produto_id: produtoId });
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "produtos", method: "excluir", fallback: false });
+        if (import.meta.env.DEV) console.debug(`[PRODUTOS_OUTBOX] excluir id=${r.produto_id} outbox=${r.outbox_status}`);
+        return { produto_id: r.produto_id, excluido: true };
+      }
+      const result = await cloudAdapter.produtos.excluir(produtoId);
+      reportDataSource({ source: "cloud", domain: "produtos", method: "excluir", fallback: true });
+      return result;
+    },
+    criarCategoria: async (input) => {
+      const body = {
+        _nome: input.nome,
+        _parent_id: input.parent_id ?? null,
+        _descricao: input.descricao ?? null,
+        _categoria_id_in: input.categoria_id ?? null,
+        _client_uuid: input.client_uuid ?? null,
+      };
+      const r = await postLocalAuth<CategoriaMutLocal>("/api/categorias-produto/criar", body);
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "categoriasProduto", method: "criar", fallback: false });
+        if (import.meta.env.DEV) console.debug(`[CAT_PROD_LOCAL_CREATE] id=${r.categoria_id} idempotente=${r.idempotente} outbox=${r.outbox_status}`);
+        return { categoria_id: r.categoria_id, idempotente: r.idempotente };
+      }
+      const result = await cloudAdapter.produtos.criarCategoria(input);
+      reportDataSource({ source: "cloud", domain: "categoriasProduto", method: "criar", fallback: true });
+      return result;
+    },
+  },
+
+  categoriasProduto: {
+    ...cloudAdapter.categoriasProduto,
+    editar: async (input) => {
+      const r = await postLocalAuth<CategoriaMutLocal>("/api/categorias-produto/editar", {
+        categoria_id: input.categoria_id,
+        nome: input.nome,
+        parent_id: input.parent_id ?? null,
+        descricao: input.descricao ?? null,
+      });
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "categoriasProduto", method: "editar", fallback: false });
+        if (import.meta.env.DEV) console.debug(`[CAT_PROD_OUTBOX] editar id=${r.categoria_id} outbox=${r.outbox_status}`);
+        return { categoria_id: r.categoria_id };
+      }
+      const result = await cloudAdapter.categoriasProduto.editar(input);
+      reportDataSource({ source: "cloud", domain: "categoriasProduto", method: "editar", fallback: true });
+      return result;
+    },
+    alterarStatus: async (input) => {
+      const r = await postLocalAuth<CategoriaMutLocal>("/api/categorias-produto/alterar-status", {
+        categoria_id: input.categoria_id, ativo: input.ativo,
+      });
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "categoriasProduto", method: "alterarStatus", fallback: false });
+        if (import.meta.env.DEV) console.debug(`[CAT_PROD_OUTBOX] alterar_status id=${r.categoria_id} ativo=${input.ativo} outbox=${r.outbox_status}`);
+        return { categoria_id: r.categoria_id, ativo: input.ativo, idempotente: r.idempotente };
+      }
+      const result = await cloudAdapter.categoriasProduto.alterarStatus(input);
+      reportDataSource({ source: "cloud", domain: "categoriasProduto", method: "alterarStatus", fallback: true });
+      return result;
+    },
+    excluir: async (categoriaId) => {
+      const r = await postLocalAuth<CategoriaMutLocal>("/api/categorias-produto/excluir", { categoria_id: categoriaId });
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "categoriasProduto", method: "excluir", fallback: false });
+        if (import.meta.env.DEV) console.debug(`[CAT_PROD_OUTBOX] excluir id=${r.categoria_id} outbox=${r.outbox_status}`);
+        return { categoria_id: r.categoria_id, excluido: true };
+      }
+      const result = await cloudAdapter.categoriasProduto.excluir(categoriaId);
+      reportDataSource({ source: "cloud", domain: "categoriasProduto", method: "excluir", fallback: true });
+      return result;
+    },
   },
 
   clientes: {
