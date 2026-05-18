@@ -788,7 +788,6 @@ export interface CriarProdutoInput {
   plu?: string | null;
   aceita_etiqueta_balanca?: boolean;
   casas_decimais_quantidade?: number;
-  casas_decimais_quantidade?: number;
   client_uuid?: string | null;
   /**
    * UUID opcional gerado no cliente (desktop local-first). Quando enviado,
