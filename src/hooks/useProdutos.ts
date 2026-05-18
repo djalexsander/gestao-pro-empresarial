@@ -154,15 +154,18 @@ function mapProdutoErr(e: unknown): Error {
 export function useCreateProduto() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: ProdutoInput) => {
+    mutationFn: async (
+      input: ProdutoInput & { __produto_id?: string },
+    ) => {
       const client_uuid = crypto.randomUUID();
       // Local-first: id gerado no cliente — Supabase usa o mesmo id,
       // permitindo materialização imediata no SQLite local e sync sem duplicar.
-      const produto_id = crypto.randomUUID();
+      const produto_id = input.__produto_id ?? crypto.randomUUID();
+      const { __produto_id: _ignored, ...rest } = input;
       console.debug("[LOCAL_FIRST] produto.criar", { produto_id });
       try {
         const r = await dataClient.produtos.criar({
-          ...input,
+          ...rest,
           client_uuid,
           produto_id,
         });
@@ -171,12 +174,52 @@ export function useCreateProduto() {
         throw mapProdutoErr(e);
       }
     },
-    onSuccess: () => {
+    // Otimista: insere placeholder no cache para refletir imediatamente.
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: ["produtos"] });
+      const previous = qc.getQueryData<ProdutoComCategoria[]>(["produtos"]);
+      const tempId = crypto.randomUUID();
+      // anexa o id para que o mutationFn use o mesmo no servidor.
+      (input as ProdutoInput & { __produto_id?: string }).__produto_id = tempId;
+      const nowIso = new Date().toISOString();
+      const optimistic: ProdutoComCategoria = {
+        id: tempId,
+        sku: input.sku,
+        codigo_barras: input.codigo_barras ?? null,
+        qr_code: input.qr_code ?? null,
+        codigo_interno: input.codigo_interno ?? null,
+        tipo_identificacao_principal:
+          input.tipo_identificacao_principal ?? "sku",
+        observacao_tecnica: input.observacao_tecnica ?? null,
+        nome: input.nome,
+        descricao: input.descricao ?? null,
+        marca: input.marca ?? null,
+        unidade: input.unidade,
+        categoria_id: input.categoria_id ?? null,
+        preco_custo: input.preco_custo,
+        preco_venda: input.preco_venda,
+        estoque_minimo: input.estoque_minimo,
+        estoque_inicial: input.estoque_inicial ?? 0,
+        status: input.status,
+        ncm: input.ncm ?? null,
+        created_at: nowIso,
+        updated_at: nowIso,
+        categoria: null,
+      };
+      qc.setQueryData<ProdutoComCategoria[]>(["produtos"], (curr) =>
+        curr ? [optimistic, ...curr] : [optimistic],
+      );
+      return { previous };
+    },
+    onError: (e: Error, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(["produtos"], ctx.previous);
+      toast.error(e.message);
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ["produtos"] });
       qc.invalidateQueries({ queryKey: ["estoque-saldos"] });
-      toast.success("Produto cadastrado.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onSuccess: () => toast.success("Produto cadastrado."),
   });
 }
 
