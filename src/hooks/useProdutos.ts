@@ -216,9 +216,13 @@ export function useCreateVariacao() {
       preco_venda?: number | null;
     }) => {
       const client_uuid = crypto.randomUUID();
+      // Local-first: id de variação gerado no cliente.
+      const variacao_id = crypto.randomUUID();
+      console.debug("[LOCAL_FIRST] variacao.criar", { variacao_id });
       const r = await dataClient.produtos.criarVariacao({
         ...input,
         client_uuid,
+        variacao_id,
       });
       return { id: r.variacao_id };
     },
