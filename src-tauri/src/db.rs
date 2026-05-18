@@ -1397,6 +1397,87 @@ pub fn init() -> DbResult<()> {
         "#,
     )?;
 
+    // v23 — Funcionários offline-first. Estende `funcionarios_remote_cache`
+    // com colunas de identidade local/remote/sync e cria `outbox_funcionarios`
+    // (mesmo padrão de outbox_fornecedores). Ações suportadas:
+    //   * criar           → cria funcionário (RPC funcionario_criar)
+    //   * editar          → edita campos (RPC funcionario_editar)
+    //   * resetar_pin     → reseta PIN (RPC funcionario_resetar_pin)
+    //   * alterar_status  → ativa/inativa (RPC funcionario_alterar_status)
+    //   * excluir         → soft-delete (RPC funcionario_excluir)
+    let _ = conn.execute(
+        "ALTER TABLE funcionarios_remote_cache ADD COLUMN local_uuid TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE funcionarios_remote_cache ADD COLUMN remote_id TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE funcionarios_remote_cache ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'synced'",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE funcionarios_remote_cache ADD COLUMN last_error TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE funcionarios_remote_cache ADD COLUMN created_offline_at_ms INTEGER",
+        [],
+    );
+    let _ = conn.execute(
+        "UPDATE funcionarios_remote_cache SET local_uuid = id WHERE local_uuid IS NULL",
+        [],
+    );
+    let _ = conn.execute(
+        "UPDATE funcionarios_remote_cache SET remote_id = id WHERE remote_id IS NULL AND sync_status='synced'",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_funcionarios_local_uuid ON funcionarios_remote_cache(local_uuid)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_funcionarios_remote_id ON funcionarios_remote_cache(remote_id) WHERE remote_id IS NOT NULL",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_funcionarios_sync_status ON funcionarios_remote_cache(sync_status)",
+        [],
+    );
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS outbox_funcionarios (
+            local_uuid             TEXT PRIMARY KEY,
+            client_uuid            TEXT,
+            funcionario_local_uuid TEXT NOT NULL,
+            funcionario_remote_id  TEXT,
+            action                 TEXT NOT NULL,
+            payload                TEXT NOT NULL,
+            status                 TEXT NOT NULL DEFAULT 'pending',
+            attempts               INTEGER NOT NULL DEFAULT 0,
+            last_error             TEXT,
+            remote_id              TEXT,
+            remote_response        TEXT,
+            created_at_ms          INTEGER NOT NULL,
+            updated_at_ms          INTEGER NOT NULL,
+            sent_at_ms             INTEGER,
+            next_attempt_at_ms     INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_outbox_funcionarios_status
+            ON outbox_funcionarios(status, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_funcionarios_status_next
+            ON outbox_funcionarios(status, next_attempt_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_funcionarios_func
+            ON outbox_funcionarios(funcionario_local_uuid, status);
+        CREATE INDEX IF NOT EXISTS idx_outbox_funcionarios_action
+            ON outbox_funcionarios(action, status);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_funcionarios_client_uuid
+            ON outbox_funcionarios(client_uuid) WHERE client_uuid IS NOT NULL;
+        "#,
+    )?;
+
+
     conn.execute(
         "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
