@@ -1771,7 +1771,7 @@ async fn validar_pin_handler(
         }
     };
     let actual = pbkdf2_pin(&req.pin, &salt, row.iterations as u32);
-    let ok = {
+    let ok: bool = {
         use subtle::ConstantTimeEq;
         actual.ct_eq(&expected).into()
     };
@@ -2123,7 +2123,7 @@ async fn registrar_venda_local_handler(
     if !result.idempotente && ctx.upstream.is_some() {
         if let Ok(rid) = push_one_outbox_venda(&ctx, &headers, &result.local_uuid).await {
             outbox_status = "sent".into();
-            remote_id = Some(rid);
+            remote_id = Some(rid.clone());
             println!("[LOCAL_OUTBOX] venda push OK local={} remote={}", result.local_uuid, rid);
         } else {
             println!("[LOCAL_OUTBOX] venda push pendente local={}", result.local_uuid);
