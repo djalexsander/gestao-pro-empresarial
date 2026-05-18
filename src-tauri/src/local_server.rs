@@ -6268,3 +6268,737 @@ fn warm_pin_local(
         &b64_encode(&salt), &b64_encode(&hash), now_ms(),
     ).map_err(|e| e.to_string())
 }
+
+// ============================================================================
+// PRODUTOS LOCAIS — CRUD offline-first + push (v24)
+//
+// Mesma arquitetura de funcionários/clientes/fornecedores:
+//   1. Mutação chega no servidor local (criar/editar/alterar-status/excluir).
+//   2. db::produto_*_local persiste otimisticamente em produtos_local e
+//      enfileira em outbox_produtos.
+//   3. Tenta push imediato; falha silenciosa → fica pendente para o
+//      `run_outbox_produtos_scheduler` retomar.
+//
+// Idempotência cross-runs: `_client_uuid = local_uuid` da outbox.
+// Causalidade: editar/alterar_status/excluir só sobem após `criar` resolver
+// o `remote_id` (ver db::outbox_produtos_mark_sent que faz o repassar).
+// ============================================================================
+
+#[derive(Deserialize, Debug)]
+struct ProdutoCriarRequest {
+    #[serde(flatten)]
+    payload: serde_json::Value,
+}
+
+#[derive(Serialize)]
+struct ProdutoMutacaoResponse {
+    produto_id: String,
+    idempotente: bool,
+    outbox_status: String,
+    remote_id: Option<String>,
+}
+
+async fn produto_criar_local_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<ProdutoCriarRequest>,
+) -> Result<Json<ProdutoMutacaoResponse>, (StatusCode, String)> {
+    let result = db::produto_criar_local(req.payload)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    eprintln!(
+        "[PRODUTOS_LOCAL_CREATE] local_uuid={} idempotente={}",
+        result.produto_local_uuid, result.idempotente
+    );
+
+    let (status, remote) = if !result.idempotente && ctx.upstream.is_some() {
+        match push_one_outbox_produto_by_prod(&ctx, &headers, &result.produto_local_uuid, "criar").await {
+            Ok(rid) => ("sent".into(), Some(rid)),
+            Err(_) => ("pending".into(), None),
+        }
+    } else {
+        ("pending".into(), result.produto_remote_id.clone())
+    };
+
+    Ok(Json(ProdutoMutacaoResponse {
+        produto_id: result.produto_local_uuid,
+        idempotente: result.idempotente,
+        outbox_status: status,
+        remote_id: remote,
+    }))
+}
+
+#[derive(Deserialize, Debug)]
+struct ProdutoEditarRequest {
+    produto_id: String,
+    #[serde(flatten)]
+    payload: serde_json::Value,
+}
+
+async fn produto_editar_local_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<ProdutoEditarRequest>,
+) -> Result<Json<ProdutoMutacaoResponse>, (StatusCode, String)> {
+    let prod_id = req.produto_id.clone();
+    // Para o cache, repassa todos os campos como patch (limpos com prefixo "_").
+    let mut patch = serde_json::Map::new();
+    if let Some(o) = req.payload.as_object() {
+        for (k, v) in o {
+            let key = k.strip_prefix('_').unwrap_or(k).to_string();
+            if key == "produto_id" || key == "client_uuid" { continue; }
+            patch.insert(key, v.clone());
+        }
+    }
+    let payload = req.payload;
+    let result = db::produto_enqueue_action(
+        &prod_id, "editar", payload, Some(serde_json::Value::Object(patch)), false,
+    ).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    eprintln!("[PRODUTOS_OUTBOX] editar local_uuid={}", result.produto_local_uuid);
+    let (status, remote) = try_push_prod(&ctx, &headers, &result.produto_local_uuid).await;
+    Ok(Json(ProdutoMutacaoResponse {
+        produto_id: result.produto_local_uuid,
+        idempotente: false, outbox_status: status, remote_id: remote,
+    }))
+}
+
+#[derive(Deserialize, Debug)]
+struct ProdutoAlterarStatusRequest {
+    produto_id: String,
+    status: String,
+}
+
+async fn produto_alterar_status_local_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<ProdutoAlterarStatusRequest>,
+) -> Result<Json<ProdutoMutacaoResponse>, (StatusCode, String)> {
+    let payload = serde_json::json!({
+        "_produto_id": req.produto_id,
+        "_status": req.status,
+    });
+    let patch = serde_json::json!({ "status": req.status });
+    let result = db::produto_enqueue_action(
+        &req.produto_id, "alterar_status", payload, Some(patch), false,
+    ).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    eprintln!(
+        "[PRODUTOS_OUTBOX] alterar_status local_uuid={} status={}",
+        result.produto_local_uuid, req.status
+    );
+    let (status, remote) = try_push_prod(&ctx, &headers, &result.produto_local_uuid).await;
+    Ok(Json(ProdutoMutacaoResponse {
+        produto_id: result.produto_local_uuid,
+        idempotente: false, outbox_status: status, remote_id: remote,
+    }))
+}
+
+#[derive(Deserialize, Debug)]
+struct ProdutoExcluirRequest {
+    produto_id: String,
+}
+
+async fn produto_excluir_local_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<ProdutoExcluirRequest>,
+) -> Result<Json<ProdutoMutacaoResponse>, (StatusCode, String)> {
+    let payload = serde_json::json!({ "_produto_id": req.produto_id });
+    let result = db::produto_enqueue_action(
+        &req.produto_id, "excluir", payload, None, true,
+    ).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    eprintln!("[PRODUTOS_OUTBOX] excluir local_uuid={}", result.produto_local_uuid);
+    let (status, remote) = try_push_prod(&ctx, &headers, &result.produto_local_uuid).await;
+    Ok(Json(ProdutoMutacaoResponse {
+        produto_id: result.produto_local_uuid,
+        idempotente: false, outbox_status: status, remote_id: remote,
+    }))
+}
+
+async fn try_push_prod(
+    ctx: &AppCtx,
+    headers: &HeaderMap,
+    prod_lid: &str,
+) -> (String, Option<String>) {
+    if ctx.upstream.is_none() {
+        return ("pending".into(), None);
+    }
+    match push_one_outbox_produto_by_prod(ctx, headers, prod_lid, "").await {
+        Ok(rid) => ("sent".into(), Some(rid)),
+        Err(_) => ("pending".into(), None),
+    }
+}
+
+async fn push_one_outbox_produto_by_prod(
+    ctx: &AppCtx,
+    headers: &HeaderMap,
+    prod_lid: &str,
+    action_hint: &str,
+) -> Result<String, String> {
+    let all = db::outbox_produtos_list(1000, Some("pending")).map_err(|e| e.to_string())?;
+    let item = all
+        .into_iter()
+        .filter(|i| i.produto_local_uuid == prod_lid)
+        .find(|i| action_hint.is_empty() || i.action == action_hint)
+        .ok_or("nenhum item pendente para este produto")?;
+    push_one_outbox_produto(ctx, headers, &item.local_uuid).await
+}
+
+async fn push_one_outbox_produto(
+    ctx: &AppCtx,
+    headers: &HeaderMap,
+    local_uuid: &str,
+) -> Result<String, String> {
+    let upstream = ctx.upstream.as_ref().ok_or("upstream não configurado")?;
+    let now = now_ms();
+    let item = db::outbox_produtos_get(local_uuid)
+        .map_err(|e| e.to_string())?
+        .ok_or("item não encontrado na outbox de produtos")?;
+    if item.status == "sent" {
+        return Ok(item.remote_id.unwrap_or_default());
+    }
+
+    // Causalidade: só sobe ação não-criar depois do criar resolver remote_id.
+    if item.action != "criar" && item.produto_remote_id.is_none() {
+        let rid = db::produto_remote_id_for(&item.produto_local_uuid)
+            .map_err(|e| e.to_string())?;
+        if rid.is_none() {
+            return Err("aguardando criar resolver remote_id".into());
+        }
+    }
+
+    let payload: serde_json::Value =
+        serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
+    db::outbox_produtos_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
+
+    let auth = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+
+    let rpc_name = match item.action.as_str() {
+        "criar" => "criar_produto",
+        "editar" => "editar_produto",
+        "alterar_status" => "alterar_status_produto",
+        "excluir" => "excluir_produto",
+        other => {
+            let msg = format!("ação desconhecida: {other}");
+            let _ = db::outbox_produtos_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
+
+    // Para criar, garante _client_uuid = local_uuid da outbox (idempotência ponta-a-ponta).
+    let mut body = payload.clone();
+    if item.action == "criar" {
+        if let Some(o) = body.as_object_mut() {
+            o.insert("_client_uuid".into(), serde_json::Value::String(local_uuid.to_string()));
+        }
+    } else if let Some(o) = body.as_object_mut() {
+        // Atualiza _produto_id para o remote_id já resolvido, se houver.
+        if let Ok(Some(rid)) = db::produto_remote_id_for(&item.produto_local_uuid) {
+            o.insert("_produto_id".into(), serde_json::Value::String(rid));
+        }
+    }
+
+    let url = format!("{}/rest/v1/rpc/{}", upstream.base_url.trim_end_matches('/'), rpc_name);
+    let resp = ctx.http
+        .post(&url)
+        .header("apikey", &upstream.anon_key)
+        .header(axum::http::header::AUTHORIZATION, auth)
+        .header(axum::http::header::CONTENT_TYPE, "application/json")
+        .header(axum::http::header::ACCEPT, "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| {
+            let msg = format!("rede: {e}");
+            let _ = db::outbox_produtos_mark_error(local_uuid, &msg, now);
+            msg
+        })?;
+
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        let msg = format!("HTTP {}: {}", status.as_u16(), text);
+        let _ = db::outbox_produtos_mark_error(local_uuid, &msg, now);
+        return Err(msg);
+    }
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+    let remote_id = parsed
+        .get("produto_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            item.produto_remote_id
+                .clone()
+                .unwrap_or_else(|| item.produto_local_uuid.clone())
+        });
+
+    db::outbox_produtos_mark_sent(local_uuid, &remote_id, &text, now)
+        .map_err(|e| e.to_string())?;
+    eprintln!(
+        "[PRODUTOS_SYNC] {} → {} OK remote_id={}",
+        item.action, rpc_name, remote_id
+    );
+    Ok(remote_id)
+}
+
+#[derive(Serialize)]
+struct OutboxProdutosListResponse {
+    total: usize,
+    items: Vec<db::OutboxProdutosItem>,
+}
+
+async fn outbox_produtos_list_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<OutboxProdutosListResponse>, (StatusCode, String)> {
+    let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(200);
+    let status = q.get("status").map(|s| s.as_str());
+    let items = db::outbox_produtos_list(limit, status)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(OutboxProdutosListResponse { total: items.len(), items }))
+}
+
+async fn outbox_produtos_stats_handler(
+) -> Result<Json<db::OutboxProdutosStats>, (StatusCode, String)> {
+    db::outbox_produtos_stats()
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+async fn outbox_produtos_flush_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<Json<FlushResponse>, (StatusCode, String)> {
+    let pending = db::outbox_produtos_pending_batch_all(100)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let mut sent = 0usize;
+    let mut failed = 0usize;
+    let mut errors: Vec<String> = Vec::new();
+    for it in &pending {
+        match push_one_outbox_produto(&ctx, &headers, &it.local_uuid).await {
+            Ok(_) => sent += 1,
+            Err(e) => { failed += 1; errors.push(format!("{}: {}", it.local_uuid, e)); }
+        }
+    }
+    let _ = db::outbox_produtos_record_flush_round(
+        "manual", now_ms(), pending.len() as i64, sent as i64, failed as i64,
+    );
+    Ok(Json(FlushResponse {
+        attempted: pending.len(), sent, failed, errors,
+    }))
+}
+
+async fn outbox_produtos_retry_errors_handler(
+) -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
+    let n = db::outbox_produtos_reset_errors(now_ms())
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(RetryErrorsResponse { requeued: n }))
+}
+
+/// Scheduler de background da outbox de produtos — espelha clientes/fornecedores.
+async fn run_outbox_produtos_scheduler(
+    ctx: AppCtx,
+    mut shutdown_rx: oneshot::Receiver<()>,
+) {
+    eprintln!("[gestao-pro] outbox produtos scheduler: iniciado");
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_millis(SCHEDULER_TICK_MS)) => {}
+            _ = &mut shutdown_rx => {
+                eprintln!("[gestao-pro] outbox produtos scheduler: parado");
+                break;
+            }
+        }
+        if ctx.upstream.is_none() {
+            let _ = db::outbox_produtos_record_flush_round("auto", now_ms(), 0, 0, 0);
+            continue;
+        }
+        let pending = match db::outbox_produtos_pending_batch(SCHEDULER_BATCH) {
+            Ok(p) => p,
+            Err(e) => { eprintln!("[gestao-pro] outbox produtos: batch err: {e}"); continue; }
+        };
+        if pending.is_empty() {
+            let _ = db::outbox_produtos_record_flush_round("auto", now_ms(), 0, 0, 0);
+            continue;
+        }
+        let empty = HeaderMap::new();
+        let mut sent = 0i64;
+        let mut failed = 0i64;
+        for it in &pending {
+            match push_one_outbox_produto(&ctx, &empty, &it.local_uuid).await {
+                Ok(_) => sent += 1,
+                Err(_) => failed += 1,
+            }
+        }
+        let _ = db::outbox_produtos_record_flush_round(
+            "auto", now_ms(), pending.len() as i64, sent, failed,
+        );
+        if sent > 0 || failed > 0 {
+            eprintln!(
+                "[gestao-pro] outbox produtos auto-flush: attempted={} sent={} failed={}",
+                pending.len(), sent, failed,
+            );
+        }
+    }
+}
+
+// ============================================================================
+// CATEGORIAS DE PRODUTO LOCAIS — CRUD offline-first + push (v24)
+// ============================================================================
+
+#[derive(Deserialize, Debug)]
+struct CategoriaProdutoCriarRequest {
+    #[serde(flatten)]
+    payload: serde_json::Value,
+}
+
+#[derive(Serialize)]
+struct CategoriaProdutoMutacaoResponse {
+    categoria_id: String,
+    idempotente: bool,
+    outbox_status: String,
+    remote_id: Option<String>,
+}
+
+async fn categoria_produto_criar_local_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<CategoriaProdutoCriarRequest>,
+) -> Result<Json<CategoriaProdutoMutacaoResponse>, (StatusCode, String)> {
+    let result = db::categoria_produto_criar_local(req.payload)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    eprintln!(
+        "[CAT_PROD_LOCAL_CREATE] local_uuid={} idempotente={}",
+        result.categoria_local_uuid, result.idempotente
+    );
+    let (status, remote) = if !result.idempotente && ctx.upstream.is_some() {
+        match push_one_outbox_categoria_produto_by_cat(&ctx, &headers, &result.categoria_local_uuid, "criar").await {
+            Ok(rid) => ("sent".into(), Some(rid)),
+            Err(_) => ("pending".into(), None),
+        }
+    } else {
+        ("pending".into(), result.categoria_remote_id.clone())
+    };
+    Ok(Json(CategoriaProdutoMutacaoResponse {
+        categoria_id: result.categoria_local_uuid,
+        idempotente: result.idempotente,
+        outbox_status: status, remote_id: remote,
+    }))
+}
+
+#[derive(Deserialize, Debug)]
+struct CategoriaProdutoEditarRequest {
+    categoria_id: String,
+    nome: String,
+    #[serde(default)]
+    parent_id: Option<String>,
+    #[serde(default)]
+    descricao: Option<String>,
+}
+
+async fn categoria_produto_editar_local_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<CategoriaProdutoEditarRequest>,
+) -> Result<Json<CategoriaProdutoMutacaoResponse>, (StatusCode, String)> {
+    let payload = serde_json::json!({
+        "_categoria_id": req.categoria_id,
+        "_nome": req.nome,
+        "_parent_id": req.parent_id,
+        "_descricao": req.descricao,
+    });
+    let patch = serde_json::json!({
+        "nome": req.nome, "parent_id": req.parent_id, "descricao": req.descricao,
+    });
+    let result = db::categoria_produto_enqueue_action(
+        &req.categoria_id, "editar", payload, Some(patch), false,
+    ).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    eprintln!("[CAT_PROD_OUTBOX] editar local_uuid={}", result.categoria_local_uuid);
+    let (status, remote) = try_push_cat_prod(&ctx, &headers, &result.categoria_local_uuid).await;
+    Ok(Json(CategoriaProdutoMutacaoResponse {
+        categoria_id: result.categoria_local_uuid,
+        idempotente: false, outbox_status: status, remote_id: remote,
+    }))
+}
+
+#[derive(Deserialize, Debug)]
+struct CategoriaProdutoAlterarStatusRequest {
+    categoria_id: String,
+    ativo: bool,
+}
+
+async fn categoria_produto_alterar_status_local_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<CategoriaProdutoAlterarStatusRequest>,
+) -> Result<Json<CategoriaProdutoMutacaoResponse>, (StatusCode, String)> {
+    let payload = serde_json::json!({
+        "_categoria_id": req.categoria_id, "_ativo": req.ativo,
+    });
+    let patch = serde_json::json!({ "ativo": req.ativo });
+    let result = db::categoria_produto_enqueue_action(
+        &req.categoria_id, "alterar_status", payload, Some(patch), false,
+    ).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    eprintln!(
+        "[CAT_PROD_OUTBOX] alterar_status local_uuid={} ativo={}",
+        result.categoria_local_uuid, req.ativo
+    );
+    let (status, remote) = try_push_cat_prod(&ctx, &headers, &result.categoria_local_uuid).await;
+    Ok(Json(CategoriaProdutoMutacaoResponse {
+        categoria_id: result.categoria_local_uuid,
+        idempotente: false, outbox_status: status, remote_id: remote,
+    }))
+}
+
+#[derive(Deserialize, Debug)]
+struct CategoriaProdutoExcluirRequest {
+    categoria_id: String,
+}
+
+async fn categoria_produto_excluir_local_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<CategoriaProdutoExcluirRequest>,
+) -> Result<Json<CategoriaProdutoMutacaoResponse>, (StatusCode, String)> {
+    let payload = serde_json::json!({ "_categoria_id": req.categoria_id });
+    let result = db::categoria_produto_enqueue_action(
+        &req.categoria_id, "excluir", payload, None, true,
+    ).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    eprintln!("[CAT_PROD_OUTBOX] excluir local_uuid={}", result.categoria_local_uuid);
+    let (status, remote) = try_push_cat_prod(&ctx, &headers, &result.categoria_local_uuid).await;
+    Ok(Json(CategoriaProdutoMutacaoResponse {
+        categoria_id: result.categoria_local_uuid,
+        idempotente: false, outbox_status: status, remote_id: remote,
+    }))
+}
+
+async fn try_push_cat_prod(
+    ctx: &AppCtx,
+    headers: &HeaderMap,
+    cat_lid: &str,
+) -> (String, Option<String>) {
+    if ctx.upstream.is_none() {
+        return ("pending".into(), None);
+    }
+    match push_one_outbox_categoria_produto_by_cat(ctx, headers, cat_lid, "").await {
+        Ok(rid) => ("sent".into(), Some(rid)),
+        Err(_) => ("pending".into(), None),
+    }
+}
+
+async fn push_one_outbox_categoria_produto_by_cat(
+    ctx: &AppCtx,
+    headers: &HeaderMap,
+    cat_lid: &str,
+    action_hint: &str,
+) -> Result<String, String> {
+    let all = db::outbox_categorias_produto_list(1000, Some("pending")).map_err(|e| e.to_string())?;
+    let item = all
+        .into_iter()
+        .filter(|i| i.categoria_local_uuid == cat_lid)
+        .find(|i| action_hint.is_empty() || i.action == action_hint)
+        .ok_or("nenhum item pendente para esta categoria")?;
+    push_one_outbox_categoria_produto(ctx, headers, &item.local_uuid).await
+}
+
+async fn push_one_outbox_categoria_produto(
+    ctx: &AppCtx,
+    headers: &HeaderMap,
+    local_uuid: &str,
+) -> Result<String, String> {
+    let upstream = ctx.upstream.as_ref().ok_or("upstream não configurado")?;
+    let now = now_ms();
+    let item = db::outbox_categorias_produto_get(local_uuid)
+        .map_err(|e| e.to_string())?
+        .ok_or("item não encontrado na outbox de categorias_produto")?;
+    if item.status == "sent" {
+        return Ok(item.remote_id.unwrap_or_default());
+    }
+
+    if item.action != "criar" && item.categoria_remote_id.is_none() {
+        let rid = db::categoria_produto_remote_id_for(&item.categoria_local_uuid)
+            .map_err(|e| e.to_string())?;
+        if rid.is_none() {
+            return Err("aguardando criar resolver remote_id".into());
+        }
+    }
+
+    let payload: serde_json::Value =
+        serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
+    db::outbox_categorias_produto_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
+
+    let auth = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+
+    let rpc_name = match item.action.as_str() {
+        "criar" => "criar_categoria_produto",
+        "editar" => "editar_categoria_produto",
+        "alterar_status" => "alterar_status_categoria_produto",
+        "excluir" => "excluir_categoria_produto",
+        other => {
+            let msg = format!("ação desconhecida: {other}");
+            let _ = db::outbox_categorias_produto_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
+
+    let mut body = payload.clone();
+    if item.action == "criar" {
+        if let Some(o) = body.as_object_mut() {
+            o.insert("_client_uuid".into(), serde_json::Value::String(local_uuid.to_string()));
+        }
+    } else if let Some(o) = body.as_object_mut() {
+        if let Ok(Some(rid)) = db::categoria_produto_remote_id_for(&item.categoria_local_uuid) {
+            o.insert("_categoria_id".into(), serde_json::Value::String(rid));
+        }
+    }
+
+    let url = format!("{}/rest/v1/rpc/{}", upstream.base_url.trim_end_matches('/'), rpc_name);
+    let resp = ctx.http
+        .post(&url)
+        .header("apikey", &upstream.anon_key)
+        .header(axum::http::header::AUTHORIZATION, auth)
+        .header(axum::http::header::CONTENT_TYPE, "application/json")
+        .header(axum::http::header::ACCEPT, "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| {
+            let msg = format!("rede: {e}");
+            let _ = db::outbox_categorias_produto_mark_error(local_uuid, &msg, now);
+            msg
+        })?;
+
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        let msg = format!("HTTP {}: {}", status.as_u16(), text);
+        let _ = db::outbox_categorias_produto_mark_error(local_uuid, &msg, now);
+        return Err(msg);
+    }
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+    let remote_id = parsed
+        .get("categoria_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            item.categoria_remote_id
+                .clone()
+                .unwrap_or_else(|| item.categoria_local_uuid.clone())
+        });
+
+    db::outbox_categorias_produto_mark_sent(local_uuid, &remote_id, &text, now)
+        .map_err(|e| e.to_string())?;
+    eprintln!(
+        "[CAT_PROD_SYNC] {} → {} OK remote_id={}",
+        item.action, rpc_name, remote_id
+    );
+    Ok(remote_id)
+}
+
+#[derive(Serialize)]
+struct OutboxCategoriasProdutoListResponse {
+    total: usize,
+    items: Vec<db::OutboxCategoriasProdutoItem>,
+}
+
+async fn outbox_categorias_produto_list_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<OutboxCategoriasProdutoListResponse>, (StatusCode, String)> {
+    let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(200);
+    let status = q.get("status").map(|s| s.as_str());
+    let items = db::outbox_categorias_produto_list(limit, status)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(OutboxCategoriasProdutoListResponse { total: items.len(), items }))
+}
+
+async fn outbox_categorias_produto_stats_handler(
+) -> Result<Json<db::OutboxCategoriasProdutoStats>, (StatusCode, String)> {
+    db::outbox_categorias_produto_stats()
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+async fn outbox_categorias_produto_flush_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<Json<FlushResponse>, (StatusCode, String)> {
+    let pending = db::outbox_categorias_produto_pending_batch_all(100)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let mut sent = 0usize;
+    let mut failed = 0usize;
+    let mut errors: Vec<String> = Vec::new();
+    for it in &pending {
+        match push_one_outbox_categoria_produto(&ctx, &headers, &it.local_uuid).await {
+            Ok(_) => sent += 1,
+            Err(e) => { failed += 1; errors.push(format!("{}: {}", it.local_uuid, e)); }
+        }
+    }
+    let _ = db::outbox_categorias_produto_record_flush_round(
+        "manual", now_ms(), pending.len() as i64, sent as i64, failed as i64,
+    );
+    Ok(Json(FlushResponse {
+        attempted: pending.len(), sent, failed, errors,
+    }))
+}
+
+async fn outbox_categorias_produto_retry_errors_handler(
+) -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
+    let n = db::outbox_categorias_produto_reset_errors(now_ms())
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(RetryErrorsResponse { requeued: n }))
+}
+
+async fn run_outbox_categorias_produto_scheduler(
+    ctx: AppCtx,
+    mut shutdown_rx: oneshot::Receiver<()>,
+) {
+    eprintln!("[gestao-pro] outbox categorias_produto scheduler: iniciado");
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_millis(SCHEDULER_TICK_MS)) => {}
+            _ = &mut shutdown_rx => {
+                eprintln!("[gestao-pro] outbox categorias_produto scheduler: parado");
+                break;
+            }
+        }
+        if ctx.upstream.is_none() {
+            let _ = db::outbox_categorias_produto_record_flush_round("auto", now_ms(), 0, 0, 0);
+            continue;
+        }
+        let pending = match db::outbox_categorias_produto_pending_batch(SCHEDULER_BATCH) {
+            Ok(p) => p,
+            Err(e) => { eprintln!("[gestao-pro] outbox categorias_produto: batch err: {e}"); continue; }
+        };
+        if pending.is_empty() {
+            let _ = db::outbox_categorias_produto_record_flush_round("auto", now_ms(), 0, 0, 0);
+            continue;
+        }
+        let empty = HeaderMap::new();
+        let mut sent = 0i64;
+        let mut failed = 0i64;
+        for it in &pending {
+            match push_one_outbox_categoria_produto(&ctx, &empty, &it.local_uuid).await {
+                Ok(_) => sent += 1,
+                Err(_) => failed += 1,
+            }
+        }
+        let _ = db::outbox_categorias_produto_record_flush_round(
+            "auto", now_ms(), pending.len() as i64, sent, failed,
+        );
+        if sent > 0 || failed > 0 {
+            eprintln!(
+                "[gestao-pro] outbox categorias_produto auto-flush: attempted={} sent={} failed={}",
+                pending.len(), sent, failed,
+            );
+        }
+    }
+}
