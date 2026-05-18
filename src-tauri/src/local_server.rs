@@ -3950,7 +3950,8 @@ pub async fn start(
 pub fn stop() -> Result<LocalServerStatus, String> {
     let (
         tx_opt, sched_opt, vendas_sched_opt, caixa_sched_opt, cancel_sched_opt,
-        fin_sched_opt, cli_sched_opt, forn_sched_opt, compras_sched_opt, backup_sched_opt
+        fin_sched_opt, cli_sched_opt, forn_sched_opt, compras_sched_opt,
+        produtos_sched_opt, cat_prod_sched_opt, backup_sched_opt
     ) = {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = false;
@@ -3968,6 +3969,8 @@ pub fn stop() -> Result<LocalServerStatus, String> {
             s.cli_scheduler_shutdown_tx.take(),
             s.forn_scheduler_shutdown_tx.take(),
             s.compras_scheduler_shutdown_tx.take(),
+            s.produtos_scheduler_shutdown_tx.take(),
+            s.cat_prod_scheduler_shutdown_tx.take(),
             s.backup_scheduler_shutdown_tx.take(),
         )
     };
@@ -3980,6 +3983,8 @@ pub fn stop() -> Result<LocalServerStatus, String> {
     if let Some(tx) = cli_sched_opt { let _ = tx.send(()); }
     if let Some(tx) = forn_sched_opt { let _ = tx.send(()); }
     if let Some(tx) = compras_sched_opt { let _ = tx.send(()); }
+    if let Some(tx) = produtos_sched_opt { let _ = tx.send(()); }
+    if let Some(tx) = cat_prod_sched_opt { let _ = tx.send(()); }
     if let Some(tx) = backup_sched_opt { let _ = tx.send(()); }
     Ok(current_status())
 }
