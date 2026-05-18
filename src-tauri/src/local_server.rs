@@ -564,6 +564,19 @@ async fn proxy_with_incremental_sync(
             // Ingestão tipada cursor-aware.
             let mut delta = 0i64;
             if let Ok(text) = std::str::from_utf8(&bytes) {
+                // Diagnóstico: contar itens do JSON ANTES do ingest. Se o
+                // upstream devolveu 200 + [] (RLS escondendo tudo), o ingest
+                // não vai persistir nada mesmo que tudo "pareça" certo.
+                let items_recv: i64 = serde_json::from_str::<serde_json::Value>(text)
+                    .ok()
+                    .and_then(|v| v.as_array().map(|a| a.len() as i64))
+                    .unwrap_or(-1);
+                eprintln!(
+                    "[OFFLINE_SYNC] {} items_recebidos={} (snippet: {})",
+                    domain,
+                    items_recv,
+                    text.chars().take(120).collect::<String>()
+                );
                 match domain {
                     "produtos" => match db::ingest_produtos(text, now, strategy) {
                         Ok((n, _)) => delta = n as i64,
