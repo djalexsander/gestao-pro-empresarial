@@ -682,6 +682,11 @@ export interface CriarCategoriaProdutoInput {
   parent_id?: string | null;
   descricao?: string | null;
   client_uuid?: string | null;
+  /**
+   * UUID opcional gerado no cliente (desktop local-first). Quando enviado,
+   * o backend usa este id no INSERT e a chamada é idempotente por id.
+   */
+  categoria_id?: string | null;
 }
 
 export interface CriarCategoriaProdutoResult {
@@ -784,6 +789,11 @@ export interface CriarProdutoInput {
   aceita_etiqueta_balanca?: boolean;
   casas_decimais_quantidade?: number;
   client_uuid?: string | null;
+  /**
+   * UUID opcional gerado no cliente (desktop local-first). Quando enviado,
+   * o backend usa este id no INSERT e a chamada é idempotente por id.
+   */
+  produto_id?: string | null;
 }
 
 export interface CriarProdutoResult {
@@ -846,6 +856,11 @@ export interface CriarProdutoVariacaoInput {
   preco_venda?: number | null;
   codigo_barras?: string | null;
   client_uuid?: string | null;
+  /**
+   * UUID opcional gerado no cliente (desktop local-first). Quando enviado,
+   * o backend usa este id no INSERT e a chamada é idempotente por id.
+   */
+  variacao_id?: string | null;
 }
 
 export interface CriarProdutoVariacaoResult {

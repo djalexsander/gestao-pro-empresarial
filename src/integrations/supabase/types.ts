@@ -3833,6 +3833,7 @@ export type Database = {
       }
       criar_categoria_produto: {
         Args: {
+          _categoria_id_in?: string
           _client_uuid?: string
           _descricao?: string
           _nome: string
@@ -3938,6 +3939,7 @@ export type Database = {
           _plu?: string
           _preco_custo: number
           _preco_venda: number
+          _produto_id?: string
           _qr_code?: string
           _sku: string
           _status: Database["public"]["Enums"]["produto_status"]
@@ -3957,6 +3959,7 @@ export type Database = {
           _preco_venda?: number
           _produto_id: string
           _sku: string
+          _variacao_id_in?: string
         }
         Returns: Json
       }

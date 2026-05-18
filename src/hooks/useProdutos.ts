@@ -38,8 +38,15 @@ export function useCreateCategoria() {
   return useMutation({
     mutationFn: async (nome: string): Promise<Categoria> => {
       const client_uuid = crypto.randomUUID();
-      const r = await dataClient.produtos.criarCategoria({ nome, client_uuid });
-      // Sem re-fetch: a UI só usa o id. Demais campos são padrão.
+      // Local-first: gera UUID no cliente para que o id seja idêntico em
+      // SQLite local (futuro) e Supabase, eliminando reconciliação posterior.
+      const categoria_id = crypto.randomUUID();
+      console.debug("[LOCAL_FIRST] categoria.criar", { categoria_id });
+      const r = await dataClient.produtos.criarCategoria({
+        nome,
+        client_uuid,
+        categoria_id,
+      });
       return { id: r.categoria_id, nome, parent_id: null, ativo: true };
     },
     onSuccess: () => {
@@ -131,8 +138,16 @@ export function useCreateProduto() {
   return useMutation({
     mutationFn: async (input: ProdutoInput) => {
       const client_uuid = crypto.randomUUID();
+      // Local-first: id gerado no cliente — Supabase usa o mesmo id,
+      // permitindo materialização imediata no SQLite local e sync sem duplicar.
+      const produto_id = crypto.randomUUID();
+      console.debug("[LOCAL_FIRST] produto.criar", { produto_id });
       try {
-        const r = await dataClient.produtos.criar({ ...input, client_uuid });
+        const r = await dataClient.produtos.criar({
+          ...input,
+          client_uuid,
+          produto_id,
+        });
         return await fetchProdutoRow(r.produto_id);
       } catch (e) {
         throw mapProdutoErr(e);
@@ -201,9 +216,13 @@ export function useCreateVariacao() {
       preco_venda?: number | null;
     }) => {
       const client_uuid = crypto.randomUUID();
+      // Local-first: id de variação gerado no cliente.
+      const variacao_id = crypto.randomUUID();
+      console.debug("[LOCAL_FIRST] variacao.criar", { variacao_id });
       const r = await dataClient.produtos.criarVariacao({
         ...input,
         client_uuid,
+        variacao_id,
       });
       return { id: r.variacao_id };
     },

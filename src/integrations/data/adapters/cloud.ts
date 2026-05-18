@@ -202,6 +202,7 @@ const produtos: DataAdapter["produtos"] = {
       _aceita_etiqueta_balanca: input.aceita_etiqueta_balanca ?? false,
       _casas_decimais_quantidade: input.casas_decimais_quantidade ?? 3,
       _client_uuid: input.client_uuid ?? null,
+      _produto_id: input.produto_id ?? null,
     });
     if (error) throw error;
     const d = (data ?? {}) as Record<string, unknown>;
@@ -311,6 +312,7 @@ const produtos: DataAdapter["produtos"] = {
       _preco_venda: input.preco_venda ?? null,
       _codigo_barras: input.codigo_barras ?? null,
       _client_uuid: input.client_uuid ?? null,
+      _variacao_id_in: input.variacao_id ?? null,
     });
     if (error) throw error;
     const d = (data ?? {}) as Record<string, unknown>;
@@ -340,6 +342,7 @@ const produtos: DataAdapter["produtos"] = {
       _parent_id: input.parent_id ?? null,
       _descricao: input.descricao ?? null,
       _client_uuid: input.client_uuid ?? null,
+      _categoria_id_in: input.categoria_id ?? null,
     });
     if (error) throw error;
     const d = (data ?? {}) as Record<string, unknown>;
