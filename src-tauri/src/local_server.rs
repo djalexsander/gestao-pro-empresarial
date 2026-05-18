@@ -6179,3 +6179,28 @@ async fn outbox_funcionarios_retry_errors_handler() -> Result<Json<RetryErrorsRe
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(RetryErrorsResponse { requeued: n }))
 }
+
+/// Wrapper: gera salt + hash PBKDF2 e grava o operador offline.
+/// Mesma regra do `aquecer_pin_handler` — extraído para reuso interno.
+fn warm_pin_local(
+    funcionario_id: &str,
+    empresa_id: Option<&str>,
+    nome: &str,
+    login: &str,
+    role: &str,
+    ativo: bool,
+    pin: &str,
+) -> Result<(), String> {
+    let role_norm = match role {
+        "gerente" | "caixa" => role,
+        _ => "caixa",
+    };
+    let mut salt = [0u8; 16];
+    getrandom::getrandom(&mut salt).map_err(|e| format!("rand: {e}"))?;
+    let hash = pbkdf2_pin(pin, &salt, PIN_PBKDF2_ITER);
+    db::operador_offline_upsert(
+        funcionario_id, empresa_id, nome, login, role_norm, ativo,
+        "pbkdf2-sha256", PIN_PBKDF2_ITER as i64,
+        &b64_encode(&salt), &b64_encode(&hash), now_ms(),
+    ).map_err(|e| e.to_string())
+}
