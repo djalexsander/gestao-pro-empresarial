@@ -33,6 +33,9 @@ export function AppLayout() {
   const { modoAtual, isRouteAllowed, isLoading: modosLoading } = useMode();
   const { isDesktop: rodandoDesktop, role: desktopRole, precisaConfigurar } = useDesktopRole();
 
+  // Drena pendências de Configurações da Empresa quando a rede voltar.
+  useFlushConfigEmpresaPending();
+
   const pathname = location.pathname;
   const isStandalone = STANDALONE_ROUTES.has(pathname);
   const isAdminRoute = pathname === "/admin" || pathname.startsWith("/admin/");
