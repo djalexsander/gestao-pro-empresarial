@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i64 = 22;
+const SCHEMA_VERSION: i64 = 23;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -1396,6 +1396,87 @@ pub fn init() -> DbResult<()> {
             ON contas_pagar_pagtos_local(client_uuid) WHERE client_uuid IS NOT NULL;
         "#,
     )?;
+
+    // v23 — Funcionários offline-first. Estende `funcionarios_remote_cache`
+    // com colunas de identidade local/remote/sync e cria `outbox_funcionarios`
+    // (mesmo padrão de outbox_fornecedores). Ações suportadas:
+    //   * criar           → cria funcionário (RPC funcionario_criar)
+    //   * editar          → edita campos (RPC funcionario_editar)
+    //   * resetar_pin     → reseta PIN (RPC funcionario_resetar_pin)
+    //   * alterar_status  → ativa/inativa (RPC funcionario_alterar_status)
+    //   * excluir         → soft-delete (RPC funcionario_excluir)
+    let _ = conn.execute(
+        "ALTER TABLE funcionarios_remote_cache ADD COLUMN local_uuid TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE funcionarios_remote_cache ADD COLUMN remote_id TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE funcionarios_remote_cache ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'synced'",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE funcionarios_remote_cache ADD COLUMN last_error TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE funcionarios_remote_cache ADD COLUMN created_offline_at_ms INTEGER",
+        [],
+    );
+    let _ = conn.execute(
+        "UPDATE funcionarios_remote_cache SET local_uuid = id WHERE local_uuid IS NULL",
+        [],
+    );
+    let _ = conn.execute(
+        "UPDATE funcionarios_remote_cache SET remote_id = id WHERE remote_id IS NULL AND sync_status='synced'",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_funcionarios_local_uuid ON funcionarios_remote_cache(local_uuid)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_funcionarios_remote_id ON funcionarios_remote_cache(remote_id) WHERE remote_id IS NOT NULL",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_funcionarios_sync_status ON funcionarios_remote_cache(sync_status)",
+        [],
+    );
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS outbox_funcionarios (
+            local_uuid             TEXT PRIMARY KEY,
+            client_uuid            TEXT,
+            funcionario_local_uuid TEXT NOT NULL,
+            funcionario_remote_id  TEXT,
+            action                 TEXT NOT NULL,
+            payload                TEXT NOT NULL,
+            status                 TEXT NOT NULL DEFAULT 'pending',
+            attempts               INTEGER NOT NULL DEFAULT 0,
+            last_error             TEXT,
+            remote_id              TEXT,
+            remote_response        TEXT,
+            created_at_ms          INTEGER NOT NULL,
+            updated_at_ms          INTEGER NOT NULL,
+            sent_at_ms             INTEGER,
+            next_attempt_at_ms     INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_outbox_funcionarios_status
+            ON outbox_funcionarios(status, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_funcionarios_status_next
+            ON outbox_funcionarios(status, next_attempt_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_funcionarios_func
+            ON outbox_funcionarios(funcionario_local_uuid, status);
+        CREATE INDEX IF NOT EXISTS idx_outbox_funcionarios_action
+            ON outbox_funcionarios(action, status);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_funcionarios_client_uuid
+            ON outbox_funcionarios(client_uuid) WHERE client_uuid IS NOT NULL;
+        "#,
+    )?;
+
 
     conn.execute(
         "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
@@ -11556,5 +11637,460 @@ pub fn sqlite_health() -> DbResult<SqliteHealth> {
             db_path: path.to_string_lossy().to_string(),
             checked_at_ms: chrono::Utc::now().timestamp_millis(),
         })
+    })
+}
+
+// =====================================================================
+// FUNCIONÁRIOS — offline-first (v23)
+// =====================================================================
+//
+// Cache + identidade local em `funcionarios_remote_cache` (estendida com
+// local_uuid/remote_id/sync_status/last_error). Outbox em
+// `outbox_funcionarios`. Ações: criar | editar | resetar_pin |
+// alterar_status | excluir.
+//
+// Causalidade: editar/resetar_pin/alterar_status/excluir só vão upstream
+// depois do criar resolver o remote_id (mesmo padrão de fornecedores).
+
+#[derive(Debug, Serialize, Default)]
+pub struct OutboxFuncionariosStats {
+    pub pending: i64,
+    pub sending: i64,
+    pub sent: i64,
+    pub error: i64,
+    pub last_sent_at_ms: Option<i64>,
+    pub last_error: Option<String>,
+    pub due_now: i64,
+    pub next_attempt_at_ms: Option<i64>,
+    pub last_auto_flush_ms: Option<i64>,
+    pub last_auto_flush_sent_ms: Option<i64>,
+    pub last_auto_attempted: Option<i64>,
+    pub last_auto_sent: Option<i64>,
+    pub last_auto_failed: Option<i64>,
+    pub last_manual_flush_ms: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OutboxFuncionariosItem {
+    pub local_uuid: String,
+    pub client_uuid: Option<String>,
+    pub funcionario_local_uuid: String,
+    pub funcionario_remote_id: Option<String>,
+    pub action: String,
+    pub payload: String,
+    pub status: String,
+    pub attempts: i64,
+    pub last_error: Option<String>,
+    pub remote_id: Option<String>,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub sent_at_ms: Option<i64>,
+}
+
+const FUN_COLS: &str =
+    "local_uuid, client_uuid, funcionario_local_uuid, funcionario_remote_id, action, payload,
+     status, attempts, last_error, remote_id, created_at_ms, updated_at_ms, sent_at_ms";
+
+fn map_fun_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<OutboxFuncionariosItem> {
+    Ok(OutboxFuncionariosItem {
+        local_uuid: r.get(0)?,
+        client_uuid: r.get(1)?,
+        funcionario_local_uuid: r.get(2)?,
+        funcionario_remote_id: r.get(3)?,
+        action: r.get(4)?,
+        payload: r.get(5)?,
+        status: r.get(6)?,
+        attempts: r.get(7)?,
+        last_error: r.get(8)?,
+        remote_id: r.get(9)?,
+        created_at_ms: r.get(10)?,
+        updated_at_ms: r.get(11)?,
+        sent_at_ms: r.get(12)?,
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct FuncionarioEnqueueResult {
+    pub funcionario_local_uuid: String,
+    pub funcionario_remote_id: Option<String>,
+    pub idempotente: bool,
+}
+
+pub fn funcionario_criar_local(payload: serde_json::Value) -> DbResult<FuncionarioEnqueueResult> {
+    with_conn(|conn| {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let tx = conn.unchecked_transaction()?;
+
+        let client_uuid = json_str_opt(&payload, "_client_uuid");
+        if let Some(cu) = &client_uuid {
+            let existing: Option<(String, Option<String>)> = tx.query_row(
+                "SELECT funcionario_local_uuid, funcionario_remote_id
+                   FROM outbox_funcionarios WHERE client_uuid=?1",
+                params![cu], |r| Ok((r.get(0)?, r.get(1)?)),
+            ).optional()?;
+            if let Some((lid, rid)) = existing {
+                tx.commit()?;
+                return Ok(FuncionarioEnqueueResult {
+                    funcionario_local_uuid: lid,
+                    funcionario_remote_id: rid,
+                    idempotente: true,
+                });
+            }
+        }
+
+        // Aceita _funcionario_id (UUID gerado no cliente) para consistência
+        // com o RPC funcionario_criar — mesmo ID em SQLite e no Supabase.
+        let local_uuid = json_str_opt(&payload, "_funcionario_id")
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(random_uuid_v4);
+        let nome = json_str_opt(&payload, "_nome").unwrap_or_default();
+        let login = json_str_opt(&payload, "_login").unwrap_or_default();
+        let role = json_str_opt(&payload, "_role").unwrap_or_else(|| "caixa".into());
+
+        let full = serde_json::json!({
+            "id": &local_uuid,
+            "local_uuid": &local_uuid,
+            "remote_id": serde_json::Value::Null,
+            "nome": &nome,
+            "login": &login,
+            "role": &role,
+            "ativo": true,
+            "ultimo_acesso": serde_json::Value::Null,
+            "created_at": chrono::DateTime::<chrono::Utc>::from_timestamp_millis(now_ms)
+                .map(|d| d.to_rfc3339()).unwrap_or_default(),
+            "sync_status": "pending",
+        });
+
+        tx.execute(
+            "INSERT INTO funcionarios_remote_cache(
+                id, nome, ativo, payload,
+                updated_at_remote_ms, synced_at_ms, deleted_at_ms,
+                local_uuid, remote_id, sync_status, last_error, created_offline_at_ms
+             ) VALUES (?1,?2,1,?3, NULL, ?4, NULL, ?1, NULL, 'pending', NULL, ?4)",
+            params![local_uuid, nome, full.to_string(), now_ms],
+        )?;
+
+        let mut rpc_payload = payload.clone();
+        if let Some(o) = rpc_payload.as_object_mut() {
+            o.insert("_funcionario_id".into(), serde_json::Value::String(local_uuid.clone()));
+            o.entry("_client_uuid").or_insert(serde_json::Value::String(local_uuid.clone()));
+        }
+
+        let outbox_id = random_uuid_v4();
+        tx.execute(
+            "INSERT INTO outbox_funcionarios(
+                local_uuid, client_uuid, funcionario_local_uuid, funcionario_remote_id,
+                action, payload, status, attempts, created_at_ms, updated_at_ms, next_attempt_at_ms
+             ) VALUES (?1,?2,?3,NULL,'criar',?4,'pending',0,?5,?5,NULL)",
+            params![
+                outbox_id,
+                client_uuid.unwrap_or_else(|| local_uuid.clone()),
+                local_uuid,
+                rpc_payload.to_string(),
+                now_ms
+            ],
+        )?;
+        tx.commit()?;
+        Ok(FuncionarioEnqueueResult {
+            funcionario_local_uuid: local_uuid,
+            funcionario_remote_id: None,
+            idempotente: false,
+        })
+    })
+}
+
+pub fn outbox_funcionarios_get(local_uuid: &str) -> DbResult<Option<OutboxFuncionariosItem>> {
+    with_conn(|conn| {
+        let sql = format!("SELECT {cols} FROM outbox_funcionarios WHERE local_uuid=?1", cols = FUN_COLS);
+        let r = conn.query_row(&sql, params![local_uuid], map_fun_item).optional()?;
+        Ok(r)
+    })
+}
+
+pub fn outbox_funcionarios_pending_batch(limit: i64) -> DbResult<Vec<OutboxFuncionariosItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let now = chrono::Utc::now().timestamp_millis();
+        let sql = format!(
+            "SELECT {cols} FROM outbox_funcionarios
+              WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1
+              ORDER BY created_at_ms ASC LIMIT ?2",
+            cols = FUN_COLS,
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![now, limit], map_fun_item)?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    })
+}
+
+pub fn outbox_funcionarios_pending_batch_all(limit: i64) -> DbResult<Vec<OutboxFuncionariosItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let sql = format!(
+            "SELECT {cols} FROM outbox_funcionarios WHERE status='pending'
+             ORDER BY created_at_ms ASC LIMIT ?1",
+            cols = FUN_COLS,
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![limit], map_fun_item)?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    })
+}
+
+pub fn outbox_funcionarios_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxFuncionariosItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let mut out = Vec::new();
+        if let Some(st) = only_status {
+            let sql = format!(
+                "SELECT {cols} FROM outbox_funcionarios WHERE status=?1
+                 ORDER BY created_at_ms DESC LIMIT ?2", cols = FUN_COLS);
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![st, limit], map_fun_item)?;
+            for r in rows { out.push(r?); }
+        } else {
+            let sql = format!(
+                "SELECT {cols} FROM outbox_funcionarios
+                 ORDER BY created_at_ms DESC LIMIT ?1", cols = FUN_COLS);
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![limit], map_fun_item)?;
+            for r in rows { out.push(r?); }
+        }
+        Ok(out)
+    })
+}
+
+pub fn outbox_funcionarios_mark_sending(local_uuid: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        conn.execute(
+            "UPDATE outbox_funcionarios
+                SET status='sending', updated_at_ms=?2, attempts=attempts+1
+              WHERE local_uuid=?1",
+            params![local_uuid, now_ms],
+        )?;
+        Ok(())
+    })
+}
+
+pub fn outbox_funcionarios_mark_sent(
+    local_uuid: &str,
+    remote_id: &str,
+    response: &str,
+    now_ms: i64,
+) -> DbResult<()> {
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+        let item: Option<(String, String)> = tx.query_row(
+            "SELECT funcionario_local_uuid, action FROM outbox_funcionarios WHERE local_uuid=?1",
+            params![local_uuid], |r| Ok((r.get(0)?, r.get(1)?)),
+        ).optional()?;
+        tx.execute(
+            "UPDATE outbox_funcionarios
+                SET status='sent', sent_at_ms=?2, updated_at_ms=?2,
+                    remote_id=?3, remote_response=?4, last_error=NULL,
+                    next_attempt_at_ms=NULL
+              WHERE local_uuid=?1",
+            params![local_uuid, now_ms, remote_id, response],
+        )?;
+        if let Some((fun_lid, action)) = item {
+            if action == "criar" {
+                tx.execute(
+                    "UPDATE funcionarios_remote_cache
+                        SET remote_id=?1, sync_status='synced', last_error=NULL
+                      WHERE local_uuid=?2",
+                    params![remote_id, fun_lid],
+                )?;
+                tx.execute(
+                    "UPDATE outbox_funcionarios
+                        SET funcionario_remote_id=?1
+                      WHERE funcionario_local_uuid=?2 AND funcionario_remote_id IS NULL",
+                    params![remote_id, fun_lid],
+                )?;
+                // Propaga _funcionario_id resolvido às demais ações pendentes
+                let pendentes: Vec<(String, String)> = {
+                    let mut stmt = tx.prepare(
+                        "SELECT local_uuid, payload FROM outbox_funcionarios
+                          WHERE funcionario_local_uuid=?1 AND action <> 'criar'
+                            AND status IN ('pending','error','sending')",
+                    )?;
+                    let rows = stmt.query_map(params![fun_lid], |r| Ok((r.get(0)?, r.get(1)?)))?;
+                    let mut out = Vec::new();
+                    for r in rows { out.push(r?); }
+                    out
+                };
+                for (lid, raw) in pendentes {
+                    let mut p: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
+                    if let Some(o) = p.as_object_mut() {
+                        o.insert("_funcionario_id".into(), serde_json::Value::String(remote_id.to_string()));
+                    }
+                    tx.execute(
+                        "UPDATE outbox_funcionarios SET payload=?2 WHERE local_uuid=?1",
+                        params![lid, p.to_string()],
+                    )?;
+                }
+            } else {
+                let pendentes_outros: i64 = tx.query_row(
+                    "SELECT COUNT(*) FROM outbox_funcionarios
+                      WHERE funcionario_local_uuid=?1 AND status IN ('pending','sending')",
+                    params![fun_lid], |r| r.get(0),
+                ).optional()?.unwrap_or(0);
+                if pendentes_outros == 0 {
+                    tx.execute(
+                        "UPDATE funcionarios_remote_cache SET sync_status='synced', last_error=NULL
+                          WHERE local_uuid=?1",
+                        params![fun_lid],
+                    )?;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    })
+}
+
+pub fn outbox_funcionarios_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        let attempts: i64 = conn.query_row(
+            "SELECT attempts FROM outbox_funcionarios WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).optional()?.unwrap_or(1);
+        let fun_lid: Option<String> = conn.query_row(
+            "SELECT funcionario_local_uuid FROM outbox_funcionarios WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).optional()?;
+        if attempts >= MAX_AUTO_ATTEMPTS {
+            conn.execute(
+                "UPDATE outbox_funcionarios
+                    SET status='error', last_error=?2, updated_at_ms=?3,
+                        next_attempt_at_ms=NULL
+                  WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms],
+            )?;
+            if let Some(lid) = fun_lid {
+                let _ = conn.execute(
+                    "UPDATE funcionarios_remote_cache SET sync_status='error', last_error=?1
+                      WHERE local_uuid=?2",
+                    params![err, lid],
+                );
+            }
+        } else {
+            let next = now_ms + backoff_ms_for_attempts(attempts);
+            conn.execute(
+                "UPDATE outbox_funcionarios
+                    SET status='pending', last_error=?2, updated_at_ms=?3,
+                        next_attempt_at_ms=?4
+                  WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms, next],
+            )?;
+        }
+        Ok(())
+    })
+}
+
+pub fn outbox_funcionarios_reset_errors(now_ms: i64) -> DbResult<i64> {
+    with_conn(|conn| {
+        let n = conn.execute(
+            "UPDATE outbox_funcionarios
+                SET status='pending', updated_at_ms=?1,
+                    next_attempt_at_ms=NULL, last_error=NULL
+              WHERE status IN ('error','pending') AND last_error IS NOT NULL",
+            params![now_ms],
+        )?;
+        let _ = conn.execute(
+            "UPDATE funcionarios_remote_cache SET sync_status='pending', last_error=NULL
+              WHERE sync_status='error'",
+            [],
+        );
+        Ok(n as i64)
+    })
+}
+
+pub fn outbox_funcionarios_stats() -> DbResult<OutboxFuncionariosStats> {
+    with_conn(|conn| {
+        let mut s = OutboxFuncionariosStats::default();
+        let mut stmt = conn.prepare("SELECT status, COUNT(*) FROM outbox_funcionarios GROUP BY status")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        for r in rows {
+            let (st, n) = r?;
+            match st.as_str() {
+                "pending" => s.pending = n,
+                "sending" => s.sending = n,
+                "sent" => s.sent = n,
+                "error" => s.error = n,
+                _ => {}
+            }
+        }
+        s.last_sent_at_ms = conn.query_row(
+            "SELECT MAX(sent_at_ms) FROM outbox_funcionarios WHERE status='sent'",
+            [], |r| r.get::<_, Option<i64>>(0),
+        ).optional()?.flatten();
+        s.last_error = conn.query_row(
+            "SELECT last_error FROM outbox_funcionarios
+              WHERE status='error' ORDER BY updated_at_ms DESC LIMIT 1",
+            [], |r| r.get::<_, Option<String>>(0),
+        ).optional()?.flatten();
+        let now = chrono::Utc::now().timestamp_millis();
+        s.due_now = conn.query_row(
+            "SELECT COUNT(*) FROM outbox_funcionarios
+              WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1",
+            params![now], |r| r.get::<_, i64>(0),
+        ).optional()?.unwrap_or(0);
+        s.next_attempt_at_ms = conn.query_row(
+            "SELECT MIN(COALESCE(next_attempt_at_ms,0))
+               FROM outbox_funcionarios WHERE status='pending'",
+            [], |r| r.get::<_, Option<i64>>(0),
+        ).optional()?.flatten();
+        s.last_auto_flush_ms = meta_get_i64(conn, "outbox_fun_last_auto_flush_ms")?;
+        s.last_auto_flush_sent_ms = meta_get_i64(conn, "outbox_fun_last_auto_flush_sent_ms")?;
+        s.last_auto_attempted = meta_get_i64(conn, "outbox_fun_last_auto_attempted")?;
+        s.last_auto_sent = meta_get_i64(conn, "outbox_fun_last_auto_sent")?;
+        s.last_auto_failed = meta_get_i64(conn, "outbox_fun_last_auto_failed")?;
+        s.last_manual_flush_ms = meta_get_i64(conn, "outbox_fun_last_manual_flush_ms")?;
+        Ok(s)
+    })
+}
+
+pub fn outbox_funcionarios_record_flush_round(
+    kind: &str, now_ms: i64, attempted: i64, sent: i64, failed: i64,
+) -> DbResult<()> {
+    with_conn(|conn| {
+        if kind == "auto" {
+            meta_set_i64(conn, "outbox_fun_last_auto_flush_ms", now_ms)?;
+            meta_set_i64(conn, "outbox_fun_last_auto_attempted", attempted)?;
+            meta_set_i64(conn, "outbox_fun_last_auto_sent", sent)?;
+            meta_set_i64(conn, "outbox_fun_last_auto_failed", failed)?;
+            if sent > 0 {
+                meta_set_i64(conn, "outbox_fun_last_auto_flush_sent_ms", now_ms)?;
+            }
+        } else {
+            meta_set_i64(conn, "outbox_fun_last_manual_flush_ms", now_ms)?;
+        }
+        Ok(())
+    })
+}
+
+pub fn funcionario_remote_id_for(local_uuid: &str) -> DbResult<Option<String>> {
+    with_conn(|conn| {
+        let r: Option<Option<String>> = conn.query_row(
+            "SELECT remote_id FROM funcionarios_remote_cache WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).optional()?;
+        Ok(r.flatten())
+    })
+}
+
+pub fn funcionario_resolve_local_uuid(any_id: &str) -> DbResult<Option<String>> {
+    with_conn(|conn| {
+        let lid: Option<String> = conn.query_row(
+            "SELECT local_uuid FROM funcionarios_remote_cache
+              WHERE local_uuid=?1 OR remote_id=?1 OR id=?1
+              LIMIT 1",
+            params![any_id], |r| r.get(0),
+        ).optional()?;
+        Ok(lid)
     })
 }
