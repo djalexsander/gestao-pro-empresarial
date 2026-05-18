@@ -55,13 +55,34 @@ export function useUpdateCompraStatus() {
   return useMutation({
     mutationFn: ({ id, status }: { id: string; status: CompraStatus }) =>
       dataClient.compras.atualizarStatus({ id, status }),
+    onMutate: async ({ id, status }) => {
+      await qc.cancelQueries({ queryKey: ["compras"] });
+      await qc.cancelQueries({ queryKey: ["compra", id] });
+      const snaps = qc.getQueriesData<Compra[]>({ queryKey: ["compras"] });
+      snaps.forEach(([k, prev]) => {
+        if (!Array.isArray(prev)) return;
+        qc.setQueryData<Compra[]>(
+          k,
+          prev.map((c) => (c.id === id ? { ...c, status } : c)),
+        );
+      });
+      const detailSnap = qc.getQueryData<CompraDetalhe | null>(["compra", id]);
+      if (detailSnap) {
+        qc.setQueryData<CompraDetalhe | null>(["compra", id], { ...detailSnap, status });
+      }
+      return { snaps, detailSnap, id };
+    },
+    onError: (e: Error, _v, ctx) => {
+      ctx?.snaps?.forEach(([k, v]) => qc.setQueryData(k, v));
+      if (ctx?.id) qc.setQueryData(["compra", ctx.id], ctx.detailSnap);
+      toast.error(e.message);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["compras"] });
       qc.invalidateQueries({ queryKey: ["compra"] });
       qc.invalidateQueries({ queryKey: ["financeiro_lancamentos"] });
       toast.success("Status atualizado.");
     },
-    onError: (e: Error) => toast.error(e.message),
   });
 }
 
