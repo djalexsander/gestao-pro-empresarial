@@ -774,3 +774,49 @@ Verificações cobertas pelo diagnóstico:
 
 - Regras de negócio, telas principais, Supabase, cloudAdapter,
   cobrança, planos, módulos, Asaas — intocados.
+
+---
+
+## Etapa 16 — Produtos & Categorias local-first (Fase 1 do ajuste global)
+
+Concluída a primeira onda do ajuste global "**Desktop é local-first.
+Cloud é sincronização secundária**" focando em Produtos, Categorias e
+Códigos (barras/PLU/QR). Áreas críticas de PDV/Caixa/Financeiro foram
+deliberadamente adiadas para fases posteriores.
+
+### O que mudou
+
+| Camada | Arquivo(s) | Mudança |
+| --- | --- | --- |
+| Migração SQL | `supabase/migrations/2026...produtos_idempotencia.sql` | RPCs `criar_produto` / `criar_categoria_produto` aceitam `_produto_id` / `_categoria_id_in` + `_client_uuid` (idempotência por id do cliente) |
+| Cloud adapter | `src/integrations/data/adapters/cloud.ts`, `types.ts` | Propaga `produto_id` / `categoria_id` / `client_uuid` para as RPCs |
+| Schema local (Rust) | `src-tauri/src/db.rs` (v24) | Tabelas `produtos_local`, `categorias_produto_local`, `outbox_produtos`, `outbox_categorias_produto` + índices únicos por `client_uuid` |
+| Lógica local (Rust) | `src-tauri/src/db.rs` | `produto_criar_local`, `produto_enqueue_action` (editar / alterar_status / excluir-soft), helpers de resolução `local_uuid` ↔ `remote_id`, propagador causal categoria→produto |
+| Servidor LAN | `src-tauri/src/local_server.rs` | Handlers `/api/produtos/{criar,editar,alterar-status,excluir}` e `/api/categorias-produto/*`; schedulers de outbox dedicados (drenam só quando há internet, sem duplicar) |
+| Bridge TS | `src/integrations/desktop/serverConnection.ts` | `criar/editar/alterarStatus/excluirProdutoLocal` + variantes para categorias |
+| Adapters | `src/integrations/data/adapters/local-terminal.ts`, `local-server.ts` | Mutations passam a tentar o servidor LAN primeiro; em falha, caem para `cloudAdapter` (fallback transparente) |
+| Hooks | `src/hooks/useProdutos.ts` | `useCreateProduto / useUpdateProduto / useDeleteProduto / useCreateCategoria` agora geram `client_uuid` + id no cliente e aplicam **patch otimista** no React Query (rollback em erro) |
+
+### Garantias
+
+- **Local-first**: criação, edição, troca de status e exclusão de
+  produtos/categorias gravam primeiro em SQLite, geram outbox e a UI
+  reflete na hora (cache otimista do React Query).
+- **Idempotência ponta-a-ponta**: `client_uuid` único por ação +
+  `produto_id` / `categoria_id` gerados no cliente garantem que retries
+  não duplicam.
+- **Causalidade categoria → produto**: produto criado offline
+  referenciando uma categoria local pendente só vai para o cloud depois
+  que o `remote_id` da categoria resolve (propagador automático).
+- **Reads já eram local-first** (`/api/produtos/list`,
+  `/api/produtos/buscar-codigo`, `/api/produtos/buscar-plu`) — esta fase
+  fecha o ciclo cobrindo também as escritas.
+
+### Próximas fases (planejadas, **não** executadas nesta rodada)
+
+1. Funcionários / operadores local-first (PIN seguro + outbox).
+2. Configurações de empresa, logo, preferências e dados do servidor /
+   terminais local-first.
+3. Clientes / Fornecedores local-first (mesmo padrão de Produtos).
+4. *Adiado por risco*: PDV, Caixa e Financeiro — só serão tocados após
+   bateria completa de testes do que já está offline.
