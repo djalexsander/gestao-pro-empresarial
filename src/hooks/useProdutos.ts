@@ -161,14 +161,6 @@ export function useCreateProduto() {
     onError: (e: Error) => toast.error(e.message),
   });
 }
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["produtos"] });
-      qc.invalidateQueries({ queryKey: ["estoque-saldos"] });
-      toast.success("Produto cadastrado.");
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-}
 
 export function useUpdateProduto() {
   const qc = useQueryClient();
