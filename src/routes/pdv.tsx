@@ -1003,12 +1003,30 @@ function PDVPage() {
     <div className="flex h-screen flex-col bg-background">
       {/* Topbar próprio do PDV (sem ERP) */}
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-card px-4 py-2 sm:px-6">
-        <div className="flex items-center gap-2">
-          <ShoppingBag className="h-4 w-4 text-primary" />
-          <span className="text-sm font-semibold">PDV — Nova Venda</span>
-          <Badge variant="outline" className="hidden text-[10px] sm:inline-flex">
-            Frente de caixa
-          </Badge>
+        <div className="flex items-center gap-3">
+          {logoEmpresaUrl ? (
+            <img
+              src={logoEmpresaUrl}
+              alt={nomeEmpresa ? `Logo ${nomeEmpresa}` : "Logo da empresa"}
+              className="h-8 w-auto max-w-[140px] object-contain sm:h-10 sm:max-w-[180px]"
+              loading="eager"
+              decoding="async"
+            />
+          ) : null}
+          <div className="flex items-center gap-2">
+            <ShoppingBag className="h-4 w-4 text-primary" />
+            <div className="flex flex-col leading-tight">
+              <span className="text-sm font-semibold">
+                {nomeEmpresa ? nomeEmpresa : "PDV — Nova Venda"}
+              </span>
+              {nomeEmpresa ? (
+                <span className="text-[10px] text-muted-foreground">PDV — Nova Venda</span>
+              ) : null}
+            </div>
+            <Badge variant="outline" className="hidden text-[10px] sm:inline-flex">
+              Frente de caixa
+            </Badge>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <TerminalAtualBadge />
