@@ -38,8 +38,15 @@ export function useCreateCategoria() {
   return useMutation({
     mutationFn: async (nome: string): Promise<Categoria> => {
       const client_uuid = crypto.randomUUID();
-      const r = await dataClient.produtos.criarCategoria({ nome, client_uuid });
-      // Sem re-fetch: a UI só usa o id. Demais campos são padrão.
+      // Local-first: gera UUID no cliente para que o id seja idêntico em
+      // SQLite local (futuro) e Supabase, eliminando reconciliação posterior.
+      const categoria_id = crypto.randomUUID();
+      console.debug("[LOCAL_FIRST] categoria.criar", { categoria_id });
+      const r = await dataClient.produtos.criarCategoria({
+        nome,
+        client_uuid,
+        categoria_id,
+      });
       return { id: r.categoria_id, nome, parent_id: null, ativo: true };
     },
     onSuccess: () => {
