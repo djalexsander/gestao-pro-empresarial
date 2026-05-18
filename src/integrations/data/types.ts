@@ -856,6 +856,11 @@ export interface CriarProdutoVariacaoInput {
   preco_venda?: number | null;
   codigo_barras?: string | null;
   client_uuid?: string | null;
+  /**
+   * UUID opcional gerado no cliente (desktop local-first). Quando enviado,
+   * o backend usa este id no INSERT e a chamada é idempotente por id.
+   */
+  variacao_id?: string | null;
 }
 
 export interface CriarProdutoVariacaoResult {
