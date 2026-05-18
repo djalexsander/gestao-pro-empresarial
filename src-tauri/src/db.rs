@@ -12094,3 +12094,96 @@ pub fn funcionario_resolve_local_uuid(any_id: &str) -> DbResult<Option<String>> 
         Ok(lid)
     })
 }
+
+// ---------------------------------------------------------------------------
+// Funcionários — enfileiramento genérico para editar/resetar_pin/
+// alterar_status/excluir. O cache local é atualizado de forma otimista
+// (sync_status='pending') e a ação vai para `outbox_funcionarios`.
+// `_funcionario_id` no payload já é o local_uuid (o RPC criar é idempotente
+// pelo id; ações dependentes esperam o criar resolver o remote_id, mas se já
+// houver remote_id conhecido a ação parte direto com ele).
+// ---------------------------------------------------------------------------
+pub fn funcionario_enqueue_action(
+    target_local_uuid: &str,
+    action: &str,
+    payload: serde_json::Value,
+    cache_patch: Option<serde_json::Value>,
+    soft_delete: bool,
+) -> DbResult<FuncionarioEnqueueResult> {
+    with_conn(|conn| {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let tx = conn.unchecked_transaction()?;
+
+        // Resolve o local_uuid real (aceita também remote_id ou id legacy).
+        let row: Option<(String, Option<String>, Option<String>)> = tx.query_row(
+            "SELECT local_uuid, remote_id, payload
+               FROM funcionarios_remote_cache
+              WHERE local_uuid=?1 OR remote_id=?1 OR id=?1
+              LIMIT 1",
+            params![target_local_uuid], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).optional()?;
+        let (fun_lid, remote_id, current_payload) = row.ok_or_else(|| {
+            DbError::from(rusqlite::Error::QueryReturnedNoRows)
+        })?;
+
+        // Patch otimista no cache.
+        if let Some(patch) = cache_patch.as_ref() {
+            let mut cur: serde_json::Value =
+                serde_json::from_str(&current_payload).unwrap_or(serde_json::json!({}));
+            if let (Some(co), Some(po)) = (cur.as_object_mut(), patch.as_object()) {
+                for (k, v) in po { co.insert(k.clone(), v.clone()); }
+            }
+            let new_nome = cur.get("nome").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let new_ativo = cur.get("ativo").and_then(|v| v.as_bool()).unwrap_or(true);
+            tx.execute(
+                "UPDATE funcionarios_remote_cache
+                    SET nome=?2, ativo=CASE WHEN ?3 THEN 1 ELSE 0 END,
+                        payload=?4, sync_status='pending', last_error=NULL,
+                        deleted_at_ms=CASE WHEN ?5 THEN ?6 ELSE deleted_at_ms END,
+                        ativo=CASE WHEN ?5 THEN 0 ELSE (CASE WHEN ?3 THEN 1 ELSE 0 END) END
+                  WHERE local_uuid=?1",
+                params![fun_lid, new_nome, new_ativo, cur.to_string(), soft_delete, now_ms],
+            )?;
+        } else if soft_delete {
+            tx.execute(
+                "UPDATE funcionarios_remote_cache
+                    SET ativo=0, deleted_at_ms=?2, sync_status='pending', last_error=NULL
+                  WHERE local_uuid=?1",
+                params![fun_lid, now_ms],
+            )?;
+        } else {
+            tx.execute(
+                "UPDATE funcionarios_remote_cache
+                    SET sync_status='pending', last_error=NULL
+                  WHERE local_uuid=?1",
+                params![fun_lid],
+            )?;
+        }
+
+        // Monta payload do RPC. Usa remote_id se já conhecido; senão local_uuid
+        // (que vira o id real após o criar resolver).
+        let effective_id = remote_id.clone().unwrap_or_else(|| fun_lid.clone());
+        let mut rpc_payload = payload.clone();
+        if let Some(o) = rpc_payload.as_object_mut() {
+            o.insert("_funcionario_id".into(), serde_json::Value::String(effective_id));
+        }
+
+        let outbox_id = random_uuid_v4();
+        tx.execute(
+            "INSERT INTO outbox_funcionarios(
+                local_uuid, client_uuid, funcionario_local_uuid, funcionario_remote_id,
+                action, payload, status, attempts, created_at_ms, updated_at_ms, next_attempt_at_ms
+             ) VALUES (?1, ?1, ?2, ?3, ?4, ?5, 'pending', 0, ?6, ?6, NULL)",
+            params![
+                outbox_id, fun_lid, remote_id,
+                action, rpc_payload.to_string(), now_ms,
+            ],
+        )?;
+        tx.commit()?;
+        Ok(FuncionarioEnqueueResult {
+            funcionario_local_uuid: fun_lid,
+            funcionario_remote_id: remote_id,
+            idempotente: false,
+        })
+    })
+}
