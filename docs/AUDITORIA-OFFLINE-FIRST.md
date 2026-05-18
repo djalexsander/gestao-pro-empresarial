@@ -891,3 +891,21 @@ deliberadamente adiadas para fases posteriores.
 - Criação/edição continuam invalidando + refetch (precisamos do id
   vindo do servidor antes de exibir o registro completo) — a gravação
   em si já é local-first via SQLite + outbox.
+
+## Etapa 20 — Estoque/Movimentações offline-first (camada 4 do plano global)
+
+- Leituras (`saldosLinhas`, `movimentacoes`) já eram local-first via
+  SQLite (`/api/estoque/saldos`, `/api/estoque/movimentacoes`).
+- O write `registrarMovimento` no `local-server.ts` agora também é
+  local-first: roteia para `POST /api/estoque/movimentacoes/registrar`
+  do servidor Rust desta máquina, que grava em `movimentacoes_local`,
+  recalcula saldo no SQLite e enfileira no outbox para sincronizar
+  com a RPC `registrar_movimento_estoque`. Cloud só como fallback.
+- `useCriarMovimentacao` ganhou `onMutate` otimista: aplica o delta
+  (entrada/devolução = +qty, saída/transferência = −qty) sobre todas
+  as queries `["estoque-saldos"]` imediatamente, com snapshot e
+  rollback em `onError`. UI mostra o novo saldo antes da resposta do
+  servidor; `onSuccess` ainda invalida `estoque-saldos / movimentacoes
+  / produtos` para reconciliar com o cálculo autoritativo do backend.
+- Idempotência preservada: `client_uuid` por modal cobre duplo clique,
+  e o `local_uuid` gerado pelo Rust cobre retries cross-runs.
