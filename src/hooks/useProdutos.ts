@@ -39,7 +39,7 @@ export function useCreateCategoria() {
     mutationFn: async (nome: string): Promise<Categoria> => {
       const client_uuid = crypto.randomUUID();
       // Local-first: gera UUID no cliente para que o id seja idêntico em
-      // SQLite local (futuro) e Supabase, eliminando reconciliação posterior.
+      // SQLite local e Supabase, eliminando reconciliação posterior.
       const categoria_id = crypto.randomUUID();
       console.debug("[LOCAL_FIRST] categoria.criar", { categoria_id });
       const r = await dataClient.produtos.criarCategoria({
@@ -49,11 +49,29 @@ export function useCreateCategoria() {
       });
       return { id: r.categoria_id, nome, parent_id: null, ativo: true };
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["categorias"] });
-      toast.success("Categoria criada.");
+    // Atualização otimista: insere a categoria no cache antes do round-trip.
+    onMutate: async (nome: string) => {
+      await qc.cancelQueries({ queryKey: ["categorias"] });
+      const previous = qc.getQueryData<Categoria[]>(["categorias"]);
+      const optimistic: Categoria = {
+        id: `optimistic-${crypto.randomUUID()}`,
+        nome,
+        parent_id: null,
+        ativo: true,
+      };
+      qc.setQueryData<Categoria[]>(["categorias"], (curr) =>
+        curr ? [...curr, optimistic] : [optimistic],
+      );
+      return { previous };
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(["categorias"], ctx.previous);
+      toast.error(e.message);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["categorias"] });
+    },
+    onSuccess: () => toast.success("Categoria criada."),
   });
 }
 
