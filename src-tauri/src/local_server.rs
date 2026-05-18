@@ -61,8 +61,6 @@ struct ServerState {
     cli_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     /// Sinaliza o scheduler de background (outbox de fornecedores) para parar.
     forn_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
-    /// Sinaliza o scheduler de background (outbox de funcionários) para parar.
-    fun_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     /// Sinaliza o scheduler de background (outbox de compras) para parar.
     compras_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     /// Sinaliza o scheduler de backup automático para parar.
