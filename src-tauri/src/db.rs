@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i64 = 23;
+const SCHEMA_VERSION: i64 = 24;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -1477,6 +1477,153 @@ pub fn init() -> DbResult<()> {
         "#,
     )?;
 
+
+    // =========================================================================
+    // v24 — Produtos & Categorias de produto offline-first.
+    //
+    // Estende `produtos_local` com colunas de identidade/sync no mesmo padrão
+    // adotado em v23 para funcionários, cria `categorias_produto_local`
+    // (que ainda não existia) e duas outboxes:
+    //
+    //   * outbox_produtos              → ações: criar | editar | alterar_status | excluir
+    //   * outbox_categorias_produto    → ações: criar | editar | alterar_status | excluir
+    //
+    // Identidade compartilhada: o desktop gera o UUID localmente e o reutiliza
+    // como `id` no Supabase (RPCs `criar_produto` / `criar_categoria_produto`
+    // agora aceitam o id vindo do cliente). Isso elimina reconciliação posterior
+    // e garante que retries do worker nunca dupliquem dados.
+    // =========================================================================
+    let _ = conn.execute(
+        "ALTER TABLE produtos_local ADD COLUMN local_uuid TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE produtos_local ADD COLUMN remote_id TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE produtos_local ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'synced'",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE produtos_local ADD COLUMN last_error TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE produtos_local ADD COLUMN created_offline_at_ms INTEGER",
+        [],
+    );
+    // Linhas que vieram do snapshot anterior já têm `id` = remote id.
+    let _ = conn.execute(
+        "UPDATE produtos_local SET local_uuid = id WHERE local_uuid IS NULL",
+        [],
+    );
+    let _ = conn.execute(
+        "UPDATE produtos_local SET remote_id = id WHERE remote_id IS NULL AND sync_status='synced'",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_produtos_local_uuid ON produtos_local(local_uuid)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_produtos_remote_id ON produtos_local(remote_id) WHERE remote_id IS NOT NULL",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_produtos_sync_status ON produtos_local(sync_status)",
+        [],
+    );
+
+    // categorias_produto_local — cache + identidade local. Não existia antes
+    // (categorias eram lidas apenas via cloud). Mantém o mesmo shape genérico
+    // das demais caches: `id` é o id "lógico" (= local_uuid quando criada
+    // offline ou = remote_id quando proveniente do snapshot do Supabase).
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS categorias_produto_local (
+            id                   TEXT PRIMARY KEY,
+            nome                 TEXT,
+            parent_id            TEXT,
+            ativo                INTEGER NOT NULL DEFAULT 1,
+            payload              TEXT NOT NULL,
+            updated_at_remote_ms INTEGER,
+            synced_at_ms         INTEGER NOT NULL,
+            deleted_at_ms        INTEGER,
+            local_uuid           TEXT,
+            remote_id            TEXT,
+            sync_status          TEXT NOT NULL DEFAULT 'synced',
+            last_error           TEXT,
+            created_offline_at_ms INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_categorias_produto_local_uuid
+            ON categorias_produto_local(local_uuid);
+        CREATE INDEX IF NOT EXISTS idx_categorias_produto_remote_id
+            ON categorias_produto_local(remote_id) WHERE remote_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_categorias_produto_sync_status
+            ON categorias_produto_local(sync_status);
+        CREATE INDEX IF NOT EXISTS idx_categorias_produto_nome
+            ON categorias_produto_local(nome);
+        CREATE INDEX IF NOT EXISTS idx_categorias_produto_parent
+            ON categorias_produto_local(parent_id);
+
+        CREATE TABLE IF NOT EXISTS outbox_produtos (
+            local_uuid          TEXT PRIMARY KEY,
+            client_uuid         TEXT,
+            produto_local_uuid  TEXT NOT NULL,
+            produto_remote_id   TEXT,
+            action              TEXT NOT NULL,
+            payload             TEXT NOT NULL,
+            status              TEXT NOT NULL DEFAULT 'pending',
+            attempts            INTEGER NOT NULL DEFAULT 0,
+            last_error          TEXT,
+            remote_id           TEXT,
+            remote_response     TEXT,
+            created_at_ms       INTEGER NOT NULL,
+            updated_at_ms       INTEGER NOT NULL,
+            sent_at_ms          INTEGER,
+            next_attempt_at_ms  INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_outbox_produtos_status
+            ON outbox_produtos(status, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_produtos_status_next
+            ON outbox_produtos(status, next_attempt_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_produtos_prod
+            ON outbox_produtos(produto_local_uuid, status);
+        CREATE INDEX IF NOT EXISTS idx_outbox_produtos_action
+            ON outbox_produtos(action, status);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_produtos_client_uuid
+            ON outbox_produtos(client_uuid) WHERE client_uuid IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS outbox_categorias_produto (
+            local_uuid           TEXT PRIMARY KEY,
+            client_uuid          TEXT,
+            categoria_local_uuid TEXT NOT NULL,
+            categoria_remote_id  TEXT,
+            action               TEXT NOT NULL,
+            payload              TEXT NOT NULL,
+            status               TEXT NOT NULL DEFAULT 'pending',
+            attempts             INTEGER NOT NULL DEFAULT 0,
+            last_error           TEXT,
+            remote_id            TEXT,
+            remote_response      TEXT,
+            created_at_ms        INTEGER NOT NULL,
+            updated_at_ms        INTEGER NOT NULL,
+            sent_at_ms           INTEGER,
+            next_attempt_at_ms   INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_outbox_categorias_produto_status
+            ON outbox_categorias_produto(status, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_categorias_produto_status_next
+            ON outbox_categorias_produto(status, next_attempt_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_categorias_produto_cat
+            ON outbox_categorias_produto(categoria_local_uuid, status);
+        CREATE INDEX IF NOT EXISTS idx_outbox_categorias_produto_action
+            ON outbox_categorias_produto(action, status);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_categorias_produto_client_uuid
+            ON outbox_categorias_produto(client_uuid) WHERE client_uuid IS NOT NULL;
+        "#,
+    )?;
 
     conn.execute(
         "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
