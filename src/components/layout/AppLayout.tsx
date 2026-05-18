@@ -21,6 +21,7 @@ import { useDesktopRole } from "@/components/desktop/DesktopRoleProvider";
 import { DesktopSetupWizard } from "@/components/desktop/DesktopSetupWizard";
 import { DesktopRoleBadge } from "@/components/desktop/DesktopRoleBadge";
 import { isTerminalPathAllowed, TERMINAL_HOME } from "@/components/desktop/terminalRoutes";
+import { useFlushConfigEmpresaPending } from "@/hooks/useConfigEmpresa";
 
 // Rotas que usam layout próprio (sem o shell do ERP)
 const STANDALONE_ROUTES = new Set(["/auth", "/hub", "/pos", "/pdv"]);
