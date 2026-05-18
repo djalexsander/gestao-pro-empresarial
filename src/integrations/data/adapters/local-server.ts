@@ -784,6 +784,35 @@ export const localServerAdapter: DataAdapter = {
           ),
         () => cloudAdapter.estoque.movimentacoes(input),
       ),
+    registrarMovimento: async (input) => {
+      const r = await postLocalAuth<{
+        movimento_id: string;
+        idempotente: boolean;
+        saldo_anterior: number;
+        saldo_posterior: number;
+      }>("/api/estoque/movimentacoes/registrar", {
+        produto_id: input.produto_id,
+        variacao_id: input.variacao_id ?? null,
+        tipo: input.tipo,
+        quantidade: input.quantidade,
+        custo_unitario: input.custo_unitario ?? null,
+        observacoes: input.observacoes ?? null,
+        origem: input.origem ?? null,
+        client_uuid: input.client_uuid ?? null,
+      });
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "estoque", method: "registrarMovimento", fallback: false });
+        return {
+          movimento_id: r.movimento_id,
+          idempotente: r.idempotente,
+          saldo_anterior: r.saldo_anterior,
+          saldo_posterior: r.saldo_posterior,
+        };
+      }
+      const result = await cloudAdapter.estoque.registrarMovimento(input);
+      reportDataSource({ source: "cloud", domain: "estoque", method: "registrarMovimento", fallback: true });
+      return result;
+    },
   },
 
   // -----------------------------------------------------------------
