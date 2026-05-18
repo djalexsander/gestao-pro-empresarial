@@ -5199,6 +5199,7 @@ pub fn cancelar_receber_local(
         Ok(CancelarReceberResult {
             receber_local_uuid, idempotente: false, status: "cancelado".into(),
         })
+    })
 }
 
 
