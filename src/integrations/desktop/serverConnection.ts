@@ -2808,3 +2808,86 @@ export async function fetchLocalDiagnostic(
     return null;
   }
 }
+
+// ----------------------------------------------------------------------------
+// Funcionários — writes locais com outbox (offline-first)
+// ----------------------------------------------------------------------------
+
+export interface FuncionarioMutacaoLocalResponse {
+  funcionario_id: string;
+  idempotente: boolean;
+  outbox_status: "pending" | "sent";
+  remote_id: string | null;
+}
+
+export async function criarFuncionarioLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: {
+    funcionario_id?: string | null;
+    nome: string;
+    login: string;
+    pin: string;
+    role: string;
+    client_uuid?: string | null;
+  },
+  authToken?: string | null,
+): Promise<FuncionarioMutacaoLocalResponse | null> {
+  return postJsonAuth<FuncionarioMutacaoLocalResponse>(
+    cfg,
+    "/api/funcionarios/criar",
+    payload,
+    authToken,
+  );
+}
+
+export async function editarFuncionarioLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: { funcionario_id: string; nome: string; login: string; role: string },
+  authToken?: string | null,
+): Promise<FuncionarioMutacaoLocalResponse | null> {
+  return postJsonAuth<FuncionarioMutacaoLocalResponse>(
+    cfg,
+    "/api/funcionarios/editar",
+    payload,
+    authToken,
+  );
+}
+
+export async function resetarPinFuncionarioLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: { funcionario_id: string; pin: string },
+  authToken?: string | null,
+): Promise<FuncionarioMutacaoLocalResponse | null> {
+  return postJsonAuth<FuncionarioMutacaoLocalResponse>(
+    cfg,
+    "/api/funcionarios/resetar-pin",
+    payload,
+    authToken,
+  );
+}
+
+export async function alterarStatusFuncionarioLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: { funcionario_id: string; ativo: boolean },
+  authToken?: string | null,
+): Promise<FuncionarioMutacaoLocalResponse | null> {
+  return postJsonAuth<FuncionarioMutacaoLocalResponse>(
+    cfg,
+    "/api/funcionarios/alterar-status",
+    payload,
+    authToken,
+  );
+}
+
+export async function excluirFuncionarioLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: { funcionario_id: string },
+  authToken?: string | null,
+): Promise<FuncionarioMutacaoLocalResponse | null> {
+  return postJsonAuth<FuncionarioMutacaoLocalResponse>(
+    cfg,
+    "/api/funcionarios/excluir",
+    payload,
+    authToken,
+  );
+}
