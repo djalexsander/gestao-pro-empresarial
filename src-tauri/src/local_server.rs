@@ -873,7 +873,16 @@ fn read_typed(domain: &str, query: &[(&str, String)]) -> Result<String, db::DbEr
                 .unwrap_or("");
             db::read_caixa_movimentos_remote(caixa_id)
         }
-        "funcionarios_remote" => db::read_funcionarios_ativos_remote(),
+        "funcionarios_remote" => {
+            let incluir_inativos = query
+                .iter()
+                .any(|(k, v)| k == "__filter_incluir_inativos" && (v == "1" || v.eq_ignore_ascii_case("true")));
+            if incluir_inativos {
+                db::read_funcionarios_todos_remote()
+            } else {
+                db::read_funcionarios_ativos_remote()
+            }
+        }
         "terminais_remote" => db::read_terminais_ativos_remote(),
         "pagamentos_empresa_remote" => {
             let limit = query
