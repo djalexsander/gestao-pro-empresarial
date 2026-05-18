@@ -63,6 +63,10 @@ struct ServerState {
     forn_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     /// Sinaliza o scheduler de background (outbox de compras) para parar.
     compras_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
+    /// Sinaliza o scheduler de background (outbox de produtos) para parar.
+    produtos_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
+    /// Sinaliza o scheduler de background (outbox de categorias de produto) para parar.
+    cat_prod_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     /// Sinaliza o scheduler de backup automático para parar.
     backup_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     upstream: Option<UpstreamConfig>,
