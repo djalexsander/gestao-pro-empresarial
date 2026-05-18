@@ -27,6 +27,16 @@ import { dataClient } from "@/integrations/data";
 import { lovable } from "@/integrations/lovable";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { cn } from "@/lib/utils";
+import { isDesktop } from "@/integrations/data/mode";
+import {
+  findOfflineEntry,
+  hasAnyOfflineEntry,
+  isNetworkAuthError,
+  saveOfflineCredential,
+  verifyOfflineCredential,
+  withAuthTimeout,
+} from "@/lib/erpOfflineCache";
+import { unlockErp } from "@/lib/erpUnlock";
 
 const searchSchema = z.object({
   redirect: z.string().optional(),
@@ -343,32 +353,157 @@ function SignInForm({ redirect }: { redirect: string }) {
     }
   }
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    const { error } = await dataClient.auth.signInWithPassword({ email, password });
-    setBusy(false);
-    if (error) {
-      toast.error(
-        error.message === "Invalid login credentials"
-          ? "E-mail ou senha inválidos."
-          : error.message,
-      );
-      return;
-    }
-    // Lembra apenas o e-mail, se solicitado. Senha nunca é salva.
-    try {
-      if (remember) {
-        localStorage.setItem(REMEMBER_LOGIN_KEY, email.trim());
+  async function tentarLoginOffline(
+    motivo: "offline" | "rede",
+  ): Promise<boolean> {
+    if (!isDesktop()) return false;
+    console.info("[OFFLINE_LOGIN] tentando login offline", { motivo });
+    const entry = await verifyOfflineCredential(email.trim(), password);
+    if (!entry) {
+      console.warn("[OFFLINE_LOGIN] login offline recusado");
+      if (!hasAnyOfflineEntry() || !findOfflineEntry(email.trim())) {
+        toast.error(
+          "Este computador ainda não foi preparado para login offline. Conecte à internet uma vez e entre normalmente para liberar o acesso offline.",
+        );
       } else {
-        localStorage.removeItem(REMEMBER_LOGIN_KEY);
+        toast.error("E-mail ou senha inválidos (modo offline).");
       }
+      return false;
+    }
+    console.info("[OFFLINE_LOGIN] login offline aprovado");
+    try {
+      if (remember) localStorage.setItem(REMEMBER_LOGIN_KEY, email.trim());
+      else localStorage.removeItem(REMEMBER_LOGIN_KEY);
     } catch {
       /* noop */
     }
     setPassword("");
-    toast.success("Bem-vindo de volta!");
+    unlockErp(entry.userId);
+    toast.success("Acesso offline liberado neste computador.");
     navigate({ to: redirect });
+    return true;
+  }
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!email.trim() || !password) return;
+    setBusy(true);
+
+    const desktop = isDesktop();
+    const navigatorOnline =
+      typeof navigator !== "undefined" ? navigator.onLine : true;
+
+    try {
+      // Desktop offline: vai direto pro cache, sem tentar Supabase.
+      if (desktop && !navigatorOnline) {
+        toast.message("Sem internet. Tentando acesso offline neste computador.");
+        const ok = await tentarLoginOffline("offline");
+        if (!ok) setBusy(false);
+        return;
+      }
+
+      // Tenta online com timeout curto no desktop p/ não travar UI.
+      type SignInResult = { error: { message?: string } | null };
+      let res: SignInResult;
+      try {
+        res = (await withAuthTimeout(
+          dataClient.auth.signInWithPassword({ email, password }),
+          desktop ? 6000 : 15000,
+        )) as SignInResult;
+      } catch (netErr) {
+        if (desktop && isNetworkAuthError(netErr)) {
+          console.warn("[AUTH_NETWORK] erro de rede tratado", netErr);
+          console.info("[OFFLINE_LOGIN] fallback após falha de rede");
+          toast.message("Sem internet. Tentando acesso offline neste computador.");
+          const ok = await tentarLoginOffline("rede");
+          if (!ok) setBusy(false);
+          return;
+        }
+        console.warn("[AUTH_NETWORK] erro de rede tratado", netErr);
+        toast.error("Sem conexão com o servidor. Tente novamente.");
+        setBusy(false);
+        return;
+      }
+
+      const error = res.error;
+      if (error && desktop && isNetworkAuthError(error)) {
+        console.warn("[AUTH_NETWORK] erro de rede tratado", error);
+        console.info("[OFFLINE_LOGIN] fallback após falha de rede");
+        toast.message("Sem internet. Tentando acesso offline neste computador.");
+        const ok = await tentarLoginOffline("rede");
+        if (!ok) setBusy(false);
+        return;
+      }
+      if (error) {
+        toast.error(
+          error.message === "Invalid login credentials"
+            ? "E-mail ou senha inválidos."
+            : isNetworkAuthError(error)
+              ? "Sem conexão com a internet."
+              : error.message ?? "Não foi possível entrar.",
+        );
+        setBusy(false);
+        return;
+      }
+
+      // Lembra apenas o e-mail, se solicitado. Senha nunca é salva.
+      try {
+        if (remember) {
+          localStorage.setItem(REMEMBER_LOGIN_KEY, email.trim());
+        } else {
+          localStorage.removeItem(REMEMBER_LOGIN_KEY);
+        }
+      } catch {
+        /* noop */
+      }
+
+      // Aquece cache offline no desktop (não bloqueia o sucesso).
+      if (desktop) {
+        try {
+          const { user: authedUser } = await dataClient.auth.getUser();
+          if (authedUser?.id) {
+            let roles: string[] = [];
+            try {
+              roles = await withAuthTimeout(
+                dataClient.userRoles.listar(authedUser.id),
+                4000,
+              );
+            } catch {
+              /* noop */
+            }
+            await saveOfflineCredential({
+              email: email.trim(),
+              password,
+              userId: authedUser.id,
+              roles,
+            });
+          }
+        } catch {
+          /* noop */
+        }
+      }
+
+      setPassword("");
+      setBusy(false);
+      toast.success("Bem-vindo de volta!");
+      navigate({ to: redirect });
+    } catch (err) {
+      if (desktop && isNetworkAuthError(err)) {
+        console.warn("[AUTH_NETWORK] erro de rede tratado", err);
+        console.info("[OFFLINE_LOGIN] fallback após falha de rede");
+        toast.message("Sem internet. Tentando acesso offline neste computador.");
+        const ok = await tentarLoginOffline("rede");
+        if (!ok) setBusy(false);
+        return;
+      }
+      console.warn("[AUTH_NETWORK] erro de rede tratado", err);
+      toast.error(
+        isNetworkAuthError(err)
+          ? "Sem conexão com a internet."
+          : (err instanceof Error && err.message) || "Erro inesperado ao entrar.",
+      );
+      setBusy(false);
+    }
   }
 
   return (
