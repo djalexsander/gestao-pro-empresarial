@@ -820,3 +820,30 @@ deliberadamente adiadas para fases posteriores.
 3. Clientes / Fornecedores local-first (mesmo padrão de Produtos).
 4. *Adiado por risco*: PDV, Caixa e Financeiro — só serão tocados após
    bateria completa de testes do que já está offline.
+
+## Etapa 17 — Configurações da Empresa offline-first (camada 1 do plano global)
+
+- Sem migração no SQLite: configurações de empresa são um único registro
+  por owner, então uma camada TS leve resolve sem o custo/risco de uma
+  nova tabela + outbox no Rust.
+- Novo helper `src/lib/configEmpresaOfflineCache.ts`:
+  * `getCachedConfigEmpresa(userId)` / `setCachedConfigEmpresa` —
+    persistência em `localStorage` por user_id.
+  * `mergeCachedConfigEmpresa(userId, patch)` — merge otimista usado
+    pelo `onMutate`.
+  * Fila de pendências `enqueue/get/clearConfigEmpresaPending(userId)`
+    com semântica "last-write-wins".
+  * `isNetworkLikeError(err)` para distinguir falha de rede de erro de
+    validação.
+- `useConfigEmpresa` agora é offline-first:
+  * `initialData` lido do cache local (UI instantânea, mesmo sem rede).
+  * `queryFn` tenta nuvem; em falha de rede devolve cache; em sucesso
+    atualiza cache e tenta drenar pendência.
+- `useSalvarConfigEmpresa` cobre os 3 cenários:
+  * Online OK → grava cloud + cache + limpa fila.
+  * Offline → grava cache otimista, enfileira pendência e devolve
+    sucesso (UI não bloqueia).
+  * Erro não-rede → rollback do cache do React Query + toast.
+- Novo hook `useFlushConfigEmpresaPending` plugado em `AppLayout` —
+  drena a fila ao montar, ao ganhar foco (`window.focus`) e quando a
+  rede volta (`window.online`).
