@@ -937,3 +937,41 @@ deliberadamente adiadas para fases posteriores.
 - Resultado: cadastrar compra, alterar status, receber (com baixa de
   estoque + geração de conta a pagar) e excluir agora funcionam sem
   internet, materializam no SQLite e sincronizam com a nuvem depois.
+
+## Etapa 22 — Vendas/PDV/Caixa offline-first (camada 6 do plano global)
+
+- Infra Rust já consolidada: `vendas_local` + itens + estoque local +
+  `caixa_local` + `caixa_movimentos_local` + `contas_receber_local`
+  (fiado) + outbox de vendas/cancelamentos/movimentos. O adapter de
+  TERMINAL (`local-terminal.ts`) já fala com esses endpoints há várias
+  fases. Faltava a MÁQUINA-SERVIDOR usar o mesmo caminho — antes,
+  finalizar venda nesta máquina ia direto à RPC `finalizar_venda_pdv`
+  via cloud, então sem internet o PDV travava aqui também.
+- `local-server.ts` agora tem blocos completos de `vendas` e `caixa`:
+  - `vendas.list` → `GET /api/vendas/historico` (SQLite local).
+  - `vendas.finalizar` → `POST /api/vendas/registrar`: grava venda +
+    itens + pagamentos + abate estoque local + cria movimento de caixa
+    + gera `contas_receber_local` quando fiado, tudo em uma transação
+    SQLite + outbox. Retorna `remote_id` se a outbox já entregou,
+    senão `local_uuid` (cupom imprime offline normalmente).
+  - `vendas.cancelar` → `POST /api/vendas/cancelar`: estorna estoque
+    local + cancela lançamentos locais + outbox; UI recebe um resumo
+    mínimo válido enquanto o cloud não confirma.
+  - `caixa.abrir / registrarMovimento / fechar` → `/api/caixa/abrir`,
+    `/api/caixa/movimento`, `/api/caixa/fechar` (mesmo padrão; gera
+    lançamento financeiro de fechamento via servidor local).
+  - Cloud é apenas fallback de catástrofe (servidor local caiu de
+    vez). Cada caminho marca `reportDataSource` para o painel de
+    diagnóstico.
+- Idempotência: `client_uuid` por carrinho/modal cobre duplo clique;
+  o `local_uuid` gerado pelo Rust cobre retries cross-runs e impede
+  vender/abrir caixa em duplicidade quando a outbox empurra depois.
+- Hooks (`useFinalizarVendaPDV`, `useCancelarVenda`, `useAbrirCaixa`,
+  `useRegistrarMovimentoCaixa`, `useFecharCaixa`) seguem invalidando
+  `vendas / caixa / estoque-saldos / movimentacoes / financeiro*` —
+  agora todas essas leituras já vêm do SQLite local, então a UI se
+  reconcilia sem ida à internet.
+- Resultado: PDV finaliza venda, cancela, abre/fecha caixa e registra
+  sangria/suprimento 100% offline. O financeiro (fiado / fechamento)
+  é gerado localmente e materializa no Supabase quando a conexão
+  voltar, sem duplicar nada.
