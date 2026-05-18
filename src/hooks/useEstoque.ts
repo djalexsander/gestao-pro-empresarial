@@ -88,7 +88,8 @@ export function useCriarMovimentacao() {
       origem?: RegistrarMovimentoEstoqueInput["origem"];
       /** mantido por compat: o saldo é recalculado server-side e ignorado aqui */
       saldo_atual?: number;
-    }
+    },
+    { saldoSnaps: Array<[unknown, Map<string, number> | undefined]> }
   >({
     mutationFn: async (input) => {
       if (!user) throw new Error("Não autenticado");
@@ -106,6 +107,28 @@ export function useCriarMovimentacao() {
         client_uuid: input.client_uuid ?? null,
       });
     },
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: ["estoque-saldos"] });
+      const saldoSnaps = qc.getQueriesData<Map<string, number>>({ queryKey: ["estoque-saldos"] });
+      const sinal =
+        input.tipo === "entrada" || input.tipo === "devolucao"
+          ? 1
+          : input.tipo === "saida" || input.tipo === "transferencia"
+            ? -1
+            : 1;
+      const delta = sinal * Number(input.quantidade);
+      saldoSnaps.forEach(([key, prev]) => {
+        if (!(prev instanceof Map)) return;
+        const next = new Map(prev);
+        next.set(input.produto_id, (next.get(input.produto_id) ?? 0) + delta);
+        qc.setQueryData<Map<string, number>>(key, next);
+      });
+      return { saldoSnaps };
+    },
+    onError: (e: Error, _v, ctx) => {
+      ctx?.saldoSnaps?.forEach(([k, v]) => qc.setQueryData(k, v));
+      toast.error(e.message);
+    },
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ["estoque-saldos"] });
       qc.invalidateQueries({ queryKey: ["movimentacoes"] });
@@ -116,6 +139,5 @@ export function useCriarMovimentacao() {
         toast.success("Movimentação registrada.");
       }
     },
-    onError: (e: Error) => toast.error(e.message),
   });
 }
