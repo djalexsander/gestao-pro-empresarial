@@ -816,6 +816,140 @@ export const localServerAdapter: DataAdapter = {
   },
 
   // -----------------------------------------------------------------
+  // Etapa 21 — Compras offline-first (camada 5 do plano global).
+  // Grava cabeçalho + itens em `compras_local`, atualiza estoque local
+  // ao receber e gera `contas_pagar_local` (via Rust). Cloud só como
+  // fallback quando o servidor local não respondeu.
+  // -----------------------------------------------------------------
+  compras: {
+    ...cloudAdapter.compras,
+    list: (input) =>
+      withCloudFallback(
+        "compras",
+        "list",
+        () =>
+          tryLocal<Awaited<ReturnType<DataAdapter["compras"]["list"]>>>(
+            "compras",
+            "list",
+            "/api/compras",
+            { limit: input?.limit != null ? String(input.limit) : undefined },
+          ),
+        () => cloudAdapter.compras.list(input),
+      ),
+    criar: async (input) => {
+      const r = await postLocalAuth<{
+        compra_id: string;
+        compra_local_uuid: string;
+        idempotente: boolean;
+      }>("/api/compras/criar", {
+        _numero: input.numero,
+        _fornecedor_id: input.fornecedor_id,
+        _data_emissao: input.data_emissao,
+        _data_prevista: input.data_prevista ?? null,
+        _data_vencimento: input.data_vencimento ?? null,
+        _numero_nf: input.numero_nf ?? null,
+        _serie_nf: input.serie_nf ?? null,
+        _desconto: input.desconto ?? 0,
+        _frete: input.frete ?? 0,
+        _outros: input.outros ?? 0,
+        _observacoes: input.observacoes ?? null,
+        _itens: input.itens,
+      });
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "compras", method: "criar", fallback: false });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return { id: r.compra_id, local_uuid: r.compra_local_uuid } as any;
+      }
+      const result = await cloudAdapter.compras.criar(input);
+      reportDataSource({ source: "cloud", domain: "compras", method: "criar", fallback: true });
+      return result;
+    },
+    atualizarStatus: async (input) => {
+      const r = await postLocalAuth<{ compra_id: string }>(
+        "/api/compras/alterar-status",
+        { compra_id: input.id, status: input.status },
+      );
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "compras", method: "atualizarStatus", fallback: false });
+        return;
+      }
+      await cloudAdapter.compras.atualizarStatus(input);
+      reportDataSource({ source: "cloud", domain: "compras", method: "atualizarStatus", fallback: true });
+    },
+    atualizarMetadados: async (input) => {
+      const payload: Record<string, unknown> = { compra_id: input.id };
+      if ("data_vencimento" in input) payload._data_vencimento = input.data_vencimento ?? null;
+      if ("data_prevista" in input) payload._data_prevista = input.data_prevista ?? null;
+      if ("fornecedor_id" in input) payload._fornecedor_id = input.fornecedor_id ?? null;
+      if ("numero_nf" in input) payload._numero_nf = input.numero_nf ?? null;
+      if ("serie_nf" in input) payload._serie_nf = input.serie_nf ?? null;
+      if ("observacoes" in input) payload._observacoes = input.observacoes ?? null;
+      const r = await postLocalAuth<{ compra_id: string }>(
+        "/api/compras/editar-metadados",
+        payload,
+      );
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "compras", method: "atualizarMetadados", fallback: false });
+        return;
+      }
+      await cloudAdapter.compras.atualizarMetadados(input);
+      reportDataSource({ source: "cloud", domain: "compras", method: "atualizarMetadados", fallback: true });
+    },
+    receber: async (input) => {
+      const r = await postLocalAuth<{ compra_id: string }>(
+        "/api/compras/receber",
+        {
+          compra_id: input.id,
+          data_recebimento: input.data_recebimento,
+          gerar_financeiro: input.gerar_financeiro,
+          data_vencimento: input.data_vencimento ?? undefined,
+        },
+      );
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "compras", method: "receber", fallback: false });
+        return { compra_id: r.compra_id, local: true };
+      }
+      const result = await cloudAdapter.compras.receber(input);
+      reportDataSource({ source: "cloud", domain: "compras", method: "receber", fallback: true });
+      return result;
+    },
+    receberItens: async (input) => {
+      const r = await postLocalAuth<{ compra_id: string }>(
+        "/api/compras/receber-itens",
+        {
+          compra_id: input.compra_id,
+          itens: input.itens.map((i) => ({ item_id: i.item_id, quantidade: i.quantidade })),
+          data_recebimento: input.data_recebimento,
+          gerar_financeiro: input.gerar_financeiro,
+          data_vencimento: input.data_vencimento ?? undefined,
+        },
+      );
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "compras", method: "receberItens", fallback: false });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return { compra_id: r.compra_id, local: true } as any;
+      }
+      const result = await cloudAdapter.compras.receberItens(input);
+      reportDataSource({ source: "cloud", domain: "compras", method: "receberItens", fallback: true });
+      return result;
+    },
+    excluir: async (compraId) => {
+      const r = await postLocalAuth<{ compra_id: string }>(
+        "/api/compras/excluir",
+        { compra_id: compraId },
+      );
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "compras", method: "excluir", fallback: false });
+        return;
+      }
+      await cloudAdapter.compras.excluir(compraId);
+      reportDataSource({ source: "cloud", domain: "compras", method: "excluir", fallback: true });
+    },
+  },
+
+
+
+  // -----------------------------------------------------------------
   // Sub-etapa 8.1 — Clientes a Receber / Fiado offline-first
   // (servidor local = esta máquina). Mesma estratégia do local-terminal.
   // -----------------------------------------------------------------
