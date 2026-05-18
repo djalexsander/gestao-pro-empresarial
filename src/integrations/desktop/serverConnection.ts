@@ -2891,3 +2891,162 @@ export async function excluirFuncionarioLocal(
     authToken,
   );
 }
+
+// ----------------------------------------------------------------------------
+// Produtos e Categorias de Produto — writes locais (offline-first / Fase 1 v24)
+// ----------------------------------------------------------------------------
+
+export interface ProdutoMutacaoLocalResponse {
+  produto_id: string;
+  idempotente: boolean;
+  outbox_status: "pending" | "sent";
+  remote_id: string | null;
+}
+
+export interface CategoriaProdutoMutacaoLocalResponse {
+  categoria_id: string;
+  idempotente: boolean;
+  outbox_status: "pending" | "sent";
+  remote_id: string | null;
+}
+
+/**
+ * Converte um input "limpo" (chaves sem `_`) no payload com prefixo `_`
+ * esperado pelos handlers locais (mesmo formato das RPCs Supabase).
+ */
+function toUnderscored(payload: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(payload)) {
+    if (v === undefined) continue;
+    out[k.startsWith("_") ? k : `_${k}`] = v;
+  }
+  return out;
+}
+
+export async function criarProdutoLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: Record<string, unknown>,
+  authToken?: string | null,
+): Promise<ProdutoMutacaoLocalResponse | null> {
+  return postJsonAuth<ProdutoMutacaoLocalResponse>(
+    cfg,
+    "/api/produtos/criar",
+    toUnderscored(payload),
+    authToken,
+  );
+}
+
+export async function editarProdutoLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  produtoId: string,
+  payload: Record<string, unknown>,
+  authToken?: string | null,
+): Promise<ProdutoMutacaoLocalResponse | null> {
+  const body = { produto_id: produtoId, ...toUnderscored(payload) };
+  return postJsonAuth<ProdutoMutacaoLocalResponse>(
+    cfg,
+    "/api/produtos/editar",
+    body,
+    authToken,
+  );
+}
+
+export async function alterarStatusProdutoLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: { produto_id: string; status: string },
+  authToken?: string | null,
+): Promise<ProdutoMutacaoLocalResponse | null> {
+  return postJsonAuth<ProdutoMutacaoLocalResponse>(
+    cfg,
+    "/api/produtos/alterar-status",
+    payload,
+    authToken,
+  );
+}
+
+export async function excluirProdutoLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: { produto_id: string },
+  authToken?: string | null,
+): Promise<ProdutoMutacaoLocalResponse | null> {
+  return postJsonAuth<ProdutoMutacaoLocalResponse>(
+    cfg,
+    "/api/produtos/excluir",
+    payload,
+    authToken,
+  );
+}
+
+export async function criarCategoriaProdutoLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: {
+    nome: string;
+    parent_id?: string | null;
+    descricao?: string | null;
+    categoria_id?: string | null;
+    client_uuid?: string | null;
+  },
+  authToken?: string | null,
+): Promise<CategoriaProdutoMutacaoLocalResponse | null> {
+  // O handler aceita o payload flatten e a db usa `_categoria_id_in`
+  // (mesmo nome do parâmetro da RPC `criar_categoria_produto`).
+  const body: Record<string, unknown> = {
+    _nome: payload.nome,
+    _parent_id: payload.parent_id ?? null,
+    _descricao: payload.descricao ?? null,
+    _categoria_id_in: payload.categoria_id ?? null,
+    _client_uuid: payload.client_uuid ?? null,
+  };
+  return postJsonAuth<CategoriaProdutoMutacaoLocalResponse>(
+    cfg,
+    "/api/categorias-produto/criar",
+    body,
+    authToken,
+  );
+}
+
+
+export async function editarCategoriaProdutoLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: {
+    categoria_id: string;
+    nome: string;
+    parent_id?: string | null;
+    descricao?: string | null;
+  },
+  authToken?: string | null,
+): Promise<CategoriaProdutoMutacaoLocalResponse | null> {
+  return postJsonAuth<CategoriaProdutoMutacaoLocalResponse>(
+    cfg,
+    "/api/categorias-produto/editar",
+    payload,
+    authToken,
+  );
+}
+
+export async function alterarStatusCategoriaProdutoLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: { categoria_id: string; ativo: boolean },
+  authToken?: string | null,
+): Promise<CategoriaProdutoMutacaoLocalResponse | null> {
+  return postJsonAuth<CategoriaProdutoMutacaoLocalResponse>(
+    cfg,
+    "/api/categorias-produto/alterar-status",
+    payload,
+    authToken,
+  );
+}
+
+export async function excluirCategoriaProdutoLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  payload: { categoria_id: string },
+  authToken?: string | null,
+): Promise<CategoriaProdutoMutacaoLocalResponse | null> {
+  return postJsonAuth<CategoriaProdutoMutacaoLocalResponse>(
+    cfg,
+    "/api/categorias-produto/excluir",
+    payload,
+    authToken,
+  );
+}
+

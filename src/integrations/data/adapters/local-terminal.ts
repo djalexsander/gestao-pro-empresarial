@@ -34,27 +34,35 @@ import { reportDataSource } from "../source-telemetry";
 import { getDesktopConfig } from "@/integrations/desktop/configStore";
 import {
   abrirCaixaLocal,
+  alterarStatusCategoriaProdutoLocal,
   alterarStatusClienteLocal,
   alterarStatusCompraLocal,
   alterarStatusFornecedorLocal,
   alterarStatusFuncionarioLocal,
+  alterarStatusProdutoLocal,
   baixarPagarLocal,
   baixarReceberLocal,
   cancelarPagarLocal,
   cancelarReceberLocal,
   cancelarVendaLocal,
+  criarCategoriaProdutoLocal,
   criarClienteLocal,
   criarCompraLocal,
   criarFornecedorLocal,
   criarFuncionarioLocal,
+  criarProdutoLocal,
+  editarCategoriaProdutoLocal,
   editarClienteLocal,
   editarCompraMetadadosLocal,
   editarFornecedorLocal,
   editarFuncionarioLocal,
+  editarProdutoLocal,
+  excluirCategoriaProdutoLocal,
   excluirClienteLocal,
   excluirCompraLocal,
   excluirFornecedorLocal,
   excluirFuncionarioLocal,
+  excluirProdutoLocal,
   fecharCaixaLocal,
   fetchContasPagarLocal,
   fetchContasReceberLocal,
@@ -416,6 +424,166 @@ export const localTerminalAdapter: DataAdapter = {
         return r.result;
       }
       return cloudAdapter.produtos.buscarPorPlu(plu);
+    },
+    // ------- WRITES offline-first (Fase 1 v24) -------
+    criar: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await criarProdutoLocal(cfg, input as unknown as Record<string, unknown>, token);
+        if (r) {
+          reportDataSource({ source: "local-server", domain: "produtos", method: "criar", fallback: false });
+          // eslint-disable-next-line no-console
+          console.debug(`[PRODUTOS_LOCAL_CREATE] id=${r.produto_id} idempotente=${r.idempotente} outbox=${r.outbox_status}`);
+          return { produto_id: r.produto_id, idempotente: r.idempotente };
+        }
+      }
+      const result = await cloudAdapter.produtos.criar(input);
+      reportDataSource({ source: "cloud", domain: "produtos", method: "criar", fallback: true });
+      return result;
+    },
+    editar: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const { produto_id, ...rest } = input as unknown as Record<string, unknown> & { produto_id: string };
+        const r = await editarProdutoLocal(cfg, produto_id, rest, token);
+        if (r) {
+          reportDataSource({ source: "local-server", domain: "produtos", method: "editar", fallback: false });
+          // eslint-disable-next-line no-console
+          console.debug(`[PRODUTOS_OUTBOX] editar id=${r.produto_id} outbox=${r.outbox_status}`);
+          return { produto_id: r.produto_id };
+        }
+      }
+      const result = await cloudAdapter.produtos.editar(input);
+      reportDataSource({ source: "cloud", domain: "produtos", method: "editar", fallback: true });
+      return result;
+    },
+    alterarStatus: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await alterarStatusProdutoLocal(
+          cfg,
+          { produto_id: input.produto_id, status: input.status },
+          token,
+        );
+        if (r) {
+          reportDataSource({ source: "local-server", domain: "produtos", method: "alterarStatus", fallback: false });
+          // eslint-disable-next-line no-console
+          console.debug(`[PRODUTOS_OUTBOX] alterar_status id=${r.produto_id} status=${input.status} outbox=${r.outbox_status}`);
+          return { produto_id: r.produto_id, status: input.status };
+        }
+      }
+      const result = await cloudAdapter.produtos.alterarStatus(input);
+      reportDataSource({ source: "cloud", domain: "produtos", method: "alterarStatus", fallback: true });
+      return result;
+    },
+    excluir: async (produtoId) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await excluirProdutoLocal(cfg, { produto_id: produtoId }, token);
+        if (r) {
+          reportDataSource({ source: "local-server", domain: "produtos", method: "excluir", fallback: false });
+          // eslint-disable-next-line no-console
+          console.debug(`[PRODUTOS_OUTBOX] excluir id=${r.produto_id} outbox=${r.outbox_status}`);
+          return { produto_id: r.produto_id, excluido: true };
+        }
+      }
+      const result = await cloudAdapter.produtos.excluir(produtoId);
+      reportDataSource({ source: "cloud", domain: "produtos", method: "excluir", fallback: true });
+      return result;
+    },
+    criarCategoria: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await criarCategoriaProdutoLocal(cfg, {
+          nome: input.nome,
+          parent_id: input.parent_id ?? null,
+          descricao: input.descricao ?? null,
+          categoria_id: input.categoria_id ?? null,
+          client_uuid: input.client_uuid ?? null,
+        }, token);
+        if (r) {
+          reportDataSource({ source: "local-server", domain: "categoriasProduto", method: "criar", fallback: false });
+          // eslint-disable-next-line no-console
+          console.debug(`[CAT_PROD_LOCAL_CREATE] id=${r.categoria_id} idempotente=${r.idempotente} outbox=${r.outbox_status}`);
+          return { categoria_id: r.categoria_id, idempotente: r.idempotente };
+        }
+      }
+      const result = await cloudAdapter.produtos.criarCategoria(input);
+      reportDataSource({ source: "cloud", domain: "categoriasProduto", method: "criar", fallback: true });
+      return result;
+    },
+  },
+
+  categoriasProduto: {
+    ...cloudAdapter.categoriasProduto,
+    editar: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await editarCategoriaProdutoLocal(cfg, {
+          categoria_id: input.categoria_id,
+          nome: input.nome,
+          parent_id: input.parent_id ?? null,
+          descricao: input.descricao ?? null,
+        }, token);
+        if (r) {
+          reportDataSource({ source: "local-server", domain: "categoriasProduto", method: "editar", fallback: false });
+          // eslint-disable-next-line no-console
+          console.debug(`[CAT_PROD_OUTBOX] editar id=${r.categoria_id} outbox=${r.outbox_status}`);
+          return { categoria_id: r.categoria_id };
+        }
+      }
+      const result = await cloudAdapter.categoriasProduto.editar(input);
+      reportDataSource({ source: "cloud", domain: "categoriasProduto", method: "editar", fallback: true });
+      return result;
+    },
+    alterarStatus: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await alterarStatusCategoriaProdutoLocal(cfg, {
+          categoria_id: input.categoria_id,
+          ativo: input.ativo,
+        }, token);
+        if (r) {
+          reportDataSource({ source: "local-server", domain: "categoriasProduto", method: "alterarStatus", fallback: false });
+          // eslint-disable-next-line no-console
+          console.debug(`[CAT_PROD_OUTBOX] alterar_status id=${r.categoria_id} ativo=${input.ativo} outbox=${r.outbox_status}`);
+          return { categoria_id: r.categoria_id, ativo: input.ativo, idempotente: r.idempotente };
+        }
+      }
+      const result = await cloudAdapter.categoriasProduto.alterarStatus(input);
+      reportDataSource({ source: "cloud", domain: "categoriasProduto", method: "alterarStatus", fallback: true });
+      return result;
+    },
+    excluir: async (categoriaId) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await excluirCategoriaProdutoLocal(cfg, { categoria_id: categoriaId }, token);
+        if (r) {
+          reportDataSource({ source: "local-server", domain: "categoriasProduto", method: "excluir", fallback: false });
+          // eslint-disable-next-line no-console
+          console.debug(`[CAT_PROD_OUTBOX] excluir id=${r.categoria_id} outbox=${r.outbox_status}`);
+          return { categoria_id: r.categoria_id, excluido: true };
+        }
+      }
+      const result = await cloudAdapter.categoriasProduto.excluir(categoriaId);
+      reportDataSource({ source: "cloud", domain: "categoriasProduto", method: "excluir", fallback: true });
+      return result;
     },
   },
 
