@@ -941,6 +941,73 @@ async function postLocalJson<T>(path: string, body: unknown): Promise<T | null> 
   }
 }
 
+// ----------------------------------------------------------------------------
+// Helpers para writes locais autenticados (Fase 1 v24 — produtos/categorias)
+// ----------------------------------------------------------------------------
+
+interface ProdutoMutLocal {
+  produto_id: string;
+  idempotente: boolean;
+  outbox_status: "pending" | "sent";
+  remote_id: string | null;
+}
+
+interface CategoriaMutLocal {
+  categoria_id: string;
+  idempotente: boolean;
+  outbox_status: "pending" | "sent";
+  remote_id: string | null;
+}
+
+/** Mapeia `{ campo: valor }` para `{ _campo: valor }` ignorando `undefined`. */
+function toUnderscoredBody(payload: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(payload)) {
+    if (v === undefined) continue;
+    out[k.startsWith("_") ? k : `_${k}`] = v;
+  }
+  return out;
+}
+
+async function postLocalAuth<T>(path: string, body: unknown): Promise<T | null> {
+  const baseUrl = await resolveBaseUrl();
+  if (!baseUrl) return null;
+  let token: string | null = null;
+  try {
+    const { supabase } = await import("@/integrations/supabase/client");
+    const { data } = await supabase.auth.getSession();
+    token = data.session?.access_token ?? null;
+  } catch { /* sem token → segue só com body */ }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), HTTP_TIMEOUT_MS);
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(`${baseUrl}${path}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body ?? {}),
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (!res.ok) {
+      cachedBaseUrl = null;
+      return null;
+    }
+    return (await res.json()) as T;
+  } catch {
+    clearTimeout(timer);
+    cachedBaseUrl = null;
+    return null;
+  }
+}
+
+
+
 // Mantido para compat com imports antigos / testes.
 export const LOCAL_READ_DOMAINS = [
   "produtos",
