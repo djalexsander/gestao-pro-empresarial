@@ -4225,26 +4225,17 @@ export type Database = {
         Args: { _ativo: boolean; _funcionario_id: string }
         Returns: Json
       }
-      funcionario_criar:
-        | {
-            Args: {
-              _login: string
-              _nome: string
-              _pin: string
-              _role?: Database["public"]["Enums"]["app_role"]
-            }
-            Returns: string
-          }
-        | {
-            Args: {
-              _client_uuid?: string
-              _login: string
-              _nome: string
-              _pin: string
-              _role?: Database["public"]["Enums"]["app_role"]
-            }
-            Returns: Json
-          }
+      funcionario_criar: {
+        Args: {
+          _client_uuid?: string
+          _funcionario_id?: string
+          _login: string
+          _nome: string
+          _pin: string
+          _role?: Database["public"]["Enums"]["app_role"]
+        }
+        Returns: Json
+      }
       funcionario_desbloquear_pin: {
         Args: { _funcionario_id: string }
         Returns: Json

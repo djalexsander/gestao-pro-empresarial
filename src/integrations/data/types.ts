@@ -889,6 +889,13 @@ export interface CriarFuncionarioInput {
   pin: string;
   role: FuncionarioRoleDomain;
   client_uuid?: string | null;
+  /**
+   * UUID gerado no cliente (desktop offline). Quando presente, é usado como
+   * `id` do funcionário no Supabase, garantindo que SQLite local e cloud
+   * fiquem com o mesmo identificador após o sync — sem reconciliação.
+   * Re-envio com mesmo `funcionario_id` é idempotente.
+   */
+  funcionario_id?: string | null;
 }
 
 export interface CriarFuncionarioResult {
