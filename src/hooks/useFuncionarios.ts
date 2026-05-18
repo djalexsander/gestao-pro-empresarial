@@ -110,11 +110,28 @@ export function useEditarFuncionario() {
         role: input.role,
       });
     },
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: ["funcionarios"] });
+      const snapshots = qc.getQueriesData<Funcionario[]>({ queryKey: ["funcionarios"] });
+      snapshots.forEach(([key, prev]) => {
+        if (!Array.isArray(prev)) return;
+        qc.setQueryData<Funcionario[]>(
+          key,
+          prev.map((f) =>
+            f.id === input.id ? { ...f, nome: input.nome, login: input.login, role: input.role } : f,
+          ),
+        );
+      });
+      return { snapshots };
+    },
+    onError: (e: Error, _vars, ctx) => {
+      ctx?.snapshots?.forEach(([key, prev]) => qc.setQueryData(key, prev));
+      toast.error(e.message);
+    },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["funcionarios"] });
       toast.success("Funcionário atualizado.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["funcionarios"] }),
   });
 }
 
@@ -147,11 +164,26 @@ export function useToggleFuncionarioAtivo() {
         ativo: input.ativo,
       });
     },
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: ["funcionarios"] });
+      const snapshots = qc.getQueriesData<Funcionario[]>({ queryKey: ["funcionarios"] });
+      snapshots.forEach(([key, prev]) => {
+        if (!Array.isArray(prev)) return;
+        qc.setQueryData<Funcionario[]>(
+          key,
+          prev.map((f) => (f.id === input.id ? { ...f, ativo: input.ativo } : f)),
+        );
+      });
+      return { snapshots };
+    },
+    onError: (e: Error, _vars, ctx) => {
+      ctx?.snapshots?.forEach(([key, prev]) => qc.setQueryData(key, prev));
+      toast.error(e.message);
+    },
     onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ["funcionarios"] });
       toast.success(vars.ativo ? "Funcionário ativado." : "Funcionário desativado.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["funcionarios"] }),
   });
 }
 
@@ -165,11 +197,26 @@ export function useExcluirFuncionario() {
     mutationFn: async (id: string) => {
       return dataClient.funcionarios.excluir(id);
     },
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: ["funcionarios"] });
+      const snapshots = qc.getQueriesData<Funcionario[]>({ queryKey: ["funcionarios"] });
+      snapshots.forEach(([key, prev]) => {
+        if (!Array.isArray(prev)) return;
+        qc.setQueryData<Funcionario[]>(
+          key,
+          prev.filter((f) => f.id !== id),
+        );
+      });
+      return { snapshots };
+    },
+    onError: (e: Error, _vars, ctx) => {
+      ctx?.snapshots?.forEach(([key, prev]) => qc.setQueryData(key, prev));
+      toast.error(e.message);
+    },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["funcionarios"] });
       toast.success("Funcionário removido.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["funcionarios"] }),
   });
 }
 

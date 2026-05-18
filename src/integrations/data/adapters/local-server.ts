@@ -460,6 +460,62 @@ export const localServerAdapter: DataAdapter = {
       }
       return cloudAdapter.funcionarios.criar(input);
     },
+    editar: async (input) => {
+      const r = await postLocalAuth<{ funcionario_id: string }>(
+        "/api/funcionarios/editar",
+        {
+          funcionario_id: input.funcionario_id,
+          nome: input.nome,
+          login: input.login,
+          role: input.role,
+        },
+      );
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "funcionarios", method: "editar", fallback: false });
+        return { funcionario_id: r.funcionario_id };
+      }
+      const result = await cloudAdapter.funcionarios.editar(input);
+      reportDataSource({ source: "cloud", domain: "funcionarios", method: "editar", fallback: true });
+      return result;
+    },
+    alterarStatus: async (input) => {
+      const r = await postLocalAuth<{ funcionario_id: string }>(
+        "/api/funcionarios/alterar-status",
+        { funcionario_id: input.funcionario_id, ativo: input.ativo },
+      );
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "funcionarios", method: "alterarStatus", fallback: false });
+        return { funcionario_id: r.funcionario_id, ativo: input.ativo, idempotente: false };
+      }
+      const result = await cloudAdapter.funcionarios.alterarStatus(input);
+      reportDataSource({ source: "cloud", domain: "funcionarios", method: "alterarStatus", fallback: true });
+      return result;
+    },
+    excluir: async (funcionarioId) => {
+      const r = await postLocalAuth<{ funcionario_id: string }>(
+        "/api/funcionarios/excluir",
+        { funcionario_id: funcionarioId },
+      );
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "funcionarios", method: "excluir", fallback: false });
+        return { funcionario_id: r.funcionario_id, excluido: true };
+      }
+      const result = await cloudAdapter.funcionarios.excluir(funcionarioId);
+      reportDataSource({ source: "cloud", domain: "funcionarios", method: "excluir", fallback: true });
+      return result;
+    },
+    resetarPin: async (input) => {
+      const r = await postLocalAuth<{ funcionario_id: string }>(
+        "/api/funcionarios/resetar-pin",
+        { funcionario_id: input.funcionario_id, pin: input.pin },
+      );
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "funcionarios", method: "resetarPin", fallback: false });
+        return;
+      }
+      await cloudAdapter.funcionarios.resetarPin(input);
+      reportDataSource({ source: "cloud", domain: "funcionarios", method: "resetarPin", fallback: true });
+    },
     list: (input) =>
 
       withCloudFallback(
