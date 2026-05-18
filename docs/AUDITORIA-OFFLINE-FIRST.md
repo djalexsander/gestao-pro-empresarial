@@ -909,3 +909,31 @@ deliberadamente adiadas para fases posteriores.
   / produtos` para reconciliar com o cálculo autoritativo do backend.
 - Idempotência preservada: `client_uuid` por modal cobre duplo clique,
   e o `local_uuid` gerado pelo Rust cobre retries cross-runs.
+
+## Etapa 21 — Compras offline-first (camada 5 do plano global)
+
+- Infra Rust já completa: `compras_local` + `compra_itens` (em payload)
+  + `outbox_compras` com ações `criar | editar_metadados |
+  alterar_status | excluir | receber | receber_itens`; handlers HTTP em
+  `/api/compras/*` que gravam no SQLite e, ao receber, atualizam
+  `movimentacoes_local`/saldo local e geram `contas_pagar_local`
+  (financeiro local-first). Worker drena o outbox para Supabase.
+- Adapter de TERMINAL (`local-terminal.ts`) já cobria todas as ações
+  via servidor LAN. Faltava a MÁQUINA-SERVIDOR fazer o mesmo.
+- Agora `local-server.ts` tem bloco `compras` completo roteando
+  `list / criar / atualizarStatus / atualizarMetadados / receber /
+  receberItens / excluir` via `postLocalAuth(...)` (mesmo padrão de
+  produtos/funcionários/clientes/fornecedores). Cloud só como
+  fallback, com `reportDataSource` marcando origem.
+- `useUpdateCompraStatus` e `useDeleteCompra` ganharam `onMutate`
+  otimista com snapshot/rollback sobre `["compras"]` (lista) e
+  `["compra", id]` (detalhe) — status muda na UI antes da resposta;
+  exclusão some da lista imediatamente.
+- `useReceberCompra` / `useReceberCompraItens` mantêm invalidação
+  multi-domínio (estoque, movimentações, financeiro, métricas) porque
+  o recebimento dispara efeitos em cadeia que o servidor recalcula
+  autoritativamente; idempotência já é garantida pelo `local_uuid`
+  do Rust + outbox.
+- Resultado: cadastrar compra, alterar status, receber (com baixa de
+  estoque + geração de conta a pagar) e excluir agora funcionam sem
+  internet, materializam no SQLite e sincronizam com a nuvem depois.
