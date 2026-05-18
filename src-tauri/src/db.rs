@@ -1625,6 +1625,7 @@ pub fn init() -> DbResult<()> {
         "#,
     )?;
 
+    conn.execute(
         "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         params![SCHEMA_VERSION.to_string()],
