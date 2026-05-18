@@ -2988,13 +2988,23 @@ export async function criarCategoriaProdutoLocal(
   },
   authToken?: string | null,
 ): Promise<CategoriaProdutoMutacaoLocalResponse | null> {
+  // O handler aceita o payload flatten e a db usa `_categoria_id_in`
+  // (mesmo nome do parâmetro da RPC `criar_categoria_produto`).
+  const body: Record<string, unknown> = {
+    _nome: payload.nome,
+    _parent_id: payload.parent_id ?? null,
+    _descricao: payload.descricao ?? null,
+    _categoria_id_in: payload.categoria_id ?? null,
+    _client_uuid: payload.client_uuid ?? null,
+  };
   return postJsonAuth<CategoriaProdutoMutacaoLocalResponse>(
     cfg,
     "/api/categorias-produto/criar",
-    toUnderscored(payload as Record<string, unknown>),
+    body,
     authToken,
   );
 }
+
 
 export async function editarCategoriaProdutoLocal(
   cfg: TerminalConexaoConfig | undefined,
