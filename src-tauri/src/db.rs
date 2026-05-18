@@ -12135,14 +12135,15 @@ pub fn funcionario_enqueue_action(
             }
             let new_nome = cur.get("nome").and_then(|v| v.as_str()).unwrap_or("").to_string();
             let new_ativo = cur.get("ativo").and_then(|v| v.as_bool()).unwrap_or(true);
+            let final_ativo = if soft_delete { false } else { new_ativo };
             tx.execute(
                 "UPDATE funcionarios_remote_cache
-                    SET nome=?2, ativo=CASE WHEN ?3 THEN 1 ELSE 0 END,
+                    SET nome=?2,
+                        ativo=CASE WHEN ?3 THEN 1 ELSE 0 END,
                         payload=?4, sync_status='pending', last_error=NULL,
-                        deleted_at_ms=CASE WHEN ?5 THEN ?6 ELSE deleted_at_ms END,
-                        ativo=CASE WHEN ?5 THEN 0 ELSE (CASE WHEN ?3 THEN 1 ELSE 0 END) END
+                        deleted_at_ms=CASE WHEN ?5 THEN ?6 ELSE deleted_at_ms END
                   WHERE local_uuid=?1",
-                params![fun_lid, new_nome, new_ativo, cur.to_string(), soft_delete, now_ms],
+                params![fun_lid, new_nome, final_ativo, cur.to_string(), soft_delete, now_ms],
             )?;
         } else if soft_delete {
             tx.execute(
