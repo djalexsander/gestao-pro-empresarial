@@ -674,6 +674,16 @@ async fn proxy_with_incremental_sync(
                     _ => {}
                 }
                 let _ = db::cache_put(domain, &key, "{\"_marker\":1}", now, CACHE_TTL_MS);
+                eprintln!(
+                    "[OFFLINE_SYNC] {} persistidos={} (delta SQLite)",
+                    domain, delta
+                );
+                if items_recv > 0 && delta == 0 {
+                    eprintln!(
+                        "[OFFLINE_SYNC] {} ALERTA: upstream entregou {} itens mas ingest persistiu 0 — verifique payload/parsing",
+                        domain, items_recv
+                    );
+                }
             }
 
             // Devolve estado consolidado da tabela local — sempre.
