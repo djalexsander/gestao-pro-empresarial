@@ -138,13 +138,29 @@ export function useCreateProduto() {
   return useMutation({
     mutationFn: async (input: ProdutoInput) => {
       const client_uuid = crypto.randomUUID();
+      // Local-first: id gerado no cliente — Supabase usa o mesmo id,
+      // permitindo materialização imediata no SQLite local e sync sem duplicar.
+      const produto_id = crypto.randomUUID();
+      console.debug("[LOCAL_FIRST] produto.criar", { produto_id });
       try {
-        const r = await dataClient.produtos.criar({ ...input, client_uuid });
+        const r = await dataClient.produtos.criar({
+          ...input,
+          client_uuid,
+          produto_id,
+        });
         return await fetchProdutoRow(r.produto_id);
       } catch (e) {
         throw mapProdutoErr(e);
       }
     },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["produtos"] });
+      qc.invalidateQueries({ queryKey: ["estoque-saldos"] });
+      toast.success("Produto cadastrado.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["produtos"] });
       qc.invalidateQueries({ queryKey: ["estoque-saldos"] });
