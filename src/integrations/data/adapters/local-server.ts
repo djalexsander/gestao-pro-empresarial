@@ -389,6 +389,58 @@ export const localServerAdapter: DataAdapter = {
 
   clientes: {
     ...cloudAdapter.clientes,
+    criar: async (input) => {
+      const r = await postLocalAuth<{ cliente_id: string; idempotente: boolean }>(
+        "/api/clientes/criar",
+        { ...input, client_uuid: input.client_uuid ?? null },
+      );
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "clientes", method: "criar", fallback: false });
+        return { cliente_id: r.cliente_id, idempotente: r.idempotente };
+      }
+      const result = await cloudAdapter.clientes.criar(input);
+      reportDataSource({ source: "cloud", domain: "clientes", method: "criar", fallback: true });
+      return result;
+    },
+    editar: async (input) => {
+      const r = await postLocalAuth<{ cliente_id: string }>(
+        "/api/clientes/editar",
+        input as unknown as Record<string, unknown>,
+      );
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "clientes", method: "editar", fallback: false });
+        return { cliente_id: r.cliente_id };
+      }
+      const result = await cloudAdapter.clientes.editar(input);
+      reportDataSource({ source: "cloud", domain: "clientes", method: "editar", fallback: true });
+      return result;
+    },
+    alterarStatus: async (input) => {
+      const r = await postLocalAuth<{ cliente_id: string }>(
+        "/api/clientes/alterar-status",
+        { cliente_id: input.cliente_id, status: input.status },
+      );
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "clientes", method: "alterarStatus", fallback: false });
+        return { cliente_id: r.cliente_id, status: input.status };
+      }
+      const result = await cloudAdapter.clientes.alterarStatus(input);
+      reportDataSource({ source: "cloud", domain: "clientes", method: "alterarStatus", fallback: true });
+      return result;
+    },
+    excluir: async (clienteId) => {
+      const r = await postLocalAuth<{ cliente_id: string }>(
+        "/api/clientes/excluir",
+        { cliente_id: clienteId },
+      );
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "clientes", method: "excluir", fallback: false });
+        return { cliente_id: r.cliente_id, excluido: true };
+      }
+      const result = await cloudAdapter.clientes.excluir(clienteId);
+      reportDataSource({ source: "cloud", domain: "clientes", method: "excluir", fallback: true });
+      return result;
+    },
     listLite: (input) =>
       withCloudFallback(
         "clientes",
@@ -411,6 +463,58 @@ export const localServerAdapter: DataAdapter = {
 
   fornecedores: {
     ...cloudAdapter.fornecedores,
+    criar: async (input) => {
+      const r = await postLocalAuth<{ fornecedor_id: string; idempotente: boolean }>(
+        "/api/fornecedores/criar",
+        { ...input, client_uuid: input.client_uuid ?? null },
+      );
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "fornecedores", method: "criar", fallback: false });
+        return { fornecedor_id: r.fornecedor_id, idempotente: r.idempotente };
+      }
+      const result = await cloudAdapter.fornecedores.criar(input);
+      reportDataSource({ source: "cloud", domain: "fornecedores", method: "criar", fallback: true });
+      return result;
+    },
+    editar: async (input) => {
+      const r = await postLocalAuth<{ fornecedor_id: string }>(
+        "/api/fornecedores/editar",
+        input as unknown as Record<string, unknown>,
+      );
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "fornecedores", method: "editar", fallback: false });
+        return { fornecedor_id: r.fornecedor_id };
+      }
+      const result = await cloudAdapter.fornecedores.editar(input);
+      reportDataSource({ source: "cloud", domain: "fornecedores", method: "editar", fallback: true });
+      return result;
+    },
+    alterarStatus: async (input) => {
+      const r = await postLocalAuth<{ fornecedor_id: string }>(
+        "/api/fornecedores/alterar-status",
+        { fornecedor_id: input.fornecedor_id, status: input.status },
+      );
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "fornecedores", method: "alterarStatus", fallback: false });
+        return { fornecedor_id: r.fornecedor_id, status: input.status };
+      }
+      const result = await cloudAdapter.fornecedores.alterarStatus(input);
+      reportDataSource({ source: "cloud", domain: "fornecedores", method: "alterarStatus", fallback: true });
+      return result;
+    },
+    excluir: async (fornecedorId) => {
+      const r = await postLocalAuth<{ fornecedor_id: string }>(
+        "/api/fornecedores/excluir",
+        { fornecedor_id: fornecedorId },
+      );
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "fornecedores", method: "excluir", fallback: false });
+        return { fornecedor_id: r.fornecedor_id, excluido: true };
+      }
+      const result = await cloudAdapter.fornecedores.excluir(fornecedorId);
+      reportDataSource({ source: "cloud", domain: "fornecedores", method: "excluir", fallback: true });
+      return result;
+    },
     list: (input) =>
       withCloudFallback(
         "fornecedores",

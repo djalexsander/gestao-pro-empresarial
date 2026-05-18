@@ -216,12 +216,28 @@ export function useToggleClienteStatus() {
   return useMutation({
     mutationFn: async ({ id, status }: { id: string; status: ClienteStatus }) =>
       dataClient.clientes.alterarStatus({ cliente_id: id, status }),
+    onMutate: async ({ id, status }) => {
+      await qc.cancelQueries({ queryKey: ["clientes"] });
+      await qc.cancelQueries({ queryKey: ["clientes-lite"] });
+      const snaps = [
+        ...qc.getQueriesData<Cliente[]>({ queryKey: ["clientes"] }),
+        ...qc.getQueriesData<ClienteLite[]>({ queryKey: ["clientes-lite"] }),
+      ];
+      qc.getQueriesData<Cliente[]>({ queryKey: ["clientes"] }).forEach(([k, prev]) => {
+        if (!Array.isArray(prev)) return;
+        qc.setQueryData<Cliente[]>(k, prev.map((c) => (c.id === id ? { ...c, status } : c)));
+      });
+      return { snaps };
+    },
+    onError: (e: Error, _v, ctx) => {
+      ctx?.snaps?.forEach(([k, v]) => qc.setQueryData(k, v));
+      toast.error(e.message);
+    },
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["clientes-lite"] });
       qc.invalidateQueries({ queryKey: ["clientes"] });
       toast.success(vars.status === "ativo" ? "Cliente ativado" : "Cliente inativado");
     },
-    onError: (e: Error) => toast.error(e.message),
   });
 }
 
@@ -233,12 +249,32 @@ export function useDeleteCliente() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => dataClient.clientes.excluir(id),
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: ["clientes"] });
+      await qc.cancelQueries({ queryKey: ["clientes-lite"] });
+      const snaps = [
+        ...qc.getQueriesData<Cliente[]>({ queryKey: ["clientes"] }),
+        ...qc.getQueriesData<ClienteLite[]>({ queryKey: ["clientes-lite"] }),
+      ];
+      qc.getQueriesData<Cliente[]>({ queryKey: ["clientes"] }).forEach(([k, prev]) => {
+        if (!Array.isArray(prev)) return;
+        qc.setQueryData<Cliente[]>(k, prev.filter((c) => c.id !== id));
+      });
+      qc.getQueriesData<ClienteLite[]>({ queryKey: ["clientes-lite"] }).forEach(([k, prev]) => {
+        if (!Array.isArray(prev)) return;
+        qc.setQueryData<ClienteLite[]>(k, prev.filter((c) => c.id !== id));
+      });
+      return { snaps };
+    },
+    onError: (e: Error, _v, ctx) => {
+      ctx?.snaps?.forEach(([k, v]) => qc.setQueryData(k, v));
+      toast.error(e.message);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["clientes-lite"] });
       qc.invalidateQueries({ queryKey: ["clientes"] });
       toast.success("Cliente removido");
     },
-    onError: (e: Error) => toast.error(e.message),
   });
 }
 
