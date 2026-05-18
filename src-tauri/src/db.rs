@@ -1961,7 +1961,10 @@ pub fn ingest_produtos(
     })
 }
 
-/// Compat: chamada antiga (snapshot).
+/// Compat: chamada antiga (snapshot). Mantida para back-compat — o fluxo real
+/// de sync (`proxy_with_incremental_sync`) usa diretamente `ingest_produtos`
+/// com `IngestStrategy::Snapshot` quando não há cursor.
+#[allow(dead_code)]
 pub fn ingest_produtos_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize> {
     ingest_produtos(json_text, now_ms, IngestStrategy::Snapshot).map(|(n, _)| n)
 }
