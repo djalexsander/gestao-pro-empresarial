@@ -3887,6 +3887,32 @@ pub async fn start(
         run_outbox_compras_scheduler(compras_ctx, compras_scheduler_rx).await;
     });
 
+    // Scheduler paralelo para a outbox de PRODUTOS (offline-first v24).
+    let (produtos_scheduler_tx, produtos_scheduler_rx) = oneshot::channel::<()>();
+    let produtos_ctx = AppCtx {
+        upstream: upstream.clone(),
+        http: reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .map_err(|e| format!("Falha ao criar HTTP client (produtos scheduler): {e}"))?,
+    };
+    handle.spawn(async move {
+        run_outbox_produtos_scheduler(produtos_ctx, produtos_scheduler_rx).await;
+    });
+
+    // Scheduler paralelo para a outbox de CATEGORIAS DE PRODUTO (offline-first v24).
+    let (cat_prod_scheduler_tx, cat_prod_scheduler_rx) = oneshot::channel::<()>();
+    let cat_prod_ctx = AppCtx {
+        upstream: upstream.clone(),
+        http: reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .map_err(|e| format!("Falha ao criar HTTP client (cat_prod scheduler): {e}"))?,
+    };
+    handle.spawn(async move {
+        run_outbox_categorias_produto_scheduler(cat_prod_ctx, cat_prod_scheduler_rx).await;
+    });
+
     // Scheduler de backup automático local. Roda 1× por dia, no máximo,
     // controlado por timestamp em meta. Não depende de upstream.
     let (backup_scheduler_tx, backup_scheduler_rx) = oneshot::channel::<()>();
