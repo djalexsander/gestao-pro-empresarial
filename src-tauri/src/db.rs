@@ -12277,7 +12277,7 @@ pub fn funcionario_enqueue_action(
         if let Some(patch) = cache_patch.as_ref() {
             let mut cur: serde_json::Value =
                 serde_json::from_str(current_payload.as_deref().unwrap_or("{}"))
-                    .unwrap_or(serde_json::json!({});
+                    .unwrap_or(serde_json::json!({}));
             if let (Some(co), Some(po)) = (cur.as_object_mut(), patch.as_object()) {
                 for (k, v) in po { co.insert(k.clone(), v.clone()); }
             }
@@ -12851,7 +12851,7 @@ pub fn produto_enqueue_action(
         if let Some(patch) = cache_patch.as_ref() {
             let mut cur: serde_json::Value =
                 serde_json::from_str(current_payload.as_deref().unwrap_or("{}"))
-                    .unwrap_or(serde_json::json!({});
+                    .unwrap_or(serde_json::json!({}));
             if let (Some(co), Some(po)) = (cur.as_object_mut(), patch.as_object()) {
                 for (k, v) in po { co.insert(k.clone(), v.clone()); }
             }
@@ -13397,7 +13397,7 @@ pub fn categoria_produto_enqueue_action(
         if let Some(patch) = cache_patch.as_ref() {
             let mut cur: serde_json::Value =
                 serde_json::from_str(current_payload.as_deref().unwrap_or("{}"))
-                    .unwrap_or(serde_json::json!({});
+                    .unwrap_or(serde_json::json!({}));
             if let (Some(co), Some(po)) = (cur.as_object_mut(), patch.as_object()) {
                 for (k, v) in po { co.insert(k.clone(), v.clone()); }
             }
