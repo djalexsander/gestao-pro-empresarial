@@ -72,7 +72,16 @@ export function useCriarFuncionario() {
       role: FuncionarioRole;
       client_uuid?: string | null;
     }) => {
-      return dataClient.funcionarios.criar(input);
+      // Gera o UUID no cliente para que desktop offline e Supabase fiquem
+      // com o MESMO id após o sync. A RPC `funcionario_criar` aceita
+      // `_funcionario_id` opcional e é idempotente por id.
+      const funcionario_id =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : null;
+      // eslint-disable-next-line no-console
+      console.debug("[FUNCIONARIOS_LOCAL_CREATE] gerando id no cliente:", funcionario_id);
+      return dataClient.funcionarios.criar({ ...input, funcionario_id });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["funcionarios"] });
