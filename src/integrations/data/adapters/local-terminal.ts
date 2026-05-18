@@ -426,6 +426,107 @@ export const localTerminalAdapter: DataAdapter = {
   // `useFuncionarios`), usado quando o servidor local também está fora.
   funcionarios: {
     ...cloudAdapter.funcionarios,
+    /**
+     * WRITE LOCAL (offline-first): cria funcionário no servidor local que
+     * grava no SQLite, aquece o PIN e enfileira na outbox para push à
+     * RPC `funcionario_criar` na nuvem. Idempotência por `funcionario_id`
+     * (mesmo UUID em SQLite e Supabase) + `client_uuid`.
+     */
+    criar: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await criarFuncionarioLocal(
+          cfg,
+          {
+            funcionario_id: input.funcionario_id ?? null,
+            nome: input.nome,
+            login: input.login,
+            pin: input.pin,
+            role: input.role,
+            client_uuid: input.client_uuid ?? null,
+          },
+          token,
+        );
+        if (r) {
+          reportDataSource({ source: "local-server", domain: "funcionarios", method: "criar", fallback: false });
+          // eslint-disable-next-line no-console
+          console.debug(`[FUNCIONARIOS_LOCAL_CREATE] id=${r.funcionario_id} idempotente=${r.idempotente} outbox=${r.outbox_status}`);
+          return { funcionario_id: r.funcionario_id, idempotente: r.idempotente };
+        }
+      }
+      const result = await cloudAdapter.funcionarios.criar(input);
+      reportDataSource({ source: "cloud", domain: "funcionarios", method: "criar", fallback: true });
+      return result;
+    },
+    editar: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await editarFuncionarioLocal(cfg, input, token);
+        if (r) {
+          reportDataSource({ source: "local-server", domain: "funcionarios", method: "editar", fallback: false });
+          // eslint-disable-next-line no-console
+          console.debug(`[FUNCIONARIOS_OUTBOX] editar id=${r.funcionario_id} outbox=${r.outbox_status}`);
+          return { funcionario_id: r.funcionario_id };
+        }
+      }
+      const result = await cloudAdapter.funcionarios.editar(input);
+      reportDataSource({ source: "cloud", domain: "funcionarios", method: "editar", fallback: true });
+      return result;
+    },
+    alterarStatus: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await alterarStatusFuncionarioLocal(cfg, input, token);
+        if (r) {
+          reportDataSource({ source: "local-server", domain: "funcionarios", method: "alterarStatus", fallback: false });
+          // eslint-disable-next-line no-console
+          console.debug(`[FUNCIONARIOS_OUTBOX] alterar_status id=${r.funcionario_id} ativo=${input.ativo} outbox=${r.outbox_status}`);
+          return { funcionario_id: r.funcionario_id, ativo: input.ativo, idempotente: r.idempotente };
+        }
+      }
+      const result = await cloudAdapter.funcionarios.alterarStatus(input);
+      reportDataSource({ source: "cloud", domain: "funcionarios", method: "alterarStatus", fallback: true });
+      return result;
+    },
+    excluir: async (funcionarioId) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await excluirFuncionarioLocal(cfg, { funcionario_id: funcionarioId }, token);
+        if (r) {
+          reportDataSource({ source: "local-server", domain: "funcionarios", method: "excluir", fallback: false });
+          // eslint-disable-next-line no-console
+          console.debug(`[FUNCIONARIOS_OUTBOX] excluir id=${r.funcionario_id} outbox=${r.outbox_status}`);
+          return { funcionario_id: r.funcionario_id, excluido: true };
+        }
+      }
+      const result = await cloudAdapter.funcionarios.excluir(funcionarioId);
+      reportDataSource({ source: "cloud", domain: "funcionarios", method: "excluir", fallback: true });
+      return result;
+    },
+    resetarPin: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await resetarPinFuncionarioLocal(cfg, input, token);
+        if (r) {
+          reportDataSource({ source: "local-server", domain: "funcionarios", method: "resetarPin", fallback: false });
+          // eslint-disable-next-line no-console
+          console.debug(`[FUNCIONARIOS_OUTBOX] resetar_pin id=${r.funcionario_id} outbox=${r.outbox_status}`);
+          return;
+        }
+      }
+      await cloudAdapter.funcionarios.resetarPin(input);
+      reportDataSource({ source: "cloud", domain: "funcionarios", method: "resetarPin", fallback: true });
+    },
     validarPin: async (input) => {
       const cfg = getDesktopConfig().terminal;
       if (getBaseUrl(cfg)) {
