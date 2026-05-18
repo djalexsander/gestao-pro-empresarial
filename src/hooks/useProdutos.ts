@@ -194,12 +194,28 @@ export function useUpdateProduto() {
         throw mapProdutoErr(e);
       }
     },
-    onSuccess: (_d, vars) => {
+    // Otimista: aplica o patch na listagem para refletir imediatamente na UI.
+    onMutate: async (vars) => {
+      await qc.cancelQueries({ queryKey: ["produtos"] });
+      const previous = qc.getQueryData<ProdutoComCategoria[]>(["produtos"]);
+      qc.setQueryData<ProdutoComCategoria[]>(["produtos"], (curr) =>
+        curr?.map((p) =>
+          p.id === vars.id
+            ? ({ ...p, ...vars, id: p.id } as ProdutoComCategoria)
+            : p,
+        ),
+      );
+      return { previous };
+    },
+    onError: (e: Error, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(["produtos"], ctx.previous);
+      toast.error(e.message);
+    },
+    onSettled: (_d, _e, vars) => {
       qc.invalidateQueries({ queryKey: ["produtos"] });
       qc.invalidateQueries({ queryKey: ["produto", vars.id] });
-      toast.success("Produto atualizado.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onSuccess: () => toast.success("Produto atualizado."),
   });
 }
 
@@ -211,12 +227,24 @@ export function useDeleteProduto() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => dataClient.produtos.excluir(id),
-    onSuccess: () => {
+    // Otimista: remove da listagem antes do round-trip.
+    onMutate: async (id: string) => {
+      await qc.cancelQueries({ queryKey: ["produtos"] });
+      const previous = qc.getQueryData<ProdutoComCategoria[]>(["produtos"]);
+      qc.setQueryData<ProdutoComCategoria[]>(["produtos"], (curr) =>
+        curr?.filter((p) => p.id !== id),
+      );
+      return { previous };
+    },
+    onError: (e: Error, _id, ctx) => {
+      if (ctx?.previous) qc.setQueryData(["produtos"], ctx.previous);
+      toast.error(e.message);
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ["produtos"] });
       qc.invalidateQueries({ queryKey: ["estoque-saldos"] });
-      toast.success("Produto excluído.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onSuccess: () => toast.success("Produto excluído."),
   });
 }
 
