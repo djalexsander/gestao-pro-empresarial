@@ -3080,6 +3080,20 @@ pub fn read_funcionarios_ativos_remote() -> DbResult<String> {
     })
 }
 
+/// Variante que devolve TODOS os funcionários cacheados (ativos e inativos),
+/// usado pela aba admin "Funcionários". Mantém `deleted_at_ms IS NULL`.
+pub fn read_funcionarios_todos_remote() -> DbResult<String> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT payload FROM funcionarios_remote_cache
+             WHERE deleted_at_ms IS NULL
+             ORDER BY nome ASC",
+        )?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        json_array_from_rows(rows)
+    })
+}
+
 pub fn ingest_terminais_remote(
     json_text: &str,
     now_ms: i64,
