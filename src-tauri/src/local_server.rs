@@ -526,6 +526,15 @@ async fn proxy_with_incremental_sync(
     }
 
     // 4) Vai ao upstream.
+    let has_jwt = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.starts_with("Bearer ") && s.len() > 20)
+        .unwrap_or(false);
+    eprintln!(
+        "[OFFLINE_SYNC] {} → upstream GET {} (jwt={}, strategy={})",
+        domain, path, has_jwt, strategy.as_str()
+    );
     let upstream_result = proxy_get(ctx, headers, path, &q).await;
 
     match upstream_result {
@@ -534,8 +543,16 @@ async fn proxy_with_incremental_sync(
             let bytes = axum::body::to_bytes(body, 1024 * 1024 * 8)
                 .await
                 .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Falha lendo body: {e}")))?;
+            eprintln!(
+                "[OFFLINE_SYNC] {} ← HTTP {} ({} bytes)",
+                domain,
+                parts.status.as_u16(),
+                bytes.len()
+            );
 
             if !parts.status.is_success() {
+                let preview = std::str::from_utf8(&bytes).unwrap_or("").chars().take(300).collect::<String>();
+                eprintln!("[OFFLINE_SYNC] {} upstream erro body: {}", domain, preview);
                 let _ = db::record_sync_error(
                     domain,
                     now,
