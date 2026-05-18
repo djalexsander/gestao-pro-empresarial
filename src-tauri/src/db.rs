@@ -12335,3 +12335,1121 @@ pub fn funcionario_enqueue_action(
         })
     })
 }
+
+// =====================================================================
+// PRODUTOS — offline-first (v24)
+// =====================================================================
+//
+// Cache + identidade local em `produtos_local` (estendida com
+// local_uuid/remote_id/sync_status/last_error). Outbox em
+// `outbox_produtos`. Ações: criar | editar | alterar_status | excluir.
+//
+// Causalidade: editar/alterar_status/excluir só vão upstream depois do
+// criar resolver o remote_id — mesmo padrão de funcionários.
+
+#[derive(Debug, Serialize, Default)]
+pub struct OutboxProdutosStats {
+    pub pending: i64,
+    pub sending: i64,
+    pub sent: i64,
+    pub error: i64,
+    pub last_sent_at_ms: Option<i64>,
+    pub last_error: Option<String>,
+    pub due_now: i64,
+    pub next_attempt_at_ms: Option<i64>,
+    pub last_auto_flush_ms: Option<i64>,
+    pub last_auto_flush_sent_ms: Option<i64>,
+    pub last_auto_attempted: Option<i64>,
+    pub last_auto_sent: Option<i64>,
+    pub last_auto_failed: Option<i64>,
+    pub last_manual_flush_ms: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OutboxProdutosItem {
+    pub local_uuid: String,
+    pub client_uuid: Option<String>,
+    pub produto_local_uuid: String,
+    pub produto_remote_id: Option<String>,
+    pub action: String,
+    pub payload: String,
+    pub status: String,
+    pub attempts: i64,
+    pub last_error: Option<String>,
+    pub remote_id: Option<String>,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub sent_at_ms: Option<i64>,
+}
+
+const PROD_COLS: &str =
+    "local_uuid, client_uuid, produto_local_uuid, produto_remote_id, action, payload,
+     status, attempts, last_error, remote_id, created_at_ms, updated_at_ms, sent_at_ms";
+
+fn map_prod_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<OutboxProdutosItem> {
+    Ok(OutboxProdutosItem {
+        local_uuid: r.get(0)?,
+        client_uuid: r.get(1)?,
+        produto_local_uuid: r.get(2)?,
+        produto_remote_id: r.get(3)?,
+        action: r.get(4)?,
+        payload: r.get(5)?,
+        status: r.get(6)?,
+        attempts: r.get(7)?,
+        last_error: r.get(8)?,
+        remote_id: r.get(9)?,
+        created_at_ms: r.get(10)?,
+        updated_at_ms: r.get(11)?,
+        sent_at_ms: r.get(12)?,
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProdutoEnqueueResult {
+    pub produto_local_uuid: String,
+    pub produto_remote_id: Option<String>,
+    pub idempotente: bool,
+}
+
+pub fn produto_criar_local(payload: serde_json::Value) -> DbResult<ProdutoEnqueueResult> {
+    with_conn(|conn| {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let tx = conn.unchecked_transaction()?;
+
+        let client_uuid = json_str_opt(&payload, "_client_uuid");
+        if let Some(cu) = &client_uuid {
+            let existing: Option<(String, Option<String>)> = tx.query_row(
+                "SELECT produto_local_uuid, produto_remote_id
+                   FROM outbox_produtos WHERE client_uuid=?1",
+                params![cu], |r| Ok((r.get(0)?, r.get(1)?)),
+            ).optional()?;
+            if let Some((lid, rid)) = existing {
+                tx.commit()?;
+                return Ok(ProdutoEnqueueResult {
+                    produto_local_uuid: lid,
+                    produto_remote_id: rid,
+                    idempotente: true,
+                });
+            }
+        }
+
+        // Aceita _produto_id (UUID gerado no cliente) para id consistente
+        // entre SQLite local e Supabase (RPC criar_produto é idempotente
+        // pelo id).
+        let local_uuid = json_str_opt(&payload, "_produto_id")
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(random_uuid_v4);
+
+        let sku = json_str_opt(&payload, "_sku").unwrap_or_default();
+        let nome = json_str_opt(&payload, "_nome").unwrap_or_default();
+        let status = json_str_opt(&payload, "_status").unwrap_or_else(|| "ativo".into());
+        let categoria_id = json_str_opt(&payload, "_categoria_id");
+        let preco_venda = payload.get("_preco_venda").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let estoque_inicial = payload.get("_estoque_inicial").and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+        // Resolve nome da categoria se já houver no cache.
+        let categoria_nome: Option<String> = if let Some(cid) = categoria_id.as_ref() {
+            tx.query_row(
+                "SELECT nome FROM categorias_produto_local
+                  WHERE local_uuid=?1 OR remote_id=?1 OR id=?1 LIMIT 1",
+                params![cid], |r| r.get::<_, Option<String>>(0),
+            ).optional()?.flatten()
+        } else { None };
+
+        let full = serde_json::json!({
+            "id": &local_uuid,
+            "local_uuid": &local_uuid,
+            "remote_id": serde_json::Value::Null,
+            "sku": &sku,
+            "nome": &nome,
+            "status": &status,
+            "categoria_id": categoria_id.clone(),
+            "categoria": categoria_nome.as_ref().map(|n| serde_json::json!({"id": categoria_id, "nome": n})),
+            "preco_custo": payload.get("_preco_custo").cloned().unwrap_or(serde_json::Value::Null),
+            "preco_venda": preco_venda,
+            "estoque_minimo": payload.get("_estoque_minimo").cloned().unwrap_or(serde_json::Value::Null),
+            "estoque_atual": estoque_inicial,
+            "unidade": payload.get("_unidade").cloned().unwrap_or(serde_json::Value::Null),
+            "codigo_barras": payload.get("_codigo_barras").cloned().unwrap_or(serde_json::Value::Null),
+            "qr_code": payload.get("_qr_code").cloned().unwrap_or(serde_json::Value::Null),
+            "codigo_interno": payload.get("_codigo_interno").cloned().unwrap_or(serde_json::Value::Null),
+            "tipo_identificacao_principal": payload.get("_tipo_identificacao_principal").cloned().unwrap_or(serde_json::Value::Null),
+            "observacao_tecnica": payload.get("_observacao_tecnica").cloned().unwrap_or(serde_json::Value::Null),
+            "descricao": payload.get("_descricao").cloned().unwrap_or(serde_json::Value::Null),
+            "marca": payload.get("_marca").cloned().unwrap_or(serde_json::Value::Null),
+            "ncm": payload.get("_ncm").cloned().unwrap_or(serde_json::Value::Null),
+            "vendido_por_peso": payload.get("_vendido_por_peso").cloned().unwrap_or(serde_json::Value::Bool(false)),
+            "plu": payload.get("_plu").cloned().unwrap_or(serde_json::Value::Null),
+            "aceita_etiqueta_balanca": payload.get("_aceita_etiqueta_balanca").cloned().unwrap_or(serde_json::Value::Bool(false)),
+            "casas_decimais_quantidade": payload.get("_casas_decimais_quantidade").cloned().unwrap_or(serde_json::json!(3)),
+            "created_at": chrono::DateTime::<chrono::Utc>::from_timestamp_millis(now_ms)
+                .map(|d| d.to_rfc3339()).unwrap_or_default(),
+            "sync_status": "pending",
+        });
+
+        tx.execute(
+            "INSERT INTO produtos_local(
+                id, sku, nome, status, categoria_id, categoria_nome,
+                preco_venda, estoque_atual, payload,
+                updated_at_remote_ms, synced_at_ms, deleted_at_ms,
+                local_uuid, remote_id, sync_status, last_error, created_offline_at_ms
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9, NULL, ?10, NULL, ?1, NULL, 'pending', NULL, ?10)",
+            params![local_uuid, sku, nome, status, categoria_id, categoria_nome,
+                    preco_venda, estoque_inicial, full.to_string(), now_ms],
+        )?;
+
+        let mut rpc_payload = payload.clone();
+        if let Some(o) = rpc_payload.as_object_mut() {
+            o.insert("_produto_id".into(), serde_json::Value::String(local_uuid.clone()));
+            o.entry("_client_uuid").or_insert(serde_json::Value::String(local_uuid.clone()));
+        }
+
+        let outbox_id = random_uuid_v4();
+        tx.execute(
+            "INSERT INTO outbox_produtos(
+                local_uuid, client_uuid, produto_local_uuid, produto_remote_id,
+                action, payload, status, attempts, created_at_ms, updated_at_ms, next_attempt_at_ms
+             ) VALUES (?1,?2,?3,NULL,'criar',?4,'pending',0,?5,?5,NULL)",
+            params![
+                outbox_id,
+                client_uuid.unwrap_or_else(|| local_uuid.clone()),
+                local_uuid,
+                rpc_payload.to_string(),
+                now_ms
+            ],
+        )?;
+        tx.commit()?;
+        Ok(ProdutoEnqueueResult {
+            produto_local_uuid: local_uuid,
+            produto_remote_id: None,
+            idempotente: false,
+        })
+    })
+}
+
+pub fn outbox_produtos_get(local_uuid: &str) -> DbResult<Option<OutboxProdutosItem>> {
+    with_conn(|conn| {
+        let sql = format!("SELECT {cols} FROM outbox_produtos WHERE local_uuid=?1", cols = PROD_COLS);
+        let r = conn.query_row(&sql, params![local_uuid], map_prod_item).optional()?;
+        Ok(r)
+    })
+}
+
+pub fn outbox_produtos_pending_batch(limit: i64) -> DbResult<Vec<OutboxProdutosItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let now = chrono::Utc::now().timestamp_millis();
+        let sql = format!(
+            "SELECT {cols} FROM outbox_produtos
+              WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1
+              ORDER BY created_at_ms ASC LIMIT ?2",
+            cols = PROD_COLS,
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![now, limit], map_prod_item)?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    })
+}
+
+pub fn outbox_produtos_pending_batch_all(limit: i64) -> DbResult<Vec<OutboxProdutosItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let sql = format!(
+            "SELECT {cols} FROM outbox_produtos WHERE status='pending'
+             ORDER BY created_at_ms ASC LIMIT ?1",
+            cols = PROD_COLS,
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![limit], map_prod_item)?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    })
+}
+
+pub fn outbox_produtos_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxProdutosItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let mut out = Vec::new();
+        if let Some(st) = only_status {
+            let sql = format!(
+                "SELECT {cols} FROM outbox_produtos WHERE status=?1
+                 ORDER BY created_at_ms DESC LIMIT ?2", cols = PROD_COLS);
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![st, limit], map_prod_item)?;
+            for r in rows { out.push(r?); }
+        } else {
+            let sql = format!(
+                "SELECT {cols} FROM outbox_produtos
+                 ORDER BY created_at_ms DESC LIMIT ?1", cols = PROD_COLS);
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![limit], map_prod_item)?;
+            for r in rows { out.push(r?); }
+        }
+        Ok(out)
+    })
+}
+
+pub fn outbox_produtos_mark_sending(local_uuid: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        conn.execute(
+            "UPDATE outbox_produtos
+                SET status='sending', updated_at_ms=?2, attempts=attempts+1
+              WHERE local_uuid=?1",
+            params![local_uuid, now_ms],
+        )?;
+        Ok(())
+    })
+}
+
+pub fn outbox_produtos_mark_sent(
+    local_uuid: &str,
+    remote_id: &str,
+    response: &str,
+    now_ms: i64,
+) -> DbResult<()> {
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+        let item: Option<(String, String)> = tx.query_row(
+            "SELECT produto_local_uuid, action FROM outbox_produtos WHERE local_uuid=?1",
+            params![local_uuid], |r| Ok((r.get(0)?, r.get(1)?)),
+        ).optional()?;
+        tx.execute(
+            "UPDATE outbox_produtos
+                SET status='sent', sent_at_ms=?2, updated_at_ms=?2,
+                    remote_id=?3, remote_response=?4, last_error=NULL,
+                    next_attempt_at_ms=NULL
+              WHERE local_uuid=?1",
+            params![local_uuid, now_ms, remote_id, response],
+        )?;
+        if let Some((prod_lid, action)) = item {
+            if action == "criar" {
+                tx.execute(
+                    "UPDATE produtos_local
+                        SET remote_id=?1, sync_status='synced', last_error=NULL
+                      WHERE local_uuid=?2",
+                    params![remote_id, prod_lid],
+                )?;
+                tx.execute(
+                    "UPDATE outbox_produtos
+                        SET produto_remote_id=?1
+                      WHERE produto_local_uuid=?2 AND produto_remote_id IS NULL",
+                    params![remote_id, prod_lid],
+                )?;
+                let pendentes: Vec<(String, String)> = {
+                    let mut stmt = tx.prepare(
+                        "SELECT local_uuid, payload FROM outbox_produtos
+                          WHERE produto_local_uuid=?1 AND action <> 'criar'
+                            AND status IN ('pending','error','sending')",
+                    )?;
+                    let rows = stmt.query_map(params![prod_lid], |r| Ok((r.get(0)?, r.get(1)?)))?;
+                    let mut out = Vec::new();
+                    for r in rows { out.push(r?); }
+                    out
+                };
+                for (lid, raw) in pendentes {
+                    let mut p: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
+                    if let Some(o) = p.as_object_mut() {
+                        o.insert("_produto_id".into(), serde_json::Value::String(remote_id.to_string()));
+                    }
+                    tx.execute(
+                        "UPDATE outbox_produtos SET payload=?2 WHERE local_uuid=?1",
+                        params![lid, p.to_string()],
+                    )?;
+                }
+            } else {
+                let pendentes_outros: i64 = tx.query_row(
+                    "SELECT COUNT(*) FROM outbox_produtos
+                      WHERE produto_local_uuid=?1 AND status IN ('pending','sending')",
+                    params![prod_lid], |r| r.get(0),
+                ).optional()?.unwrap_or(0);
+                if pendentes_outros == 0 {
+                    tx.execute(
+                        "UPDATE produtos_local SET sync_status='synced', last_error=NULL
+                          WHERE local_uuid=?1",
+                        params![prod_lid],
+                    )?;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    })
+}
+
+pub fn outbox_produtos_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        let attempts: i64 = conn.query_row(
+            "SELECT attempts FROM outbox_produtos WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).optional()?.unwrap_or(1);
+        let prod_lid: Option<String> = conn.query_row(
+            "SELECT produto_local_uuid FROM outbox_produtos WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).optional()?;
+        if attempts >= MAX_AUTO_ATTEMPTS {
+            conn.execute(
+                "UPDATE outbox_produtos
+                    SET status='error', last_error=?2, updated_at_ms=?3,
+                        next_attempt_at_ms=NULL
+                  WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms],
+            )?;
+            if let Some(lid) = prod_lid {
+                let _ = conn.execute(
+                    "UPDATE produtos_local SET sync_status='error', last_error=?1
+                      WHERE local_uuid=?2",
+                    params![err, lid],
+                );
+            }
+        } else {
+            let next = now_ms + backoff_ms_for_attempts(attempts);
+            conn.execute(
+                "UPDATE outbox_produtos
+                    SET status='pending', last_error=?2, updated_at_ms=?3,
+                        next_attempt_at_ms=?4
+                  WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms, next],
+            )?;
+        }
+        Ok(())
+    })
+}
+
+pub fn outbox_produtos_reset_errors(now_ms: i64) -> DbResult<i64> {
+    with_conn(|conn| {
+        let n = conn.execute(
+            "UPDATE outbox_produtos
+                SET status='pending', updated_at_ms=?1,
+                    next_attempt_at_ms=NULL, last_error=NULL
+              WHERE status IN ('error','pending') AND last_error IS NOT NULL",
+            params![now_ms],
+        )?;
+        let _ = conn.execute(
+            "UPDATE produtos_local SET sync_status='pending', last_error=NULL
+              WHERE sync_status='error'",
+            [],
+        );
+        Ok(n as i64)
+    })
+}
+
+pub fn outbox_produtos_stats() -> DbResult<OutboxProdutosStats> {
+    with_conn(|conn| {
+        let mut s = OutboxProdutosStats::default();
+        let mut stmt = conn.prepare("SELECT status, COUNT(*) FROM outbox_produtos GROUP BY status")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        for r in rows {
+            let (st, n) = r?;
+            match st.as_str() {
+                "pending" => s.pending = n,
+                "sending" => s.sending = n,
+                "sent" => s.sent = n,
+                "error" => s.error = n,
+                _ => {}
+            }
+        }
+        s.last_sent_at_ms = conn.query_row(
+            "SELECT MAX(sent_at_ms) FROM outbox_produtos WHERE status='sent'",
+            [], |r| r.get::<_, Option<i64>>(0),
+        ).optional()?.flatten();
+        s.last_error = conn.query_row(
+            "SELECT last_error FROM outbox_produtos
+              WHERE status='error' ORDER BY updated_at_ms DESC LIMIT 1",
+            [], |r| r.get::<_, Option<String>>(0),
+        ).optional()?.flatten();
+        let now = chrono::Utc::now().timestamp_millis();
+        s.due_now = conn.query_row(
+            "SELECT COUNT(*) FROM outbox_produtos
+              WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1",
+            params![now], |r| r.get::<_, i64>(0),
+        ).optional()?.unwrap_or(0);
+        s.next_attempt_at_ms = conn.query_row(
+            "SELECT MIN(COALESCE(next_attempt_at_ms,0))
+               FROM outbox_produtos WHERE status='pending'",
+            [], |r| r.get::<_, Option<i64>>(0),
+        ).optional()?.flatten();
+        s.last_auto_flush_ms = meta_get_i64(conn, "outbox_prod_last_auto_flush_ms")?;
+        s.last_auto_flush_sent_ms = meta_get_i64(conn, "outbox_prod_last_auto_flush_sent_ms")?;
+        s.last_auto_attempted = meta_get_i64(conn, "outbox_prod_last_auto_attempted")?;
+        s.last_auto_sent = meta_get_i64(conn, "outbox_prod_last_auto_sent")?;
+        s.last_auto_failed = meta_get_i64(conn, "outbox_prod_last_auto_failed")?;
+        s.last_manual_flush_ms = meta_get_i64(conn, "outbox_prod_last_manual_flush_ms")?;
+        Ok(s)
+    })
+}
+
+pub fn outbox_produtos_record_flush_round(
+    kind: &str, now_ms: i64, attempted: i64, sent: i64, failed: i64,
+) -> DbResult<()> {
+    with_conn(|conn| {
+        if kind == "auto" {
+            meta_set_i64(conn, "outbox_prod_last_auto_flush_ms", now_ms)?;
+            meta_set_i64(conn, "outbox_prod_last_auto_attempted", attempted)?;
+            meta_set_i64(conn, "outbox_prod_last_auto_sent", sent)?;
+            meta_set_i64(conn, "outbox_prod_last_auto_failed", failed)?;
+            if sent > 0 {
+                meta_set_i64(conn, "outbox_prod_last_auto_flush_sent_ms", now_ms)?;
+            }
+        } else {
+            meta_set_i64(conn, "outbox_prod_last_manual_flush_ms", now_ms)?;
+        }
+        Ok(())
+    })
+}
+
+pub fn produto_remote_id_for(local_uuid: &str) -> DbResult<Option<String>> {
+    with_conn(|conn| {
+        let r: Option<Option<String>> = conn.query_row(
+            "SELECT remote_id FROM produtos_local WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).optional()?;
+        Ok(r.flatten())
+    })
+}
+
+pub fn produto_resolve_local_uuid(any_id: &str) -> DbResult<Option<String>> {
+    with_conn(|conn| {
+        let lid: Option<String> = conn.query_row(
+            "SELECT local_uuid FROM produtos_local
+              WHERE local_uuid=?1 OR remote_id=?1 OR id=?1
+              LIMIT 1",
+            params![any_id], |r| r.get(0),
+        ).optional()?;
+        Ok(lid)
+    })
+}
+
+// Enfileiramento genérico para editar/alterar_status/excluir.
+// Cache patch atualiza o snapshot otimista; soft_delete marca deleted_at_ms
+// e status='inativo' para sumir da lista até a sync confirmar.
+pub fn produto_enqueue_action(
+    target_local_uuid: &str,
+    action: &str,
+    payload: serde_json::Value,
+    cache_patch: Option<serde_json::Value>,
+    soft_delete: bool,
+) -> DbResult<ProdutoEnqueueResult> {
+    with_conn(|conn| {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let tx = conn.unchecked_transaction()?;
+
+        let row: Option<(String, Option<String>, String)> = tx.query_row(
+            "SELECT local_uuid, remote_id, payload
+               FROM produtos_local
+              WHERE local_uuid=?1 OR remote_id=?1 OR id=?1
+              LIMIT 1",
+            params![target_local_uuid], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).optional()?;
+        let (prod_lid, remote_id, current_payload) = row.ok_or_else(|| {
+            DbError::from(rusqlite::Error::QueryReturnedNoRows)
+        })?;
+
+        if let Some(patch) = cache_patch.as_ref() {
+            let mut cur: serde_json::Value =
+                serde_json::from_str(&current_payload).unwrap_or(serde_json::json!({}));
+            if let (Some(co), Some(po)) = (cur.as_object_mut(), patch.as_object()) {
+                for (k, v) in po { co.insert(k.clone(), v.clone()); }
+            }
+            let new_sku = cur.get("sku").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let new_nome = cur.get("nome").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let new_status_raw = cur.get("status").and_then(|v| v.as_str()).unwrap_or("ativo").to_string();
+            let new_status = if soft_delete { "inativo".to_string() } else { new_status_raw };
+            let new_categoria_id = cur.get("categoria_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let new_categoria_nome = cur.get("categoria")
+                .and_then(|c| c.get("nome"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let new_preco_venda = cur.get("preco_venda").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let new_estoque_atual = cur.get("estoque_atual").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            tx.execute(
+                "UPDATE produtos_local
+                    SET sku=?2, nome=?3, status=?4,
+                        categoria_id=?5, categoria_nome=?6,
+                        preco_venda=?7, estoque_atual=?8,
+                        payload=?9, sync_status='pending', last_error=NULL,
+                        deleted_at_ms=CASE WHEN ?10 THEN ?11 ELSE deleted_at_ms END
+                  WHERE local_uuid=?1",
+                params![prod_lid, new_sku, new_nome, new_status,
+                        new_categoria_id, new_categoria_nome,
+                        new_preco_venda, new_estoque_atual,
+                        cur.to_string(), soft_delete, now_ms],
+            )?;
+        } else if soft_delete {
+            tx.execute(
+                "UPDATE produtos_local
+                    SET status='inativo', deleted_at_ms=?2,
+                        sync_status='pending', last_error=NULL
+                  WHERE local_uuid=?1",
+                params![prod_lid, now_ms],
+            )?;
+        } else {
+            tx.execute(
+                "UPDATE produtos_local
+                    SET sync_status='pending', last_error=NULL
+                  WHERE local_uuid=?1",
+                params![prod_lid],
+            )?;
+        }
+
+        let effective_id = remote_id.clone().unwrap_or_else(|| prod_lid.clone());
+        let mut rpc_payload = payload.clone();
+        if let Some(o) = rpc_payload.as_object_mut() {
+            o.insert("_produto_id".into(), serde_json::Value::String(effective_id));
+        }
+
+        let outbox_id = random_uuid_v4();
+        tx.execute(
+            "INSERT INTO outbox_produtos(
+                local_uuid, client_uuid, produto_local_uuid, produto_remote_id,
+                action, payload, status, attempts, created_at_ms, updated_at_ms, next_attempt_at_ms
+             ) VALUES (?1, ?1, ?2, ?3, ?4, ?5, 'pending', 0, ?6, ?6, NULL)",
+            params![
+                outbox_id, prod_lid, remote_id,
+                action, rpc_payload.to_string(), now_ms,
+            ],
+        )?;
+        tx.commit()?;
+        Ok(ProdutoEnqueueResult {
+            produto_local_uuid: prod_lid,
+            produto_remote_id: remote_id,
+            idempotente: false,
+        })
+    })
+}
+
+// =====================================================================
+// CATEGORIAS DE PRODUTO — offline-first (v24)
+// =====================================================================
+
+#[derive(Debug, Serialize, Default)]
+pub struct OutboxCategoriasProdutoStats {
+    pub pending: i64,
+    pub sending: i64,
+    pub sent: i64,
+    pub error: i64,
+    pub last_sent_at_ms: Option<i64>,
+    pub last_error: Option<String>,
+    pub due_now: i64,
+    pub next_attempt_at_ms: Option<i64>,
+    pub last_auto_flush_ms: Option<i64>,
+    pub last_auto_flush_sent_ms: Option<i64>,
+    pub last_auto_attempted: Option<i64>,
+    pub last_auto_sent: Option<i64>,
+    pub last_auto_failed: Option<i64>,
+    pub last_manual_flush_ms: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OutboxCategoriasProdutoItem {
+    pub local_uuid: String,
+    pub client_uuid: Option<String>,
+    pub categoria_local_uuid: String,
+    pub categoria_remote_id: Option<String>,
+    pub action: String,
+    pub payload: String,
+    pub status: String,
+    pub attempts: i64,
+    pub last_error: Option<String>,
+    pub remote_id: Option<String>,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub sent_at_ms: Option<i64>,
+}
+
+const CAT_COLS: &str =
+    "local_uuid, client_uuid, categoria_local_uuid, categoria_remote_id, action, payload,
+     status, attempts, last_error, remote_id, created_at_ms, updated_at_ms, sent_at_ms";
+
+fn map_cat_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<OutboxCategoriasProdutoItem> {
+    Ok(OutboxCategoriasProdutoItem {
+        local_uuid: r.get(0)?,
+        client_uuid: r.get(1)?,
+        categoria_local_uuid: r.get(2)?,
+        categoria_remote_id: r.get(3)?,
+        action: r.get(4)?,
+        payload: r.get(5)?,
+        status: r.get(6)?,
+        attempts: r.get(7)?,
+        last_error: r.get(8)?,
+        remote_id: r.get(9)?,
+        created_at_ms: r.get(10)?,
+        updated_at_ms: r.get(11)?,
+        sent_at_ms: r.get(12)?,
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct CategoriaProdutoEnqueueResult {
+    pub categoria_local_uuid: String,
+    pub categoria_remote_id: Option<String>,
+    pub idempotente: bool,
+}
+
+pub fn categoria_produto_criar_local(payload: serde_json::Value) -> DbResult<CategoriaProdutoEnqueueResult> {
+    with_conn(|conn| {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let tx = conn.unchecked_transaction()?;
+
+        let client_uuid = json_str_opt(&payload, "_client_uuid");
+        if let Some(cu) = &client_uuid {
+            let existing: Option<(String, Option<String>)> = tx.query_row(
+                "SELECT categoria_local_uuid, categoria_remote_id
+                   FROM outbox_categorias_produto WHERE client_uuid=?1",
+                params![cu], |r| Ok((r.get(0)?, r.get(1)?)),
+            ).optional()?;
+            if let Some((lid, rid)) = existing {
+                tx.commit()?;
+                return Ok(CategoriaProdutoEnqueueResult {
+                    categoria_local_uuid: lid,
+                    categoria_remote_id: rid,
+                    idempotente: true,
+                });
+            }
+        }
+
+        let local_uuid = json_str_opt(&payload, "_categoria_id_in")
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(random_uuid_v4);
+        let nome = json_str_opt(&payload, "_nome").unwrap_or_default();
+        let parent_id = json_str_opt(&payload, "_parent_id");
+
+        let full = serde_json::json!({
+            "id": &local_uuid,
+            "local_uuid": &local_uuid,
+            "remote_id": serde_json::Value::Null,
+            "nome": &nome,
+            "parent_id": parent_id,
+            "ativo": true,
+            "descricao": payload.get("_descricao").cloned().unwrap_or(serde_json::Value::Null),
+            "created_at": chrono::DateTime::<chrono::Utc>::from_timestamp_millis(now_ms)
+                .map(|d| d.to_rfc3339()).unwrap_or_default(),
+            "sync_status": "pending",
+        });
+
+        tx.execute(
+            "INSERT INTO categorias_produto_local(
+                id, nome, parent_id, ativo, payload,
+                updated_at_remote_ms, synced_at_ms, deleted_at_ms,
+                local_uuid, remote_id, sync_status, last_error, created_offline_at_ms
+             ) VALUES (?1,?2,?3,1,?4, NULL, ?5, NULL, ?1, NULL, 'pending', NULL, ?5)",
+            params![local_uuid, nome, parent_id, full.to_string(), now_ms],
+        )?;
+
+        let mut rpc_payload = payload.clone();
+        if let Some(o) = rpc_payload.as_object_mut() {
+            o.insert("_categoria_id_in".into(), serde_json::Value::String(local_uuid.clone()));
+            o.entry("_client_uuid").or_insert(serde_json::Value::String(local_uuid.clone()));
+        }
+
+        let outbox_id = random_uuid_v4();
+        tx.execute(
+            "INSERT INTO outbox_categorias_produto(
+                local_uuid, client_uuid, categoria_local_uuid, categoria_remote_id,
+                action, payload, status, attempts, created_at_ms, updated_at_ms, next_attempt_at_ms
+             ) VALUES (?1,?2,?3,NULL,'criar',?4,'pending',0,?5,?5,NULL)",
+            params![
+                outbox_id,
+                client_uuid.unwrap_or_else(|| local_uuid.clone()),
+                local_uuid,
+                rpc_payload.to_string(),
+                now_ms
+            ],
+        )?;
+        tx.commit()?;
+        Ok(CategoriaProdutoEnqueueResult {
+            categoria_local_uuid: local_uuid,
+            categoria_remote_id: None,
+            idempotente: false,
+        })
+    })
+}
+
+pub fn outbox_categorias_produto_get(local_uuid: &str) -> DbResult<Option<OutboxCategoriasProdutoItem>> {
+    with_conn(|conn| {
+        let sql = format!("SELECT {cols} FROM outbox_categorias_produto WHERE local_uuid=?1", cols = CAT_COLS);
+        let r = conn.query_row(&sql, params![local_uuid], map_cat_item).optional()?;
+        Ok(r)
+    })
+}
+
+pub fn outbox_categorias_produto_pending_batch(limit: i64) -> DbResult<Vec<OutboxCategoriasProdutoItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let now = chrono::Utc::now().timestamp_millis();
+        let sql = format!(
+            "SELECT {cols} FROM outbox_categorias_produto
+              WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1
+              ORDER BY created_at_ms ASC LIMIT ?2",
+            cols = CAT_COLS,
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![now, limit], map_cat_item)?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    })
+}
+
+pub fn outbox_categorias_produto_pending_batch_all(limit: i64) -> DbResult<Vec<OutboxCategoriasProdutoItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let sql = format!(
+            "SELECT {cols} FROM outbox_categorias_produto WHERE status='pending'
+             ORDER BY created_at_ms ASC LIMIT ?1",
+            cols = CAT_COLS,
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![limit], map_cat_item)?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    })
+}
+
+pub fn outbox_categorias_produto_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxCategoriasProdutoItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let mut out = Vec::new();
+        if let Some(st) = only_status {
+            let sql = format!(
+                "SELECT {cols} FROM outbox_categorias_produto WHERE status=?1
+                 ORDER BY created_at_ms DESC LIMIT ?2", cols = CAT_COLS);
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![st, limit], map_cat_item)?;
+            for r in rows { out.push(r?); }
+        } else {
+            let sql = format!(
+                "SELECT {cols} FROM outbox_categorias_produto
+                 ORDER BY created_at_ms DESC LIMIT ?1", cols = CAT_COLS);
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![limit], map_cat_item)?;
+            for r in rows { out.push(r?); }
+        }
+        Ok(out)
+    })
+}
+
+pub fn outbox_categorias_produto_mark_sending(local_uuid: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        conn.execute(
+            "UPDATE outbox_categorias_produto
+                SET status='sending', updated_at_ms=?2, attempts=attempts+1
+              WHERE local_uuid=?1",
+            params![local_uuid, now_ms],
+        )?;
+        Ok(())
+    })
+}
+
+pub fn outbox_categorias_produto_mark_sent(
+    local_uuid: &str,
+    remote_id: &str,
+    response: &str,
+    now_ms: i64,
+) -> DbResult<()> {
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+        let item: Option<(String, String)> = tx.query_row(
+            "SELECT categoria_local_uuid, action FROM outbox_categorias_produto WHERE local_uuid=?1",
+            params![local_uuid], |r| Ok((r.get(0)?, r.get(1)?)),
+        ).optional()?;
+        tx.execute(
+            "UPDATE outbox_categorias_produto
+                SET status='sent', sent_at_ms=?2, updated_at_ms=?2,
+                    remote_id=?3, remote_response=?4, last_error=NULL,
+                    next_attempt_at_ms=NULL
+              WHERE local_uuid=?1",
+            params![local_uuid, now_ms, remote_id, response],
+        )?;
+        if let Some((cat_lid, action)) = item {
+            if action == "criar" {
+                tx.execute(
+                    "UPDATE categorias_produto_local
+                        SET remote_id=?1, sync_status='synced', last_error=NULL
+                      WHERE local_uuid=?2",
+                    params![remote_id, cat_lid],
+                )?;
+                tx.execute(
+                    "UPDATE outbox_categorias_produto
+                        SET categoria_remote_id=?1
+                      WHERE categoria_local_uuid=?2 AND categoria_remote_id IS NULL",
+                    params![remote_id, cat_lid],
+                )?;
+                let pendentes: Vec<(String, String)> = {
+                    let mut stmt = tx.prepare(
+                        "SELECT local_uuid, payload FROM outbox_categorias_produto
+                          WHERE categoria_local_uuid=?1 AND action <> 'criar'
+                            AND status IN ('pending','error','sending')",
+                    )?;
+                    let rows = stmt.query_map(params![cat_lid], |r| Ok((r.get(0)?, r.get(1)?)))?;
+                    let mut out = Vec::new();
+                    for r in rows { out.push(r?); }
+                    out
+                };
+                for (lid, raw) in pendentes {
+                    let mut p: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
+                    if let Some(o) = p.as_object_mut() {
+                        o.insert("_categoria_id".into(), serde_json::Value::String(remote_id.to_string()));
+                    }
+                    tx.execute(
+                        "UPDATE outbox_categorias_produto SET payload=?2 WHERE local_uuid=?1",
+                        params![lid, p.to_string()],
+                    )?;
+                }
+                // Propaga remote_id da categoria a produtos pendentes que
+                // ainda apontam para o local_uuid antigo.
+                let _ = tx.execute(
+                    "UPDATE produtos_local
+                        SET categoria_id=?1
+                      WHERE categoria_id=?2",
+                    params![remote_id, cat_lid],
+                );
+            } else {
+                let pendentes_outros: i64 = tx.query_row(
+                    "SELECT COUNT(*) FROM outbox_categorias_produto
+                      WHERE categoria_local_uuid=?1 AND status IN ('pending','sending')",
+                    params![cat_lid], |r| r.get(0),
+                ).optional()?.unwrap_or(0);
+                if pendentes_outros == 0 {
+                    tx.execute(
+                        "UPDATE categorias_produto_local SET sync_status='synced', last_error=NULL
+                          WHERE local_uuid=?1",
+                        params![cat_lid],
+                    )?;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    })
+}
+
+pub fn outbox_categorias_produto_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        let attempts: i64 = conn.query_row(
+            "SELECT attempts FROM outbox_categorias_produto WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).optional()?.unwrap_or(1);
+        let cat_lid: Option<String> = conn.query_row(
+            "SELECT categoria_local_uuid FROM outbox_categorias_produto WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).optional()?;
+        if attempts >= MAX_AUTO_ATTEMPTS {
+            conn.execute(
+                "UPDATE outbox_categorias_produto
+                    SET status='error', last_error=?2, updated_at_ms=?3,
+                        next_attempt_at_ms=NULL
+                  WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms],
+            )?;
+            if let Some(lid) = cat_lid {
+                let _ = conn.execute(
+                    "UPDATE categorias_produto_local SET sync_status='error', last_error=?1
+                      WHERE local_uuid=?2",
+                    params![err, lid],
+                );
+            }
+        } else {
+            let next = now_ms + backoff_ms_for_attempts(attempts);
+            conn.execute(
+                "UPDATE outbox_categorias_produto
+                    SET status='pending', last_error=?2, updated_at_ms=?3,
+                        next_attempt_at_ms=?4
+                  WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms, next],
+            )?;
+        }
+        Ok(())
+    })
+}
+
+pub fn outbox_categorias_produto_reset_errors(now_ms: i64) -> DbResult<i64> {
+    with_conn(|conn| {
+        let n = conn.execute(
+            "UPDATE outbox_categorias_produto
+                SET status='pending', updated_at_ms=?1,
+                    next_attempt_at_ms=NULL, last_error=NULL
+              WHERE status IN ('error','pending') AND last_error IS NOT NULL",
+            params![now_ms],
+        )?;
+        let _ = conn.execute(
+            "UPDATE categorias_produto_local SET sync_status='pending', last_error=NULL
+              WHERE sync_status='error'",
+            [],
+        );
+        Ok(n as i64)
+    })
+}
+
+pub fn outbox_categorias_produto_stats() -> DbResult<OutboxCategoriasProdutoStats> {
+    with_conn(|conn| {
+        let mut s = OutboxCategoriasProdutoStats::default();
+        let mut stmt = conn.prepare("SELECT status, COUNT(*) FROM outbox_categorias_produto GROUP BY status")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        for r in rows {
+            let (st, n) = r?;
+            match st.as_str() {
+                "pending" => s.pending = n,
+                "sending" => s.sending = n,
+                "sent" => s.sent = n,
+                "error" => s.error = n,
+                _ => {}
+            }
+        }
+        s.last_sent_at_ms = conn.query_row(
+            "SELECT MAX(sent_at_ms) FROM outbox_categorias_produto WHERE status='sent'",
+            [], |r| r.get::<_, Option<i64>>(0),
+        ).optional()?.flatten();
+        s.last_error = conn.query_row(
+            "SELECT last_error FROM outbox_categorias_produto
+              WHERE status='error' ORDER BY updated_at_ms DESC LIMIT 1",
+            [], |r| r.get::<_, Option<String>>(0),
+        ).optional()?.flatten();
+        let now = chrono::Utc::now().timestamp_millis();
+        s.due_now = conn.query_row(
+            "SELECT COUNT(*) FROM outbox_categorias_produto
+              WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1",
+            params![now], |r| r.get::<_, i64>(0),
+        ).optional()?.unwrap_or(0);
+        s.next_attempt_at_ms = conn.query_row(
+            "SELECT MIN(COALESCE(next_attempt_at_ms,0))
+               FROM outbox_categorias_produto WHERE status='pending'",
+            [], |r| r.get::<_, Option<i64>>(0),
+        ).optional()?.flatten();
+        s.last_auto_flush_ms = meta_get_i64(conn, "outbox_cat_prod_last_auto_flush_ms")?;
+        s.last_auto_flush_sent_ms = meta_get_i64(conn, "outbox_cat_prod_last_auto_flush_sent_ms")?;
+        s.last_auto_attempted = meta_get_i64(conn, "outbox_cat_prod_last_auto_attempted")?;
+        s.last_auto_sent = meta_get_i64(conn, "outbox_cat_prod_last_auto_sent")?;
+        s.last_auto_failed = meta_get_i64(conn, "outbox_cat_prod_last_auto_failed")?;
+        s.last_manual_flush_ms = meta_get_i64(conn, "outbox_cat_prod_last_manual_flush_ms")?;
+        Ok(s)
+    })
+}
+
+pub fn outbox_categorias_produto_record_flush_round(
+    kind: &str, now_ms: i64, attempted: i64, sent: i64, failed: i64,
+) -> DbResult<()> {
+    with_conn(|conn| {
+        if kind == "auto" {
+            meta_set_i64(conn, "outbox_cat_prod_last_auto_flush_ms", now_ms)?;
+            meta_set_i64(conn, "outbox_cat_prod_last_auto_attempted", attempted)?;
+            meta_set_i64(conn, "outbox_cat_prod_last_auto_sent", sent)?;
+            meta_set_i64(conn, "outbox_cat_prod_last_auto_failed", failed)?;
+            if sent > 0 {
+                meta_set_i64(conn, "outbox_cat_prod_last_auto_flush_sent_ms", now_ms)?;
+            }
+        } else {
+            meta_set_i64(conn, "outbox_cat_prod_last_manual_flush_ms", now_ms)?;
+        }
+        Ok(())
+    })
+}
+
+pub fn categoria_produto_remote_id_for(local_uuid: &str) -> DbResult<Option<String>> {
+    with_conn(|conn| {
+        let r: Option<Option<String>> = conn.query_row(
+            "SELECT remote_id FROM categorias_produto_local WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).optional()?;
+        Ok(r.flatten())
+    })
+}
+
+pub fn categoria_produto_resolve_local_uuid(any_id: &str) -> DbResult<Option<String>> {
+    with_conn(|conn| {
+        let lid: Option<String> = conn.query_row(
+            "SELECT local_uuid FROM categorias_produto_local
+              WHERE local_uuid=?1 OR remote_id=?1 OR id=?1
+              LIMIT 1",
+            params![any_id], |r| r.get(0),
+        ).optional()?;
+        Ok(lid)
+    })
+}
+
+pub fn categoria_produto_enqueue_action(
+    target_local_uuid: &str,
+    action: &str,
+    payload: serde_json::Value,
+    cache_patch: Option<serde_json::Value>,
+    soft_delete: bool,
+) -> DbResult<CategoriaProdutoEnqueueResult> {
+    with_conn(|conn| {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let tx = conn.unchecked_transaction()?;
+
+        let row: Option<(String, Option<String>, String)> = tx.query_row(
+            "SELECT local_uuid, remote_id, payload
+               FROM categorias_produto_local
+              WHERE local_uuid=?1 OR remote_id=?1 OR id=?1
+              LIMIT 1",
+            params![target_local_uuid], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).optional()?;
+        let (cat_lid, remote_id, current_payload) = row.ok_or_else(|| {
+            DbError::from(rusqlite::Error::QueryReturnedNoRows)
+        })?;
+
+        if let Some(patch) = cache_patch.as_ref() {
+            let mut cur: serde_json::Value =
+                serde_json::from_str(&current_payload).unwrap_or(serde_json::json!({}));
+            if let (Some(co), Some(po)) = (cur.as_object_mut(), patch.as_object()) {
+                for (k, v) in po { co.insert(k.clone(), v.clone()); }
+            }
+            let new_nome = cur.get("nome").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let new_parent = cur.get("parent_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let new_ativo = cur.get("ativo").and_then(|v| v.as_bool()).unwrap_or(true);
+            let final_ativo = if soft_delete { false } else { new_ativo };
+            tx.execute(
+                "UPDATE categorias_produto_local
+                    SET nome=?2, parent_id=?3,
+                        ativo=CASE WHEN ?4 THEN 1 ELSE 0 END,
+                        payload=?5, sync_status='pending', last_error=NULL,
+                        deleted_at_ms=CASE WHEN ?6 THEN ?7 ELSE deleted_at_ms END
+                  WHERE local_uuid=?1",
+                params![cat_lid, new_nome, new_parent, final_ativo, cur.to_string(), soft_delete, now_ms],
+            )?;
+        } else if soft_delete {
+            tx.execute(
+                "UPDATE categorias_produto_local
+                    SET ativo=0, deleted_at_ms=?2,
+                        sync_status='pending', last_error=NULL
+                  WHERE local_uuid=?1",
+                params![cat_lid, now_ms],
+            )?;
+        } else {
+            tx.execute(
+                "UPDATE categorias_produto_local
+                    SET sync_status='pending', last_error=NULL
+                  WHERE local_uuid=?1",
+                params![cat_lid],
+            )?;
+        }
+
+        let effective_id = remote_id.clone().unwrap_or_else(|| cat_lid.clone());
+        let mut rpc_payload = payload.clone();
+        if let Some(o) = rpc_payload.as_object_mut() {
+            o.insert("_categoria_id".into(), serde_json::Value::String(effective_id));
+        }
+
+        let outbox_id = random_uuid_v4();
+        tx.execute(
+            "INSERT INTO outbox_categorias_produto(
+                local_uuid, client_uuid, categoria_local_uuid, categoria_remote_id,
+                action, payload, status, attempts, created_at_ms, updated_at_ms, next_attempt_at_ms
+             ) VALUES (?1, ?1, ?2, ?3, ?4, ?5, 'pending', 0, ?6, ?6, NULL)",
+            params![
+                outbox_id, cat_lid, remote_id,
+                action, rpc_payload.to_string(), now_ms,
+            ],
+        )?;
+        tx.commit()?;
+        Ok(CategoriaProdutoEnqueueResult {
+            categoria_local_uuid: cat_lid,
+            categoria_remote_id: remote_id,
+            idempotente: false,
+        })
+    })
+}
