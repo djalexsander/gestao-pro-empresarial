@@ -97,6 +97,7 @@ import { MovimentoCaixaDialog } from "@/components/caixa/MovimentoCaixaDialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatBRL } from "@/lib/mock-data";
+import { useConfigEmpresa } from "@/hooks/useConfigEmpresa";
 
 export const Route = createFileRoute("/pdv")({
   head: () => ({
