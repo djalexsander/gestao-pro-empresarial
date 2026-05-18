@@ -5850,20 +5850,17 @@ async fn funcionario_criar_local_handler(
 
     // Aquece o PIN local imediatamente — operador já consegue logar offline
     // antes mesmo do push para Supabase concluir.
-    let _ = db::operador_offline_upsert(
-        &result.funcionario_local_uuid,
-        None,
-        &req.nome,
-        &req.login,
-        &req.role,
-        true,
-        &req.pin,
-        now_ms(),
-    );
-    eprintln!(
-        "[FUNCIONARIOS_PIN_LOCAL] aquecido funcionario_id={}",
-        result.funcionario_local_uuid
-    );
+    if let Err(e) = warm_pin_local(
+        &result.funcionario_local_uuid, None,
+        &req.nome, &req.login, &req.role, true, &req.pin,
+    ) {
+        eprintln!("[FUNCIONARIOS_PIN_LOCAL] aquecer falhou: {e}");
+    } else {
+        eprintln!(
+            "[FUNCIONARIOS_PIN_LOCAL] aquecido funcionario_id={}",
+            result.funcionario_local_uuid
+        );
+    }
 
     let (status, remote) = if !result.idempotente && ctx.upstream.is_some() {
         match push_one_outbox_funcionario_by_func(&ctx, &headers, &result.funcionario_local_uuid, "criar").await {
