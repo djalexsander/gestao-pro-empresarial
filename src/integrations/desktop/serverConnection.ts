@@ -380,14 +380,17 @@ export interface OfflineSyncResult {
 
 export async function fetchOfflineStatus(
   cfg?: TerminalConexaoConfig,
+  authToken?: string | null,
 ): Promise<OfflineStatus | null> {
   const baseUrl = getBaseUrl(cfg);
   if (!baseUrl) return null;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
     const res = await fetch(`${baseUrl}/api/offline/status`, {
-      headers: { Accept: "application/json" },
+      headers,
       signal: ctrl.signal,
       cache: "no-store",
     });
@@ -403,18 +406,34 @@ export async function fetchOfflineStatus(
 /**
  * Dispara a sincronização inicial obrigatória. Pode demorar (vários domínios
  * em sequência), por isso o timeout é generoso. Idempotente.
+ *
+ * IMPORTANTE: o servidor local repassa o `Authorization` recebido ao
+ * Supabase. Sem JWT do usuário, o PostgREST devolve `[]` por RLS e a
+ * sincronização "parece" funcionar mas não persiste nada. Sempre passe o
+ * token da sessão atual.
  */
 export async function runSyncInicial(
   cfg?: TerminalConexaoConfig,
+  authToken?: string | null,
 ): Promise<OfflineSyncResult | { ok: false; error: string }> {
   const baseUrl = getBaseUrl(cfg);
   if (!baseUrl) return { ok: false, error: "Servidor local não configurado." };
+  if (!authToken) {
+    return {
+      ok: false,
+      error:
+        "Sessão não autenticada — faça login com internet para liberar a sincronização.",
+    };
+  }
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 120_000);
   try {
     const res = await fetch(`${baseUrl}/api/offline/sync-inicial`, {
       method: "POST",
-      headers: { Accept: "application/json" },
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${authToken}`,
+      },
       signal: ctrl.signal,
       cache: "no-store",
     });
