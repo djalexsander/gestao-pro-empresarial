@@ -39,7 +39,7 @@ export function useCreateCategoria() {
     mutationFn: async (nome: string): Promise<Categoria> => {
       const client_uuid = crypto.randomUUID();
       // Local-first: gera UUID no cliente para que o id seja idêntico em
-      // SQLite local (futuro) e Supabase, eliminando reconciliação posterior.
+      // SQLite local e Supabase, eliminando reconciliação posterior.
       const categoria_id = crypto.randomUUID();
       console.debug("[LOCAL_FIRST] categoria.criar", { categoria_id });
       const r = await dataClient.produtos.criarCategoria({
@@ -49,11 +49,29 @@ export function useCreateCategoria() {
       });
       return { id: r.categoria_id, nome, parent_id: null, ativo: true };
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["categorias"] });
-      toast.success("Categoria criada.");
+    // Atualização otimista: insere a categoria no cache antes do round-trip.
+    onMutate: async (nome: string) => {
+      await qc.cancelQueries({ queryKey: ["categorias"] });
+      const previous = qc.getQueryData<Categoria[]>(["categorias"]);
+      const optimistic: Categoria = {
+        id: `optimistic-${crypto.randomUUID()}`,
+        nome,
+        parent_id: null,
+        ativo: true,
+      };
+      qc.setQueryData<Categoria[]>(["categorias"], (curr) =>
+        curr ? [...curr, optimistic] : [optimistic],
+      );
+      return { previous };
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(["categorias"], ctx.previous);
+      toast.error(e.message);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["categorias"] });
+    },
+    onSuccess: () => toast.success("Categoria criada."),
   });
 }
 
@@ -136,15 +154,18 @@ function mapProdutoErr(e: unknown): Error {
 export function useCreateProduto() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: ProdutoInput) => {
+    mutationFn: async (
+      input: ProdutoInput & { __produto_id?: string },
+    ) => {
       const client_uuid = crypto.randomUUID();
       // Local-first: id gerado no cliente — Supabase usa o mesmo id,
       // permitindo materialização imediata no SQLite local e sync sem duplicar.
-      const produto_id = crypto.randomUUID();
+      const produto_id = input.__produto_id ?? crypto.randomUUID();
+      const { __produto_id: _ignored, ...rest } = input;
       console.debug("[LOCAL_FIRST] produto.criar", { produto_id });
       try {
         const r = await dataClient.produtos.criar({
-          ...input,
+          ...rest,
           client_uuid,
           produto_id,
         });
@@ -153,12 +174,52 @@ export function useCreateProduto() {
         throw mapProdutoErr(e);
       }
     },
-    onSuccess: () => {
+    // Otimista: insere placeholder no cache para refletir imediatamente.
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: ["produtos"] });
+      const previous = qc.getQueryData<ProdutoComCategoria[]>(["produtos"]);
+      const tempId = crypto.randomUUID();
+      // anexa o id para que o mutationFn use o mesmo no servidor.
+      (input as ProdutoInput & { __produto_id?: string }).__produto_id = tempId;
+      const nowIso = new Date().toISOString();
+      const optimistic: ProdutoComCategoria = {
+        id: tempId,
+        sku: input.sku,
+        codigo_barras: input.codigo_barras ?? null,
+        qr_code: input.qr_code ?? null,
+        codigo_interno: input.codigo_interno ?? null,
+        tipo_identificacao_principal:
+          input.tipo_identificacao_principal ?? "sku",
+        observacao_tecnica: input.observacao_tecnica ?? null,
+        nome: input.nome,
+        descricao: input.descricao ?? null,
+        marca: input.marca ?? null,
+        unidade: input.unidade,
+        categoria_id: input.categoria_id ?? null,
+        preco_custo: input.preco_custo,
+        preco_venda: input.preco_venda,
+        estoque_minimo: input.estoque_minimo,
+        estoque_inicial: input.estoque_inicial ?? 0,
+        status: input.status,
+        ncm: input.ncm ?? null,
+        created_at: nowIso,
+        updated_at: nowIso,
+        categoria: null,
+      };
+      qc.setQueryData<ProdutoComCategoria[]>(["produtos"], (curr) =>
+        curr ? [optimistic, ...curr] : [optimistic],
+      );
+      return { previous };
+    },
+    onError: (e: Error, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(["produtos"], ctx.previous);
+      toast.error(e.message);
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ["produtos"] });
       qc.invalidateQueries({ queryKey: ["estoque-saldos"] });
-      toast.success("Produto cadastrado.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onSuccess: () => toast.success("Produto cadastrado."),
   });
 }
 
@@ -176,12 +237,28 @@ export function useUpdateProduto() {
         throw mapProdutoErr(e);
       }
     },
-    onSuccess: (_d, vars) => {
+    // Otimista: aplica o patch na listagem para refletir imediatamente na UI.
+    onMutate: async (vars) => {
+      await qc.cancelQueries({ queryKey: ["produtos"] });
+      const previous = qc.getQueryData<ProdutoComCategoria[]>(["produtos"]);
+      qc.setQueryData<ProdutoComCategoria[]>(["produtos"], (curr) =>
+        curr?.map((p) =>
+          p.id === vars.id
+            ? ({ ...p, ...vars, id: p.id } as ProdutoComCategoria)
+            : p,
+        ),
+      );
+      return { previous };
+    },
+    onError: (e: Error, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(["produtos"], ctx.previous);
+      toast.error(e.message);
+    },
+    onSettled: (_d, _e, vars) => {
       qc.invalidateQueries({ queryKey: ["produtos"] });
       qc.invalidateQueries({ queryKey: ["produto", vars.id] });
-      toast.success("Produto atualizado.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onSuccess: () => toast.success("Produto atualizado."),
   });
 }
 
@@ -193,12 +270,24 @@ export function useDeleteProduto() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => dataClient.produtos.excluir(id),
-    onSuccess: () => {
+    // Otimista: remove da listagem antes do round-trip.
+    onMutate: async (id: string) => {
+      await qc.cancelQueries({ queryKey: ["produtos"] });
+      const previous = qc.getQueryData<ProdutoComCategoria[]>(["produtos"]);
+      qc.setQueryData<ProdutoComCategoria[]>(["produtos"], (curr) =>
+        curr?.filter((p) => p.id !== id),
+      );
+      return { previous };
+    },
+    onError: (e: Error, _id, ctx) => {
+      if (ctx?.previous) qc.setQueryData(["produtos"], ctx.previous);
+      toast.error(e.message);
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ["produtos"] });
       qc.invalidateQueries({ queryKey: ["estoque-saldos"] });
-      toast.success("Produto excluído.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onSuccess: () => toast.success("Produto excluído."),
   });
 }
 
