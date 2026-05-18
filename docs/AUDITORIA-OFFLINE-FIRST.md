@@ -869,3 +869,25 @@ deliberadamente adiadas para fases posteriores.
   em texto, hash PBKDF2 no SQLite local + bcrypt no Postgres remoto;
   `aquecerPinServidor` continua propagando o verificador para os outros
   terminais LAN.
+
+## Etapa 19 — Clientes/Fornecedores offline-first (camada 3 do plano global)
+
+- A infra Rust já tinha tudo: `clientes_local` / `fornecedores_local`,
+  `outbox_clientes` / `outbox_fornecedores`, handlers HTTP em
+  `/api/clientes/{criar,editar,alterar-status,excluir}` e equivalentes
+  para fornecedores, worker drenando para Supabase via RPC. Adapter
+  de TERMINAL (`local-terminal.ts`) já roteava tudo para LAN.
+- O que faltava era a MÁQUINA-SERVIDOR agir do mesmo jeito. Agora
+  `local-server.ts` roteia `criar/editar/alterarStatus/excluir` de
+  clientes e fornecedores via `postLocalAuth(...)` com fallback cloud
+  só como último recurso (mesmo padrão de produtos/funcionários).
+  `reportDataSource` marca a origem real em cada chamada.
+- `useToggleClienteStatus` e `useDeleteCliente` ganharam `onMutate`
+  otimista com snapshot de TODAS as queries `["clientes"]` e
+  `["clientes-lite"]` (cobre tela de gerenciamento + selects do PDV),
+  com rollback completo em `onError`.
+- `useToggleFornecedorStatus` e `useDeleteFornecedor` seguem o mesmo
+  padrão sobre `["fornecedores"]`.
+- Criação/edição continuam invalidando + refetch (precisamos do id
+  vindo do servidor antes de exibir o registro completo) — a gravação
+  em si já é local-first via SQLite + outbox.
