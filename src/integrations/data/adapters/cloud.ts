@@ -202,6 +202,7 @@ const produtos: DataAdapter["produtos"] = {
       _aceita_etiqueta_balanca: input.aceita_etiqueta_balanca ?? false,
       _casas_decimais_quantidade: input.casas_decimais_quantidade ?? 3,
       _client_uuid: input.client_uuid ?? null,
+      _produto_id: input.produto_id ?? null,
     });
     if (error) throw error;
     const d = (data ?? {}) as Record<string, unknown>;
