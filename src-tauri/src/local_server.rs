@@ -880,7 +880,7 @@ fn read_typed(domain: &str, query: &[(&str, String)]) -> Result<String, db::DbEr
         "funcionarios_remote" => {
             let incluir_inativos = query
                 .iter()
-                .any(|(k, v)| k == "__filter_incluir_inativos" && (v == "1" || v.eq_ignore_ascii_case("true")));
+                .any(|(k, v)| *k == "__filter_incluir_inativos" && (*v == "1" || v.eq_ignore_ascii_case("true")));
             if incluir_inativos {
                 db::read_funcionarios_todos_remote()
             } else {
