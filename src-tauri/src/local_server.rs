@@ -5937,11 +5937,14 @@ async fn funcionario_resetar_pin_local_handler(
 
     // Re-aquece PIN local imediatamente.
     if let Ok(Some(row)) = db::operador_offline_get(&result.funcionario_local_uuid) {
-        let _ = db::operador_offline_upsert(
+        if let Err(e) = warm_pin_local(
             &result.funcionario_local_uuid, row.empresa_id.as_deref(),
-            &row.nome, &row.login, &row.role, row.ativo, &req.pin, now_ms(),
-        );
-        eprintln!("[FUNCIONARIOS_PIN_LOCAL] reaquecido funcionario_id={}", result.funcionario_local_uuid);
+            &row.nome, &row.login, &row.role, row.ativo, &req.pin,
+        ) {
+            eprintln!("[FUNCIONARIOS_PIN_LOCAL] reaquecer falhou: {e}");
+        } else {
+            eprintln!("[FUNCIONARIOS_PIN_LOCAL] reaquecido funcionario_id={}", result.funcionario_local_uuid);
+        }
     }
 
     let (status, remote) = try_push_func(&ctx, &headers, &result.funcionario_local_uuid).await;
