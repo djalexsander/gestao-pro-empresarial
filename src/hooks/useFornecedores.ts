@@ -84,11 +84,23 @@ export function useDeleteFornecedor() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => dataClient.fornecedores.excluir(id),
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: ["fornecedores"] });
+      const snaps = qc.getQueriesData<Fornecedor[]>({ queryKey: ["fornecedores"] });
+      snaps.forEach(([k, prev]) => {
+        if (!Array.isArray(prev)) return;
+        qc.setQueryData<Fornecedor[]>(k, prev.filter((f) => f.id !== id));
+      });
+      return { snaps };
+    },
+    onError: (e: Error, _v, ctx) => {
+      ctx?.snaps?.forEach(([k, v]) => qc.setQueryData(k, v));
+      toast.error(e.message);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["fornecedores"] });
       toast.success("Fornecedor removido.");
     },
-    onError: (e: Error) => toast.error(e.message),
   });
 }
 
@@ -108,12 +120,24 @@ export function useToggleFornecedorStatus() {
       status: "ativo" | "inativo";
     }) =>
       dataClient.fornecedores.alterarStatus({ fornecedor_id: id, status }),
+    onMutate: async ({ id, status }) => {
+      await qc.cancelQueries({ queryKey: ["fornecedores"] });
+      const snaps = qc.getQueriesData<Fornecedor[]>({ queryKey: ["fornecedores"] });
+      snaps.forEach(([k, prev]) => {
+        if (!Array.isArray(prev)) return;
+        qc.setQueryData<Fornecedor[]>(k, prev.map((f) => (f.id === id ? { ...f, status } : f)));
+      });
+      return { snaps };
+    },
+    onError: (e: Error, _v, ctx) => {
+      ctx?.snaps?.forEach(([k, v]) => qc.setQueryData(k, v));
+      toast.error(e.message);
+    },
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["fornecedores"] });
       toast.success(
         vars.status === "ativo" ? "Fornecedor ativado" : "Fornecedor inativado",
       );
     },
-    onError: (e: Error) => toast.error(e.message),
   });
 }
