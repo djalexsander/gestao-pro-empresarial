@@ -137,11 +137,23 @@ export function useDeleteCompra() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => dataClient.compras.excluir(id),
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: ["compras"] });
+      const snaps = qc.getQueriesData<Compra[]>({ queryKey: ["compras"] });
+      snaps.forEach(([k, prev]) => {
+        if (!Array.isArray(prev)) return;
+        qc.setQueryData<Compra[]>(k, prev.filter((c) => c.id !== id));
+      });
+      return { snaps };
+    },
+    onError: (e: Error, _v, ctx) => {
+      ctx?.snaps?.forEach(([k, v]) => qc.setQueryData(k, v));
+      toast.error(e.message);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["compras"] });
       toast.success("Compra excluída.");
     },
-    onError: (e: Error) => toast.error(e.message),
   });
 }
 
