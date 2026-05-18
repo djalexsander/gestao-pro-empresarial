@@ -873,7 +873,16 @@ fn read_typed(domain: &str, query: &[(&str, String)]) -> Result<String, db::DbEr
                 .unwrap_or("");
             db::read_caixa_movimentos_remote(caixa_id)
         }
-        "funcionarios_remote" => db::read_funcionarios_ativos_remote(),
+        "funcionarios_remote" => {
+            let incluir_inativos = query
+                .iter()
+                .any(|(k, v)| k == "__filter_incluir_inativos" && (v == "1" || v.eq_ignore_ascii_case("true")));
+            if incluir_inativos {
+                db::read_funcionarios_todos_remote()
+            } else {
+                db::read_funcionarios_ativos_remote()
+            }
+        }
         "terminais_remote" => db::read_terminais_ativos_remote(),
         "pagamentos_empresa_remote" => {
             let limit = query
@@ -2869,11 +2878,28 @@ async fn relatorios_caixa_movimentos_handler(
 async fn relatorios_funcionarios_ativos_handler(
     State(ctx): State<AppCtx>,
     headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
-    let params: Vec<(&str, String)> = vec![
-        ("select", "id,nome,ativo,updated_at".into()),
+    // Inclui campos exigidos pela aba Funcionários (login, role,
+    // ultimo_acesso, created_at). O cache local persiste o payload completo;
+    // o leitor (ativos x todos) é selecionado por `__filter_incluir_inativos`.
+    let incluir_inativos = q
+        .get("incluir_inativos")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    let mut params: Vec<(&str, String)> = vec![
+        (
+            "select",
+            "id,nome,login,role,ativo,ultimo_acesso,created_at,updated_at".into(),
+        ),
         ("order", "nome.asc".into()),
     ];
+    if incluir_inativos {
+        params.push(("__filter_incluir_inativos", "1".into()));
+    }
+    eprintln!(
+        "[FUNCIONARIOS_SYNC] handler funcionarios-ativos incluir_inativos={incluir_inativos}"
+    );
     proxy_with_incremental_sync(
         &ctx,
         &headers,
