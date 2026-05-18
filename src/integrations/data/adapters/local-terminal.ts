@@ -499,6 +499,29 @@ export const localTerminalAdapter: DataAdapter = {
       reportDataSource({ source: "cloud", domain: "produtos", method: "excluir", fallback: true });
       return result;
     },
+    criarCategoria: async (input) => {
+      const cfg = getDesktopConfig().terminal;
+      if (getBaseUrl(cfg)) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        const r = await criarCategoriaProdutoLocal(cfg, {
+          nome: input.nome,
+          parent_id: input.parent_id ?? null,
+          descricao: input.descricao ?? null,
+          categoria_id: input.categoria_id ?? null,
+          client_uuid: input.client_uuid ?? null,
+        }, token);
+        if (r) {
+          reportDataSource({ source: "local-server", domain: "categoriasProduto", method: "criar", fallback: false });
+          // eslint-disable-next-line no-console
+          console.debug(`[CAT_PROD_LOCAL_CREATE] id=${r.categoria_id} idempotente=${r.idempotente} outbox=${r.outbox_status}`);
+          return { categoria_id: r.categoria_id, idempotente: r.idempotente };
+        }
+      }
+      const result = await cloudAdapter.produtos.criarCategoria(input);
+      reportDataSource({ source: "cloud", domain: "categoriasProduto", method: "criar", fallback: true });
+      return result;
+    },
   },
 
   categoriasProduto: {
