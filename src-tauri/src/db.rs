@@ -2350,6 +2350,8 @@ pub fn ingest_clientes(
     })
 }
 
+/// Compat: wrapper legacy — sync real usa `ingest_clientes` direto.
+#[allow(dead_code)]
 pub fn ingest_clientes_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize> {
     ingest_clientes(json_text, now_ms, IngestStrategy::Snapshot).map(|(n, _)| n)
 }
