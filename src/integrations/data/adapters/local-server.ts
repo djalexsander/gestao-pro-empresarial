@@ -947,6 +947,191 @@ export const localServerAdapter: DataAdapter = {
     },
   },
 
+  // -----------------------------------------------------------------
+  // Etapa 22 — Vendas / PDV offline-first (camada 6 do plano global).
+  // O PDV grava em `vendas_local` + `vendas_local_itens` + estoque local
+  // + caixa local + outbox (vendas/cancelamentos) no Rust. Online a
+  // outbox empurra para a RPC `finalizar_venda_pdv`. Offline, fica
+  // pendente sem travar o caixa. Cloud é apenas fallback de catástrofe
+  // (servidor local caiu de vez).
+  // -----------------------------------------------------------------
+  vendas: {
+    ...cloudAdapter.vendas,
+    list: (input) =>
+      withCloudFallback(
+        "vendas",
+        "list",
+        () =>
+          tryLocal<Awaited<ReturnType<DataAdapter["vendas"]["list"]>>>(
+            "vendas",
+            "list",
+            "/api/vendas/historico",
+            { limit: input?.limit != null ? String(input.limit) : undefined },
+          ),
+        () => cloudAdapter.vendas.list(input),
+      ),
+    finalizar: async (input) => {
+      const r = await postLocalAuth<{
+        venda_id: string;
+        idempotente: boolean;
+        outbox_status: "pending" | "sending" | "sent" | "error";
+        remote_id: string | null;
+      }>("/api/vendas/registrar", {
+        cliente_id: input.cliente_id,
+        subtotal: input.subtotal,
+        desconto: input.desconto,
+        total: input.total,
+        forma_pagamento: input.forma_pagamento,
+        status_pagamento: input.status_pagamento,
+        valor_recebido: input.valor_recebido,
+        troco: input.troco,
+        observacao: input.observacao,
+        itens: input.itens as unknown[],
+        pagamentos: (input.pagamentos ?? []) as unknown[],
+        gerar_financeiro: input.gerar_financeiro ?? true,
+        operador_id: input.operador_id ?? null,
+        terminal_id: input.terminal_id ?? null,
+        client_uuid: input.client_uuid ?? null,
+      });
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "vendas", method: "finalizar", fallback: false });
+        return r.remote_id ?? r.venda_id;
+      }
+      const result = await cloudAdapter.vendas.finalizar(input);
+      reportDataSource({ source: "cloud", domain: "vendas", method: "finalizar", fallback: true });
+      return result;
+    },
+    cancelar: async (input) => {
+      const r = await postLocalAuth<{
+        venda_local_uuid: string;
+        idempotente: boolean;
+        qtd_itens_estornados: number;
+        qtd_total_estornada: number;
+        outbox_status: "pending" | "sending" | "sent" | "error";
+      }>("/api/vendas/cancelar", {
+        venda_local_uuid: input.venda_id,
+        motivo: input.motivo ?? null,
+        client_uuid: input.venda_id,
+      });
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "vendas", method: "cancelar", fallback: false });
+        if (r.outbox_status === "sent") {
+          try {
+            return await cloudAdapter.vendas.cancelar(input);
+          } catch {
+            /* segue resumo mínimo local */
+          }
+        }
+        return {
+          venda_id: input.venda_id,
+          numero: "",
+          total: r.qtd_total_estornada,
+          motivo: input.motivo ?? null,
+          cancelado_em: new Date().toISOString(),
+          qtd_itens_estornados: r.qtd_itens_estornados,
+          qtd_total_estornada: r.qtd_total_estornada,
+          itens_estornados: [],
+          qtd_lancamentos_cancelados: 0,
+          total_lancamentos_cancelados: 0,
+          lancamentos_cancelados: [],
+        };
+      }
+      const result = await cloudAdapter.vendas.cancelar(input);
+      reportDataSource({ source: "cloud", domain: "vendas", method: "cancelar", fallback: true });
+      return result;
+    },
+  },
+
+  // -----------------------------------------------------------------
+  // Etapa 22 — Caixa offline-first (abre/sangria/suprimento/fechamento)
+  // contra `caixa_local` + outbox no Rust. Mesma estratégia das vendas.
+  // -----------------------------------------------------------------
+  caixa: {
+    ...cloudAdapter.caixa,
+    abrir: async (input) => {
+      const r = await postLocalAuth<{
+        caixa_id: string;
+        idempotente: boolean;
+        outbox_status: "pending" | "sending" | "sent" | "error";
+        remote_id: string | null;
+      }>("/api/caixa/abrir", {
+        valor_inicial: input.valor_inicial,
+        observacao: input.observacao ?? null,
+        operador_id: input.operador_id ?? null,
+        terminal_id: input.terminal_id ?? null,
+        client_uuid:
+          (input as typeof input & { client_uuid?: string | null })
+            .client_uuid ?? null,
+      });
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "caixa", method: "abrir", fallback: false });
+        return r.remote_id ?? r.caixa_id;
+      }
+      const result = await cloudAdapter.caixa.abrir(input);
+      reportDataSource({ source: "cloud", domain: "caixa", method: "abrir", fallback: true });
+      return result;
+    },
+    registrarMovimento: async (input) => {
+      const r = await postLocalAuth<{
+        movimento_id: string;
+        idempotente: boolean;
+        outbox_status: "pending" | "sending" | "sent" | "error";
+        remote_id: string | null;
+      }>("/api/caixa/movimento", {
+        caixa_id: input.caixa_id,
+        tipo: input.tipo,
+        valor: input.valor,
+        motivo: input.motivo ?? null,
+        client_uuid: input.client_uuid ?? null,
+      });
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "caixa", method: "registrarMovimento", fallback: false });
+        return r.remote_id ?? r.movimento_id;
+      }
+      const result = await cloudAdapter.caixa.registrarMovimento(input);
+      reportDataSource({ source: "cloud", domain: "caixa", method: "registrarMovimento", fallback: true });
+      return result;
+    },
+    fechar: async (input) => {
+      const r = await postLocalAuth<{
+        fechamento_id: string;
+        idempotente: boolean;
+        valor_informado: number;
+        outbox_status: "pending" | "sending" | "sent" | "error";
+        remote_id: string | null;
+      }>("/api/caixa/fechar", {
+        caixa_id: input.caixa_id,
+        valor_informado: input.valor_informado,
+        observacao: input.observacao ?? null,
+        client_uuid:
+          (input as typeof input & { client_uuid?: string | null })
+            .client_uuid ?? null,
+      });
+      if (r) {
+        reportDataSource({ source: "local-server", domain: "caixa", method: "fechar", fallback: false });
+        if (r.outbox_status === "sent" && r.remote_id) {
+          try {
+            return await cloudAdapter.caixa.fechar(input);
+          } catch {
+            /* cai no resumo mínimo abaixo */
+          }
+        }
+        return {
+          caixa_id: r.remote_id ?? input.caixa_id,
+          valor_esperado: input.valor_informado,
+          valor_informado: r.valor_informado,
+          diferenca: 0,
+          fechado_em: new Date().toISOString(),
+        };
+      }
+      const result = await cloudAdapter.caixa.fechar(input);
+      reportDataSource({ source: "cloud", domain: "caixa", method: "fechar", fallback: true });
+      return result;
+    },
+  },
+
+
+
 
 
   // -----------------------------------------------------------------
