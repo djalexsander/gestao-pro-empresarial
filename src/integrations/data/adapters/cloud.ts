@@ -1884,6 +1884,7 @@ const funcionarios: DataAdapter["funcionarios"] = {
       _pin: input.pin,
       _role: input.role,
       _client_uuid: input.client_uuid ?? null,
+      _funcionario_id: input.funcionario_id ?? null,
     } as never);
     if (error) throw error;
     // RPC retorna jsonb { funcionario_id, idempotente }.
