@@ -847,3 +847,25 @@ deliberadamente adiadas para fases posteriores.
 - Novo hook `useFlushConfigEmpresaPending` plugado em `AppLayout` —
   drena a fila ao montar, ao ganhar foco (`window.focus`) e quando a
   rede volta (`window.online`).
+
+## Etapa 18 — Funcionários offline-first (camada 2 do plano global)
+
+- A infra Rust já existia (v23): `funcionarios_remote_cache` +
+  `outbox_funcionarios` com ações `criar | editar | resetar_pin |
+  alterar_status | excluir`, handlers HTTP em `local_server.rs`
+  (`/api/funcionarios/*`), worker que drena para Supabase via RPC.
+- O adapter de TERMINAL (`local-terminal.ts`) já cobria todas as ações
+  via servidor LAN. O que faltava era a MÁQUINA-SERVIDOR fazer o mesmo:
+  agora `local-server.ts` também roteia `editar`, `alterarStatus`,
+  `excluir` e `resetarPin` para `postLocalAuth(...)` (mesmo padrão de
+  produtos/categorias). Cloud só entra como último recurso.
+- `useEditarFuncionario`, `useToggleFuncionarioAtivo` e
+  `useExcluirFuncionario` ganharam `onMutate` otimista com snapshot
+  de TODAS as queries `["funcionarios", ...]` (cobre lista admin +
+  lista de ativos do PDV) e rollback em `onError`.
+- `useResetarPinFuncionario` mantém invalidação simples (mudança de
+  PIN não tem reflexo visual na lista).
+- PIN continua tratado de forma segura ponta-a-ponta: nunca persistido
+  em texto, hash PBKDF2 no SQLite local + bcrypt no Postgres remoto;
+  `aquecerPinServidor` continua propagando o verificador para os outros
+  terminais LAN.
