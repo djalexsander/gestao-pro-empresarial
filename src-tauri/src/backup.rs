@@ -48,7 +48,7 @@
 
 use chrono::{DateTime, Datelike, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Read;
@@ -100,7 +100,7 @@ pub struct BackupEntry {
     pub created_at_ms: i64,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BackupMetadata {
     pub empresa_id: Option<String>,
     pub schema_version: Option<String>,
