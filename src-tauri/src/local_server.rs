@@ -1439,8 +1439,25 @@ async fn offline_sync_inicial_handler(
         ));
     }
 
+    // Sem JWT do usuário, o PostgREST devolve [] por RLS. Falhar cedo para
+    // não marcar "sucesso" falso.
+    let has_user_jwt = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.starts_with("Bearer ") && s.len() > 20)
+        .unwrap_or(false);
+    if !has_user_jwt {
+        eprintln!("[OFFLINE_SYNC] erro: sem JWT do usuário (RLS bloquearia tudo)");
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "Sessão do usuário ausente. Faça login com internet e tente novamente."
+                .into(),
+        ));
+    }
+
     let mut results = Vec::with_capacity(OFFLINE_ESSENTIAL_DOMAINS.len());
     let mut total_delta = 0i64;
+    let mut total_rows: i64 = 0;
     let mut all_ok = true;
 
     for (key, label) in OFFLINE_ESSENTIAL_DOMAINS {
@@ -1511,6 +1528,7 @@ async fn offline_sync_inicial_handler(
             .ok()
             .and_then(|v| v.into_iter().find(|s| s.domain == *key));
         let row_count = stat.as_ref().map(|s| s.row_count).unwrap_or(0);
+        total_rows += row_count;
 
         match outcome {
             Ok(resp) => {
@@ -1522,8 +1540,8 @@ async fn offline_sync_inicial_handler(
                     .unwrap_or(0);
                 total_delta += delta;
                 eprintln!(
-                    "[OFFLINE_SYNC] domínio sincronizado: {} (+{} regs em {}ms)",
-                    key, delta, dur
+                    "[OFFLINE_SYNC] {} recebidos={} total_local={} em {}ms",
+                    key, delta, row_count, dur
                 );
                 results.push(OfflineSyncDomainResult {
                     domain: (*key).to_string(),
@@ -1557,12 +1575,17 @@ async fn offline_sync_inicial_handler(
     }
 
     let completed_at = now_ms();
-    if all_ok {
+    eprintln!(
+        "[OFFLINE_SYNC] persistidos={} total_local={} ok={}",
+        total_delta, total_rows, all_ok
+    );
+    if all_ok && total_rows > 0 {
         write_initial_sync_marker(completed_at);
+        eprintln!("[OFFLINE_SYNC] commit realizado");
+    } else if all_ok && total_rows == 0 {
+        all_ok = false;
         eprintln!(
-            "[OFFLINE_SYNC] concluído com sucesso ({} domínios, +{} regs)",
-            results.len(),
-            total_delta
+            "[OFFLINE_SYNC] sem dados materializados — provável usuário sem empresa/RLS. Marca NÃO atualizada."
         );
     } else {
         eprintln!(
