@@ -975,3 +975,25 @@ deliberadamente adiadas para fases posteriores.
   sangria/suprimento 100% offline. O financeiro (fiado / fechamento)
   é gerado localmente e materializa no Supabase quando a conexão
   voltar, sem duplicar nada.
+
+## Etapa 23 — Relatórios offline-first no modo SERVIDOR (polimento)
+
+- Antes: o `local-server.ts` só tinha `dashboard` offline; a página de
+  Relatórios (DRE, fluxo de caixa, vendas, compras, NFs, caixas,
+  produtos vendidos, estoque) caía direto para o cloud quando a
+  máquina-servidor estava sem internet.
+- Agora `local-server.ts` ganhou um bloco `relatorios` completo
+  espelhando o `local-terminal.ts`: `fluxoCaixa`, `compras`,
+  `cardVendas`, `cardCompras`, `notasFiscais`, `cardNotasFiscais`,
+  `cardCaixas`, `caixasSessoes`, `caixaMovimentos`,
+  `funcionariosAtivos`, `terminaisAtivos`, `pagamentosEmpresa`,
+  `produtosVendidosPeriodo`, `cardFluxoCaixa`, `cardFinanceiro`,
+  `lancamentosFinanceiroPeriodo`, `saldoAcumuladoFinanceiro`,
+  `clientesOpcoes`, `clientesPorIds`, `estoqueBase`, `dreTotais`.
+- Cada chamada usa `tryLocal(...)` contra os endpoints já expostos
+  pelo Rust (`/api/vendas/historico`, `/api/compras`,
+  `/api/financeiro/lancamentos-completo`, `/api/relatorios/...`,
+  `/api/estoque/saldos`, `/api/produtos/list`, `/api/clientes`) e cai
+  para o cloud só quando o servidor local não responde.
+- Resultado: a tela de Relatórios funciona 100% offline na máquina-
+  servidor, com os mesmos números que o terminal LAN já enxergava.
