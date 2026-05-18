@@ -152,6 +152,12 @@ function PDVPage() {
   const { data: clientes = [] } = useClientes();
   const { data: caixaAberto } = useCaixaAberto(operador?.id ?? null);
   const { data: resumoCaixa } = useCaixaResumo(caixaAberto?.id);
+  const { data: configEmpresa } = useConfigEmpresa();
+  const logoEmpresaUrl = configEmpresa?.logo_url ?? null;
+  const nomeEmpresa =
+    configEmpresa?.nome_fantasia?.trim() ||
+    configEmpresa?.razao_social?.trim() ||
+    "";
 
   // Modal de fechamento de caixa (acionado por Voltar/Encerrar).
   // exitAfterClose = quando o caixa for fechado com sucesso, encerra a sessão
