@@ -27,6 +27,16 @@ import { dataClient } from "@/integrations/data";
 import { lovable } from "@/integrations/lovable";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { cn } from "@/lib/utils";
+import { isDesktop } from "@/integrations/data/mode";
+import {
+  findOfflineEntry,
+  hasAnyOfflineEntry,
+  isNetworkAuthError,
+  saveOfflineCredential,
+  verifyOfflineCredential,
+  withAuthTimeout,
+} from "@/lib/erpOfflineCache";
+import { unlockErp } from "@/lib/erpUnlock";
 
 const searchSchema = z.object({
   redirect: z.string().optional(),
