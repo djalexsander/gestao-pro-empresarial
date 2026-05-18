@@ -89,7 +89,7 @@ export function useCriarMovimentacao() {
       /** mantido por compat: o saldo é recalculado server-side e ignorado aqui */
       saldo_atual?: number;
     },
-    { saldoSnaps: Array<[unknown, Map<string, number> | undefined]> }
+    { saldoSnaps: Array<[readonly unknown[], Map<string, number> | undefined]> }
   >({
     mutationFn: async (input) => {
       if (!user) throw new Error("Não autenticado");
