@@ -319,7 +319,37 @@ export const localServerAdapter: DataAdapter = {
 
   funcionarios: {
     ...cloudAdapter.funcionarios,
+    criar: async (input) => {
+      const baseUrl = await resolveBaseUrl();
+      if (baseUrl) {
+        try {
+          const { supabase } = await import("@/integrations/supabase/client");
+          const { data } = await supabase.auth.getSession();
+          const token = data.session?.access_token ?? null;
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 8_000);
+          const headers: Record<string, string> = { "Content-Type": "application/json", Accept: "application/json" };
+          if (token) headers.Authorization = `Bearer ${token}`;
+          const res = await fetch(`${baseUrl}/api/funcionarios/criar`, {
+            method: "POST", headers, signal: ctrl.signal, cache: "no-store",
+            body: JSON.stringify({
+              funcionario_id: input.funcionario_id ?? null,
+              nome: input.nome, login: input.login, pin: input.pin, role: input.role,
+              client_uuid: input.client_uuid ?? null,
+            }),
+          });
+          clearTimeout(timer);
+          if (res.ok) {
+            const r = (await res.json()) as { funcionario_id: string; idempotente: boolean };
+            if (import.meta.env.DEV) console.debug(`[FUNCIONARIOS_LOCAL_CREATE] origem=local-server id=${r.funcionario_id}`);
+            return { funcionario_id: r.funcionario_id, idempotente: r.idempotente };
+          }
+        } catch { /* fallback cloud */ }
+      }
+      return cloudAdapter.funcionarios.criar(input);
+    },
     list: (input) =>
+
       withCloudFallback(
         "funcionarios",
         "list",

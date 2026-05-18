@@ -3608,6 +3608,15 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/fornecedores/alterar-status", post(fornecedor_alterar_status_handler))
         .route("/api/fornecedores/excluir", post(fornecedor_excluir_handler))
         .route("/api/fornecedores", get(fornecedores_handler))
+        .route("/api/funcionarios/criar", post(funcionario_criar_local_handler))
+        .route("/api/funcionarios/editar", post(funcionario_editar_local_handler))
+        .route("/api/funcionarios/resetar-pin", post(funcionario_resetar_pin_local_handler))
+        .route("/api/funcionarios/alterar-status", post(funcionario_alterar_status_local_handler))
+        .route("/api/funcionarios/excluir", post(funcionario_excluir_local_handler))
+        .route("/db/outbox/funcionarios", get(outbox_funcionarios_list_handler))
+        .route("/db/outbox/funcionarios/stats", get(outbox_funcionarios_stats_handler))
+        .route("/db/outbox/funcionarios/flush", post(outbox_funcionarios_flush_handler))
+        .route("/db/outbox/funcionarios/retry-errors", post(outbox_funcionarios_retry_errors_handler))
         .route("/api/financeiro/lancamentos-completo", get(financeiro_lancamentos_completo_handler))
         .route("/api/compras", get(compras_handler))
         .route("/api/vendas/historico", get(vendas_historico_handler))
@@ -5790,4 +5799,417 @@ async fn local_diagnostic_handler() -> Json<DiagnosticReport> {
         sync,
         backup,
     })
+}
+
+// ============================================================================
+// FUNCIONÁRIOS LOCAIS — CRUD offline + push para upstream
+//
+// Fluxo:
+//   1. Mutação chega no servidor local (criar/editar/resetar-pin/
+//      alterar-status/excluir).
+//   2. Persiste otimisticamente no SQLite (cache + outbox).
+//   3. Tenta push imediato; falha silenciosa → fica pendente para retry.
+//
+// Idempotência cross-runs: `_client_uuid = local_uuid` da outbox.
+// Causalidade: editar/resetar_pin/alterar_status/excluir só sobem após
+// `criar` resolver o `remote_id` (ver db::outbox_funcionarios_mark_sent).
+// ============================================================================
+
+#[derive(Deserialize, Debug)]
+struct FuncionarioCriarRequest {
+    funcionario_id: Option<String>,
+    nome: String,
+    login: String,
+    pin: String,
+    role: String,
+    client_uuid: Option<String>,
+}
+
+#[derive(Serialize)]
+struct FuncionarioMutacaoResponse {
+    funcionario_id: String,
+    idempotente: bool,
+    outbox_status: String,
+    remote_id: Option<String>,
+}
+
+async fn funcionario_criar_local_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<FuncionarioCriarRequest>,
+) -> Result<Json<FuncionarioMutacaoResponse>, (StatusCode, String)> {
+    if req.nome.trim().is_empty() || req.login.trim().is_empty() || req.pin.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "nome, login e pin são obrigatórios".into()));
+    }
+    let payload = serde_json::json!({
+        "_funcionario_id": req.funcionario_id,
+        "_nome": req.nome,
+        "_login": req.login,
+        "_pin": req.pin,
+        "_role": req.role,
+        "_client_uuid": req.client_uuid,
+    });
+    let result = db::funcionario_criar_local(payload)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+
+    eprintln!(
+        "[FUNCIONARIOS_LOCAL_CREATE] local_uuid={} idempotente={}",
+        result.funcionario_local_uuid, result.idempotente
+    );
+
+    // Aquece o PIN local imediatamente — operador já consegue logar offline
+    // antes mesmo do push para Supabase concluir.
+    if let Err(e) = warm_pin_local(
+        &result.funcionario_local_uuid, None,
+        &req.nome, &req.login, &req.role, true, &req.pin,
+    ) {
+        eprintln!("[FUNCIONARIOS_PIN_LOCAL] aquecer falhou: {e}");
+    } else {
+        eprintln!(
+            "[FUNCIONARIOS_PIN_LOCAL] aquecido funcionario_id={}",
+            result.funcionario_local_uuid
+        );
+    }
+
+    let (status, remote) = if !result.idempotente && ctx.upstream.is_some() {
+        match push_one_outbox_funcionario_by_func(&ctx, &headers, &result.funcionario_local_uuid, "criar").await {
+            Ok(rid) => ("sent".into(), Some(rid)),
+            Err(_) => ("pending".into(), None),
+        }
+    } else {
+        ("pending".into(), result.funcionario_remote_id.clone())
+    };
+
+    Ok(Json(FuncionarioMutacaoResponse {
+        funcionario_id: result.funcionario_local_uuid,
+        idempotente: result.idempotente,
+        outbox_status: status,
+        remote_id: remote,
+    }))
+}
+
+#[derive(Deserialize, Debug)]
+struct FuncionarioEditarRequest {
+    funcionario_id: String,
+    nome: String,
+    login: String,
+    role: String,
+}
+
+async fn funcionario_editar_local_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<FuncionarioEditarRequest>,
+) -> Result<Json<FuncionarioMutacaoResponse>, (StatusCode, String)> {
+    let payload = serde_json::json!({
+        "_funcionario_id": req.funcionario_id,
+        "_nome": req.nome,
+        "_login": req.login,
+        "_role": req.role,
+    });
+    let patch = serde_json::json!({
+        "nome": req.nome, "login": req.login, "role": req.role,
+    });
+    let result = db::funcionario_enqueue_action(
+        &req.funcionario_id, "editar", payload, Some(patch), false,
+    ).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    eprintln!("[FUNCIONARIOS_OUTBOX] editar local_uuid={}", result.funcionario_local_uuid);
+    let (status, remote) = try_push_func(&ctx, &headers, &result.funcionario_local_uuid).await;
+    Ok(Json(FuncionarioMutacaoResponse {
+        funcionario_id: result.funcionario_local_uuid,
+        idempotente: false, outbox_status: status, remote_id: remote,
+    }))
+}
+
+#[derive(Deserialize, Debug)]
+struct FuncionarioResetarPinRequest {
+    funcionario_id: String,
+    pin: String,
+}
+
+async fn funcionario_resetar_pin_local_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<FuncionarioResetarPinRequest>,
+) -> Result<Json<FuncionarioMutacaoResponse>, (StatusCode, String)> {
+    if req.pin.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "pin obrigatório".into()));
+    }
+    let payload = serde_json::json!({
+        "_funcionario_id": req.funcionario_id,
+        "_novo_pin": req.pin,
+    });
+    let result = db::funcionario_enqueue_action(
+        &req.funcionario_id, "resetar_pin", payload, None, false,
+    ).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    eprintln!("[FUNCIONARIOS_OUTBOX] resetar_pin local_uuid={}", result.funcionario_local_uuid);
+
+    // Re-aquece PIN local imediatamente.
+    if let Ok(Some(row)) = db::operador_offline_get(&result.funcionario_local_uuid) {
+        if let Err(e) = warm_pin_local(
+            &result.funcionario_local_uuid, row.empresa_id.as_deref(),
+            &row.nome, &row.login, &row.role, row.ativo, &req.pin,
+        ) {
+            eprintln!("[FUNCIONARIOS_PIN_LOCAL] reaquecer falhou: {e}");
+        } else {
+            eprintln!("[FUNCIONARIOS_PIN_LOCAL] reaquecido funcionario_id={}", result.funcionario_local_uuid);
+        }
+    }
+
+    let (status, remote) = try_push_func(&ctx, &headers, &result.funcionario_local_uuid).await;
+    Ok(Json(FuncionarioMutacaoResponse {
+        funcionario_id: result.funcionario_local_uuid,
+        idempotente: false, outbox_status: status, remote_id: remote,
+    }))
+}
+
+#[derive(Deserialize, Debug)]
+struct FuncionarioAlterarStatusRequest {
+    funcionario_id: String,
+    ativo: bool,
+}
+
+async fn funcionario_alterar_status_local_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<FuncionarioAlterarStatusRequest>,
+) -> Result<Json<FuncionarioMutacaoResponse>, (StatusCode, String)> {
+    let payload = serde_json::json!({
+        "_funcionario_id": req.funcionario_id,
+        "_ativo": req.ativo,
+    });
+    let patch = serde_json::json!({ "ativo": req.ativo });
+    let result = db::funcionario_enqueue_action(
+        &req.funcionario_id, "alterar_status", payload, Some(patch), false,
+    ).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    eprintln!("[FUNCIONARIOS_OUTBOX] alterar_status local_uuid={} ativo={}", result.funcionario_local_uuid, req.ativo);
+    let (status, remote) = try_push_func(&ctx, &headers, &result.funcionario_local_uuid).await;
+    Ok(Json(FuncionarioMutacaoResponse {
+        funcionario_id: result.funcionario_local_uuid,
+        idempotente: false, outbox_status: status, remote_id: remote,
+    }))
+}
+
+#[derive(Deserialize, Debug)]
+struct FuncionarioExcluirRequest {
+    funcionario_id: String,
+}
+
+async fn funcionario_excluir_local_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Json(req): Json<FuncionarioExcluirRequest>,
+) -> Result<Json<FuncionarioMutacaoResponse>, (StatusCode, String)> {
+    let payload = serde_json::json!({ "_funcionario_id": req.funcionario_id });
+    let result = db::funcionario_enqueue_action(
+        &req.funcionario_id, "excluir", payload, None, true,
+    ).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    eprintln!("[FUNCIONARIOS_OUTBOX] excluir local_uuid={}", result.funcionario_local_uuid);
+    let (status, remote) = try_push_func(&ctx, &headers, &result.funcionario_local_uuid).await;
+    Ok(Json(FuncionarioMutacaoResponse {
+        funcionario_id: result.funcionario_local_uuid,
+        idempotente: false, outbox_status: status, remote_id: remote,
+    }))
+}
+
+async fn try_push_func(
+    ctx: &AppCtx,
+    headers: &HeaderMap,
+    fun_lid: &str,
+) -> (String, Option<String>) {
+    if ctx.upstream.is_none() {
+        return ("pending".into(), None);
+    }
+    match push_one_outbox_funcionario_by_func(ctx, headers, fun_lid, "").await {
+        Ok(rid) => ("sent".into(), Some(rid)),
+        Err(_) => ("pending".into(), None),
+    }
+}
+
+/// Empurra o próximo item pendente do funcionário (por local_uuid do funcionário,
+/// na ordem de criação). Se `action_hint` for "criar", pega só a ação criar; se
+/// vazio, pega o próximo pending do funcionário.
+async fn push_one_outbox_funcionario_by_func(
+    ctx: &AppCtx,
+    headers: &HeaderMap,
+    fun_lid: &str,
+    action_hint: &str,
+) -> Result<String, String> {
+    // Carrega outbox toda do funcionário, filtra pendentes.
+    let all = db::outbox_funcionarios_list(1000, Some("pending")).map_err(|e| e.to_string())?;
+    let item = all
+        .into_iter()
+        .filter(|i| i.funcionario_local_uuid == fun_lid)
+        .find(|i| action_hint.is_empty() || i.action == action_hint)
+        .ok_or("nenhum item pendente para este funcionário")?;
+    push_one_outbox_funcionario(ctx, headers, &item.local_uuid).await
+}
+
+async fn push_one_outbox_funcionario(
+    ctx: &AppCtx,
+    headers: &HeaderMap,
+    local_uuid: &str,
+) -> Result<String, String> {
+    let upstream = ctx.upstream.as_ref().ok_or("upstream não configurado")?;
+    let now = now_ms();
+    let item = db::outbox_funcionarios_get(local_uuid)
+        .map_err(|e| e.to_string())?
+        .ok_or("item não encontrado na outbox de funcionarios")?;
+    if item.status == "sent" {
+        return Ok(item.remote_id.unwrap_or_default());
+    }
+
+    // Causalidade: só vai upstream depois do criar resolver, exceto a própria criar.
+    if item.action != "criar" && item.funcionario_remote_id.is_none() {
+        let rid = db::funcionario_remote_id_for(&item.funcionario_local_uuid)
+            .map_err(|e| e.to_string())?;
+        if rid.is_none() {
+            return Err("aguardando criar resolver remote_id".into());
+        }
+    }
+
+    let payload: serde_json::Value = serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
+    db::outbox_funcionarios_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
+
+    let auth = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+
+    let rpc_name = match item.action.as_str() {
+        "criar" => "funcionario_criar",
+        "editar" => "funcionario_editar",
+        "resetar_pin" => "funcionario_resetar_pin",
+        "alterar_status" => "funcionario_alterar_status",
+        "excluir" => "funcionario_excluir",
+        other => {
+            let msg = format!("ação desconhecida: {other}");
+            let _ = db::outbox_funcionarios_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
+
+    // Para criar, garante _client_uuid = local_uuid da outbox (idempotência).
+    let mut body = payload.clone();
+    if item.action == "criar" {
+        if let Some(o) = body.as_object_mut() {
+            o.insert("_client_uuid".into(), serde_json::Value::String(local_uuid.to_string()));
+        }
+    }
+
+    let url = format!("{}/rest/v1/rpc/{}", upstream.base_url.trim_end_matches('/'), rpc_name);
+    let resp = ctx.http
+        .post(&url)
+        .header("apikey", &upstream.anon_key)
+        .header(axum::http::header::AUTHORIZATION, auth)
+        .header(axum::http::header::CONTENT_TYPE, "application/json")
+        .header(axum::http::header::ACCEPT, "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| {
+            let msg = format!("rede: {e}");
+            let _ = db::outbox_funcionarios_mark_error(local_uuid, &msg, now);
+            msg
+        })?;
+
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        let msg = format!("HTTP {}: {}", status.as_u16(), text);
+        let _ = db::outbox_funcionarios_mark_error(local_uuid, &msg, now);
+        return Err(msg);
+    }
+
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+    let remote_id = parsed
+        .get("funcionario_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| item.funcionario_remote_id.clone().unwrap_or_else(|| item.funcionario_local_uuid.clone()));
+
+    db::outbox_funcionarios_mark_sent(local_uuid, &remote_id, &text, now)
+        .map_err(|e| e.to_string())?;
+    eprintln!("[FUNCIONARIOS_SYNC] {} → {} OK remote_id={}", item.action, rpc_name, remote_id);
+    Ok(remote_id)
+}
+
+#[derive(Serialize)]
+struct OutboxFuncionariosListResponse {
+    total: usize,
+    items: Vec<db::OutboxFuncionariosItem>,
+}
+
+async fn outbox_funcionarios_list_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<OutboxFuncionariosListResponse>, (StatusCode, String)> {
+    let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(200);
+    let status = q.get("status").map(|s| s.as_str());
+    let items = db::outbox_funcionarios_list(limit, status)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(OutboxFuncionariosListResponse { total: items.len(), items }))
+}
+
+async fn outbox_funcionarios_stats_handler() -> Result<Json<db::OutboxFuncionariosStats>, (StatusCode, String)> {
+    db::outbox_funcionarios_stats()
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+async fn outbox_funcionarios_flush_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<Json<FlushResponse>, (StatusCode, String)> {
+    let pending = db::outbox_funcionarios_pending_batch_all(100)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let mut sent = 0usize;
+    let mut failed = 0usize;
+    let mut errors: Vec<String> = Vec::new();
+    for it in &pending {
+        match push_one_outbox_funcionario(&ctx, &headers, &it.local_uuid).await {
+            Ok(_) => sent += 1,
+            Err(e) => {
+                failed += 1;
+                errors.push(format!("{}: {}", it.local_uuid, e));
+            }
+        }
+    }
+    let _ = db::outbox_funcionarios_record_flush_round(
+        "manual", now_ms(), pending.len() as i64, sent as i64, failed as i64,
+    );
+    Ok(Json(FlushResponse {
+        attempted: pending.len(), sent, failed, errors,
+    }))
+}
+
+async fn outbox_funcionarios_retry_errors_handler() -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
+    let n = db::outbox_funcionarios_reset_errors(now_ms())
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(RetryErrorsResponse { requeued: n }))
+}
+
+/// Wrapper: gera salt + hash PBKDF2 e grava o operador offline.
+/// Mesma regra do `aquecer_pin_handler` — extraído para reuso interno.
+fn warm_pin_local(
+    funcionario_id: &str,
+    empresa_id: Option<&str>,
+    nome: &str,
+    login: &str,
+    role: &str,
+    ativo: bool,
+    pin: &str,
+) -> Result<(), String> {
+    let role_norm = match role {
+        "gerente" | "caixa" => role,
+        _ => "caixa",
+    };
+    let mut salt = [0u8; 16];
+    getrandom::getrandom(&mut salt).map_err(|e| format!("rand: {e}"))?;
+    let hash = pbkdf2_pin(pin, &salt, PIN_PBKDF2_ITER);
+    db::operador_offline_upsert(
+        funcionario_id, empresa_id, nome, login, role_norm, ativo,
+        "pbkdf2-sha256", PIN_PBKDF2_ITER as i64,
+        &b64_encode(&salt), &b64_encode(&hash), now_ms(),
+    ).map_err(|e| e.to_string())
 }
