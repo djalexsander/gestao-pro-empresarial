@@ -1027,11 +1027,15 @@ function PDVPage() {
     handleScanCode(code);
   }
 
-  // ============ Remover linha ============
-  // Cada bipagem cria uma nova linha; a única ação por linha é excluir.
-  function removeItem(key: string) {
+  // ============ Remover linha (uso interno) ============
+  // Removido o botão lixeira por linha: cancelamento agora é exclusivamente
+  // via atalho Delete + modal de seleção. A função abaixo permanece apenas
+  // como utilitário caso algum fluxo futuro precise excluir uma linha.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  function _removeItemInterno(key: string) {
     setItems((prev) => prev.filter((it) => it.key !== key));
   }
+
 
   // ============ Cancelar item (mantém na lista, valor sai do total) ============
   function cancelarItem(key: string) {
