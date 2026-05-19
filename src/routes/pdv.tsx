@@ -1763,7 +1763,6 @@ function PDVPage() {
                             <div className="text-right font-mono font-semibold tabular-nums text-destructive">
                               - {formatBRL(subShown)}
                             </div>
-                            <div />
                           </li>
                         )}
                       </Fragment>
