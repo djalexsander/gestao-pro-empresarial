@@ -4339,13 +4339,14 @@ pub fn dashboard_carregar_local() -> DbResult<Option<String>> {
                  ORDER BY c.data_emissao_ms DESC
                  LIMIT 5",
             )?;
-            stmt.query_map([], |r| {
+            let rows = stmt.query_map([], |r| {
                 Ok((
                     r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?,
                     r.get::<_, Option<f64>>(4)?.unwrap_or(0.0),
                     r.get(5)?, r.get(6)?,
                 ))
-            })?.collect::<rusqlite::Result<Vec<_>>>()?
+            })?.collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
         };
         let mut uc = String::from("[");
         for (i, (id, numero, _forn_id, status, total, data, nome)) in c_rows.iter().enumerate() {
