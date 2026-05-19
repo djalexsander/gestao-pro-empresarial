@@ -4275,6 +4275,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/financeiro/lancamentos-completo", get(financeiro_lancamentos_completo_handler))
         .route("/api/compras", get(compras_handler))
         .route("/api/vendas/historico", get(vendas_historico_handler))
+        .route("/api/vendas/metricas-periodo", get(vendas_metricas_periodo_handler))
         .route("/api/relatorios/caixas", get(relatorios_caixas_handler))
         .route("/api/relatorios/caixa-movimentos", get(relatorios_caixa_movimentos_handler))
         .route("/api/relatorios/funcionarios-ativos", get(relatorios_funcionarios_ativos_handler))
