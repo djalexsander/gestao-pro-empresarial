@@ -179,7 +179,7 @@ export function ScannerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg overflow-hidden bg-zinc-950 p-0 text-zinc-100">
+      <DialogContent keyboardNav={false} className="max-w-lg overflow-hidden bg-zinc-950 p-0 text-zinc-100">
         <div className="border-b border-white/10 px-5 py-4">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-zinc-100">

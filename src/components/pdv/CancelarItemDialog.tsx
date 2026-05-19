@@ -123,7 +123,7 @@ export function CancelarItemDialog({ open, onOpenChange, itens, onConfirm }: Pro
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent keyboardNav={false} className="max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Ban className="h-5 w-5 text-destructive" />

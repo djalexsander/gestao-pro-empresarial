@@ -140,7 +140,7 @@ export function EntradaPorCodigoDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-xl gap-0 overflow-hidden p-0">
+        <DialogContent keyboardNav={false} className="max-w-xl gap-0 overflow-hidden p-0">
           <DialogHeader className="border-b border-border bg-muted/30 px-5 py-4">
             <DialogTitle className="flex items-center gap-2">
               {step === "scan" && <ScanLine className="h-4 w-4 text-primary" />}
