@@ -2,17 +2,20 @@ import { useEffect, useRef } from "react";
 import { dataClient } from "@/integrations/data/client";
 import { useTerminal } from "@/components/auth/TerminalProvider";
 import { useOperador } from "@/components/auth/OperadorProvider";
+import { pingLocalHeartbeat } from "@/integrations/desktop/localTerminalStatus";
+import { getDesktopConfig } from "@/integrations/desktop/configStore";
+import { APP_VERSION } from "@/lib/version";
 
 const HEARTBEAT_MS = 30_000;
 
 /**
- * Mantém o terminal "online" no servidor enviando um heartbeat
- * a cada 30s enquanto o app PDV estiver aberto.
+ * Mantém o terminal "online" enviando um heartbeat a cada 30s.
  *
- * Também envia o operador logado e o user-agent para que o admin
- * veja em Configurações → Terminais quem está usando cada caixa.
- *
- * Use este hook DENTRO do shell do PDV (rota /pos e /pdv).
+ * Dispara DOIS canais em paralelo, ambos silenciosos e com timeout curto:
+ *  - Cloud (Supabase RPC `terminal_heartbeat`) — quando há internet.
+ *  - LAN/local (HTTP `POST /heartbeat` no servidor local) — funciona sem
+ *    internet, garantindo que terminais conectados ao servidor LAN
+ *    apareçam ONLINE mesmo com a nuvem indisponível.
  */
 export function useTerminalHeartbeat() {
   const { terminal } = useTerminal();
@@ -24,15 +27,31 @@ export function useTerminalHeartbeat() {
 
     function ping() {
       if (!terminal) return;
-      void dataClient.terminalRuntime.heartbeat({
+      const cfg = getDesktopConfig();
+      // 1) Cloud (não bloqueia, falha silenciosa)
+      void dataClient.terminalRuntime
+        .heartbeat({
+          terminal_id: terminal.id,
+          operador_id: operador?.id ?? null,
+          operador_nome: operador?.nome ?? null,
+          user_agent:
+            typeof navigator !== "undefined"
+              ? navigator.userAgent.slice(0, 240)
+              : null,
+          ip_local: null,
+        })
+        .catch(() => {
+          if (import.meta.env.DEV) {
+            console.debug("[TERMINAL_HEARTBEAT] cloud falhou — seguindo via LAN");
+          }
+        });
+      // 2) LAN/local (silencioso, timeout curto)
+      void pingLocalHeartbeat({
         terminal_id: terminal.id,
-        operador_id: operador?.id ?? null,
-        operador_nome: operador?.nome ?? null,
-        user_agent:
-          typeof navigator !== "undefined"
-            ? navigator.userAgent.slice(0, 240)
-            : null,
-        ip_local: null,
+        terminal_nome: terminal.nome ?? cfg.terminal?.terminalNome ?? null,
+        machine_id: cfg.machineId ?? null,
+        role: cfg.role ?? null,
+        app_version: APP_VERSION,
       });
     }
 
