@@ -77,13 +77,28 @@ export function useUpdateFornecedor() {
 }
 
 /**
- * Hard delete. A RPC bloqueia se houver compras ou lançamentos vinculados —
- * nesse caso, oriente o usuário a inativar via `useToggleFornecedorStatus`.
+ * "Remover" fornecedor = soft delete (inativação).
+ * Não apaga compras nem lançamentos vinculados — o fornecedor continua
+ * referenciado historicamente, apenas deixa de aparecer para novas operações.
+ * Local-first: o adapter local-server grava no SQLite e gera outbox; o cloud
+ * é atingido pelo fallback ou via sincronização posterior.
  */
 export function useDeleteFornecedor() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => dataClient.fornecedores.excluir(id),
+    mutationFn: async (id: string) => {
+      logSoftDelete("fornecedor", id, { acao: "inativar" });
+      try {
+        const r = await dataClient.fornecedores.alterarStatus({
+          fornecedor_id: id,
+          status: "inativo",
+        });
+        if (import.meta.env.DEV) console.debug("[INATIVAR_LOCAL]", { entidade: "fornecedor", id });
+        return r;
+      } catch (err) {
+        throw friendlyDeleteError(err, "fornecedor");
+      }
+    },
     onMutate: async (id) => {
       await qc.cancelQueries({ queryKey: ["fornecedores"] });
       const snaps = qc.getQueriesData<Fornecedor[]>({ queryKey: ["fornecedores"] });
@@ -99,7 +114,7 @@ export function useDeleteFornecedor() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["fornecedores"] });
-      toast.success("Fornecedor removido.");
+      toast.success("Fornecedor inativado.");
     },
   });
 }
