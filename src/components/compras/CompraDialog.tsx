@@ -26,6 +26,7 @@ import { useCreateCompra, gerarNumeroCompra, type CompraItemInput } from "@/hook
 import { buscarProdutoPorCodigo } from "@/hooks/useProdutoCodigo";
 import { ProdutoSearchSelect } from "@/components/produtos/ProdutoSearchSelect";
 import { FornecedorSearchSelect } from "@/components/fornecedores/FornecedorSearchSelect";
+import { FormSection } from "@/components/shared/FormSection";
 
 interface Props {
   open: boolean;
