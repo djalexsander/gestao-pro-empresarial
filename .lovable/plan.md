@@ -1,106 +1,71 @@
+## PR-F0 — Infraestrutura de sync para destravar Financeiro local-first
 
-# Plano: Sistema de Gestão Empresarial — Estrutura Visual
+Esta é a fundação que falta para finalizar os 4 itens 🚫 bloqueados da Onda 2
+(`indicadoresMes`, `performancePeriodo`, `pagamentosPorLancamento`,
+`listIfoodPendentes`). É um PR de plumbing, sem mudança visível de UI.
 
-Vou criar a base visual completa de um ERP/sistema de gestão genérico, com design SaaS moderno, sem lógica de negócio (apenas dados mockados para visualização).
+### Escopo
 
-## 🎨 Design System
+Criar 3 novos caches SQLite alimentados pelo orquestrador de sync já existente,
+seguindo o mesmo padrão de `financeiro_lancamentos_completo`/`vendas_remote_cache`:
 
-- **Paleta profissional**: tons de azul/slate como primária, com acentos para status (verde sucesso, vermelho perigo, âmbar aviso)
-- **Tipografia**: Inter, hierarquia clara
-- **Tema claro** por padrão (estrutura pronta para dark mode futuro)
-- **Componentes shadcn/ui** já disponíveis no projeto
-- Tokens semânticos em `src/styles.css` (sem cores hardcoded nos componentes)
+| Cache novo                  | Origem (cloud)                         | Desbloqueia                                              |
+|-----------------------------|----------------------------------------|----------------------------------------------------------|
+| `pagamentos_local`          | `financeiro_pagamentos`                | item 9 (`pagamentosPorLancamento`)                       |
+| `ifood_pedidos_local`       | `ifood_pedidos` (pendentes)            | item 11 (`listIfoodPendentes`)                           |
+| `venda_itens_remote_cache`  | `venda_itens` JOIN `produtos.preco_custo` | itens 1 e 3 (`indicadoresMes`, `performancePeriodo`) |
 
-## 🧱 Layout Global
+### Trabalho por arquivo
 
-**Sidebar fixa (colapsável para modo ícone)**
-- Logo + nome do sistema no topo
-- Navegação agrupada: Principal (Dashboard), Operacional (Produtos, Estoque, Compras, Vendas), Financeiro, Cadastros (Clientes, Fornecedores), Análise (Relatórios), Configurações
-- Indicador de rota ativa
-- Perfil do usuário no rodapé
+**`src-tauri/src/db.rs`** — 3 migrations + 3 ingest + 3 read helpers
+- `CREATE TABLE pagamentos_local(id PK, lancamento_id, data_pagamento_ms, payload, deleted_at_ms, updated_at_remote_ms, synced_at_ms)` + índice por `lancamento_id`.
+- `CREATE TABLE ifood_pedidos_local(id PK, status, created_at_ms, payload, deleted_at_ms, ...)`.
+- `CREATE TABLE venda_itens_remote_cache(id PK, venda_id, produto_id, payload, deleted_at_ms, ...)` + índice por `venda_id`.
+- `ingest_pagamentos`, `ingest_ifood_pedidos`, `ingest_venda_itens_remote` no shape de `ingest_lancamentos_completo`.
+- `read_pagamentos_por_lancamento(lanc_id)`, `read_ifood_pendentes(limit)`, helpers de JSON-extract para itens.
 
-**Topbar**
-- Botão de toggle da sidebar
-- Campo de busca global
-- Ações rápidas (botão "+ Novo")
-- Notificações (sino com badge)
-- Avatar do usuário com dropdown
+**`src-tauri/src/local_server.rs`** — dispatch + endpoints
+- 3 arms novos no `match domain` de ingest (linhas ~580-660).
+- `GET /api/financeiro/pagamentos?lancamento_id=` → `db::read_pagamentos_por_lancamento`.
+- `GET /api/financeiro/ifood-pendentes?limit=` → `db::read_ifood_pendentes`.
+- `GET /api/financeiro/performance-periodo?inicio=&fim=` → agrega `vendas_remote_cache` + `venda_itens_remote_cache` + `produtos_local.payload` via JSON1 (preco_custo).
+- `GET /api/financeiro/indicadores-mes` → reusa o acima + agrega financeiro/caixa do mês.
+- Headers `x-gp-source: local-table` em todas.
 
-**Área de conteúdo**
-- Container responsivo com padding consistente
-- Breadcrumb opcional + título da página + ações da página
+**`src/integrations/data/adapters/local-terminal.ts`** — registrar 3 domínios novos
+- Adicionar `"pagamentos"`, `"ifood_pedidos"`, `"venda_itens_remote"` em todas as listas de orquestração de sync (bootstrap, full refresh, incremental, drain, ~10 ocorrências).
 
-## 📄 Páginas (rotas separadas via TanStack Router)
+**`src/integrations/data/adapters/local-server.ts`** — local-first nos 4 métodos
+- Substituir `pagamentosPorLancamento`, `listIfoodPendentes`, `performancePeriodo`, `indicadoresMes` (hoje herdados de `cloudAdapter`) por wrappers `withCloudFallback(...)` chamando os novos endpoints `/api/financeiro/*`.
 
-Cada página em `src/routes/` com metadata própria (head):
+### Estratégia de entrega (em 4 sub-PRs sequenciais para reduzir risco)
 
-1. **`/` Dashboard**
-   - 6 cards de KPI: Vendas do mês, Compras do mês, Lucro, Contas a pagar, Contas a receber, Estoque baixo (com ícones, variação % e mini-trend)
-   - 3 gráficos (recharts): Vendas por período (linha), Compras por período (barra), Fluxo financeiro (área)
-   - 2 tabelas: Últimas vendas e Últimas compras
-
-2. **`/produtos`** — tabela de produtos (SKU, nome, categoria, preço, estoque, status), filtros, busca, modal de cadastro/edição
-
-3. **`/estoque`** — visão de estoque atual, alertas de estoque baixo, badges de status (OK / Baixo / Crítico / Esgotado), modal de movimentação (entrada/saída/ajuste)
-
-4. **`/compras`** — lista de pedidos de compra, status (Pendente / Recebido / Cancelado), modal de novo pedido com itens
-
-5. **`/vendas`** — lista de vendas, status, modal de nova venda (cliente + itens + totais)
-
-6. **`/financeiro`** — abas: Contas a Pagar, Contas a Receber, Fluxo de Caixa; cards de resumo + tabelas com vencimento e status
-
-7. **`/fornecedores`** — CRUD visual (tabela + modal)
-
-8. **`/clientes`** — CRUD visual (tabela + modal)
-
-9. **`/relatorios`** — grid de cards de relatórios disponíveis (Vendas, Compras, Estoque, Financeiro, DRE simplificado) com filtros de período
-
-10. **`/configuracoes`** — abas: Empresa, Usuários, Preferências, Integrações
-
-## 🧩 Componentes Base Reutilizáveis
-
-- `AppSidebar` — navegação lateral
-- `AppTopbar` — topo com busca e ações
-- `AppLayout` — shell que combina sidebar + topbar + outlet
-- `PageHeader` — título + descrição + ações da página
-- `StatCard` — card de KPI com ícone, valor, variação
-- `DataTable` — wrapper sobre table com busca, filtros, paginação visual
-- `StatusBadge` — badge com variantes (sucesso, aviso, perigo, neutro, info)
-- `EmptyState` — placeholder para listas vazias
-- `FormDialog` — modal padrão para formulários de cadastro/edição
-- `ChartCard` — wrapper para gráficos com título e período
-
-## 🗂️ Estrutura de arquivos
-
-```
-src/
-├── routes/
-│   ├── __root.tsx          (atualizado com AppLayout)
-│   ├── index.tsx           (Dashboard)
-│   ├── produtos.tsx
-│   ├── estoque.tsx
-│   ├── compras.tsx
-│   ├── vendas.tsx
-│   ├── financeiro.tsx
-│   ├── fornecedores.tsx
-│   ├── clientes.tsx
-│   ├── relatorios.tsx
-│   └── configuracoes.tsx
-├── components/
-│   ├── layout/ (AppSidebar, AppTopbar, AppLayout)
-│   ├── shared/ (StatCard, DataTable, StatusBadge, PageHeader, EmptyState, FormDialog, ChartCard)
-│   └── dashboard/ (gráficos e tabelas específicas)
-└── lib/mock-data.ts        (dados de exemplo para popular as telas)
+```text
+PR-F0.1  pagamentos_local      → destrava item 9   (mais simples — 1 query, 1 endpoint)
+PR-F0.2  ifood_pedidos_local   → destrava item 11
+PR-F0.3  venda_itens cache     → destrava itens 1 e 3 (mais complexo — JOIN com produtos)
+PR-F0.4  QA + atualizar plano  → marcar 1, 3, 9, 11 como ✅
 ```
 
-## ✅ O que entra agora
-- Layout completo, navegação funcionando entre todas as páginas
-- Todas as 10 páginas criadas com conteúdo visual realista (dados mockados)
-- Componentes base prontos para reuso
-- Design responsivo e profissional
+Cada sub-PR fecha sozinho: migration + ingest + endpoint + adapter wrapper + verificação
+de build, sem deixar o repo em estado intermediário.
 
-## ⏭️ Fora do escopo (próximas etapas)
-- Lógica de negócio, cálculos reais
-- Backend / banco de dados (Lovable Cloud)
-- Autenticação e permissões
-- Persistência e CRUD funcional
+### Premissas a confirmar
+
+1. As tabelas cloud `financeiro_pagamentos`, `ifood_pedidos` e `venda_itens` existem
+   com `updated_at` para sync incremental. Caso `ifood_pedidos` não exista (Onda 1
+   removeu o módulo iFood?), pulamos PR-F0.2 e marcamos item 11 como descontinuado.
+2. `produtos_local.payload` já contém `preco_custo` (já confirmado: `db.rs:2385`).
+3. Nada do que está atualmente ✅ regride — todos os endpoints novos só adicionam,
+   nunca alteram tabelas/funções existentes.
+
+### Não fazer agora
+
+- Sem refactor do orquestrador de sync — só registrar novos domínios.
+- Sem mexer em PDV/Caixa/Vendas/Compras/Estoque.
+- Sem alterar contratos de `dataClient.financeiro.*`.
+- Sem migration no Supabase (cloud) — só SQLite local.
+
+### Próximo passo
+
+Começo por **PR-F0.1 (`pagamentos_local`)** assim que aprovado.
