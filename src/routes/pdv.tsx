@@ -3,7 +3,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import {
   ScanLine,
   Search,
-  Trash2,
+  // Trash2 removido: cancelamento de item agora ocorre apenas via Delete + modal.
   X,
   ShoppingBag,
   User,
@@ -1027,11 +1027,15 @@ function PDVPage() {
     handleScanCode(code);
   }
 
-  // ============ Remover linha ============
-  // Cada bipagem cria uma nova linha; a única ação por linha é excluir.
-  function removeItem(key: string) {
+  // ============ Remover linha (uso interno) ============
+  // Removido o botão lixeira por linha: cancelamento agora é exclusivamente
+  // via atalho Delete + modal de seleção. A função abaixo permanece apenas
+  // como utilitário caso algum fluxo futuro precise excluir uma linha.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  function _removeItemInterno(key: string) {
     setItems((prev) => prev.filter((it) => it.key !== key));
   }
+
 
   // ============ Cancelar item (mantém na lista, valor sai do total) ============
   function cancelarItem(key: string) {
@@ -1669,12 +1673,11 @@ function PDVPage() {
                 </kbd>
               </Button>
             </div>
-            <div className="grid grid-cols-[1fr_120px_140px_140px_44px] items-center gap-2 border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="grid grid-cols-[1fr_120px_140px_140px] items-center gap-2 border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               <span>Produto</span>
               <span className="text-center">Quantidade</span>
               <span className="text-right">Unitário</span>
               <span className="text-right">Subtotal</span>
-              <span />
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto">
@@ -1689,7 +1692,7 @@ function PDVPage() {
                       <Fragment key={it.key}>
                         <li
                           className={cn(
-                            "grid grid-cols-[1fr_120px_140px_140px_44px] items-center gap-2 border-b border-border/60 px-4 py-3 transition-colors",
+                            "grid grid-cols-[1fr_120px_140px_140px] items-center gap-2 border-b border-border/60 px-4 py-3 transition-colors",
                             lastAddedKey === it.key && "bg-success/10 animate-in fade-in",
                             it.cancelado && "bg-destructive/5 text-muted-foreground",
                           )}
@@ -1747,20 +1750,10 @@ function PDVPage() {
                           >
                             {formatBRL(subShown)}
                           </div>
-                          <div className="flex justify-end">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                              onClick={() => removeItem(it.key)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
                         </li>
                         {it.cancelado && (
                           <li
-                            className="grid grid-cols-[1fr_120px_140px_140px_44px] items-center gap-2 border-b border-border/60 bg-destructive/10 px-4 py-2 text-sm"
+                            className="grid grid-cols-[1fr_120px_140px_140px] items-center gap-2 border-b border-border/60 bg-destructive/10 px-4 py-2 text-sm"
                             aria-label="Linha de cancelamento"
                           >
                             <div className="flex items-center gap-2 text-destructive">
@@ -1774,7 +1767,6 @@ function PDVPage() {
                             <div className="text-right font-mono font-semibold tabular-nums text-destructive">
                               - {formatBRL(subShown)}
                             </div>
-                            <div />
                           </li>
                         )}
                       </Fragment>
