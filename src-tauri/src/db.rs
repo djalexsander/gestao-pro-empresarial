@@ -2969,6 +2969,49 @@ pub fn fluxo_por_forma_local(
     })
 }
 
+/// Onda 2 — item 7: lista movimentos de caixa no período direto do SQLite
+/// (`caixa_movs_local` JOIN `caixa_local`). Devolve linhas no shape do
+/// `MovimentoCaixaPeriodoDomain` (id, tipo, valor, motivo, created_at ISO,
+/// caixa_id, venda_id). Como o cache local não cruza com `venda_id`,
+/// devolvemos `None` nesse campo — a UI já lida com isso.
+pub fn movimentos_caixa_periodo_local(
+    inicio_ms: i64,
+    fim_ms: i64,
+) -> DbResult<Vec<(String, String, f64, Option<String>, i64, Option<String>)>> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT COALESCE(m.remote_id, m.local_uuid) AS id,
+                    m.tipo,
+                    COALESCE(m.valor, 0),
+                    m.motivo,
+                    m.created_at_ms,
+                    COALESCE(c.remote_id, c.local_uuid) AS caixa_id
+             FROM caixa_movs_local m
+             JOIN caixa_local c ON c.local_uuid = m.caixa_local_uuid
+             WHERE m.created_at_ms BETWEEN ?1 AND ?2
+             ORDER BY m.created_at_ms DESC
+             LIMIT 2000",
+        )?;
+        let rows = stmt.query_map(params![inicio_ms, fim_ms], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, f64>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    })
+}
+
+
+
 // ---------- Compras (v15) ----------
 //
 // Cache do payload completo da listagem de compras com fornecedor embutido,
