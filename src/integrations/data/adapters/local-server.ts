@@ -1140,6 +1140,22 @@ export const localServerAdapter: DataAdapter = {
   // -----------------------------------------------------------------
   financeiro: {
     ...cloudAdapter.financeiro,
+    // Onda 2 — item 10: lê FKs do lançamento do cache local
+    // (financeiro_lancamentos_local). Mantém o mesmo retorno do cloud
+    // adapter; cai em cloud quando o id não está no cache local.
+    lancamentoFks: async (lancamentoId) =>
+      withCloudFallback(
+        "financeiro",
+        "lancamentoFks",
+        () =>
+          tryLocal<Awaited<ReturnType<typeof cloudAdapter.financeiro.lancamentoFks>>>(
+            "financeiro",
+            "lancamentoFks",
+            "/api/financeiro/lancamento-fks",
+            { lancamento_id: lancamentoId },
+          ),
+        () => cloudAdapter.financeiro.lancamentoFks(lancamentoId),
+      ),
     listFiado: async () => {
       const baseUrl = await resolveBaseUrl();
       if (baseUrl) {

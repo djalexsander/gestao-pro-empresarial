@@ -2773,6 +2773,64 @@ async fn financeiro_lancamentos_completo_handler(
     .await
 }
 
+// ---------- /api/financeiro/lancamento-fks (Onda 2 — item 10) ----------
+//
+// Devolve apenas os FKs/campos necessários ao editor de lançamento, lidos
+// 100% do cache local (`financeiro_lancamentos_local.payload`). Mantém o
+// mesmo shape do `cloudAdapter.financeiro.lancamentoFks` para o adapter TS
+// poder usar withCloudFallback sem mapeamento extra. Quando o id não está
+// no cache local, devolve 404 → o adapter cai em cloud.
+
+async fn financeiro_lancamento_fks_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let id = q
+        .get("lancamento_id")
+        .cloned()
+        .ok_or((StatusCode::BAD_REQUEST, "lancamento_id é obrigatório".into()))?;
+    let payload_opt = db::read_lancamento_payload_by_id(&id).map_err(|e| {
+        eprintln!("[LOCAL_FINANCE] lancamento-fks falha id={id}: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    })?;
+    let Some(payload) = payload_opt else {
+        eprintln!("[LOCAL_FINANCE] lancamento-fks miss id={id} → fallback cloud");
+        return Err((StatusCode::NOT_FOUND, "lancamento não está no cache local".into()));
+    };
+    let v: serde_json::Value = serde_json::from_str(&payload).map_err(|e| {
+        eprintln!("[LOCAL_FINANCE] lancamento-fks payload inválido id={id}: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "payload inválido".into())
+    })?;
+    let pick = |k: &str| v.get(k).cloned().unwrap_or(serde_json::Value::Null);
+    let out = serde_json::json!({
+        "id": pick("id"),
+        "tipo": pick("tipo"),
+        "descricao": pick("descricao"),
+        "valor": pick("valor"),
+        "data_vencimento": pick("data_vencimento"),
+        "data_emissao": pick("data_emissao"),
+        "categoria_id": pick("categoria_id"),
+        "cliente_id": pick("cliente_id"),
+        "fornecedor_id": pick("fornecedor_id"),
+        "numero_documento": pick("numero_documento"),
+        "forma_pagamento": pick("forma_pagamento"),
+        "observacoes": pick("observacoes"),
+        "venda_id": pick("venda_id"),
+        "compra_id": pick("compra_id"),
+    });
+    eprintln!("[LOCAL_FINANCE] lancamento-fks hit id={id}");
+    let body = serde_json::json!({ "data": out });
+    let mut resp = axum::response::Response::new(axum::body::Body::from(body.to_string()));
+    resp.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    resp.headers_mut().insert(
+        axum::http::HeaderName::from_static("x-gp-source"),
+        axum::http::HeaderValue::from_static("local-table"),
+    );
+    Ok(resp)
+}
+
 // ---------- /api/compras (v15) ----------
 //
 // Espelha `cloudAdapter.compras.list`: lista as compras com fornecedor
@@ -3565,6 +3623,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/financeiro/resumo", get(financeiro_resumo_handler))
         .route("/api/financeiro/manual", post(financeiro_manual_handler))
         .route("/api/financeiro/cancelar", post(financeiro_cancelar_handler))
+        .route("/api/financeiro/lancamento-fks", get(financeiro_lancamento_fks_handler))
         .route("/api/financeiro/receber", get(financeiro_receber_listar_handler))
         .route("/api/financeiro/receber/baixar", post(financeiro_receber_baixar_handler))
         .route("/api/financeiro/receber/cancelar", post(financeiro_receber_cancelar_handler))

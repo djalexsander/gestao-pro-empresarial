@@ -2889,6 +2889,29 @@ pub fn read_lancamentos_completo() -> DbResult<String> {
     })
 }
 
+/// Lê o payload JSON cru de UM lançamento financeiro do cache local
+/// (`financeiro_lancamentos_local.payload`). Usado pelo endpoint
+/// `/api/financeiro/lancamento-fks` (Onda 2 — item 10) para devolver
+/// apenas os FKs necessários ao editor sem precisar baixar do cloud.
+/// Retorna `Ok(None)` quando o id não está no cache local (ainda não
+/// sincronizado) — o adapter TS então cai para cloud.
+pub fn read_lancamento_payload_by_id(id: &str) -> DbResult<Option<String>> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT payload FROM financeiro_lancamentos_local
+             WHERE id = ?1 AND deleted_at_ms IS NULL
+             LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![id])?;
+        if let Some(row) = rows.next()? {
+            let p: String = row.get(0)?;
+            Ok(Some(p))
+        } else {
+            Ok(None)
+        }
+    })
+}
+
 // ---------- Compras (v15) ----------
 //
 // Cache do payload completo da listagem de compras com fornecedor embutido,
