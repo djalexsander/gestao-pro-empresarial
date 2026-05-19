@@ -420,49 +420,67 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
           </TabsContent>
 
           {/* ============== PREÇOS ============== */}
-          <TabsContent value="precos" className="mt-4 space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="custo">Preço de custo (R$)</Label>
-                <Input id="custo" type="number" min={0} step="0.01"
-                  value={form.preco_custo}
-                  onChange={(e) => setForm({ ...form, preco_custo: Number(e.target.value) })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="venda">Preço de venda (R$)</Label>
-                <Input id="venda" type="number" min={0} step="0.01"
-                  value={form.preco_venda}
-                  onChange={(e) => setForm({ ...form, preco_venda: Number(e.target.value) })} />
-              </div>
-            </div>
-            <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
-              <p className="text-sm text-muted-foreground">Margem calculada</p>
-              <p className={`text-2xl font-semibold ${margem >= 0 ? "text-success" : "text-destructive"}`}>
-                {margem.toFixed(1)}%
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="min">Estoque mínimo</Label>
-                <Input id="min" type="number" min={0} step="0.001"
-                  value={form.estoque_minimo}
-                  onChange={(e) => setForm({ ...form, estoque_minimo: Number(e.target.value) })} />
-              </div>
-              {!isEdit && (
+          <TabsContent value="precos" className="mt-4 space-y-6">
+            <FormSection
+              title="Precificação"
+              subtitle="Custo, preço de venda e margem calculada automaticamente."
+              tone="financeiro"
+              divider={false}
+            >
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label htmlFor="inicial">Estoque inicial</Label>
-                  <Input id="inicial" type="number" min={0} step="0.001"
-                    value={form.estoque_inicial}
-                    onChange={(e) => setForm({ ...form, estoque_inicial: Number(e.target.value) })} />
-                  <p className="text-xs text-muted-foreground">
-                    Cria movimentação de entrada automaticamente.
-                  </p>
+                  <Label htmlFor="custo">Preço de custo (R$)</Label>
+                  <Input id="custo" type="number" min={0} step="0.01"
+                    value={form.preco_custo}
+                    onChange={(e) => setForm({ ...form, preco_custo: Number(e.target.value) })} />
                 </div>
-              )}
-            </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="venda">Preço de venda (R$)</Label>
+                  <Input id="venda" type="number" min={0} step="0.01"
+                    value={form.preco_venda}
+                    onChange={(e) => setForm({ ...form, preco_venda: Number(e.target.value) })} />
+                </div>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
+                <p className="text-sm text-muted-foreground">Margem calculada</p>
+                <p className={`text-2xl font-semibold ${margem >= 0 ? "text-success" : "text-destructive"}`}>
+                  {margem.toFixed(1)}%
+                </p>
+              </div>
+            </FormSection>
 
-            <div className="rounded-lg border border-border p-4 space-y-3">
-              <div className="flex items-center justify-between">
+            <FormSection
+              title="Estoque"
+              subtitle="Controle de saldo mínimo e abertura do estoque inicial."
+              tone="operacional"
+            >
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="min">Estoque mínimo</Label>
+                  <Input id="min" type="number" min={0} step="0.001"
+                    value={form.estoque_minimo}
+                    onChange={(e) => setForm({ ...form, estoque_minimo: Number(e.target.value) })} />
+                </div>
+                {!isEdit && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="inicial">Estoque inicial</Label>
+                    <Input id="inicial" type="number" min={0} step="0.001"
+                      value={form.estoque_inicial}
+                      onChange={(e) => setForm({ ...form, estoque_inicial: Number(e.target.value) })} />
+                    <p className="text-xs text-muted-foreground">
+                      Cria movimentação de entrada automaticamente.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </FormSection>
+
+            <FormSection
+              title="Balança"
+              subtitle="Configurações para produtos vendidos por peso."
+              tone="extra"
+            >
+              <div className="flex items-center justify-between rounded-md border border-border p-3">
                 <div>
                   <p className="text-sm font-medium">Vendido por peso (balança)</p>
                   <p className="text-xs text-muted-foreground">
@@ -509,7 +527,7 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
                   </div>
                 </div>
               )}
-            </div>
+            </FormSection>
           </TabsContent>
 
           {isEdit && produtoId && (
