@@ -279,67 +279,105 @@ export function LancamentoFormDialog(props: Props) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 py-1">
-          {/* Tipo */}
-          <div className="space-y-1.5">
-            <Label>Tipo</Label>
-            <Select
-              value={tipo}
-              onValueChange={(v) => setTipo(v as LancamentoAvulsoTipo)}
-              disabled={!permitirTrocarTipo}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="receber">Conta a receber</SelectItem>
-                <SelectItem value="pagar">Conta a pagar</SelectItem>
-              </SelectContent>
-            </Select>
-            {isEdit && (
-              <p className="text-[11px] text-muted-foreground">
-                O tipo não pode ser alterado. Para mudar, exclua e recrie.
-              </p>
+        <div className="space-y-5 py-1">
+          {/* === Identificação === */}
+          <FormSection
+            title={tipo === "receber" ? "Dados do cliente" : "Dados do fornecedor"}
+            subtitle="Identificação do lançamento e contraparte."
+            tone="operacional"
+            divider={false}
+          >
+            {/* Tipo */}
+            <div className="space-y-1.5">
+              <Label>Tipo</Label>
+              <Select
+                value={tipo}
+                onValueChange={(v) => setTipo(v as LancamentoAvulsoTipo)}
+                disabled={!permitirTrocarTipo}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="receber">Conta a receber</SelectItem>
+                  <SelectItem value="pagar">Conta a pagar</SelectItem>
+                </SelectContent>
+              </Select>
+              {isEdit && (
+                <p className="text-[11px] text-muted-foreground">
+                  O tipo não pode ser alterado. Para mudar, exclua e recrie.
+                </p>
+              )}
+            </div>
+
+            {/* Cliente OU Fornecedor */}
+            {tipo === "receber" ? (
+              <div className="space-y-1.5">
+                <Label>Cliente</Label>
+                <ClienteSearchSelect
+                  value={clienteId}
+                  clientes={clientes}
+                  extraOptions={[{ value: NONE, label: "— sem cliente —" }]}
+                  onChange={(v) => setClienteId(v)}
+                  placeholder="—"
+                />
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label>Fornecedor</Label>
+                <FornecedorSearchSelect
+                  value={fornecedorId}
+                  fornecedores={fornecedores}
+                  filter={() => true}
+                  extraOptions={[{ value: NONE, label: "— sem fornecedor —" }]}
+                  onChange={(v) => setFornecedorId(v)}
+                  placeholder="—"
+                />
+              </div>
             )}
-          </div>
+          </FormSection>
 
-          {/* Descrição */}
-          <div className="space-y-1.5">
-            <Label htmlFor="lan-desc">Descrição *</Label>
-            <Input
-              id="lan-desc"
-              value={descricao}
-              onChange={(e) => setDescricao(e.target.value)}
-              placeholder="Ex.: Aluguel mês 11"
-              autoFocus
-            />
-          </div>
-
-          {/* Valor / Vencimento */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* === Dados do título === */}
+          <FormSection
+            title="Dados do título"
+            subtitle="Descrição, valor e vencimento."
+            tone="financeiro"
+          >
+            {/* Descrição */}
             <div className="space-y-1.5">
-              <Label htmlFor="lan-valor">Valor *</Label>
+              <Label htmlFor="lan-desc">Descrição *</Label>
               <Input
-                id="lan-valor"
-                value={valor}
-                onChange={(e) => setValor(e.target.value)}
-                inputMode="decimal"
-                placeholder="0,00"
+                id="lan-desc"
+                value={descricao}
+                onChange={(e) => setDescricao(e.target.value)}
+                placeholder="Ex.: Aluguel mês 11"
+                autoFocus
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="lan-venc">Vencimento *</Label>
-              <Input
-                id="lan-venc"
-                type="date"
-                value={dataVencimento}
-                onChange={(e) => setDataVencimento(e.target.value)}
-              />
-            </div>
-          </div>
 
-          {/* Emissão / Forma */}
-          <div className="grid grid-cols-2 gap-3">
+            {/* Valor / Vencimento */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="lan-valor">Valor *</Label>
+                <Input
+                  id="lan-valor"
+                  value={valor}
+                  onChange={(e) => setValor(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="0,00"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="lan-venc">Vencimento *</Label>
+                <Input
+                  id="lan-venc"
+                  type="date"
+                  value={dataVencimento}
+                  onChange={(e) => setDataVencimento(e.target.value)}
+                />
+              </div>
+            </div>
+
             <div className="space-y-1.5">
               <Label htmlFor="lan-emissao">Emissão</Label>
               <Input
@@ -349,102 +387,89 @@ export function LancamentoFormDialog(props: Props) {
                 onChange={(e) => setDataEmissao(e.target.value)}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label>Forma prevista</Label>
-              <Select
-                value={formaPagamento}
-                onValueChange={(v) => setFormaPagamento(v as FormaPag | typeof NONE)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="—" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE}>—</SelectItem>
-                  <SelectItem value="dinheiro">Dinheiro</SelectItem>
-                  <SelectItem value="pix">PIX</SelectItem>
-                  <SelectItem value="cartao_debito">Débito</SelectItem>
-                  <SelectItem value="cartao_credito">Crédito</SelectItem>
-                  <SelectItem value="boleto">Boleto</SelectItem>
-                  <SelectItem value="transferencia">Transferência</SelectItem>
-                  <SelectItem value="cheque">Cheque</SelectItem>
-                  <SelectItem value="ifood">iFood</SelectItem>
-                  <SelectItem value="fiado">Fiado</SelectItem>
-                  <SelectItem value="outro">Outro</SelectItem>
-                </SelectContent>
-              </Select>
+          </FormSection>
+
+          {/* === Forma de pagamento / categoria === */}
+          <FormSection
+            title={tipo === "receber" ? "Recebimento" : "Pagamento"}
+            subtitle="Forma prevista e categorização contábil."
+            tone="financeiro"
+          >
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Forma prevista</Label>
+                <Select
+                  value={formaPagamento}
+                  onValueChange={(v) => setFormaPagamento(v as FormaPag | typeof NONE)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="—" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>—</SelectItem>
+                    <SelectItem value="dinheiro">Dinheiro</SelectItem>
+                    <SelectItem value="pix">PIX</SelectItem>
+                    <SelectItem value="cartao_debito">Débito</SelectItem>
+                    <SelectItem value="cartao_credito">Crédito</SelectItem>
+                    <SelectItem value="boleto">Boleto</SelectItem>
+                    <SelectItem value="transferencia">Transferência</SelectItem>
+                    <SelectItem value="cheque">Cheque</SelectItem>
+                    <SelectItem value="ifood">iFood</SelectItem>
+                    <SelectItem value="fiado">Fiado</SelectItem>
+                    <SelectItem value="outro">Outro</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Categoria ({tipoCategoria})</Label>
+                <Select value={categoriaId} onValueChange={setCategoriaId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="—" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>— sem categoria —</SelectItem>
+                    {categoriasFiltradas.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {categoriasFiltradas.length === 0 && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Nenhuma categoria de {tipoCategoria} cadastrada.
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
+          </FormSection>
 
-          {/* Categoria */}
-          <div className="space-y-1.5">
-            <Label>Categoria ({tipoCategoria})</Label>
-            <Select value={categoriaId} onValueChange={setCategoriaId}>
-              <SelectTrigger>
-                <SelectValue placeholder="—" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NONE}>— sem categoria —</SelectItem>
-                {categoriasFiltradas.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {categoriasFiltradas.length === 0 && (
-              <p className="text-[11px] text-muted-foreground">
-                Nenhuma categoria de {tipoCategoria} cadastrada.
-              </p>
-            )}
-          </div>
-
-          {/* Cliente OU Fornecedor */}
-          {tipo === "receber" ? (
+          {/* === Observações / documento === */}
+          <FormSection
+            title="Observações"
+            subtitle="Documento de referência e anotações livres."
+            tone="extra"
+          >
             <div className="space-y-1.5">
-              <Label>Cliente</Label>
-              <ClienteSearchSelect
-                value={clienteId}
-                clientes={clientes}
-                extraOptions={[{ value: NONE, label: "— sem cliente —" }]}
-                onChange={(v) => setClienteId(v)}
-                placeholder="—"
+              <Label htmlFor="lan-doc">Nº do documento</Label>
+              <Input
+                id="lan-doc"
+                value={numeroDocumento}
+                onChange={(e) => setNumeroDocumento(e.target.value)}
+                placeholder="Ex.: NF 1234"
               />
             </div>
-          ) : (
+
             <div className="space-y-1.5">
-              <Label>Fornecedor</Label>
-              <FornecedorSearchSelect
-                value={fornecedorId}
-                fornecedores={fornecedores}
-                filter={() => true}
-                extraOptions={[{ value: NONE, label: "— sem fornecedor —" }]}
-                onChange={(v) => setFornecedorId(v)}
-                placeholder="—"
+              <Label htmlFor="lan-obs">Observações</Label>
+              <Textarea
+                id="lan-obs"
+                value={observacoes}
+                onChange={(e) => setObservacoes(e.target.value)}
+                rows={2}
               />
             </div>
-          )}
-
-          {/* Documento */}
-          <div className="space-y-1.5">
-            <Label htmlFor="lan-doc">Nº do documento</Label>
-            <Input
-              id="lan-doc"
-              value={numeroDocumento}
-              onChange={(e) => setNumeroDocumento(e.target.value)}
-              placeholder="Ex.: NF 1234"
-            />
-          </div>
-
-          {/* Observações */}
-          <div className="space-y-1.5">
-            <Label htmlFor="lan-obs">Observações</Label>
-            <Textarea
-              id="lan-obs"
-              value={observacoes}
-              onChange={(e) => setObservacoes(e.target.value)}
-              rows={2}
-            />
-          </div>
+          </FormSection>
         </div>
 
         <DialogFooter className="gap-2">
