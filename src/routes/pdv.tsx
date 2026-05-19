@@ -991,6 +991,20 @@ function PDVPage() {
           }
         },
       },
+      {
+        // Delete → abre modal de cancelar item do carrinho atual.
+        key: "Delete",
+        allowInInputs: true,
+        handler: () => {
+          if (cancelItemOpen) return;
+          if (items.length === 0) {
+            toast.info("Nenhum item para cancelar.");
+            return;
+          }
+          flashHotkey("Del");
+          setCancelItemOpen(true);
+        },
+      },
     ],
     {
       // Escopo "page": atalhos do PDV ficam suspensos automaticamente
@@ -1002,7 +1016,8 @@ function PDVPage() {
         !scannerOpen &&
         !quickView &&
         !consultaPrecoOpen &&
-        !multDialogOpen,
+        !multDialogOpen &&
+        !cancelItemOpen,
       scope: "page",
     },
   );
