@@ -161,15 +161,21 @@ mostram quais métodos herdam direto da cloud (sem fallback local):
      join com produtos (sku/nome) e drift de `quantidade_recebida` em
      recebimentos parciais offline. Cloud direto é seguro para
      abrir o detalhe.
-5. **PR-O3-5** (dashboard) — ⏭️ **adiado** (vira Onda 4):
-   - `dashboard.carregar()` cruza 4 domínios (vendas 6 meses, compras
-     6 meses, lançamentos financeiros, saldos de estoque) + joins de
-     nome (clientes, fornecedores) e retorna um DTO único.
-   - Composição puro-TS a partir dos endpoints locais atuais exigiria
-     muitos round-trips e remapeamento — perdendo o ganho.
-   - Caminho certo é um endpoint Rust dedicado
-     `GET /api/dashboard/carregar` que faz a agregação em SQL (mesmo
-     padrão de `vendas_metricas_periodo_local`), com safety gate por
-     domínio (503 se algum cache estiver frio). Tratar em sub-onda
-     própria por causa do volume e do risco de drift.
-6. **PR-O3-6** (QA) — ✅ checklist em `.lovable/qa-onda3.md` (4 cenários × 5 grupos de método + regressão).
+5. **PR-O3-5** (dashboard) — ✅ **feito**:
+   - Novo endpoint **`GET /api/dashboard/carregar`** agrega tudo em uma
+     única ida ao SQLite: vendas/compras do mês atual e anterior,
+     lucro/margem, contas a pagar/receber em aberto (com `valor -
+     valor_pago`), série 6 meses (vendas vs compras) via
+     `strftime('%Y-%m', .../1000, 'unixepoch')`, fluxo de caixa do mês
+     (entrada/saída por dia) baseado em `data_pagamento` do payload,
+     estoque baixo (LEFT JOIN `produtos_local` ↔ `estoque_saldos_local`
+     com `json_extract(payload,'$.estoque_minimo')`) e top 5
+     vendas/compras com nome de cliente/fornecedor joinado.
+   - Aceita `tipo IN ('despesa','pagar')` e `('receita','receber')`
+     para tolerar drift de schema do cache financeiro.
+   - Safety gate: 503 quando vendas+compras+financeiro estão todos
+     frios → adapter cai no caminho de composição (5 endpoints) e,
+     se esse também falhar, na cloud.
+   - TS: `dashboard.carregar` agora tenta o fast-path primeiro;
+     mantém a composição existente como fallback intermediário.
+6. **PR-O3-6** (QA) — ✅ checklist em `.lovable/qa-onda3.md` (atualizar com cenário do fast-path do dashboard).
