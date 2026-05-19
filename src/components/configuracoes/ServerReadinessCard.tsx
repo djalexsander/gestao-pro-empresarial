@@ -41,8 +41,14 @@ export function ServerReadinessCard({
   serverNome,
   serverId,
 }: Props) {
+  // Fonte única do status: além do daemon Tauri e do /server-info, também
+  // consideramos o probe HTTP real (127.0.0.1:<porta>) usado pelo badge da
+  // topbar. Se o probe está "online", o backend está respondendo — não pode
+  // aparecer "Servidor parado" aqui ao mesmo tempo.
+  const { conn } = useServerConnection();
+  const probeOnline = conn.status === "online";
   const porta = daemon?.port ?? info?.port ?? null;
-  const backendOk = !!daemon?.running || info?.backend_running === true;
+  const backendOk = !!daemon?.running || info?.backend_running === true || probeOnline;
   const dbOk = !!dbInfo || info?.database_ready === true;
   const portaOk = typeof porta === "number" && porta > 0 && porta < 65536;
   const identidadeOk = !!serverId;
@@ -51,7 +57,9 @@ export function ServerReadinessCard({
     {
       ok: backendOk,
       label: "Backend local em execução",
-      detail: backendOk ? `Porta ${porta ?? "?"}` : "Servidor parado.",
+      detail: backendOk
+        ? `Porta ${porta ?? "?"}${probeOnline && !daemon?.running ? " (probe HTTP ativo)" : ""}`
+        : "Servidor parado.",
     },
     {
       ok: portaOk,
@@ -73,6 +81,7 @@ export function ServerReadinessCard({
       detail: identidadeOk ? (serverId ?? "—") : "Sem Server ID.",
     },
   ];
+
 
   const pronto = checagens.every((c) => c.ok);
   const hostname = info?.host ?? daemon?.hostname ?? info?.hostname ?? null;

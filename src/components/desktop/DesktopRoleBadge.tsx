@@ -28,13 +28,30 @@ export function DesktopRoleBadge() {
   } as const;
   const ConnIcon = connMap[conn.status].icon;
 
-  // Indicador da fonte da última leitura
-  const sourceMap = {
-    "local-server": { label: "local-server", cls: "text-emerald-500" },
-    "local-terminal": { label: "local-terminal", cls: "text-emerald-500" },
-    cloud: { label: "cloud", cls: "text-blue-500" },
-  } as const;
-  const sourceInfo = lastSource ? sourceMap[lastSource.source] : null;
+  // Indicador da fonte de dados — preferimos a VERDADE do probe
+  // (`conn.status`) em vez de só a última telemetria de leitura. Assim, se
+  // o servidor local está online mas uma chamada específica caiu para
+  // cloud (ex.: método ainda não wrappeado), o badge continua mostrando
+  // "servidor local" como fonte primária e marca a query atual com um
+  // chip secundário de "fallback cloud" — sem mais o enganoso "cloud (fb)".
+  const serverOnline = conn.status === "online";
+  const usouFallbackAgora = !!lastSource?.fallback;
+
+  let sourceLabel: string;
+  let sourceCls: string;
+  if (serverOnline) {
+    sourceLabel = role === "server" ? "servidor local" : "servidor local (LAN)";
+    sourceCls = "text-emerald-500";
+  } else if (lastSource?.source === "local-server" || lastSource?.source === "local-terminal") {
+    sourceLabel = lastSource.source;
+    sourceCls = "text-emerald-500";
+  } else if (lastSource?.source === "cloud") {
+    sourceLabel = "cloud";
+    sourceCls = "text-blue-500";
+  } else {
+    sourceLabel = "—";
+    sourceCls = "text-muted-foreground";
+  }
 
   return (
     <div
@@ -47,12 +64,12 @@ export function DesktopRoleBadge() {
         role === "terminal" && config.terminal
           ? `${config.terminal.terminalNome} → ${config.terminal.host}:${config.terminal.porta} · ${conn.mensagem ?? conn.status}${
               lastSource
-                ? ` · última leitura: ${lastSource.source} (${lastSource.domain}.${lastSource.method}${lastSource.fallback ? ", fallback" : ""})`
+                ? ` · última leitura: ${lastSource.source} (${lastSource.domain}.${lastSource.method}${lastSource.fallback ? ", fallback cloud" : ""})`
                 : ""
             }`
           : `${roleLabel} · ${conn.mensagem ?? conn.status}${
               lastSource
-                ? ` · última leitura: ${lastSource.source} (${lastSource.domain}.${lastSource.method})`
+                ? ` · última leitura: ${lastSource.source} (${lastSource.domain}.${lastSource.method}${lastSource.fallback ? ", fallback cloud" : ""})`
                 : ""
             }`
       }
@@ -64,16 +81,18 @@ export function DesktopRoleBadge() {
       )}
       <span className="mx-1 h-3 w-px bg-current opacity-30" />
       <ConnIcon className={`h-3.5 w-3.5 ${connMap[conn.status].cls}`} />
-      {sourceInfo && (
-        <>
-          <span className="mx-1 h-3 w-px bg-current opacity-30" />
-          <Database className={`h-3.5 w-3.5 ${sourceInfo.cls}`} />
-          <span className={`text-[11px] ${sourceInfo.cls}`}>
-            {sourceInfo.label}
-            {lastSource?.fallback ? " (fb)" : ""}
-          </span>
-        </>
+      <span className="mx-1 h-3 w-px bg-current opacity-30" />
+      <Database className={`h-3.5 w-3.5 ${sourceCls}`} />
+      <span className={`text-[11px] ${sourceCls}`}>{sourceLabel}</span>
+      {serverOnline && usouFallbackAgora && (
+        <span
+          className="ml-1 rounded-sm bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400"
+          title={`Esta consulta usou cloud como fallback (${lastSource?.domain}.${lastSource?.method}).`}
+        >
+          + fallback cloud
+        </span>
       )}
     </div>
   );
 }
+

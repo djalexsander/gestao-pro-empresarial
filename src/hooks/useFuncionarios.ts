@@ -31,9 +31,12 @@ export type OperadorSessao = OperadorSessaoDomain;
 /**
  * Lista todos os funcionários do dono atual (para painel admin).
  *
- * Continua via `supabase.rpc` direto: leitura é abstraída em fase posterior
- * junto com os outros `useQuery` de listagem (Bloco "leitura unificada").
+ * Todas as leituras/escritas passam por `dataClient.funcionarios.*`. Em
+ * desktop com modo "local-server"/"local-terminal", o adapter decide
+ * SQLite local + outbox e cai em cloud só como fallback. Em PWA/web,
+ * resolve direto pela nuvem normalmente.
  */
+
 export function useFuncionarios() {
   return useQuery({
     queryKey: ["funcionarios"],
