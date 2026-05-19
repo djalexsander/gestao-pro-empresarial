@@ -3,7 +3,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import {
   ScanLine,
   Search,
-  Trash2,
+  // Trash2 removido: cancelamento de item agora ocorre apenas via Delete + modal.
   X,
   ShoppingBag,
   User,
