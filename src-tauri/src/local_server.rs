@@ -3680,6 +3680,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/financeiro/manual", post(financeiro_manual_handler))
         .route("/api/financeiro/cancelar", post(financeiro_cancelar_handler))
         .route("/api/financeiro/lancamento-fks", get(financeiro_lancamento_fks_handler))
+        .route("/api/financeiro/fluxo-por-forma", get(financeiro_fluxo_por_forma_handler))
         .route("/api/financeiro/receber", get(financeiro_receber_listar_handler))
         .route("/api/financeiro/receber/baixar", post(financeiro_receber_baixar_handler))
         .route("/api/financeiro/receber/cancelar", post(financeiro_receber_cancelar_handler))
