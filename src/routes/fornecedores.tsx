@@ -233,11 +233,12 @@ function SuppliersPage() {
       <AlertDialog open={!!removendo} onOpenChange={(o) => !o && setRemovendo(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remover fornecedor?</AlertDialogTitle>
+            <AlertDialogTitle>Inativar fornecedor?</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja remover <strong>{removendo?.razao_social}</strong>? Esta ação
-              não pode ser desfeita. Compras já registradas continuarão existindo, sem fornecedor
-              vinculado.
+              <strong>{removendo?.razao_social}</strong> será marcado como inativo e deixará de
+              aparecer para novas compras. As compras já registradas continuam vinculadas ao
+              fornecedor e o histórico é preservado. Você pode reativá-lo depois pelo filtro de
+              status.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -249,7 +250,7 @@ function SuppliersPage() {
                 setRemovendo(null);
               }}
             >
-              Remover
+              Inativar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
