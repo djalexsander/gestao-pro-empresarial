@@ -1202,6 +1202,20 @@ export const localServerAdapter: DataAdapter = {
           ),
         () => cloudAdapter.financeiro.lancamentosAvulsosPagos({ inicio, fim }),
       ),
+    // Onda 2 — item 2: posição financeira agregada do cache local.
+    posicaoPeriodo: async (periodo) =>
+      withCloudFallback(
+        "financeiro",
+        "posicaoPeriodo",
+        () =>
+          tryLocal<Awaited<ReturnType<typeof cloudAdapter.financeiro.posicaoPeriodo>>>(
+            "financeiro",
+            "posicaoPeriodo",
+            "/api/financeiro/posicao-periodo",
+            { inicio: periodo.inicio, fim: periodo.fim },
+          ),
+        () => cloudAdapter.financeiro.posicaoPeriodo(periodo),
+      ),
     listFiado: async () => {
       const baseUrl = await resolveBaseUrl();
       if (baseUrl) {
