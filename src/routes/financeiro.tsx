@@ -79,6 +79,9 @@ import { exportarBlocoCSV, exportarBlocoPDF } from "@/lib/export-bloco";
 import { ExportFormatDialog } from "@/components/shared/ExportFormatDialog";
 import { exportarRelatorioCard, type ExportFormato } from "@/lib/export-relatorio-card";
 import { toast } from "sonner";
+import { CarteiraDialog } from "@/components/financeiro/CarteiraDialog";
+import { SaldoPrevistoDialog } from "@/components/financeiro/SaldoPrevistoDialog";
+import { useEffect } from "react";
 
 type FinTab = "receber" | "pagar" | "fluxo" | "fluxo-financeiro";
 
