@@ -66,19 +66,18 @@ Legenda da coluna "Fonte SQLite": tabelas já existentes no `src-tauri/src/db.rs
 | 6 | `fluxoPorForma({inicio,fim})`    | `/api/financeiro/fluxo-por-forma?inicio=&fim=`         | GET   | `venda_pagamentos_local` JOIN `vendas_local` (filtro por `created_at_ms`) | `cloudAdapter.financeiro.fluxoPorForma`   | ✅ **Feito** |
 | 7 | `movimentosCaixaPeriodo({inicio,fim,caixaId?})` | `/api/financeiro/movimentos-caixa?inicio=&fim=` | GET | `caixa_movs_local` JOIN `caixa_local` (venda_id=null no cache) | `cloudAdapter.financeiro.movimentosCaixaPeriodo` | ✅ **Feito** |
 | 8 | `lancamentosAvulsosPagos({inicio,fim})` | `/api/financeiro/avulsos-pagos?inicio=&fim=`    | GET   | `financeiro_lancamentos_local` (JSON1: caixa_id/venda_id null + data_pagamento) | `cloudAdapter.financeiro.lancamentosAvulsosPagos` | ✅ **Feito** |
-| 9 | `pagamentosPorLancamento(lancId)`| `/api/financeiro/pagamentos?lancamento_id=`            | GET   | ❌ **falta `pagamentos_local`** (migration + sync)                            | `cloudAdapter.financeiro.pagamentosPorLancamento` | 🚫 Bloqueado |
+| 9 | `pagamentosPorLancamento(lancId)`| `/api/financeiro/pagamentos?lancamento_id=`            | GET   | `pagamentos_local` (PR-F0): cache on-demand por `lancamento_id` — handler tenta upstream → ingest → fallback cache stale | `cloudAdapter.financeiro.pagamentosPorLancamento` | ✅ **Feito** |
 |10 | `lancamentoFks(lancId)`          | `/api/financeiro/lancamento-fks?lancamento_id=`        | GET   | `financeiro_lancamentos_local.payload` (extrai FKs do JSON)                   | `cloudAdapter.financeiro.lancamentoFks`   | ✅ **Feito** |
 |11 | `listIfoodPendentes({limit?})`   | `/api/financeiro/ifood-pendentes?limit=`               | GET   | `financeiro_lancamentos_local` (JSON1: forma_pagamento='ifood' AND status='pendente'; cliente.nome embutido via PostgREST) | `cloudAdapter.financeiro.listIfoodPendentes` | ✅ **Feito** |
 
 ### Status geral da Onda 2
 
-Status atual:
-- ✅ 1, 2, 3, 4, 6, 7, 8, 10, 11 — local-first com `withCloudFallback`.
+✅ **Onda 2 completa** — todos os 11 métodos do `financeiro` são local-first
+com `withCloudFallback`:
+- ✅ 1, 2, 3, 4, 6, 7, 8, 10, 11 — agregações/leituras em caches existentes.
 - ✅ 5 já era local via proxy/cache existente.
-- 🚫 9 segue pendente de **PR-F0 (sync)**: criar e sincronizar
-  `pagamentos_local` (tabela `lancamento_pagamentos` upstream). Sem esse
-  cache o local retornaria listas vazias — propositalmente continua
-  herdando o `cloudAdapter`.
+- ✅ 9 — novo cache `pagamentos_local` (PR-F0) populado on-demand pelo
+  handler (upstream → ingest → cache stale offline).
 
 ---
 
