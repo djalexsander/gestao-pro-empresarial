@@ -1746,7 +1746,7 @@ function PDVPage() {
                             <div />
                           </li>
                         )}
-                      </div>
+                      </Fragment>
                     );
                   })}
                 </ul>
