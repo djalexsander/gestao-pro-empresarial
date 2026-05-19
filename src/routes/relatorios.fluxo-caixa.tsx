@@ -137,8 +137,8 @@ function Conteudo() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Fluxo de Caixa"
-        description="Entradas e saídas registradas no financeiro."
+        title="Fluxo Financeiro Gerencial"
+        description="Lançamentos administrativos: compras, despesas, fornecedores, contas a pagar/receber."
         actions={
           <div className="flex gap-2">
             <Button
