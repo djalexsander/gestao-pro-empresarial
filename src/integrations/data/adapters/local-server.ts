@@ -1059,34 +1059,69 @@ export const localServerAdapter: DataAdapter = {
         () => cloudAdapter.vendas.metricasPeriodo(input),
       ),
     finalizar: async (input) => {
-      const r = await postLocalAuth<{
-        venda_id: string;
-        idempotente: boolean;
-        outbox_status: "pending" | "sending" | "sent" | "error";
-        remote_id: string | null;
-      }>("/api/vendas/registrar", {
-        cliente_id: input.cliente_id,
-        subtotal: input.subtotal,
-        desconto: input.desconto,
-        total: input.total,
-        forma_pagamento: input.forma_pagamento,
-        status_pagamento: input.status_pagamento,
-        valor_recebido: input.valor_recebido,
-        troco: input.troco,
-        observacao: input.observacao,
-        itens: input.itens as unknown[],
-        pagamentos: (input.pagamentos ?? []) as unknown[],
-        gerar_financeiro: input.gerar_financeiro ?? true,
-        operador_id: input.operador_id ?? null,
-        terminal_id: input.terminal_id ?? null,
-        client_uuid: input.client_uuid ?? null,
-      });
-      if (r) {
-        reportDataSource({ source: "local-server", domain: "vendas", method: "finalizar", fallback: false });
-        return r.remote_id ?? r.venda_id;
+      const online = typeof navigator === "undefined" ? true : navigator.onLine;
+      const baseUrl = await resolveBaseUrl();
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.log("[PDV_FINALIZAR] iniciado", {
+          modo: baseUrl ? "local-server" : "cloud",
+          online,
+          itens: input.itens?.length ?? 0,
+          total: input.total,
+        });
       }
+      if (baseUrl) {
+        if (import.meta.env.DEV) console.log("[PDV_FINALIZAR_LOCAL] gravando SQLite");
+        const local = await postLocalAuthDetail<{
+          venda_id: string;
+          idempotente: boolean;
+          outbox_status: "pending" | "sending" | "sent" | "error";
+          remote_id: string | null;
+        }>("/api/vendas/registrar", {
+          cliente_id: input.cliente_id,
+          subtotal: input.subtotal,
+          desconto: input.desconto,
+          total: input.total,
+          forma_pagamento: input.forma_pagamento,
+          status_pagamento: input.status_pagamento,
+          valor_recebido: input.valor_recebido,
+          troco: input.troco,
+          observacao: input.observacao,
+          itens: input.itens as unknown[],
+          pagamentos: (input.pagamentos ?? []) as unknown[],
+          gerar_financeiro: input.gerar_financeiro ?? true,
+          operador_id: input.operador_id ?? null,
+          terminal_id: input.terminal_id ?? null,
+          client_uuid: input.client_uuid ?? null,
+        }, 15_000);
+        if (local.ok) {
+          reportDataSource({ source: "local-server", domain: "vendas", method: "finalizar", fallback: false });
+          if (import.meta.env.DEV) {
+            console.log("[PDV_FINALIZAR_LOCAL] estoque baixado / caixa vinculado", local.data);
+            console.log("[PDV_FINALIZAR_OUTBOX]", { status: local.data.outbox_status });
+            console.log("[PDV_FINALIZAR_OK] venda finalizada", {
+              modo: "local-server",
+              venda_id: local.data.venda_id,
+            });
+          }
+          return local.data.remote_id ?? local.data.venda_id;
+        }
+        if (local.reason === "http_error") {
+          if (import.meta.env.DEV) console.warn("[PDV_FINALIZAR_ERRO] servidor local rejeitou", local);
+          throw new Error(local.error);
+        }
+        if (!online) {
+          if (import.meta.env.DEV) console.warn("[PDV_FINALIZAR_ERRO] offline e servidor local indisponível");
+          throw new Error("Sem conexão com o servidor local. Verifique se o servidor está em execução para finalizar a venda.");
+        }
+      } else if (!online) {
+        if (import.meta.env.DEV) console.warn("[PDV_FINALIZAR_ERRO] offline sem servidor local");
+        throw new Error("Sem conexão com a internet e sem servidor local. Não foi possível finalizar a venda.");
+      }
+      if (import.meta.env.DEV) console.log("[PDV_FINALIZAR] fallback cloud");
       const result = await cloudAdapter.vendas.finalizar(input);
       reportDataSource({ source: "cloud", domain: "vendas", method: "finalizar", fallback: true });
+      if (import.meta.env.DEV) console.log("[PDV_FINALIZAR_OK] venda finalizada", { modo: "cloud", venda_id: result });
       return result;
     },
     cancelar: async (input) => {
