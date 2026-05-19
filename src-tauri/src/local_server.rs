@@ -4332,6 +4332,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/db/outbox/categorias-produto/retry-errors", post(outbox_categorias_produto_retry_errors_handler))
         .route("/api/financeiro/lancamentos-completo", get(financeiro_lancamentos_completo_handler))
         .route("/api/compras", get(compras_handler))
+        .route("/api/compras/fornecedor-metricas", get(compras_fornecedor_metricas_handler))
         .route("/api/vendas/historico", get(vendas_historico_handler))
         .route("/api/vendas/metricas-periodo", get(vendas_metricas_periodo_handler))
         .route("/api/relatorios/caixas", get(relatorios_caixas_handler))
