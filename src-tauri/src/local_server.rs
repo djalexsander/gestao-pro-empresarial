@@ -3091,10 +3091,73 @@ async fn financeiro_receber_origem_handler(
 }
 
 
+// ---------- /api/financeiro/performance-periodo (Onda 2 — item 3) ----------
+//
+// Agrega `PerformancePeriodoDomain` direto dos caches locais
+// `vendas_remote_cache` + `venda_itens_remote_cache`. O cache de itens
+// já vem com `produto.preco_custo` embutido (ver `relatorios_venda_itens_handler`),
+// permitindo cálculo de margem 100% offline. Se o cache de vendas estiver
+// vazio, devolve 503 para forçar fallback cloud.
 
-
-
-
+async fn financeiro_performance_periodo_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let inicio = q
+        .get("inicio")
+        .cloned()
+        .ok_or((StatusCode::BAD_REQUEST, "inicio é obrigatório".into()))?;
+    let fim = q
+        .get("fim")
+        .cloned()
+        .ok_or((StatusCode::BAD_REQUEST, "fim é obrigatório".into()))?;
+    let inicio_ms = parse_iso_date_ms(&inicio).unwrap_or(0);
+    let fim_ms = parse_iso_date_ms(&fim)
+        .map(|d| d + 24 * 60 * 60 * 1000 - 1)
+        .unwrap_or(i64::MAX);
+    let result = db::performance_periodo_local(inicio_ms, fim_ms).map_err(|e| {
+        eprintln!("[LOCAL_FINANCE] performance-periodo falha: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    })?;
+    let (total_vendido, qtd_vendas, custo_total, qtd_itens, qtd_sem_custo) = match result {
+        Some(t) => t,
+        None => {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                "cache de vendas vazio — fallback cloud".into(),
+            ));
+        }
+    };
+    let lucro_bruto = total_vendido - custo_total;
+    let margem_pct = if total_vendido > 0.0 {
+        (lucro_bruto / total_vendido) * 100.0
+    } else {
+        0.0
+    };
+    eprintln!(
+        "[LOCAL_FINANCE] performance-periodo hit inicio={inicio} fim={fim} vendas={qtd_vendas}"
+    );
+    let body = serde_json::json!({
+        "data": {
+            "totalVendido": total_vendido,
+            "qtdVendas": qtd_vendas,
+            "custoTotal": custo_total,
+            "qtdItens": qtd_itens,
+            "qtdItensSemCusto": qtd_sem_custo,
+            "lucroBruto": lucro_bruto,
+            "margemPct": margem_pct,
+        }
+    });
+    let mut resp = axum::response::Response::new(axum::body::Body::from(body.to_string()));
+    resp.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    resp.headers_mut().insert(
+        axum::http::HeaderName::from_static("x-gp-source"),
+        axum::http::HeaderValue::from_static("local-table"),
+    );
+    Ok(resp)
+}
 
 
 
@@ -3896,6 +3959,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/financeiro/avulsos-pagos", get(financeiro_avulsos_pagos_handler))
         .route("/api/financeiro/posicao-periodo", get(financeiro_posicao_periodo_handler))
         .route("/api/financeiro/receber-origem", get(financeiro_receber_origem_handler))
+        .route("/api/financeiro/performance-periodo", get(financeiro_performance_periodo_handler))
         .route("/api/financeiro/receber", get(financeiro_receber_listar_handler))
         .route("/api/financeiro/receber/baixar", post(financeiro_receber_baixar_handler))
         .route("/api/financeiro/receber/cancelar", post(financeiro_receber_cancelar_handler))

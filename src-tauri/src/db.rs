@@ -3207,6 +3207,82 @@ pub fn receber_origem_local(
     })
 }
 
+/// Onda 2 — item 3: agrega `PerformancePeriodoDomain` direto dos caches
+/// `vendas_remote_cache` + `venda_itens_remote_cache`. O cache de itens
+/// já vem da nuvem com `produto:produtos(...,preco_custo)` embutido no
+/// payload (ver `relatorios_venda_itens_handler` no local_server.rs),
+/// portanto temos custo unitário disponível offline sem cache novo.
+///
+/// Filtro temporal: `v.data_emissao_ms BETWEEN ?1 AND ?2`. Difere do
+/// cloud que usa `data_finalizacao` (timestamp completo), mas para
+/// agregação diária a diferença é desprezível — cloud continua
+/// autoritativo via fallback.
+///
+/// Retorna `None` se o cache de vendas está totalmente vazio
+/// (provavelmente sync inicial ainda não rodou) — o adapter cai em cloud.
+pub fn performance_periodo_local(
+    inicio_ms: i64,
+    fim_ms: i64,
+) -> DbResult<Option<(f64, i64, f64, i64, i64)>> {
+    with_conn(|conn| {
+        // Safety gate: se o cache de vendas está completamente vazio,
+        // devolve None para que o adapter caia em cloud. Caso contrário
+        // retornaríamos zeros falsos quando o sync ainda não rodou.
+        let total_vendas_cache: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM vendas_remote_cache WHERE deleted_at_ms IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        if total_vendas_cache == 0 {
+            return Ok(None);
+        }
+
+        // Agrega vendas do período (não-canceladas).
+        let (total_vendido, qtd_vendas): (f64, i64) = conn.query_row(
+            "SELECT COALESCE(SUM(CAST(json_extract(payload, '$.total') AS REAL)), 0),
+                    COUNT(*)
+             FROM vendas_remote_cache
+             WHERE deleted_at_ms IS NULL
+               AND COALESCE(status, '') <> 'cancelada'
+               AND data_emissao_ms BETWEEN ?1 AND ?2",
+            params![inicio_ms, fim_ms],
+            |r| Ok((r.get::<_, f64>(0)?, r.get::<_, i64>(1)?)),
+        )?;
+
+        // Agrega itens do período via JOIN com vendas. `preco_custo` vem
+        // do produto embutido no payload pelo PostgREST.
+        let mut stmt = conn.prepare(
+            "SELECT COALESCE(CAST(json_extract(vi.payload, '$.quantidade') AS REAL), 0),
+                    COALESCE(CAST(json_extract(vi.payload, '$.produto.preco_custo') AS REAL), 0)
+             FROM venda_itens_remote_cache vi
+             JOIN vendas_remote_cache v ON v.id = vi.venda_id
+             WHERE vi.deleted_at_ms IS NULL
+               AND v.deleted_at_ms IS NULL
+               AND COALESCE(v.status, '') <> 'cancelada'
+               AND v.data_emissao_ms BETWEEN ?1 AND ?2",
+        )?;
+        let mut rows = stmt.query(params![inicio_ms, fim_ms])?;
+        let (mut custo_total, mut qtd_itens, mut qtd_sem_custo) = (0.0_f64, 0_i64, 0_i64);
+        while let Some(row) = rows.next()? {
+            let qtd: f64 = row.get(0)?;
+            let pc: f64 = row.get(1)?;
+            qtd_itens += 1;
+            if pc <= 0.0 {
+                qtd_sem_custo += 1;
+            }
+            custo_total += pc * qtd;
+        }
+
+        Ok(Some((
+            total_vendido,
+            qtd_vendas,
+            custo_total,
+            qtd_itens,
+            qtd_sem_custo,
+        )))
+    })
+}
+
 // ---------- Compras (v15) ----------
 //
 // Cache do payload completo da listagem de compras com fornecedor embutido,

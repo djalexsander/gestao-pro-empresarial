@@ -1216,6 +1216,22 @@ export const localServerAdapter: DataAdapter = {
           ),
         () => cloudAdapter.financeiro.posicaoPeriodo(periodo),
       ),
+    // Onda 2 — item 3: performancePeriodo agregado dos caches locais
+    // `vendas_remote_cache` + `venda_itens_remote_cache` (este último já
+    // traz `produto.preco_custo` embutido via PostgREST).
+    performancePeriodo: async (periodo) =>
+      withCloudFallback(
+        "financeiro",
+        "performancePeriodo",
+        () =>
+          tryLocal<Awaited<ReturnType<typeof cloudAdapter.financeiro.performancePeriodo>>>(
+            "financeiro",
+            "performancePeriodo",
+            "/api/financeiro/performance-periodo",
+            { inicio: periodo.inicio, fim: periodo.fim },
+          ),
+        () => cloudAdapter.financeiro.performancePeriodo(periodo),
+      ),
     // Onda 2 — item 4: receberOrigem agregado direto do cache local.
     // Passa `hoje` (data local do cliente) para alinhar a noção de
     // "vencidos hoje" com o fuso do usuário.
