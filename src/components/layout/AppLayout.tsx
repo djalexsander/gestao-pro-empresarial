@@ -148,6 +148,7 @@ function AppShell() {
   // Trocar modo: navega ANTES de limpar o estado pra evitar flicker e
   // que o guard do AppLayout dispare uma segunda navegação.
   const handleTrocarModo = useCallback(() => {
+    console.log("[MODE_SWITCH] alternando ERP/PDV");
     navigate({ to: "/hub", replace: true });
     // Limpa o modo no próximo tick, depois que a navegação foi enfileirada.
     queueMicrotask(() => clearModo());
@@ -162,6 +163,7 @@ function AppShell() {
           <div className="flex-1">
             <AppMenubar activeModule={activeModule} onModuleSelect={setOverrideModule} />
           </div>
+          <SyncStatusPill />
           <DesktopRoleBadge />
           {modoAtual && (
             <button
