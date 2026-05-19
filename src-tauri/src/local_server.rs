@@ -3482,6 +3482,29 @@ async fn vendas_metricas_periodo_handler(
     Ok(typed_response(StatusCode::OK, "local-table", wrapped.into_bytes()))
 }
 
+// ---------- /api/compras/fornecedor-metricas (Onda 3 — PR-O3-2) ----------
+//
+// Espelha o RPC `fornecedor_metricas`: agregação por fornecedor a partir
+// de `compras_local` + `fornecedores_local`. 503 quando cache de
+// fornecedores estiver vazio (cache frio → fallback cloud).
+
+async fn compras_fornecedor_metricas_handler(
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let body_opt = db::compras_fornecedor_metricas_local().map_err(|e| {
+        eprintln!("[LOCAL_COMPRAS] fornecedor-metricas falha: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    })?;
+    let Some(body) = body_opt else {
+        eprintln!("[LOCAL_COMPRAS] fornecedor-metricas cache frio → fallback cloud");
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "cache de fornecedores vazio".into(),
+        ));
+    };
+    let wrapped = format!(r#"{{"data":{body}}}"#);
+    Ok(typed_response(StatusCode::OK, "local-table", wrapped.into_bytes()))
+}
+
 // ---------- /api/relatorios/caixas (v17) ----------
 //
 // Cache de leitura para os relatórios de caixa (cardCaixas + caixasSessoes).
@@ -4309,6 +4332,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/db/outbox/categorias-produto/retry-errors", post(outbox_categorias_produto_retry_errors_handler))
         .route("/api/financeiro/lancamentos-completo", get(financeiro_lancamentos_completo_handler))
         .route("/api/compras", get(compras_handler))
+        .route("/api/compras/fornecedor-metricas", get(compras_fornecedor_metricas_handler))
         .route("/api/vendas/historico", get(vendas_historico_handler))
         .route("/api/vendas/metricas-periodo", get(vendas_metricas_periodo_handler))
         .route("/api/relatorios/caixas", get(relatorios_caixas_handler))

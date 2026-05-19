@@ -3951,6 +3951,79 @@ pub fn vendas_metricas_periodo_local(
     })
 }
 
+// ---------- Compras: métricas agregadas por fornecedor (RPC `fornecedor_metricas`) ----------
+//
+// Espelha `public.fornecedor_metricas()` no SQLite. LEFT JOIN equivalente:
+// inclui todos os fornecedores (mesmo sem compras). Status 'cancelada' fica
+// fora de `total_compras` e `valor_total`; `compras_em_aberto` conta status
+// pendente/aprovada/recebida_parcial/rascunho.
+//
+// Safety gate: retorna None se `fornecedores_local` estiver vazio (cache
+// frio) — o caller faz fallback para a cloud.
+pub fn compras_fornecedor_metricas_local() -> DbResult<Option<String>> {
+    with_conn(|conn| {
+        let total_forn: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM fornecedores_local WHERE deleted_at_ms IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        if total_forn == 0 {
+            return Ok(None);
+        }
+        let mut stmt = conn.prepare(
+            "SELECT
+                f.id,
+                COALESCE(SUM(CASE WHEN c.status IS NOT NULL AND c.status != 'cancelada' THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN c.status IS NOT NULL AND c.status != 'cancelada'
+                                  THEN CAST(json_extract(c.payload, '$.total') AS REAL)
+                                  ELSE 0 END), 0),
+                MAX(CASE WHEN c.status IS NOT NULL AND c.status != 'cancelada'
+                         THEN c.data_emissao_ms END),
+                COALESCE(SUM(CASE WHEN c.status IN ('pendente','aprovada','recebida_parcial','rascunho')
+                                  THEN 1 ELSE 0 END), 0)
+             FROM fornecedores_local f
+             LEFT JOIN compras_local c
+                ON c.fornecedor_id = f.id AND c.deleted_at_ms IS NULL
+             WHERE f.deleted_at_ms IS NULL
+             GROUP BY f.id",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            let id: String = r.get(0)?;
+            let total: i64 = r.get(1)?;
+            let valor: f64 = r.get(2)?;
+            let ultima_ms: Option<i64> = r.get(3)?;
+            let em_aberto: i64 = r.get(4)?;
+            Ok((id, total, valor, ultima_ms, em_aberto))
+        })?;
+        let mut out = String::from("[");
+        let mut first = true;
+        for r in rows {
+            let (id, total, valor, ultima_ms, em_aberto) = r?;
+            let ultima = match ultima_ms {
+                Some(ms) => {
+                    let secs = ms / 1000;
+                    let s: String = conn.query_row(
+                        "SELECT date(?1, 'unixepoch')",
+                        params![secs],
+                        |row| row.get(0),
+                    )?;
+                    format!("\"{}\"", s)
+                }
+                None => "null".to_string(),
+            };
+            if !first {
+                out.push(',');
+            }
+            first = false;
+            out.push_str(&format!(
+                r#"{{"fornecedor_id":"{id}","total_compras":{total},"valor_total":{valor},"ultima_compra":{ultima},"compras_em_aberto":{em_aberto}}}"#
+            ));
+        }
+        out.push(']');
+        Ok(Some(out))
+    })
+}
+
 // ---------- Caches de relatórios: caixas / movimentos / func / term ----------
 
 fn ingest_simple_cache(

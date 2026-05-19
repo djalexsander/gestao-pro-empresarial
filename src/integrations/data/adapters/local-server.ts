@@ -988,6 +988,38 @@ export const localServerAdapter: DataAdapter = {
       await cloudAdapter.compras.excluir(compraId);
       reportDataSource({ source: "cloud", domain: "compras", method: "excluir", fallback: true });
     },
+    fornecedorMetricas: () =>
+      withCloudFallback(
+        "compras",
+        "fornecedorMetricas",
+        async () => {
+          const rows = await tryLocal<
+            Array<{
+              fornecedor_id: string;
+              total_compras: number;
+              valor_total: number;
+              ultima_compra: string | null;
+              compras_em_aberto: number;
+            }>
+          >("compras", "fornecedorMetricas", "/api/compras/fornecedor-metricas");
+          if (!rows) return null;
+          const map = new Map<
+            string,
+            import("../extra-types").FornecedorMetricaDomain
+          >();
+          for (const r of rows) {
+            map.set(r.fornecedor_id, {
+              fornecedor_id: r.fornecedor_id,
+              total_compras: Number(r.total_compras ?? 0),
+              valor_total: Number(r.valor_total ?? 0),
+              ultima_compra: r.ultima_compra ?? null,
+              compras_em_aberto: Number(r.compras_em_aberto ?? 0),
+            });
+          }
+          return map;
+        },
+        () => cloudAdapter.compras.fornecedorMetricas(),
+      ),
   },
 
   // -----------------------------------------------------------------
