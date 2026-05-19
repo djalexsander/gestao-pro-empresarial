@@ -1,6 +1,6 @@
 import { dataClient } from "@/integrations/data/client";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -79,6 +79,9 @@ import { exportarBlocoCSV, exportarBlocoPDF } from "@/lib/export-bloco";
 import { ExportFormatDialog } from "@/components/shared/ExportFormatDialog";
 import { exportarRelatorioCard, type ExportFormato } from "@/lib/export-relatorio-card";
 import { toast } from "sonner";
+import { CarteiraDialog } from "@/components/financeiro/CarteiraDialog";
+import { SaldoPrevistoDialog } from "@/components/financeiro/SaldoPrevistoDialog";
+
 
 type FinTab = "receber" | "pagar" | "fluxo" | "fluxo-financeiro";
 
@@ -216,6 +219,21 @@ function FinanceContent() {
   const totalRec = receber.reduce((s, l) => s + Number(l.valor) - Number(l.valor_pago ?? 0), 0);
   const totalPay = pagar.reduce((s, l) => s + Number(l.valor) - Number(l.valor_pago ?? 0), 0);
   const saldo = totalRec - totalPay;
+
+  // DEV log — Posição financeira
+  useEffect(() => {
+    if (typeof window === "undefined" || !import.meta.env.DEV) return;
+    if (!posicao) return;
+    // eslint-disable-next-line no-console
+    console.log("[POSICAO_FINANCEIRA]", {
+      total_a_receber: posicao.totalReceber,
+      qtd_receber: posicao.qtdReceber,
+      total_a_pagar: posicao.totalPagar,
+      qtd_pagar: posicao.qtdPagar,
+      saldo_previsto: posicao.saldo,
+      periodo: { inicio: posicao.periodo.inicio, fim: posicao.periodo.fim },
+    });
+  }, [posicao]);
 
   const consolidado = useMemo(
     () => buildConsolidado({ totalRec, totalPay, saldo, receber, pagar, ind }),
@@ -578,7 +596,11 @@ function FinanceContent() {
       />
 
       <BlocoModais
-        bloco={blocoAberto}
+        bloco={
+          blocoAberto === "receber" || blocoAberto === "pagar" || blocoAberto === "saldo"
+            ? null
+            : blocoAberto
+        }
         onClose={() => setBlocoAberto(null)}
         receber={receber}
         pagar={pagar}
@@ -586,6 +608,36 @@ function FinanceContent() {
         totalPay={totalPay}
         saldo={saldo}
         ind={ind}
+      />
+
+      <CarteiraDialog
+        open={blocoAberto === "receber"}
+        onOpenChange={(o) => !o && setBlocoAberto(null)}
+        tipo="receber"
+        lancamentos={lancamentos}
+        onSelect={(l) => {
+          setBlocoAberto(null);
+          setSelected(l);
+        }}
+      />
+
+      <CarteiraDialog
+        open={blocoAberto === "pagar"}
+        onOpenChange={(o) => !o && setBlocoAberto(null)}
+        tipo="pagar"
+        lancamentos={lancamentos}
+        onSelect={(l) => {
+          setBlocoAberto(null);
+          setSelected(l);
+        }}
+      />
+
+      <SaldoPrevistoDialog
+        open={blocoAberto === "saldo"}
+        onOpenChange={(o) => !o && setBlocoAberto(null)}
+        lancamentos={lancamentos}
+        periodoInicio={posicao?.periodo.inicio ?? new Date().toISOString().slice(0, 10)}
+        periodoFim={posicao?.periodo.fim ?? new Date().toISOString().slice(0, 10)}
       />
 
       <ExportFormatDialog
