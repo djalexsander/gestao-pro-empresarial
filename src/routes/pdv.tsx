@@ -519,14 +519,17 @@ function PDVPage() {
   }, [focusScanInput, hasPriorityOverlay]);
 
   // ============ Totais ============
+  // Itens cancelados são exibidos na tela com linha "CANCELADO" e valor negativo,
+  // mas NÃO entram nos totais (subtotal/desconto/total) — efetivamente saem da venda.
   const totals = useMemo(() => {
-    const subtotal = items.reduce(
+    const ativos = items.filter((it) => !it.cancelado);
+    const subtotal = ativos.reduce(
       (acc, it) => acc + it.preco_unitario * it.quantidade,
       0,
     );
-    const descontoTotal = items.reduce((acc, it) => acc + it.desconto, 0);
+    const descontoTotal = ativos.reduce((acc, it) => acc + it.desconto, 0);
     const total = Math.max(0, subtotal - descontoTotal);
-    const totalItens = items.reduce((acc, it) => acc + it.quantidade, 0);
+    const totalItens = ativos.reduce((acc, it) => acc + it.quantidade, 0);
     return { subtotal, descontoTotal, total, totalItens };
   }, [items]);
 
