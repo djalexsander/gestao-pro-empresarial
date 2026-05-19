@@ -136,7 +136,19 @@ mostram quais métodos herdam direto da cloud (sem fallback local):
      `categorias_financeiras`. Próxima sub-onda: adicionar cache via
      `proxy_with_incremental_sync` ou derivar do cache de lançamentos.
    - 🔒 `atualizarObservacaoCaixa` — mutation, segue cloud-only (correto).
-3. **PR-O3-3** (vendas leituras) — destrava telas de Vendas offline.
+3. **PR-O3-3** (vendas leituras) — ✅ **parcial**:
+   - ✅ `vendas.list` já era local-first (de antes).
+   - ✅ `vendas.metricasPeriodo` — novo endpoint
+     `GET /api/vendas/metricas-periodo?inicio=&fim=` agrega
+     `vendas_remote_cache` via JSON1 (`qtd_vendas`, `qtd_canceladas`,
+     `total_vendido`, `ticket_medio`, `qtd_pendentes`, `valor_pendente`).
+     Safety gate: 503 com fallback cloud se cache vazio. `valor_pendente`
+     é aproximado por `SUM(total)` em status_pagamento != pago.
+   - ⏭️ `vendas.detalhe(id)` — adiado: depende de pagamentos cruzados
+     (vendas registradas localmente vs. vindas do sync), risco de
+     drift. Cloud direto é aceitável para clique pontual.
+   - ⏭️ `vendas.historico(id)` — adiado: requer cache novo de
+     `vendas_status_historico`.
 4. **PR-O3-2** (compras) — maior, depende de sync.
 5. **PR-O3-5** (dashboard) — depende dos anteriores.
 6. **PR-O3-6** (QA) — fecha a onda.
