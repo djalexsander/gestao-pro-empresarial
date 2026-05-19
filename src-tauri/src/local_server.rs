@@ -3505,6 +3505,7 @@ async fn compras_fornecedor_metricas_handler(
     Ok(typed_response(StatusCode::OK, "local-table", wrapped.into_bytes()))
 }
 
+// ---------- /api/relatorios/caixas (v17) ----------
 //
 // Cache de leitura para os relatórios de caixa (cardCaixas + caixasSessoes).
 // Filtragem por período / operador / terminal / status é feita client-side
