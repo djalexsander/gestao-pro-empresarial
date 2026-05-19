@@ -100,6 +100,7 @@ import { cn } from "@/lib/utils";
 import { formatBRL } from "@/lib/mock-data";
 import { useConfigEmpresa } from "@/hooks/useConfigEmpresa";
 import { withTimeoutFallback } from "@/lib/withTimeout";
+import { CancelarItemDialog } from "@/components/pdv/CancelarItemDialog";
 
 // ============================================================================
 // Local-first PDV — timeouts curtos para nunca travar a adição de item.
