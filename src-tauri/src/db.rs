@@ -3579,6 +3579,92 @@ pub fn list_ifood_pendentes_local(limit: i64) -> DbResult<Option<String>> {
     })
 }
 
+/// Onda 2 — item 9 (PR-F0): substitui no cache `pagamentos_local` todos
+/// os pagamentos do `lancamento_id` informado pelos itens do array JSON
+/// recebido do upstream. Cada item deve conter `id` (string).
+/// Retorna a contagem de registros inseridos/atualizados.
+pub fn replace_pagamentos_for_lancamento(
+    lancamento_id: &str,
+    json_text: &str,
+    now_ms: i64,
+) -> DbResult<usize> {
+    let arr: serde_json::Value = serde_json::from_str(json_text)
+        .map_err(|e| DbError(format!("replace_pagamentos: json inválido: {e}")))?;
+    let items = match arr.as_array() {
+        Some(a) => a.clone(),
+        None => return Ok(0),
+    };
+    with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+        // Apaga registros locais desse lançamento (sync autoritativo upstream).
+        tx.execute(
+            "DELETE FROM pagamentos_local WHERE lancamento_id = ?1",
+            params![lancamento_id],
+        )?;
+        let mut count = 0usize;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO pagamentos_local(id, lancamento_id, payload, synced_at_ms, deleted_at_ms)
+                 VALUES (?1, ?2, ?3, ?4, NULL)
+                 ON CONFLICT(id) DO UPDATE SET
+                    lancamento_id = excluded.lancamento_id,
+                    payload       = excluded.payload,
+                    synced_at_ms  = excluded.synced_at_ms,
+                    deleted_at_ms = NULL",
+            )?;
+            for item in &items {
+                let id = match json_str(item, "id") {
+                    Some(s) => s.to_string(),
+                    None => continue,
+                };
+                let payload = serde_json::to_string(item).unwrap_or_else(|_| "{}".into());
+                stmt.execute(params![id, lancamento_id, payload, now_ms])?;
+                count += 1;
+            }
+        }
+        tx.commit()?;
+        Ok(count)
+    })
+}
+
+/// Onda 2 — item 9 (PR-F0): lê do cache `pagamentos_local` o histórico
+/// de pagamentos de um lançamento, ordenado por `data_pagamento` desc.
+/// Retorna JSON-string array no shape de `LancamentoPagamentoHistDomain[]`.
+pub fn read_pagamentos_por_lancamento(lancamento_id: &str) -> DbResult<String> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT json_object(
+                'id', id,
+                'valor', COALESCE(CAST(json_extract(payload, '$.valor') AS REAL), 0),
+                'data_pagamento', json_extract(payload, '$.data_pagamento'),
+                'forma_pagamento', json_extract(payload, '$.forma_pagamento'),
+                'observacao', json_extract(payload, '$.observacao'),
+                'created_at', json_extract(payload, '$.created_at')
+             )
+             FROM pagamentos_local
+             WHERE deleted_at_ms IS NULL
+               AND lancamento_id = ?1
+             ORDER BY json_extract(payload, '$.data_pagamento') DESC",
+        )?;
+        let mut rows = stmt.query(params![lancamento_id])?;
+        let mut out = String::from("[");
+        let mut first = true;
+        while let Some(row) = rows.next()? {
+            let s: String = row.get(0)?;
+            if !first {
+                out.push(',');
+            }
+            out.push_str(&s);
+            first = false;
+        }
+        out.push(']');
+        Ok(out)
+    })
+}
+
+
+
+
 
 
 
