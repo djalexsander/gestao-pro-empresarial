@@ -594,35 +594,40 @@ function PDVPage() {
     nome: string,
     qtdNova: number,
   ): Promise<boolean> {
-    try {
-      const saldos = await saldosLote.mutateAsync([produtoId]);
-      const saldo = saldos.get(produtoId) ?? 0;
-      const noCarrinho = items
-        .filter((i) => i.produto_id === produtoId)
-        .reduce((s, i) => s + i.quantidade, 0);
-      const totalPedido = noCarrinho + qtdNova;
-      if (saldo < totalPedido) {
-        som.beep("error");
-        toast.error(
-          `Estoque insuficiente para "${nome}".`,
-          {
-            description: `Disponível: ${saldo}. ${
-              noCarrinho > 0
-                ? `Já no carrinho: ${noCarrinho}. Tentando adicionar: ${qtdNova}.`
-                : `Tentando adicionar: ${qtdNova}.`
-            } Reduza a quantidade ou atualize o estoque.`,
-            duration: 5000,
-          },
-        );
-        return false;
+    // Local-first: timeout curto. Se cloud demorar (offline / instável), NÃO
+    // bloqueia a adição — o backend ainda valida na finalização da venda.
+    const saldos = await withTimeoutFallback(
+      saldosLote.mutateAsync([produtoId]),
+      PDV_SALDO_TIMEOUT_MS,
+      () => new Map<string, number>(),
+      "pdv:saldosLote",
+    );
+    const saldo = saldos.get(produtoId);
+    if (saldo == null) {
+      // Sem resposta a tempo → não bloqueia (validação definitiva no backend).
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.debug("[PDV_OFFLINE] saldo indisponível em tempo hábil — seguindo local-first", { produtoId });
       }
       return true;
-    } catch (e) {
-      // Em caso de falha na consulta de saldo, NÃO bloqueia — o backend
-      // ainda fará a validação definitiva ao finalizar a venda.
-      console.warn("Falha ao consultar saldo para validação preventiva:", e);
-      return true;
     }
+    const noCarrinho = items
+      .filter((i) => i.produto_id === produtoId)
+      .reduce((s, i) => s + i.quantidade, 0);
+    const totalPedido = noCarrinho + qtdNova;
+    if (saldo < totalPedido) {
+      som.beep("error");
+      toast.error(`Estoque insuficiente para "${nome}".`, {
+        description: `Disponível: ${saldo}. ${
+          noCarrinho > 0
+            ? `Já no carrinho: ${noCarrinho}. Tentando adicionar: ${qtdNova}.`
+            : `Tentando adicionar: ${qtdNova}.`
+        } Reduza a quantidade ou atualize o estoque.`,
+        duration: 5000,
+      });
+      return false;
+    }
+    return true;
   }
 
   // ============ Balança / peso ============
