@@ -172,7 +172,23 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
   return (
     <>
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[90vh] max-w-lg flex-col p-0">
+      <DialogContent
+        className="flex max-h-[90vh] max-w-lg flex-col p-0"
+        onOpenAutoFocus={(e) => {
+          // Radix por padrão foca o primeiro elemento focável (botão fechar).
+          // Aqui forçamos o foco no campo "Valor contado" para o operador
+          // poder digitar imediatamente, sem mouse.
+          e.preventDefault();
+          const el = valorRef.current;
+          if (el) {
+            el.focus();
+            el.select();
+            if (import.meta.env.DEV) {
+              console.info("[CAIXA_UX] foco aplicado no valor contado");
+            }
+          }
+        }}
+      >
         <DialogHeader className="shrink-0 border-b border-border px-6 pb-4 pt-6">
           <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
             <PowerOff className="h-6 w-6" />
