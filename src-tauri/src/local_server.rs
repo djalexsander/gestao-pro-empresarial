@@ -3959,6 +3959,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/financeiro/avulsos-pagos", get(financeiro_avulsos_pagos_handler))
         .route("/api/financeiro/posicao-periodo", get(financeiro_posicao_periodo_handler))
         .route("/api/financeiro/receber-origem", get(financeiro_receber_origem_handler))
+        .route("/api/financeiro/performance-periodo", get(financeiro_performance_periodo_handler))
         .route("/api/financeiro/receber", get(financeiro_receber_listar_handler))
         .route("/api/financeiro/receber/baixar", post(financeiro_receber_baixar_handler))
         .route("/api/financeiro/receber/cancelar", post(financeiro_receber_cancelar_handler))
