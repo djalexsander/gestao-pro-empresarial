@@ -1156,6 +1156,22 @@ export const localServerAdapter: DataAdapter = {
           ),
         () => cloudAdapter.financeiro.lancamentoFks(lancamentoId),
       ),
+    // Onda 2 — item 6: agregação de fluxo por forma direto do SQLite
+    // (venda_pagamentos_local + vendas_local). Cai em cloud se o servidor
+    // local responder erro/null.
+    fluxoPorForma: async ({ inicio, fim }) =>
+      withCloudFallback(
+        "financeiro",
+        "fluxoPorForma",
+        () =>
+          tryLocal<Awaited<ReturnType<typeof cloudAdapter.financeiro.fluxoPorForma>>>(
+            "financeiro",
+            "fluxoPorForma",
+            "/api/financeiro/fluxo-por-forma",
+            { inicio, fim },
+          ),
+        () => cloudAdapter.financeiro.fluxoPorForma({ inicio, fim }),
+      ),
     listFiado: async () => {
       const baseUrl = await resolveBaseUrl();
       if (baseUrl) {

@@ -2831,6 +2831,62 @@ async fn financeiro_lancamento_fks_handler(
     Ok(resp)
 }
 
+// ---------- /api/financeiro/fluxo-por-forma (Onda 2 — item 6) ----------
+//
+// Agrega `venda_pagamentos_local` JOIN `vendas_local` por forma de
+// pagamento no intervalo informado (datas YYYY-MM-DD interpretadas como
+// dia local). Devolve o mesmo shape do `cloudAdapter.financeiro.fluxoPorForma`
+// (lista de { forma, recebido, aReceber }). Diferenças vs. cloud estão
+// documentadas em `db::fluxo_por_forma_local`. O adapter TS cobre com
+// `withCloudFallback` quando o servidor local cai ou erra.
+
+async fn financeiro_fluxo_por_forma_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let inicio = q
+        .get("inicio")
+        .cloned()
+        .ok_or((StatusCode::BAD_REQUEST, "inicio é obrigatório".into()))?;
+    let fim = q
+        .get("fim")
+        .cloned()
+        .ok_or((StatusCode::BAD_REQUEST, "fim é obrigatório".into()))?;
+    let inicio_ms = parse_iso_date_ms(&inicio).unwrap_or(0);
+    // fim = dia inteiro: somar 24h - 1ms.
+    let fim_ms = parse_iso_date_ms(&fim)
+        .map(|d| d + 24 * 60 * 60 * 1000 - 1)
+        .unwrap_or(i64::MAX);
+    let rows = db::fluxo_por_forma_local(inicio_ms, fim_ms).map_err(|e| {
+        eprintln!("[LOCAL_FINANCE] fluxo-por-forma falha: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    })?;
+    let arr: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|(forma, recebido, a_receber)| {
+            serde_json::json!({
+                "forma": forma,
+                "recebido": recebido,
+                "aReceber": a_receber,
+            })
+        })
+        .collect();
+    eprintln!(
+        "[LOCAL_FINANCE] fluxo-por-forma hit inicio={inicio} fim={fim} formas={}",
+        arr.len()
+    );
+    let body = serde_json::json!({ "data": arr });
+    let mut resp = axum::response::Response::new(axum::body::Body::from(body.to_string()));
+    resp.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    resp.headers_mut().insert(
+        axum::http::HeaderName::from_static("x-gp-source"),
+        axum::http::HeaderValue::from_static("local-table"),
+    );
+    Ok(resp)
+}
+
 // ---------- /api/compras (v15) ----------
 //
 // Espelha `cloudAdapter.compras.list`: lista as compras com fornecedor
@@ -3624,6 +3680,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/financeiro/manual", post(financeiro_manual_handler))
         .route("/api/financeiro/cancelar", post(financeiro_cancelar_handler))
         .route("/api/financeiro/lancamento-fks", get(financeiro_lancamento_fks_handler))
+        .route("/api/financeiro/fluxo-por-forma", get(financeiro_fluxo_por_forma_handler))
         .route("/api/financeiro/receber", get(financeiro_receber_listar_handler))
         .route("/api/financeiro/receber/baixar", post(financeiro_receber_baixar_handler))
         .route("/api/financeiro/receber/cancelar", post(financeiro_receber_cancelar_handler))

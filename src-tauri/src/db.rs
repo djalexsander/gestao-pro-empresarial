@@ -2912,6 +2912,63 @@ pub fn read_lancamento_payload_by_id(id: &str) -> DbResult<Option<String>> {
     })
 }
 
+/// Onda 2 — item 6: agrega o fluxo por forma de pagamento usando
+/// `venda_pagamentos_local` JOIN `vendas_local`, filtrado por
+/// `created_at_ms` (aproximação local de `data_finalizacao`).
+///
+/// Diferenças vs. cloud (aceitas — cloud continua autoritativo via fallback):
+///   - usamos `created_at_ms` (vendas_local não tem `data_finalizacao`);
+///   - não aplicamos o ajuste de `financeiro_lancamentos.venda_id` para
+///     ifood/fiado/outro porque o cache local não cruza esses lançamentos
+///     com venda_id. Para essas formas, tratamos como aReceber quando a
+///     venda não estiver paga.
+///
+/// Retorna a tupla (forma, recebido, a_receber) já agregada.
+pub fn fluxo_por_forma_local(
+    inicio_ms: i64,
+    fim_ms: i64,
+) -> DbResult<Vec<(String, f64, f64)>> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT p.forma_pagamento,
+                    COALESCE(v.status_pagamento, ''),
+                    COALESCE(p.valor, 0),
+                    COALESCE(p.valor_recebido, 0)
+             FROM venda_pagamentos_local p
+             JOIN vendas_local v ON v.local_uuid = p.venda_local_uuid
+             WHERE v.created_at_ms BETWEEN ?1 AND ?2
+               AND COALESCE(v.status, 'ativa') <> 'cancelada'",
+        )?;
+        let mut rows = stmt.query(params![inicio_ms, fim_ms])?;
+        use std::collections::HashMap;
+        let mut acc: HashMap<String, (f64, f64)> = HashMap::new();
+        while let Some(row) = rows.next()? {
+            let forma: String = row.get(0)?;
+            let status_pag: String = row.get(1)?;
+            let valor: f64 = row.get(2)?;
+            let valor_rec: f64 = row.get(3)?;
+            let (recebido, a_receber) = match status_pag.as_str() {
+                "pago" => (valor, 0.0),
+                "parcial" => {
+                    let r = valor_rec.min(valor).max(0.0);
+                    (r, (valor - r).max(0.0))
+                }
+                _ => (0.0, valor),
+            };
+            let e = acc.entry(forma).or_insert((0.0, 0.0));
+            e.0 += recebido;
+            e.1 += a_receber;
+        }
+        let mut out: Vec<(String, f64, f64)> = acc
+            .into_iter()
+            .map(|(k, (r, a))| (k, r, a))
+            .filter(|(_, r, a)| *r > 0.0 || *a > 0.0)
+            .collect();
+        out.sort_by(|a, b| (b.1 + b.2).partial_cmp(&(a.1 + a.2)).unwrap_or(std::cmp::Ordering::Equal));
+        Ok(out)
+    })
+}
+
 // ---------- Compras (v15) ----------
 //
 // Cache do payload completo da listagem de compras com fornecedor embutido,
