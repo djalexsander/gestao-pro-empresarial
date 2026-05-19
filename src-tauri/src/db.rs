@@ -3283,6 +3283,238 @@ pub fn performance_periodo_local(
     })
 }
 
+/// Onda 2 — item 1: agrega `FinanceiroIndicadoresMesDomain` 100% offline
+/// a partir de `vendas_remote_cache` + `venda_itens_remote_cache`
+/// (custo embutido) + `financeiro_lancamentos_local`.
+///
+/// Mesma filosofia de `performance_periodo_local`: se o cache de vendas
+/// está totalmente vazio, devolve `None` para forçar fallback cloud.
+/// Retorna o JSON-string final do body (`{"data": {...}}` shape).
+///
+/// Diferença sutil vs cloud: filtro temporal usa `data_emissao_ms` ao
+/// invés de `data_finalizacao` (timestamp completo) — diferença é
+/// irrelevante para agregação diária.
+pub fn indicadores_mes_local(
+    inicio_ms: i64,
+    fim_ms: i64,
+    hoje: &str,
+    hoje_ms: i64,
+) -> DbResult<Option<String>> {
+    with_conn(|conn| {
+        // Safety gate: cache de vendas vazio → fallback cloud.
+        let total_vendas_cache: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM vendas_remote_cache WHERE deleted_at_ms IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        if total_vendas_cache == 0 {
+            return Ok(None);
+        }
+
+        // ---- Vendas do período (não-canceladas) ----
+        let (total_vendido, qtd_vendas): (f64, i64) = conn.query_row(
+            "SELECT COALESCE(SUM(CAST(json_extract(payload, '$.total') AS REAL)), 0),
+                    COUNT(*)
+             FROM vendas_remote_cache
+             WHERE deleted_at_ms IS NULL
+               AND COALESCE(status, '') <> 'cancelada'
+               AND data_emissao_ms BETWEEN ?1 AND ?2",
+            params![inicio_ms, fim_ms],
+            |r| Ok((r.get::<_, f64>(0)?, r.get::<_, i64>(1)?)),
+        )?;
+
+        // ---- Itens (custo do produto embutido no payload) ----
+        let mut stmt = conn.prepare(
+            "SELECT COALESCE(CAST(json_extract(vi.payload, '$.quantidade') AS REAL), 0),
+                    COALESCE(CAST(json_extract(vi.payload, '$.produto.preco_custo') AS REAL), 0)
+             FROM venda_itens_remote_cache vi
+             JOIN vendas_remote_cache v ON v.id = vi.venda_id
+             WHERE vi.deleted_at_ms IS NULL
+               AND v.deleted_at_ms IS NULL
+               AND COALESCE(v.status, '') <> 'cancelada'
+               AND v.data_emissao_ms BETWEEN ?1 AND ?2",
+        )?;
+        let mut rows = stmt.query(params![inicio_ms, fim_ms])?;
+        let (mut custo_total, mut qtd_itens, mut qtd_sem_custo) = (0.0_f64, 0_i64, 0_i64);
+        while let Some(row) = rows.next()? {
+            let qtd: f64 = row.get(0)?;
+            let pc: f64 = row.get(1)?;
+            qtd_itens += 1;
+            if pc <= 0.0 {
+                qtd_sem_custo += 1;
+            }
+            custo_total += pc * qtd;
+        }
+        drop(rows);
+        drop(stmt);
+
+        let lucro_bruto = total_vendido - custo_total;
+        let margem_pct = if total_vendido > 0.0 {
+            (lucro_bruto / total_vendido) * 100.0
+        } else {
+            0.0
+        };
+
+        // ---- AR pendente: fiado/ifood (sem conciliação) ----
+        let mut stmt_ar = conn.prepare(
+            "SELECT json_extract(payload, '$.forma_pagamento'),
+                    COALESCE(CAST(json_extract(payload, '$.valor') AS REAL), 0),
+                    COALESCE(CAST(json_extract(payload, '$.valor_pago') AS REAL), 0),
+                    json_extract(payload, '$.conciliado_em')
+             FROM financeiro_lancamentos_local
+             WHERE deleted_at_ms IS NULL
+               AND tipo = 'receber'
+               AND status = 'pendente'",
+        )?;
+        let mut rows = stmt_ar.query([])?;
+        let (mut fiado_t, mut fiado_q, mut ifood_t, mut ifood_q) = (0.0_f64, 0_i64, 0.0_f64, 0_i64);
+        while let Some(row) = rows.next()? {
+            let fp: Option<String> = row.get(0)?;
+            let valor: f64 = row.get(1)?;
+            let pago: f64 = row.get(2)?;
+            let conc: Option<String> = row.get(3)?;
+            if conc.is_some() {
+                continue;
+            }
+            let aberto = valor - pago;
+            if aberto <= 0.0 {
+                continue;
+            }
+            match fp.as_deref() {
+                Some("fiado") => { fiado_t += aberto; fiado_q += 1; }
+                Some("ifood") => { ifood_t += aberto; ifood_q += 1; }
+                _ => {}
+            }
+        }
+        drop(rows);
+        drop(stmt_ar);
+
+        // ---- Recebido hoje (data_pagamento = hoje, tipo=receber, pago/recebido) ----
+        let (recebido_hoje, qtd_rec_hoje): (f64, i64) = conn.query_row(
+            "SELECT COALESCE(SUM(
+                CASE WHEN COALESCE(CAST(json_extract(payload,'$.valor_pago') AS REAL),0) > 0
+                     THEN CAST(json_extract(payload,'$.valor_pago') AS REAL)
+                     ELSE COALESCE(CAST(json_extract(payload,'$.valor') AS REAL),0)
+                END
+             ), 0), COUNT(*)
+             FROM financeiro_lancamentos_local
+             WHERE deleted_at_ms IS NULL
+               AND tipo = 'receber'
+               AND status IN ('pago','recebido')
+               AND json_extract(payload, '$.data_pagamento') = ?1",
+            params![hoje],
+            |r| Ok((r.get::<_, f64>(0)?, r.get::<_, i64>(1)?)),
+        )?;
+
+        // ---- Vencidos (status=pendente, data_vencimento < hoje, qualquer tipo) ----
+        let mut stmt_v = conn.prepare(
+            "SELECT COALESCE(CAST(json_extract(payload,'$.valor') AS REAL),0),
+                    COALESCE(CAST(json_extract(payload,'$.valor_pago') AS REAL),0)
+             FROM financeiro_lancamentos_local
+             WHERE deleted_at_ms IS NULL
+               AND status = 'pendente'
+               AND data_vencimento_ms < ?1",
+        )?;
+        let mut rows = stmt_v.query(params![hoje_ms])?;
+        let (mut venc_t, mut venc_q) = (0.0_f64, 0_i64);
+        while let Some(row) = rows.next()? {
+            let valor: f64 = row.get(0)?;
+            let pago: f64 = row.get(1)?;
+            let aberto = valor - pago;
+            if aberto > 0.0 {
+                venc_t += aberto;
+                venc_q += 1;
+            }
+        }
+        drop(rows);
+        drop(stmt_v);
+
+        // ---- vendasDetalhe ----
+        let vendas_detalhe: String = conn.query_row(
+            "SELECT COALESCE(json_group_array(json_object(
+                'id', id,
+                'numero', json_extract(payload, '$.numero'),
+                'data', json_extract(payload, '$.data_finalizacao'),
+                'cliente_nome', json_extract(payload, '$.cliente.nome'),
+                'forma_pagamento', json_extract(payload, '$.forma_pagamento'),
+                'status_pagamento', json_extract(payload, '$.status_pagamento'),
+                'total', COALESCE(CAST(json_extract(payload, '$.total') AS REAL), 0)
+             )), '[]')
+             FROM vendas_remote_cache
+             WHERE deleted_at_ms IS NULL
+               AND COALESCE(status, '') <> 'cancelada'
+               AND data_emissao_ms BETWEEN ?1 AND ?2",
+            params![inicio_ms, fim_ms],
+            |r| r.get::<_, String>(0),
+        )?;
+
+        // ---- itensDetalhe ----
+        let itens_detalhe: String = conn.query_row(
+            "SELECT COALESCE(json_group_array(json_object(
+                'venda_id', vi.venda_id,
+                'venda_numero', COALESCE(json_extract(v.payload, '$.numero'), '—'),
+                'data', COALESCE(json_extract(v.payload, '$.data_finalizacao'), ''),
+                'produto_id', json_extract(vi.payload, '$.produto_id'),
+                'produto_nome', COALESCE(json_extract(vi.payload, '$.produto.nome'), 'Produto'),
+                'quantidade', COALESCE(CAST(json_extract(vi.payload, '$.quantidade') AS REAL), 0),
+                'preco_unitario', COALESCE(CAST(json_extract(vi.payload, '$.preco_unitario') AS REAL), 0),
+                'preco_custo', COALESCE(CAST(json_extract(vi.payload, '$.produto.preco_custo') AS REAL), 0),
+                'total_venda', COALESCE(CAST(json_extract(vi.payload, '$.total') AS REAL), 0),
+                'total_custo',
+                    COALESCE(CAST(json_extract(vi.payload, '$.produto.preco_custo') AS REAL), 0)
+                  * COALESCE(CAST(json_extract(vi.payload, '$.quantidade') AS REAL), 0),
+                'lucro',
+                    COALESCE(CAST(json_extract(vi.payload, '$.total') AS REAL), 0)
+                  - COALESCE(CAST(json_extract(vi.payload, '$.produto.preco_custo') AS REAL), 0)
+                  * COALESCE(CAST(json_extract(vi.payload, '$.quantidade') AS REAL), 0),
+                'sem_custo',
+                    json(CASE WHEN COALESCE(CAST(json_extract(vi.payload, '$.produto.preco_custo') AS REAL), 0) <= 0
+                              THEN 'true' ELSE 'false' END)
+             )), '[]')
+             FROM venda_itens_remote_cache vi
+             JOIN vendas_remote_cache v ON v.id = vi.venda_id
+             WHERE vi.deleted_at_ms IS NULL
+               AND v.deleted_at_ms IS NULL
+               AND COALESCE(v.status, '') <> 'cancelada'
+               AND v.data_emissao_ms BETWEEN ?1 AND ?2",
+            params![inicio_ms, fim_ms],
+            |r| r.get::<_, String>(0),
+        )?;
+
+        // Composição final como JSON-string (evita serde overhead em payloads grandes).
+        let body = format!(
+            "{{\"totalVendido\":{tv},\"custoTotal\":{ct},\"lucroBruto\":{lb},\"margemPct\":{mp},\
+              \"qtdVendas\":{qv},\"qtdItensSemCusto\":{qsc},\"qtdItens\":{qi},\
+              \"fiadoEmAberto\":{ft},\"qtdFiado\":{fq},\
+              \"ifoodAReceber\":{it},\"qtdIfood\":{iq},\
+              \"recebidoHoje\":{rh},\"qtdRecebimentosHoje\":{qrh},\
+              \"vencidosTotal\":{vt},\"qtdVencidos\":{vq},\
+              \"itensDetalhe\":{itens},\"vendasDetalhe\":{vendas}}}",
+            tv = total_vendido,
+            ct = custo_total,
+            lb = lucro_bruto,
+            mp = margem_pct,
+            qv = qtd_vendas,
+            qsc = qtd_sem_custo,
+            qi = qtd_itens,
+            ft = fiado_t,
+            fq = fiado_q,
+            it = ifood_t,
+            iq = ifood_q,
+            rh = recebido_hoje,
+            qrh = qtd_rec_hoje,
+            vt = venc_t,
+            vq = venc_q,
+            itens = itens_detalhe,
+            vendas = vendas_detalhe,
+        );
+
+        Ok(Some(body))
+    })
+}
+
+
+
 // ---------- Compras (v15) ----------
 //
 // Cache do payload completo da listagem de compras com fornecedor embutido,

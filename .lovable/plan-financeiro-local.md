@@ -58,7 +58,7 @@ Legenda da coluna "Fonte SQLite": tabelas já existentes no `src-tauri/src/db.rs
 
 | # | Método (dataClient.financeiro.*) | Endpoint Rust a criar                                  | Verbo | Fonte SQLite                                                                 | Fallback                                  | Status |
 |---|----------------------------------|--------------------------------------------------------|-------|-------------------------------------------------------------------------------|-------------------------------------------|--------|
-| 1 | `indicadoresMes()`               | `/api/financeiro/indicadores-mes`                      | GET   | precisa `vendas_remote_cache` + cache de `venda_itens` com `preco_custo` (não existe) | `cloudAdapter.financeiro.indicadoresMes`  | 🚫 Bloqueado (custo/itens não cacheados; agregar parcial geraria margem errada) |
+| 1 | `indicadoresMes()`               | `/api/financeiro/indicadores-mes?hoje=`                | GET   | `vendas_remote_cache` + `venda_itens_remote_cache` (custo embutido) + `financeiro_lancamentos_local` (AR/recebido hoje/vencidos) | `cloudAdapter.financeiro.indicadoresMes`  | ✅ **Feito** |
 | 2 | `posicaoPeriodo({inicio,fim})`   | `/api/financeiro/posicao-periodo?inicio=&fim=`         | GET   | `financeiro_lancamentos_local` (JSON1: valor/valor_pago por tipo, filtro `data_vencimento_ms`) | `cloudAdapter.financeiro.posicaoPeriodo`  | ✅ **Feito** |
 | 3 | `performancePeriodo({inicio,fim})` | `/api/financeiro/performance-periodo?inicio=&fim=` | GET | `vendas_remote_cache` + `venda_itens_remote_cache` (JSON1: `$.produto.preco_custo` já vem embutido via PostgREST) | `cloudAdapter.financeiro.performancePeriodo` | ✅ **Feito** |
 | 4 | `receberOrigem({periodo,forma})` | `/api/financeiro/receber-origem?inicio=&fim=&forma=&hoje=` | GET | `financeiro_lancamentos_local` (JSON1: abertos fiado/ifood + pagos no período + vencidos < hoje) | `cloudAdapter.financeiro.receberOrigem`   | ✅ **Feito** |
@@ -72,14 +72,12 @@ Legenda da coluna "Fonte SQLite": tabelas já existentes no `src-tauri/src/db.rs
 
 ### Status geral da Onda 2
 
-Todos os itens **desbloqueados** foram implementados:
-- ✅ 2, 4, 6, 7, 8, 10 (novos endpoints Rust + adapter local-first).
+Status atual:
+- ✅ 1, 2, 3, 4, 6, 7, 8, 10 — local-first com `withCloudFallback`.
 - ✅ 5 já era local via proxy/cache existente.
-- 🚫 1, 3, 9, 11 ficam pendentes de **PR-F0 (sync)**: criar e sincronizar
-  `pagamentos_local`, `ifood_pedidos_local`, e um cache de `venda_itens`
-  vindas do upstream contendo `preco_custo`. Sem esses caches o local
-  retornaria números parciais (margem/lucro/ifood incompletos), o que é
-  pior do que cair em cloud — então propositalmente continuam herdando
+- 🚫 9, 11 seguem pendentes de **PR-F0 (sync)**: criar e sincronizar
+  `pagamentos_local` e `ifood_pedidos_local`. Sem esses caches o local
+  retornaria listas vazias/parciais — propositalmente continuam herdando
   o `cloudAdapter`.
 
 ---

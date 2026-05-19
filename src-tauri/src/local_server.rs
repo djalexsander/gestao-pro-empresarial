@@ -3160,6 +3160,83 @@ async fn financeiro_performance_periodo_handler(
 }
 
 
+// ---------- /api/financeiro/indicadores-mes (Onda 2 — item 1) ----------
+//
+// Agrega `FinanceiroIndicadoresMesDomain` 100% offline a partir de
+// `vendas_remote_cache` + `venda_itens_remote_cache` + `financeiro_lancamentos_local`.
+// O cliente envia `hoje=YYYY-MM-DD` (data local do fuso do usuário); o servidor
+// deriva o início como o 1º dia do mesmo mês. Devolve 503 se o cache de vendas
+// está vazio (força fallback cloud).
+
+async fn financeiro_indicadores_mes_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    use chrono::Datelike;
+    let hoje = q
+        .get("hoje")
+        .cloned()
+        .ok_or((StatusCode::BAD_REQUEST, "hoje é obrigatório (YYYY-MM-DD)".into()))?;
+    let hoje_date = chrono::NaiveDate::parse_from_str(&hoje, "%Y-%m-%d").map_err(|e| {
+        (StatusCode::BAD_REQUEST, format!("hoje inválido: {e}"))
+    })?;
+    let inicio_date = hoje_date.with_day(1).unwrap_or(hoje_date);
+    let inicio = inicio_date.format("%Y-%m-%d").to_string();
+    let inicio_ts = format!("{inicio}T00:00:00");
+    let fim_ts = format!("{hoje}T23:59:59.999");
+    let inicio_ms = inicio_date
+        .and_hms_opt(0, 0, 0)
+        .map(|d| d.and_utc().timestamp_millis())
+        .unwrap_or(0);
+    let fim_ms = hoje_date
+        .and_hms_opt(23, 59, 59)
+        .map(|d| d.and_utc().timestamp_millis())
+        .unwrap_or(i64::MAX);
+    let hoje_ms = hoje_date
+        .and_hms_opt(0, 0, 0)
+        .map(|d| d.and_utc().timestamp_millis())
+        .unwrap_or(i64::MAX);
+
+    let body_inner = db::indicadores_mes_local(inicio_ms, fim_ms, &hoje, hoje_ms).map_err(|e| {
+        eprintln!("[LOCAL_FINANCE] indicadores-mes falha: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    })?;
+    let body_inner = match body_inner {
+        Some(s) => s,
+        None => {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                "cache de vendas vazio — fallback cloud".into(),
+            ));
+        }
+    };
+
+    eprintln!("[LOCAL_FINANCE] indicadores-mes hit inicio={inicio} hoje={hoje}");
+
+    // `body_inner` já vem como `{...}` sem o envelope `data`/`periodo`.
+    // Injetamos o `periodo` logo após a `{` de abertura.
+    let periodo = format!(
+        "\"periodo\":{{\"inicio\":\"{inicio}\",\"fim\":\"{hoje}\",\
+          \"inicioTs\":\"{inicio_ts}\",\"fimTs\":\"{fim_ts}\",\"hoje\":\"{hoje}\"}},"
+    );
+    let inner_rest = &body_inner[1..body_inner.len() - 1];
+    let merged = format!("{{\"data\":{{{periodo}{inner_rest}}}}}");
+
+    let mut resp = axum::response::Response::new(axum::body::Body::from(merged));
+    resp.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    resp.headers_mut().insert(
+        axum::http::HeaderName::from_static("x-gp-source"),
+        axum::http::HeaderValue::from_static("local-table"),
+    );
+    Ok(resp)
+}
+
+
+
+
+
 
 // ---------- /api/compras (v15) ----------
 //
@@ -3960,6 +4037,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/financeiro/posicao-periodo", get(financeiro_posicao_periodo_handler))
         .route("/api/financeiro/receber-origem", get(financeiro_receber_origem_handler))
         .route("/api/financeiro/performance-periodo", get(financeiro_performance_periodo_handler))
+        .route("/api/financeiro/indicadores-mes", get(financeiro_indicadores_mes_handler))
         .route("/api/financeiro/receber", get(financeiro_receber_listar_handler))
         .route("/api/financeiro/receber/baixar", post(financeiro_receber_baixar_handler))
         .route("/api/financeiro/receber/cancelar", post(financeiro_receber_cancelar_handler))
