@@ -98,6 +98,19 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatBRL } from "@/lib/mock-data";
 import { useConfigEmpresa } from "@/hooks/useConfigEmpresa";
+import { withTimeoutFallback } from "@/lib/withTimeout";
+
+// ============================================================================
+// Local-first PDV — timeouts curtos para nunca travar a adição de item.
+// Sem internet, o lookup local (SQLite/local-server) responde em ms; se cair
+// no fallback cloud e a rede estiver fora, o timeout abaixo encerra a promise
+// rapidamente em vez de deixá-la pendente acumulando cliques que duplicariam
+// itens ao reconectar.
+// ============================================================================
+const PDV_LOOKUP_TIMEOUT_MS = 1500;
+const PDV_SALDO_TIMEOUT_MS = 1000;
+/** Janela em que um MESMO código bipado é considerado duplicata rápida. */
+const PDV_DUPLICATE_LOCK_MS = 700;
 
 export const Route = createFileRoute("/pdv")({
   head: () => ({
