@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { dataClient } from "@/integrations/data";
+import { friendlyDeleteError, logSoftDelete } from "@/lib/softDeleteError";
 
 // =============== Tipos ===============
 export type ClienteStatus = "ativo" | "inativo";
