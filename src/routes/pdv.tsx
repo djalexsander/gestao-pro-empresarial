@@ -1933,15 +1933,32 @@ function PDVPage() {
               : null,
             operador: operador?.nome ?? user?.email ?? null,
             observacao: observacao || null,
-            itens: items.map((it) => ({
-              descricao: it.nome,
-              sku: it.sku,
-              quantidade: it.quantidade,
-              unidade: it.unidade,
-              preco_unitario: it.preco_unitario,
-              desconto: it.desconto,
-              total: Math.max(0, it.preco_unitario * it.quantidade - it.desconto),
-            })),
+            itens: items.flatMap((it) => {
+              const totalLinha = Math.max(0, it.preco_unitario * it.quantidade - it.desconto);
+              const base = {
+                descricao: it.nome,
+                sku: it.sku,
+                quantidade: it.quantidade,
+                unidade: it.unidade,
+                preco_unitario: it.preco_unitario,
+                desconto: it.desconto,
+                total: it.cancelado ? 0 : totalLinha,
+              };
+              if (!it.cancelado) return [base];
+              // Item cancelado: mantém a linha original (total 0) + linha de estorno negativa.
+              return [
+                base,
+                {
+                  descricao: `CANCELADO — ${it.nome}`,
+                  sku: it.sku,
+                  quantidade: it.quantidade,
+                  unidade: it.unidade,
+                  preco_unitario: 0,
+                  desconto: 0,
+                  total: -totalLinha,
+                },
+              ];
+            }),
             data: new Date(),
           });
           setSucessoOpen(true);
