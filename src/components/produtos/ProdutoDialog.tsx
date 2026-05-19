@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FormSection } from "@/components/shared/FormSection";
 import {
   useCreateProduto,
   useCreateVariacao,
@@ -212,56 +213,72 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
           </TabsList>
 
           {/* ============== DADOS ============== */}
-          <TabsContent value="dados" className="mt-4 space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="nome">Nome *</Label>
-              <Input id="nome" value={form.nome}
-                onChange={(e) => setForm({ ...form, nome: e.target.value })} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+          <TabsContent value="dados" className="mt-4 space-y-6">
+            <FormSection
+              title="Identificação operacional"
+              subtitle="Como o produto aparece na venda, PDV e estoque."
+              tone="operacional"
+              divider={false}
+            >
               <div className="space-y-1.5">
-                <Label htmlFor="cat">Categoria</Label>
-                <CategoriaCombobox
-                  id="cat"
-                  value={form.categoria_id}
-                  onChange={(catId) => setForm({ ...form, categoria_id: catId })}
-                />
+                <Label htmlFor="nome">Nome *</Label>
+                <Input id="nome" value={form.nome}
+                  onChange={(e) => setForm({ ...form, nome: e.target.value })} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="cat">Categoria</Label>
+                  <CategoriaCombobox
+                    id="cat"
+                    value={form.categoria_id}
+                    onChange={(catId) => setForm({ ...form, categoria_id: catId })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="marca">Marca</Label>
+                  <Input id="marca" value={form.marca}
+                    onChange={(e) => setForm({ ...form, marca: e.target.value })} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="un">Unidade</Label>
+                  <Input id="un" value={form.unidade} maxLength={10}
+                    onChange={(e) => setForm({ ...form, unidade: e.target.value.toUpperCase() })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="status">Status</Label>
+                  <Select value={form.status}
+                    onValueChange={(v) => setForm({ ...form, status: v as typeof form.status })}>
+                    <SelectTrigger id="status"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ativo">Ativo</SelectItem>
+                      <SelectItem value="inativo">Inativo</SelectItem>
+                      <SelectItem value="descontinuado">Descontinuado</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="marca">Marca</Label>
-                <Input id="marca" value={form.marca}
-                  onChange={(e) => setForm({ ...form, marca: e.target.value })} />
+                <Label htmlFor="desc">Descrição</Label>
+                <Textarea id="desc" rows={3} value={form.descricao}
+                  onChange={(e) => setForm({ ...form, descricao: e.target.value })} />
               </div>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="un">Unidade</Label>
-                <Input id="un" value={form.unidade} maxLength={10}
-                  onChange={(e) => setForm({ ...form, unidade: e.target.value.toUpperCase() })} />
+            </FormSection>
+
+            <FormSection
+              title="Dados fiscais"
+              subtitle="Classificação tributária usada em notas e relatórios fiscais."
+              tone="fiscal"
+            >
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="ncm">NCM</Label>
+                  <Input id="ncm" value={form.ncm} placeholder="0000.00.00"
+                    onChange={(e) => setForm({ ...form, ncm: e.target.value })} />
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="ncm">NCM</Label>
-                <Input id="ncm" value={form.ncm}
-                  onChange={(e) => setForm({ ...form, ncm: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="status">Status</Label>
-                <Select value={form.status}
-                  onValueChange={(v) => setForm({ ...form, status: v as typeof form.status })}>
-                  <SelectTrigger id="status"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ativo">Ativo</SelectItem>
-                    <SelectItem value="inativo">Inativo</SelectItem>
-                    <SelectItem value="descontinuado">Descontinuado</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="desc">Descrição</Label>
-              <Textarea id="desc" rows={3} value={form.descricao}
-                onChange={(e) => setForm({ ...form, descricao: e.target.value })} />
-            </div>
+            </FormSection>
           </TabsContent>
 
           {/* ============== CÓDIGOS ============== */}
@@ -403,49 +420,67 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
           </TabsContent>
 
           {/* ============== PREÇOS ============== */}
-          <TabsContent value="precos" className="mt-4 space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="custo">Preço de custo (R$)</Label>
-                <Input id="custo" type="number" min={0} step="0.01"
-                  value={form.preco_custo}
-                  onChange={(e) => setForm({ ...form, preco_custo: Number(e.target.value) })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="venda">Preço de venda (R$)</Label>
-                <Input id="venda" type="number" min={0} step="0.01"
-                  value={form.preco_venda}
-                  onChange={(e) => setForm({ ...form, preco_venda: Number(e.target.value) })} />
-              </div>
-            </div>
-            <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
-              <p className="text-sm text-muted-foreground">Margem calculada</p>
-              <p className={`text-2xl font-semibold ${margem >= 0 ? "text-success" : "text-destructive"}`}>
-                {margem.toFixed(1)}%
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="min">Estoque mínimo</Label>
-                <Input id="min" type="number" min={0} step="0.001"
-                  value={form.estoque_minimo}
-                  onChange={(e) => setForm({ ...form, estoque_minimo: Number(e.target.value) })} />
-              </div>
-              {!isEdit && (
+          <TabsContent value="precos" className="mt-4 space-y-6">
+            <FormSection
+              title="Precificação"
+              subtitle="Custo, preço de venda e margem calculada automaticamente."
+              tone="financeiro"
+              divider={false}
+            >
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label htmlFor="inicial">Estoque inicial</Label>
-                  <Input id="inicial" type="number" min={0} step="0.001"
-                    value={form.estoque_inicial}
-                    onChange={(e) => setForm({ ...form, estoque_inicial: Number(e.target.value) })} />
-                  <p className="text-xs text-muted-foreground">
-                    Cria movimentação de entrada automaticamente.
-                  </p>
+                  <Label htmlFor="custo">Preço de custo (R$)</Label>
+                  <Input id="custo" type="number" min={0} step="0.01"
+                    value={form.preco_custo}
+                    onChange={(e) => setForm({ ...form, preco_custo: Number(e.target.value) })} />
                 </div>
-              )}
-            </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="venda">Preço de venda (R$)</Label>
+                  <Input id="venda" type="number" min={0} step="0.01"
+                    value={form.preco_venda}
+                    onChange={(e) => setForm({ ...form, preco_venda: Number(e.target.value) })} />
+                </div>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
+                <p className="text-sm text-muted-foreground">Margem calculada</p>
+                <p className={`text-2xl font-semibold ${margem >= 0 ? "text-success" : "text-destructive"}`}>
+                  {margem.toFixed(1)}%
+                </p>
+              </div>
+            </FormSection>
 
-            <div className="rounded-lg border border-border p-4 space-y-3">
-              <div className="flex items-center justify-between">
+            <FormSection
+              title="Estoque"
+              subtitle="Controle de saldo mínimo e abertura do estoque inicial."
+              tone="operacional"
+            >
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="min">Estoque mínimo</Label>
+                  <Input id="min" type="number" min={0} step="0.001"
+                    value={form.estoque_minimo}
+                    onChange={(e) => setForm({ ...form, estoque_minimo: Number(e.target.value) })} />
+                </div>
+                {!isEdit && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="inicial">Estoque inicial</Label>
+                    <Input id="inicial" type="number" min={0} step="0.001"
+                      value={form.estoque_inicial}
+                      onChange={(e) => setForm({ ...form, estoque_inicial: Number(e.target.value) })} />
+                    <p className="text-xs text-muted-foreground">
+                      Cria movimentação de entrada automaticamente.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </FormSection>
+
+            <FormSection
+              title="Balança"
+              subtitle="Configurações para produtos vendidos por peso."
+              tone="extra"
+            >
+              <div className="flex items-center justify-between rounded-md border border-border p-3">
                 <div>
                   <p className="text-sm font-medium">Vendido por peso (balança)</p>
                   <p className="text-xs text-muted-foreground">
@@ -492,7 +527,7 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
                   </div>
                 </div>
               )}
-            </div>
+            </FormSection>
           </TabsContent>
 
           {isEdit && produtoId && (

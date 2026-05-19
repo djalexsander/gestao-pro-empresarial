@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FormSection } from "@/components/shared/FormSection";
 import {
   useCreateFornecedor,
   useUpdateFornecedor,
@@ -150,63 +151,78 @@ export function FornecedorDialog({ open, onOpenChange, fornecedor }: Props) {
             <TabsTrigger value="extra">Outros</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="dados" className="mt-4 space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Tipo</Label>
-                <Select value={form.tipo} onValueChange={(v) => setForm({ ...form, tipo: v as "PF" | "PJ" })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PJ">Pessoa Jurídica</SelectItem>
-                    <SelectItem value="PF">Pessoa Física</SelectItem>
-                  </SelectContent>
-                </Select>
+          <TabsContent value="dados" className="mt-4 space-y-6">
+            <FormSection
+              title="Identificação"
+              subtitle="Como o fornecedor aparece nas listagens e relatórios."
+              tone="operacional"
+              divider={false}
+            >
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Tipo</Label>
+                  <Select value={form.tipo} onValueChange={(v) => setForm({ ...form, tipo: v as "PF" | "PJ" })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PJ">Pessoa Jurídica</SelectItem>
+                      <SelectItem value="PF">Pessoa Física</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Status</Label>
+                  <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as "ativo" | "inativo" })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ativo">Ativo</SelectItem>
+                      <SelectItem value="inativo">Inativo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <div className="space-y-1.5">
-                <Label>Status</Label>
-                <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as "ativo" | "inativo" })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ativo">Ativo</SelectItem>
-                    <SelectItem value="inativo">Inativo</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label>{form.tipo === "PJ" ? "Razão social *" : "Nome completo *"}</Label>
+                <Input value={form.razao_social} onChange={(e) => setForm({ ...form, razao_social: e.target.value })} />
               </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>{form.tipo === "PJ" ? "Razão social *" : "Nome completo *"}</Label>
-              <Input value={form.razao_social} onChange={(e) => setForm({ ...form, razao_social: e.target.value })} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Nome fantasia</Label>
                 <Input value={form.nome_fantasia} onChange={(e) => setForm({ ...form, nome_fantasia: e.target.value })} />
               </div>
-              <div className="space-y-1.5">
-                <Label>{form.tipo === "PJ" ? "CNPJ" : "CPF"}</Label>
-                <Input value={form.documento} onChange={(e) => setForm({ ...form, documento: e.target.value })} />
+            </FormSection>
+
+            <FormSection
+              title="Documentos fiscais"
+              subtitle="Usados em notas, livros fiscais e cadastros tributários."
+              tone="fiscal"
+            >
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>{form.tipo === "PJ" ? "CNPJ" : "CPF"}</Label>
+                  <Input value={form.documento} onChange={(e) => setForm({ ...form, documento: e.target.value })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Inscrição estadual</Label>
+                  <Input value={form.inscricao_estadual} onChange={(e) => setForm({ ...form, inscricao_estadual: e.target.value })} />
+                </div>
               </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>E-mail</Label>
-                <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+            </FormSection>
+
+            <FormSection title="Contato" tone="operacional">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>E-mail</Label>
+                  <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Telefone</Label>
+                  <Input value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} />
+                </div>
               </div>
               <div className="space-y-1.5">
-                <Label>Telefone</Label>
-                <Input value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Contato</Label>
+                <Label>Pessoa de contato</Label>
                 <Input value={form.contato_nome} onChange={(e) => setForm({ ...form, contato_nome: e.target.value })} />
               </div>
-              <div className="space-y-1.5">
-                <Label>Inscrição estadual</Label>
-                <Input value={form.inscricao_estadual} onChange={(e) => setForm({ ...form, inscricao_estadual: e.target.value })} />
-              </div>
-            </div>
+            </FormSection>
           </TabsContent>
 
           <TabsContent value="endereco" className="mt-4 space-y-4">
