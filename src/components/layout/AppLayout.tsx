@@ -37,6 +37,9 @@ export function AppLayout() {
   // Drena pendências de Configurações da Empresa quando a rede voltar.
   useFlushConfigEmpresaPending();
 
+  // Sincronização automática em background (no-op em web/cloud puro).
+  useAutoSync();
+
   const pathname = location.pathname;
   const isStandalone = STANDALONE_ROUTES.has(pathname);
   const isAdminRoute = pathname === "/admin" || pathname.startsWith("/admin/");
@@ -55,14 +58,12 @@ export function AppLayout() {
     }
   }, [pathname, modoAtual, modosLoading, user, isRouteAllowed, isStandalone, isAdminRoute, navigate]);
 
-  // Guard de papel desktop: terminal só pode acessar PDV e consultas básicas.
-  useEffect(() => {
-    if (!rodandoDesktop || desktopRole !== "terminal") return;
-    if (pathname === "/auth") return;
-    if (!isTerminalPathAllowed(pathname)) {
-      navigate({ to: TERMINAL_HOME, replace: true });
-    }
-  }, [rodandoDesktop, desktopRole, pathname, navigate]);
+  // Papel desktop NÃO bloqueia mais o acesso ao ERP. A segurança fica
+  // delegada para a cadeia RequireErpUnlock + RequireAdminLike +
+  // RequireTerminalPermissao já existente abaixo. Caixa-only continua
+  // restrito; admin/gerente em máquina terminal pode entrar no ERP.
+  void rodandoDesktop;
+  void desktopRole;
 
   // Wizard de primeiro uso: bloqueia o app inteiro até a máquina estar configurada.
   // Importante: NÃO mostrar antes de autenticar — o wizard fica acima do conteúdo
