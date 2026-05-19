@@ -596,7 +596,11 @@ function FinanceContent() {
       />
 
       <BlocoModais
-        bloco={blocoAberto}
+        bloco={
+          blocoAberto === "receber" || blocoAberto === "pagar" || blocoAberto === "saldo"
+            ? null
+            : blocoAberto
+        }
         onClose={() => setBlocoAberto(null)}
         receber={receber}
         pagar={pagar}
@@ -604,6 +608,36 @@ function FinanceContent() {
         totalPay={totalPay}
         saldo={saldo}
         ind={ind}
+      />
+
+      <CarteiraDialog
+        open={blocoAberto === "receber"}
+        onOpenChange={(o) => !o && setBlocoAberto(null)}
+        tipo="receber"
+        lancamentos={lancamentos}
+        onSelect={(l) => {
+          setBlocoAberto(null);
+          setSelected(l);
+        }}
+      />
+
+      <CarteiraDialog
+        open={blocoAberto === "pagar"}
+        onOpenChange={(o) => !o && setBlocoAberto(null)}
+        tipo="pagar"
+        lancamentos={lancamentos}
+        onSelect={(l) => {
+          setBlocoAberto(null);
+          setSelected(l);
+        }}
+      />
+
+      <SaldoPrevistoDialog
+        open={blocoAberto === "saldo"}
+        onOpenChange={(o) => !o && setBlocoAberto(null)}
+        lancamentos={lancamentos}
+        periodoInicio={posicao?.periodo.inicio ?? new Date().toISOString().slice(0, 10)}
+        periodoFim={posicao?.periodo.fim ?? new Date().toISOString().slice(0, 10)}
       />
 
       <ExportFormatDialog
