@@ -3505,6 +3505,33 @@ async fn compras_fornecedor_metricas_handler(
     Ok(typed_response(StatusCode::OK, "local-table", wrapped.into_bytes()))
 }
 
+// ---------- /api/dashboard/carregar (Onda 4 — PR-O3-5) ----------
+//
+// Espelha `cloudAdapter.dashboard.carregar()` em uma única chamada
+// agregada via SQL (vendas_remote_cache + compras_local +
+// financeiro_lancamentos_local + produtos_local/estoque_saldos_local
+// + clientes/fornecedores). 503 quando os 3 caches primários estão
+// frios → fallback cloud.
+
+async fn dashboard_carregar_handler(
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let body_opt = db::dashboard_carregar_local().map_err(|e| {
+        eprintln!("[LOCAL_DASHBOARD] carregar falha: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    })?;
+    let Some(body) = body_opt else {
+        eprintln!("[LOCAL_DASHBOARD] caches primários frios → fallback cloud");
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "caches do dashboard vazios".into(),
+        ));
+    };
+    let wrapped = format!(r#"{{"data":{body}}}"#);
+    Ok(typed_response(StatusCode::OK, "local-table", wrapped.into_bytes()))
+}
+
+
+
 // ---------- /api/relatorios/caixas (v17) ----------
 //
 // Cache de leitura para os relatórios de caixa (cardCaixas + caixasSessoes).
