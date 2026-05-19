@@ -623,41 +623,81 @@ const vendas: DataAdapter["vendas"] = {
   },
 };
 // =====================================================================
+// Timeout defensivo para as RPCs de caixa: nunca deixar o modal "Abrindo..."
+// preso esperando a nuvem. Se exceder, surfaceamos uma mensagem clara e o
+// adapter local (quando houver) já terá tido sua chance de persistir local.
+import { withTimeout, TimeoutError } from "@/lib/withTimeout";
+const CAIXA_CLOUD_TIMEOUT_MS = 4000;
+
+function caixaOfflineError(method: string): Error {
+  console.warn(`[CAIXA_TIMEOUT] fallback local acionado (${method})`);
+  return new Error(
+    "Sem conexão com o servidor. Verifique a internet e tente novamente.",
+  );
+}
+
 const caixa: DataAdapter["caixa"] = {
   async abrir(input: AbrirCaixaInput): Promise<string> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc("abrir_caixa", {
-      _valor_inicial: input.valor_inicial,
-      _observacao: input.observacao ?? undefined,
-      _operador_id: input.operador_id ?? undefined,
-      _terminal_id: input.terminal_id ?? undefined,
-    });
-    if (error) throw error;
-    return data as string;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await withTimeout(
+        (supabase as any).rpc("abrir_caixa", {
+          _valor_inicial: input.valor_inicial,
+          _observacao: input.observacao ?? undefined,
+          _operador_id: input.operador_id ?? undefined,
+          _terminal_id: input.terminal_id ?? undefined,
+        }),
+        CAIXA_CLOUD_TIMEOUT_MS,
+        "cloud.caixa.abrir",
+      );
+      if (error) throw error;
+      return data as string;
+    } catch (e) {
+      if (e instanceof TimeoutError) throw caixaOfflineError("abrir");
+      throw e;
+    }
   },
 
   async fechar(input: FecharCaixaInput): Promise<FecharCaixaResult> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc("fechar_caixa", {
-      _caixa_id: input.caixa_id,
-      _valor_informado: input.valor_informado,
-      _observacao: input.observacao ?? undefined,
-    });
-    if (error) throw error;
-    return data as FecharCaixaResult;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await withTimeout(
+        (supabase as any).rpc("fechar_caixa", {
+          _caixa_id: input.caixa_id,
+          _valor_informado: input.valor_informado,
+          _observacao: input.observacao ?? undefined,
+        }),
+        CAIXA_CLOUD_TIMEOUT_MS,
+        "cloud.caixa.fechar",
+      );
+      if (error) throw error;
+      return data as FecharCaixaResult;
+    } catch (e) {
+      if (e instanceof TimeoutError) throw caixaOfflineError("fechar");
+      throw e;
+    }
   },
 
   async registrarMovimento(input: RegistrarMovimentoCaixaInput): Promise<string> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc("caixa_registrar_movimento", {
-      _caixa_id: input.caixa_id,
-      _tipo: input.tipo,
-      _valor: input.valor,
-      _motivo: input.motivo ?? undefined,
-      _client_uuid: input.client_uuid ?? null,
-    });
-    if (error) throw error;
-    return data as string;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await withTimeout(
+        (supabase as any).rpc("caixa_registrar_movimento", {
+          _caixa_id: input.caixa_id,
+          _tipo: input.tipo,
+          _valor: input.valor,
+          _motivo: input.motivo ?? undefined,
+          _client_uuid: input.client_uuid ?? null,
+        }),
+        CAIXA_CLOUD_TIMEOUT_MS,
+        "cloud.caixa.registrarMovimento",
+      );
+      if (error) throw error;
+      return data as string;
+    } catch (e) {
+      if (e instanceof TimeoutError) throw caixaOfflineError("registrarMovimento");
+      throw e;
+    }
   },
 
   async excluir(caixaId: string): Promise<unknown> {
