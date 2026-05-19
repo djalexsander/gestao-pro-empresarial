@@ -161,5 +161,15 @@ mostram quais métodos herdam direto da cloud (sem fallback local):
      join com produtos (sku/nome) e drift de `quantidade_recebida` em
      recebimentos parciais offline. Cloud direto é seguro para
      abrir o detalhe.
-5. **PR-O3-5** (dashboard) — depende dos anteriores.
+5. **PR-O3-5** (dashboard) — ⏭️ **adiado** (vira Onda 4):
+   - `dashboard.carregar()` cruza 4 domínios (vendas 6 meses, compras
+     6 meses, lançamentos financeiros, saldos de estoque) + joins de
+     nome (clientes, fornecedores) e retorna um DTO único.
+   - Composição puro-TS a partir dos endpoints locais atuais exigiria
+     muitos round-trips e remapeamento — perdendo o ganho.
+   - Caminho certo é um endpoint Rust dedicado
+     `GET /api/dashboard/carregar` que faz a agregação em SQL (mesmo
+     padrão de `vendas_metricas_periodo_local`), com safety gate por
+     domínio (503 se algum cache estiver frio). Tratar em sub-onda
+     própria por causa do volume e do risco de drift.
 6. **PR-O3-6** (QA) — fecha a onda.
