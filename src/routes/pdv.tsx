@@ -1674,7 +1674,6 @@ function PDVPage() {
               <span className="text-center">Quantidade</span>
               <span className="text-right">Unitário</span>
               <span className="text-right">Subtotal</span>
-              <span />
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto">
