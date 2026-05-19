@@ -309,9 +309,11 @@ export function ProductsPage() {
       <AlertDialog open={!!confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir produto?</AlertDialogTitle>
+            <AlertDialogTitle>Desativar produto?</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta ação não pode ser desfeita. O histórico de movimentações será preservado, mas o produto será removido.
+              O produto será marcado como inativo e deixará de aparecer no PDV, scanner e busca.
+              O histórico de vendas e movimentações é preservado. Você pode reativá-lo depois pelo
+              filtro de status.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -322,7 +324,7 @@ export function ProductsPage() {
                 if (confirmDelete) deleteMut.mutate(confirmDelete);
                 setConfirmDelete(null);
               }}>
-              Excluir
+              Desativar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
