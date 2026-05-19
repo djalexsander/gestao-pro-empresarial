@@ -81,7 +81,7 @@ import { exportarRelatorioCard, type ExportFormato } from "@/lib/export-relatori
 import { toast } from "sonner";
 import { CarteiraDialog } from "@/components/financeiro/CarteiraDialog";
 import { SaldoPrevistoDialog } from "@/components/financeiro/SaldoPrevistoDialog";
-import { useEffect } from "react";
+
 
 type FinTab = "receber" | "pagar" | "fluxo" | "fluxo-financeiro";
 
