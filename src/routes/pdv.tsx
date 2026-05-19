@@ -399,6 +399,16 @@ function PDVPage() {
   const manualSearchInputRef = useRef<HTMLInputElement>(null);
   const scanFocusBlockedRef = useRef(false);
   const hasPriorityOverlayRef = useRef(false);
+  // ============================================================================
+  // Anti-duplicação local (offline-first).
+  // - `scanInFlightRef`: trava de re-entrância; segundo bipe enquanto o
+  //   primeiro ainda está sendo processado é ignorado.
+  // - `recentScansRef`: códigos bipados nos últimos PDV_DUPLICATE_LOCK_MS.
+  //   Bloqueia Enter repetido / clique duplicado no MESMO código por essa
+  //   janela curta. Não bloqueia códigos diferentes.
+  // ============================================================================
+  const scanInFlightRef = useRef(false);
+  const recentScansRef = useRef<Map<string, number>>(new Map());
 
   // Hierarquia de foco no PDV:
   //   modal aberto > busca manual > popovers > input de código de barras.
