@@ -261,6 +261,18 @@ export function LancamentoFormDialog(props: Props) {
 
   const permitirTrocarTipo = !isEdit && (props.permitirTrocarTipo ?? true);
 
+  if (import.meta.env.DEV && open) {
+    // eslint-disable-next-line no-console
+    console.debug(
+      tipo === "receber"
+        ? "[FORM_LAYOUT] contas_receber seção renderizada"
+        : "[FORM_LAYOUT] contas_pagar seção renderizada",
+      { mode },
+    );
+  }
+
+
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
