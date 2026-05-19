@@ -540,13 +540,13 @@ function FiadoContent() {
         }
       />
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
         <StatCard label="Total a receber" value={formatBRL(kpis.totalFiado)} icon={HandCoins} iconTone="warning" />
         <StatCard label="Vencido" value={formatBRL(kpis.totalVencido)} icon={AlertTriangle} iconTone="danger" />
         <StatCard label="A vencer" value={formatBRL(kpis.totalAVencer)} icon={CalendarClock} iconTone="info" />
         <StatCard label="Clientes em aberto" value={String(kpis.qtdClientes)} icon={Users} iconTone="primary" />
         <StatCard label="Recebido hoje" value={formatBRL(kpis.recebidoHoje)} icon={Wallet} iconTone="success" />
-        <StatCard label="Recebido no mês" value={formatBRL(kpis.recebidoMes)} icon={TrendingUp} iconTone="success" />
+        <StatCard label="Recebido no período" value={formatBRL(kpis.recebidoMes)} icon={TrendingUp} iconTone="success" hint="Mês atual" />
       </div>
 
       <Card>
