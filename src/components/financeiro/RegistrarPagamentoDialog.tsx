@@ -139,9 +139,16 @@ export function RegistrarPagamentoDialog({
     { enabled: open, scope: "modal" },
   );
 
+  if (import.meta.env.DEV && open) {
+    // eslint-disable-next-line no-console
+    console.debug("[FORM_LAYOUT] financeiro seção renderizada", {
+      modo: tipo === "pagar" ? "registrar_pagamento" : "registrar_recebimento",
+    });
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
             Registrar {tipo === "pagar" ? "pagamento" : "recebimento"}
@@ -162,67 +169,78 @@ export function RegistrarPagamentoDialog({
           </div>
         </div>
 
-        <div className="space-y-3 py-1">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-5 py-1">
+          <FormSection
+            title="Valor e data"
+            subtitle="Quanto e quando foi recebido/pago."
+            tone="financeiro"
+            divider={false}
+          >
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="pag-valor">Valor recebido *</Label>
+                <Input
+                  id="pag-valor"
+                  value={valor}
+                  onChange={(e) => setValor(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="0,00"
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="pag-data">Data *</Label>
+                <Input
+                  id="pag-data"
+                  type="date"
+                  value={data}
+                  onChange={(e) => setData(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {valorNum > saldoRestante + 0.005 && (
+              <p className="text-xs font-medium text-destructive">
+                Valor maior que o saldo restante ({formatBRL(saldoRestante)}).
+              </p>
+            )}
+          </FormSection>
+
+          <FormSection title="Forma de pagamento" tone="operacional">
             <div className="space-y-1.5">
-              <Label htmlFor="pag-valor">Valor recebido *</Label>
-              <Input
-                id="pag-valor"
-                value={valor}
-                onChange={(e) => setValor(e.target.value)}
-                inputMode="decimal"
-                placeholder="0,00"
-                autoFocus
+              <Label>Forma</Label>
+              <Select value={forma} onValueChange={(v) => setForma(v as FormaPag)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="dinheiro">Dinheiro</SelectItem>
+                  <SelectItem value="pix">PIX</SelectItem>
+                  <SelectItem value="cartao_debito">Débito</SelectItem>
+                  <SelectItem value="cartao_credito">Crédito</SelectItem>
+                  <SelectItem value="boleto">Boleto</SelectItem>
+                  <SelectItem value="transferencia">Transferência</SelectItem>
+                  <SelectItem value="cheque">Cheque</SelectItem>
+                  <SelectItem value="ifood">iFood</SelectItem>
+                  <SelectItem value="fiado">Fiado</SelectItem>
+                  <SelectItem value="outro">Outro</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </FormSection>
+
+          <FormSection title="Histórico" tone="extra">
+            <div className="space-y-1.5">
+              <Label htmlFor="pag-obs">Observação</Label>
+              <Textarea
+                id="pag-obs"
+                value={obs}
+                onChange={(e) => setObs(e.target.value)}
+                rows={2}
+                placeholder="Opcional"
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="pag-data">Data *</Label>
-              <Input
-                id="pag-data"
-                type="date"
-                value={data}
-                onChange={(e) => setData(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>Forma</Label>
-            <Select value={forma} onValueChange={(v) => setForma(v as FormaPag)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="dinheiro">Dinheiro</SelectItem>
-                <SelectItem value="pix">PIX</SelectItem>
-                <SelectItem value="cartao_debito">Débito</SelectItem>
-                <SelectItem value="cartao_credito">Crédito</SelectItem>
-                <SelectItem value="boleto">Boleto</SelectItem>
-                <SelectItem value="transferencia">Transferência</SelectItem>
-                <SelectItem value="cheque">Cheque</SelectItem>
-                <SelectItem value="ifood">iFood</SelectItem>
-                <SelectItem value="fiado">Fiado</SelectItem>
-                <SelectItem value="outro">Outro</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="pag-obs">Observação</Label>
-            <Textarea
-              id="pag-obs"
-              value={obs}
-              onChange={(e) => setObs(e.target.value)}
-              rows={2}
-              placeholder="Opcional"
-            />
-          </div>
-
-          {valorNum > saldoRestante + 0.005 && (
-            <p className="text-xs font-medium text-destructive">
-              Valor maior que o saldo restante ({formatBRL(saldoRestante)}).
-            </p>
-          )}
+          </FormSection>
         </div>
 
         <DialogFooter className="gap-2">
