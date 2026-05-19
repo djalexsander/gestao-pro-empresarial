@@ -20,8 +20,9 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { useDesktopRole } from "@/components/desktop/DesktopRoleProvider";
 import { DesktopSetupWizard } from "@/components/desktop/DesktopSetupWizard";
 import { DesktopRoleBadge } from "@/components/desktop/DesktopRoleBadge";
-import { isTerminalPathAllowed, TERMINAL_HOME } from "@/components/desktop/terminalRoutes";
 import { useFlushConfigEmpresaPending } from "@/hooks/useConfigEmpresa";
+import { useAutoSync } from "@/hooks/useAutoSync";
+import { SyncStatusPill } from "./SyncStatusPill";
 
 // Rotas que usam layout próprio (sem o shell do ERP)
 const STANDALONE_ROUTES = new Set(["/auth", "/hub", "/pos", "/pdv"]);
@@ -35,6 +36,9 @@ export function AppLayout() {
 
   // Drena pendências de Configurações da Empresa quando a rede voltar.
   useFlushConfigEmpresaPending();
+
+  // Sincronização automática em background (no-op em web/cloud puro).
+  useAutoSync();
 
   const pathname = location.pathname;
   const isStandalone = STANDALONE_ROUTES.has(pathname);
@@ -54,14 +58,12 @@ export function AppLayout() {
     }
   }, [pathname, modoAtual, modosLoading, user, isRouteAllowed, isStandalone, isAdminRoute, navigate]);
 
-  // Guard de papel desktop: terminal só pode acessar PDV e consultas básicas.
-  useEffect(() => {
-    if (!rodandoDesktop || desktopRole !== "terminal") return;
-    if (pathname === "/auth") return;
-    if (!isTerminalPathAllowed(pathname)) {
-      navigate({ to: TERMINAL_HOME, replace: true });
-    }
-  }, [rodandoDesktop, desktopRole, pathname, navigate]);
+  // Papel desktop NÃO bloqueia mais o acesso ao ERP. A segurança fica
+  // delegada para a cadeia RequireErpUnlock + RequireAdminLike +
+  // RequireTerminalPermissao já existente abaixo. Caixa-only continua
+  // restrito; admin/gerente em máquina terminal pode entrar no ERP.
+  void rodandoDesktop;
+  void desktopRole;
 
   // Wizard de primeiro uso: bloqueia o app inteiro até a máquina estar configurada.
   // Importante: NÃO mostrar antes de autenticar — o wizard fica acima do conteúdo
@@ -146,6 +148,7 @@ function AppShell() {
   // Trocar modo: navega ANTES de limpar o estado pra evitar flicker e
   // que o guard do AppLayout dispare uma segunda navegação.
   const handleTrocarModo = useCallback(() => {
+    console.log("[MODE_SWITCH] alternando ERP/PDV");
     navigate({ to: "/hub", replace: true });
     // Limpa o modo no próximo tick, depois que a navegação foi enfileirada.
     queueMicrotask(() => clearModo());
@@ -160,6 +163,7 @@ function AppShell() {
           <div className="flex-1">
             <AppMenubar activeModule={activeModule} onModuleSelect={setOverrideModule} />
           </div>
+          <SyncStatusPill />
           <DesktopRoleBadge />
           {modoAtual && (
             <button
