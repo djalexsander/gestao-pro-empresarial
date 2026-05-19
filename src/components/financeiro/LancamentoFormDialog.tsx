@@ -27,6 +27,7 @@ import { useFornecedores } from "@/hooks/useFornecedores";
 import { ClienteSearchSelect } from "@/components/clientes/ClienteSearchSelect";
 import { FornecedorSearchSelect } from "@/components/fornecedores/FornecedorSearchSelect";
 import { useHotkeys } from "@/hooks/useHotkeys";
+import { FormSection } from "@/components/shared/FormSection";
 import type {
   CriarLancamentoAvulsoInput,
   EditarLancamentoAvulsoInput,
