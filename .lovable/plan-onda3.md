@@ -172,4 +172,4 @@ mostram quais métodos herdam direto da cloud (sem fallback local):
      padrão de `vendas_metricas_periodo_local`), com safety gate por
      domínio (503 se algum cache estiver frio). Tratar em sub-onda
      própria por causa do volume e do risco de drift.
-6. **PR-O3-6** (QA) — fecha a onda.
+6. **PR-O3-6** (QA) — ✅ checklist em `.lovable/qa-onda3.md` (4 cenários × 5 grupos de método + regressão).
