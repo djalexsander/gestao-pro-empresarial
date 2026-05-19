@@ -217,6 +217,49 @@ async function tryLocalSearch<T>(
   }
 }
 
+// ---- Onda 3 — PR-O3-1: shape do mapContasReceber reproduzido localmente ----
+// Mantém o mesmo contrato do `mapContasReceber` de cloud-relatorios.ts. O cache
+// `financeiro_lancamentos_local` agora carrega cliente.id/nome_fantasia e
+// venda.id/data_emissao (select expandido no Rust). Para entries antigos no
+// cache (pré-expansão), caímos para os fields disponíveis para não quebrar.
+function mapContasReceberLocal(l: Record<string, unknown>) {
+  const cli = (l.cliente as Record<string, unknown> | null) ?? null;
+  const ven = (l.venda as Record<string, unknown> | null) ?? null;
+  const valor = Number(l.valor) || 0;
+  const pago = Number(l.valor_pago) || 0;
+  const clienteNome = cli
+    ? ((cli.nome_fantasia as string) || (cli.nome as string) || null)
+    : null;
+  const vendaData =
+    (ven?.data_emissao as string | undefined) ??
+    (ven?.data_finalizacao as string | undefined) ??
+    null;
+  return {
+    id: String(l.id),
+    descricao: String(l.descricao ?? ""),
+    valor,
+    valor_pago: pago,
+    data_emissao: (l.data_emissao as string) ?? null,
+    data_vencimento: String(l.data_vencimento ?? ""),
+    data_pagamento: (l.data_pagamento as string) ?? null,
+    status: l.status as string,
+    forma_pagamento: (l.forma_pagamento as string) ?? null,
+    observacoes: (l.observacoes as string) ?? null,
+    numero_documento: (l.numero_documento as string) ?? null,
+    cliente_id: (l.cliente_id as string) ?? null,
+    cliente_nome: clienteNome,
+    cliente_documento: (cli?.documento as string) ?? null,
+    cliente_telefone: (cli?.telefone as string) ?? null,
+    cliente_celular: (cli?.celular as string) ?? null,
+    cliente_email: (cli?.email as string) ?? null,
+    venda_id: ((ven?.id as string) ?? (l.venda_id as string)) ?? null,
+    venda_numero: (ven?.numero as string) ?? null,
+    venda_data: vendaData,
+    venda_total: ven ? Number(ven.total) || 0 : null,
+    conciliado_em: (l.conciliado_em as string) ?? null,
+  };
+}
+
 // ----------------------------------------------------------------------------
 // Adapter
 // ----------------------------------------------------------------------------
@@ -1853,6 +1896,54 @@ export const localServerAdapter: DataAdapter = {
             });
         },
         () => cloudAdapter.relatorios.lancamentosFinanceiroPeriodo({ inicio, fim }),
+      ),
+    // ---- Onda 3 — PR-O3-1: contas a receber 100% locais via cache completo ----
+    cardContasReceber: () =>
+      withCloudFallback(
+        "relatorios", "cardContasReceber",
+        async () => {
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "financeiro_lancamentos_completo", "listLancamentosCompleto",
+            "/api/financeiro/lancamentos-completo",
+          );
+          if (!Array.isArray(raw)) return null;
+          return raw
+            .filter((l) => l.tipo === "receber" && l.status !== "cancelado")
+            .sort((a, b) => String(b.data_vencimento ?? "").localeCompare(String(a.data_vencimento ?? "")))
+            .slice(0, 2000)
+            .map(mapContasReceberLocal);
+        },
+        () => cloudAdapter.relatorios.cardContasReceber(),
+      ),
+    lancamentosContasReceber: ({ inicio, fim, campoData, clienteId }) =>
+      withCloudFallback(
+        "relatorios", "lancamentosContasReceber",
+        async () => {
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "financeiro_lancamentos_completo", "listLancamentosCompleto",
+            "/api/financeiro/lancamentos-completo",
+          );
+          if (!Array.isArray(raw)) return null;
+          const campo: "data_vencimento" | "data_emissao" | "data_pagamento" =
+            campoData === "emissao" ? "data_emissao"
+            : campoData === "pagamento" ? "data_pagamento"
+            : "data_vencimento";
+          const filtroCliente = clienteId && clienteId !== "todos" ? String(clienteId) : null;
+          return raw
+            .filter((l) => {
+              if (l.tipo !== "receber") return false;
+              const d = l[campo] as string | null | undefined;
+              if (campo === "data_pagamento" && (d == null || d === "")) return false;
+              if (d == null) return false;
+              if (d < inicio || d > fim) return false;
+              if (filtroCliente && String(l.cliente_id ?? "") !== filtroCliente) return false;
+              return true;
+            })
+            .sort((a, b) => String(b[campo] ?? "").localeCompare(String(a[campo] ?? "")))
+            .slice(0, 2000)
+            .map(mapContasReceberLocal);
+        },
+        () => cloudAdapter.relatorios.lancamentosContasReceber({ inicio, fim, campoData, clienteId }),
       ),
     saldoAcumuladoFinanceiro: () =>
       withCloudFallback(

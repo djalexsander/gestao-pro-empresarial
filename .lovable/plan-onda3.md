@@ -127,8 +127,15 @@ mostram quais métodos herdam direto da cloud (sem fallback local):
 ---
 
 ## Ordem recomendada
-1. **PR-O3-4** (lookups) — mais barato, ganho imediato no PDV.
-2. **PR-O3-1** (relatórios faltantes) — completa o domínio.
+1. ~~**PR-O3-4** (lookups)~~ — ✅ já estava feito (`buscarPorCodigo`/`buscarPorPlu` local-first).
+2. **PR-O3-1** (relatórios faltantes) — ✅ **parcial**:
+   - ✅ `cardContasReceber`, `lancamentosContasReceber` — local-first via cache
+     `financeiro_lancamentos_completo` (select expandido com `cliente.id/nome_fantasia`
+     e `venda.id/data_emissao`).
+   - ⏭️ `categoriasFinanceiras` — adiado: não há cache local de
+     `categorias_financeiras`. Próxima sub-onda: adicionar cache via
+     `proxy_with_incremental_sync` ou derivar do cache de lançamentos.
+   - 🔒 `atualizarObservacaoCaixa` — mutation, segue cloud-only (correto).
 3. **PR-O3-3** (vendas leituras) — destrava telas de Vendas offline.
 4. **PR-O3-2** (compras) — maior, depende de sync.
 5. **PR-O3-5** (dashboard) — depende dos anteriores.
