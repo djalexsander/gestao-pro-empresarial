@@ -1638,6 +1638,31 @@ function PDVPage() {
 
           {/* Tabela de itens */}
           <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/20 px-4 py-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Itens da venda
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-destructive hover:text-destructive"
+                disabled={items.length === 0}
+                onClick={() => {
+                  if (items.length === 0) {
+                    toast.info("Nenhum item para cancelar.");
+                    return;
+                  }
+                  setCancelItemOpen(true);
+                }}
+                title="Cancelar item (Delete)"
+              >
+                <Ban className="mr-1.5 h-3.5 w-3.5" />
+                Cancelar item
+                <kbd className="ml-2 rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">
+                  Del
+                </kbd>
+              </Button>
+            </div>
             <div className="grid grid-cols-[1fr_120px_140px_140px_44px] items-center gap-2 border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               <span>Produto</span>
               <span className="text-center">Quantidade</span>
