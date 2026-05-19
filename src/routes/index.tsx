@@ -435,31 +435,35 @@ function DashboardPage() {
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          label="Vendas do mês"
-          value={formatBRL(data.vendasMes)}
+          label={`Vendas ${periodoLabel}`}
+          value={formatBRL(vendasPeriodoTotal)}
           change={Math.abs(Math.round(varVendas * 10) / 10)}
           trend={varVendas >= 0 ? "up" : "down"}
-          hint="vs. mês anterior"
+          hint={
+            qtdVendasPeriodo > 0
+              ? `${qtdVendasPeriodo} ${qtdVendasPeriodo === 1 ? "venda" : "vendas"} · ticket ${formatBRL(ticketMedioPeriodo)}`
+              : "vs. período anterior"
+          }
           icon={TrendingUp}
           iconTone="primary"
           onClick={() => abrirKpi("vendas")}
         />
         <StatCard
-          label="Compras do mês"
-          value={formatBRL(data.comprasMes)}
+          label={`Compras ${periodoLabel}`}
+          value={formatBRL(comprasPeriodoTotal)}
           change={Math.abs(Math.round(varCompras * 10) / 10)}
           trend={varCompras >= 0 ? "up" : "down"}
-          hint="vs. mês anterior"
+          hint="vs. período anterior"
           icon={ShoppingCart}
           iconTone="info"
           onClick={() => abrirKpi("compras")}
         />
         <StatCard
-          label="Lucro do mês"
-          value={formatBRL(data.lucroMes)}
-          hint={`margem ${data.margem.toFixed(1)}%`}
+          label={`Lucro ${periodoLabel}`}
+          value={formatBRL(lucroPeriodo)}
+          hint={`margem ${margemPeriodo.toFixed(1)}%`}
           icon={Wallet}
-          iconTone={data.lucroMes >= 0 ? "success" : "danger"}
+          iconTone={lucroPeriodo >= 0 ? "success" : "danger"}
           onClick={() => abrirKpi("lucro")}
         />
         <StatCard
