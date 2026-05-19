@@ -534,7 +534,8 @@ function FinanceContent() {
         <TabsList>
           <TabsTrigger value="receber">Contas a receber</TabsTrigger>
           <TabsTrigger value="pagar">Contas a pagar</TabsTrigger>
-          <TabsTrigger value="fluxo">Fluxo de caixa</TabsTrigger>
+          <TabsTrigger value="fluxo">Caixa Operacional</TabsTrigger>
+          <TabsTrigger value="fluxo-financeiro">Fluxo Financeiro</TabsTrigger>
         </TabsList>
 
         <TabsContent value="receber" className="mt-4">
@@ -556,6 +557,10 @@ function FinanceContent() {
 
         <TabsContent value="fluxo" className="mt-4">
           <FluxoCaixaPanel />
+        </TabsContent>
+
+        <TabsContent value="fluxo-financeiro" className="mt-4">
+          <FluxoFinanceiroPanel />
         </TabsContent>
       </Tabs>
 
