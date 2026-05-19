@@ -3276,6 +3276,115 @@ async fn financeiro_ifood_pendentes_handler(
 }
 
 
+// ---------- /api/financeiro/pagamentos (Onda 2 — item 9, PR-F0) ----------
+//
+// Histórico de pagamentos de um lançamento. Estratégia:
+//   1. Tenta buscar upstream (`lancamento_pagamentos?lancamento_id=eq.X`).
+//   2. Em sucesso: substitui rows desse `lancamento_id` no cache
+//      `pagamentos_local` e devolve os rows recém-buscados.
+//   3. Em falha de upstream (offline / 5xx): lê do cache (stale).
+//   4. Sem upstream e cache vazio: 503 → fallback cloud no adapter (que
+//      por sua vez falha graciosamente para a UI).
+
+async fn financeiro_pagamentos_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let lanc_id = q
+        .get("lancamento_id")
+        .cloned()
+        .ok_or((StatusCode::BAD_REQUEST, "lancamento_id é obrigatório".into()))?;
+    let now = now_ms();
+
+    // 1) Tenta upstream
+    let upstream_query: Vec<(&str, String)> = vec![
+        ("select", "id,lancamento_id,valor,data_pagamento,forma_pagamento,observacao,created_at".into()),
+        ("lancamento_id", format!("eq.{lanc_id}")),
+        ("order", "data_pagamento.desc".into()),
+    ];
+
+    let mut source = "local-table";
+    let mut upstream_body: Option<String> = None;
+    if let Some(upstream) = ctx.upstream.as_ref() {
+        let url = format!("{}/rest/v1/lancamento_pagamentos", upstream.base_url.trim_end_matches('/'));
+        let auth = headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+        let res = ctx
+            .http
+            .get(&url)
+            .query(&upstream_query)
+            .header("apikey", &upstream.anon_key)
+            .header(axum::http::header::AUTHORIZATION, auth)
+            .header(axum::http::header::ACCEPT, "application/json")
+            .send()
+            .await;
+        match res {
+            Ok(r) if r.status().is_success() => {
+                match r.text().await {
+                    Ok(text) => {
+                        if let Err(e) = db::replace_pagamentos_for_lancamento(&lanc_id, &text, now) {
+                            eprintln!("[LOCAL_FINANCE] pagamentos ingest falha: {e}");
+                        }
+                        upstream_body = Some(text);
+                    }
+                    Err(e) => eprintln!("[LOCAL_FINANCE] pagamentos upstream body falha: {e}"),
+                }
+            }
+            Ok(r) => {
+                eprintln!("[LOCAL_FINANCE] pagamentos upstream status={}", r.status());
+                source = "local-table-stale";
+            }
+            Err(e) => {
+                eprintln!("[LOCAL_FINANCE] pagamentos upstream falha: {e}");
+                source = "local-table-stale";
+            }
+        }
+    } else {
+        source = "local-table-stale";
+    }
+
+    // 2) Lê do cache (autoritativo após ingest, ou stale caso upstream falhou).
+    // Se conseguimos buscar upstream usamos diretamente esse body (já no shape
+    // do upstream com `lancamento_id` extra). Caso contrário usamos o read
+    // do cache que já entrega o shape do domain.
+    let body = match upstream_body {
+        Some(s) if !s.trim().is_empty() && s.trim() != "null" => s,
+        _ => db::read_pagamentos_por_lancamento(&lanc_id).map_err(|e| {
+            eprintln!("[LOCAL_FINANCE] pagamentos cache read falha: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?,
+    };
+
+    // Se nem upstream nem cache têm dados → 503 (deixa adapter cair em cloud).
+    if body.trim() == "[]" && source == "local-table-stale" {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "cache vazio + upstream indisponível".into(),
+        ));
+    }
+
+    eprintln!("[LOCAL_FINANCE] pagamentos hit lanc={lanc_id} source={source}");
+    let merged = format!("{{\"data\":{body}}}");
+    let mut resp = axum::response::Response::new(axum::body::Body::from(merged));
+    resp.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    resp.headers_mut().insert(
+        axum::http::HeaderName::from_static("x-gp-source"),
+        axum::http::HeaderValue::from_str(source).unwrap_or(axum::http::HeaderValue::from_static("local-table")),
+    );
+    Ok(resp)
+}
+
+
+
+
+
 
 
 
@@ -4084,6 +4193,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/financeiro/performance-periodo", get(financeiro_performance_periodo_handler))
         .route("/api/financeiro/indicadores-mes", get(financeiro_indicadores_mes_handler))
         .route("/api/financeiro/ifood-pendentes", get(financeiro_ifood_pendentes_handler))
+        .route("/api/financeiro/pagamentos", get(financeiro_pagamentos_handler))
         .route("/api/financeiro/receber", get(financeiro_receber_listar_handler))
         .route("/api/financeiro/receber/baixar", post(financeiro_receber_baixar_handler))
         .route("/api/financeiro/receber/cancelar", post(financeiro_receber_cancelar_handler))

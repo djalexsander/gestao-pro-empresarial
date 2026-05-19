@@ -1247,6 +1247,22 @@ export const localServerAdapter: DataAdapter = {
           ),
         () => cloudAdapter.financeiro.listIfoodPendentes(),
       ),
+    // Onda 2 — item 9 (PR-F0): pagamentosPorLancamento via cache
+    // `pagamentos_local`. O handler tenta upstream primeiro (refresh
+    // autoritativo) e cai para o cache local quando offline.
+    pagamentosPorLancamento: async (lancamentoId: string) =>
+      withCloudFallback(
+        "financeiro",
+        "pagamentosPorLancamento",
+        () =>
+          tryLocal<Awaited<ReturnType<typeof cloudAdapter.financeiro.pagamentosPorLancamento>>>(
+            "financeiro",
+            "pagamentosPorLancamento",
+            "/api/financeiro/pagamentos",
+            { lancamento_id: lancamentoId },
+          ),
+        () => cloudAdapter.financeiro.pagamentosPorLancamento(lancamentoId),
+      ),
     // Onda 2 — item 3: performancePeriodo agregado dos caches locais
     // `vendas_remote_cache` + `venda_itens_remote_cache` (este último já
     // traz `produto.preco_custo` embutido via PostgREST).
