@@ -3881,7 +3881,75 @@ pub fn read_vendas_remote(limit: i64) -> DbResult<String> {
     })
 }
 
-// ---------- Caches de relatórios: caixas / movimentos / func / term ----------
+/// Onda 3 — PR-O3-3: agrega métricas de vendas no período diretamente do
+/// cache `vendas_remote_cache`. Equivalente ao RPC `venda_metricas_periodo`
+/// usado em `cloudAdapter.vendas.metricasPeriodo`.
+///
+/// Diferenças vs. cloud (aceitas — cloud continua autoritativo via fallback):
+///   * `valor_pendente` é aproximado como `SUM(total)` quando
+///     `status_pagamento` != 'pago' / 'recebido' (cloud pode usar
+///     `total - valor_pago_total` lido de `financeiro_lancamentos`).
+///
+/// Safety gate: se o cache está totalmente vazio devolve `None` para
+/// forçar fallback cloud.
+pub fn vendas_metricas_periodo_local(
+    inicio: &str,
+    fim: &str,
+) -> DbResult<Option<String>> {
+    let inicio_ms = parse_date_only_to_ms(inicio)
+        .ok_or_else(|| DbError(format!("metricas: inicio inválido: {inicio}")))?;
+    // Fim inclusivo: somar 1 dia e subtrair 1ms.
+    let fim_ms = parse_date_only_to_ms(fim)
+        .map(|ms| ms + 24 * 60 * 60 * 1000 - 1)
+        .ok_or_else(|| DbError(format!("metricas: fim inválido: {fim}")))?;
+    with_conn(|conn| {
+        let total_cache: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM vendas_remote_cache WHERE deleted_at_ms IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        if total_cache == 0 {
+            return Ok(None);
+        }
+        let mut stmt = conn.prepare(
+            "SELECT
+               COALESCE(SUM(CASE WHEN status != 'cancelado' THEN 1 ELSE 0 END), 0) AS qtd_vendas,
+               COALESCE(SUM(CASE WHEN status = 'cancelado' THEN 1 ELSE 0 END), 0) AS qtd_canc,
+               COALESCE(SUM(CASE WHEN status != 'cancelado'
+                                 THEN CAST(json_extract(payload, '$.total') AS REAL)
+                                 ELSE 0 END), 0) AS total_vendido,
+               COALESCE(SUM(CASE WHEN status != 'cancelado'
+                                  AND json_extract(payload, '$.status_pagamento') NOT IN ('pago','recebido')
+                                 THEN 1 ELSE 0 END), 0) AS qtd_pend,
+               COALESCE(SUM(CASE WHEN status != 'cancelado'
+                                  AND json_extract(payload, '$.status_pagamento') NOT IN ('pago','recebido')
+                                 THEN CAST(json_extract(payload, '$.total') AS REAL)
+                                 ELSE 0 END), 0) AS valor_pend
+             FROM vendas_remote_cache
+             WHERE deleted_at_ms IS NULL
+               AND data_emissao_ms BETWEEN ?1 AND ?2",
+        )?;
+        let (qtd_vendas, qtd_canc, total_vendido, qtd_pend, valor_pend): (i64, i64, f64, i64, f64) =
+            stmt.query_row(params![inicio_ms, fim_ms], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+            })?;
+        let ticket_medio = if qtd_vendas > 0 {
+            total_vendido / qtd_vendas as f64
+        } else {
+            0.0
+        };
+        let body = format!(
+            r#"{{"qtd_vendas":{qv},"qtd_canceladas":{qc},"total_vendido":{tv},"ticket_medio":{tm},"qtd_pendentes":{qp},"valor_pendente":{vp}}}"#,
+            qv = qtd_vendas,
+            qc = qtd_canc,
+            tv = total_vendido,
+            tm = ticket_medio,
+            qp = qtd_pend,
+            vp = valor_pend,
+        );
+        Ok(Some(body))
+    })
+}
 
 fn ingest_simple_cache(
     domain: &str,
