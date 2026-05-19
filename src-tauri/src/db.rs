@@ -3093,6 +3093,120 @@ pub fn posicao_periodo_local(
     })
 }
 
+/// Onda 2 — item 4: agrega `ReceberOrigemDomain` do cache local
+/// (`financeiro_lancamentos_local`). `forma` aceita "todos" ou um
+/// código específico (fiado, ifood, ...). `hoje` é a data ISO do dia
+/// no fuso do cliente (para casar com a noção de "vencidos hoje" do cloud).
+///
+/// Retorna a tupla (fiadoEmAberto, qtdFiado, ifoodAReceber, qtdIfood,
+/// recebidoPeriodo, qtdRecebimentos, vencidosTotal, qtdVencidos).
+pub fn receber_origem_local(
+    inicio: &str,
+    fim: &str,
+    inicio_ms: i64,
+    fim_ms: i64,
+    forma: &str,
+    hoje: &str,
+) -> DbResult<(f64, i64, f64, i64, f64, i64, f64, i64)> {
+    with_conn(|conn| {
+        let matches_forma = |f: Option<&str>| -> bool {
+            if forma == "todos" { return true; }
+            f.map(|x| x == forma).unwrap_or(false)
+        };
+
+        // ---- Abertos (pendentes, não conciliados) → fiado / ifood ----
+        let mut stmt_a = conn.prepare(
+            "SELECT json_extract(payload, '$.forma_pagamento'),
+                    COALESCE(CAST(json_extract(payload, '$.valor') AS REAL), 0),
+                    COALESCE(CAST(json_extract(payload, '$.valor_pago') AS REAL), 0),
+                    json_extract(payload, '$.conciliado_em')
+             FROM financeiro_lancamentos_local
+             WHERE deleted_at_ms IS NULL
+               AND tipo = 'receber'
+               AND status = 'pendente'",
+        )?;
+        let mut rows = stmt_a.query([])?;
+        let (mut fiado_t, mut fiado_q, mut ifood_t, mut ifood_q) = (0.0_f64, 0_i64, 0.0_f64, 0_i64);
+        while let Some(row) = rows.next()? {
+            let fp: Option<String> = row.get(0)?;
+            let valor: f64 = row.get(1)?;
+            let pago: f64 = row.get(2)?;
+            let conc: Option<String> = row.get(3)?;
+            if conc.is_some() { continue; }
+            if !matches_forma(fp.as_deref()) { continue; }
+            let aberto = valor - pago;
+            if aberto <= 0.0 { continue; }
+            match fp.as_deref() {
+                Some("fiado") => { fiado_t += aberto; fiado_q += 1; }
+                Some("ifood") => { ifood_t += aberto; ifood_q += 1; }
+                _ => {}
+            }
+        }
+        drop(rows);
+        drop(stmt_a);
+
+        // ---- Pagos no período (data_pagamento BETWEEN inicio AND fim) ----
+        let mut stmt_p = conn.prepare(
+            "SELECT json_extract(payload, '$.forma_pagamento'),
+                    COALESCE(CAST(json_extract(payload, '$.valor') AS REAL), 0),
+                    COALESCE(CAST(json_extract(payload, '$.valor_pago') AS REAL), 0)
+             FROM financeiro_lancamentos_local
+             WHERE deleted_at_ms IS NULL
+               AND tipo = 'receber'
+               AND status IN ('pago','recebido')
+               AND json_extract(payload, '$.data_pagamento') BETWEEN ?1 AND ?2",
+        )?;
+        let mut rows = stmt_p.query(params![inicio, fim])?;
+        let (mut rec_t, mut rec_q) = (0.0_f64, 0_i64);
+        while let Some(row) = rows.next()? {
+            let fp: Option<String> = row.get(0)?;
+            if !matches_forma(fp.as_deref()) { continue; }
+            let valor: f64 = row.get(1)?;
+            let pago: f64 = row.get(2)?;
+            let v = if pago > 0.0 { pago } else { valor };
+            rec_t += v;
+            rec_q += 1;
+        }
+        drop(rows);
+        drop(stmt_p);
+
+        // ---- Vencidos (pendentes, vencimento no período E antes de hoje) ----
+        // Equivale a: data_vencimento_ms BETWEEN inicio_ms AND fim_ms
+        //           AND data_vencimento < hoje (string ISO compara ok).
+        let hoje_ms = chrono::NaiveDate::parse_from_str(hoje, "%Y-%m-%d")
+            .ok()
+            .and_then(|d| d.and_hms_opt(0, 0, 0))
+            .map(|dt| dt.and_utc().timestamp_millis())
+            .unwrap_or(i64::MAX);
+        let mut stmt_v = conn.prepare(
+            "SELECT json_extract(payload, '$.forma_pagamento'),
+                    COALESCE(CAST(json_extract(payload, '$.valor') AS REAL), 0),
+                    COALESCE(CAST(json_extract(payload, '$.valor_pago') AS REAL), 0)
+             FROM financeiro_lancamentos_local
+             WHERE deleted_at_ms IS NULL
+               AND tipo = 'receber'
+               AND status = 'pendente'
+               AND data_vencimento_ms BETWEEN ?1 AND ?2
+               AND data_vencimento_ms < ?3",
+        )?;
+        let mut rows = stmt_v.query(params![inicio_ms, fim_ms, hoje_ms])?;
+        let (mut venc_t, mut venc_q) = (0.0_f64, 0_i64);
+        while let Some(row) = rows.next()? {
+            let fp: Option<String> = row.get(0)?;
+            if !matches_forma(fp.as_deref()) { continue; }
+            let valor: f64 = row.get(1)?;
+            let pago: f64 = row.get(2)?;
+            let aberto = valor - pago;
+            if aberto > 0.0 {
+                venc_t += aberto;
+                venc_q += 1;
+            }
+        }
+
+        Ok((fiado_t, fiado_q, ifood_t, ifood_q, rec_t, rec_q, venc_t, venc_q))
+    })
+}
+
 // ---------- Compras (v15) ----------
 //
 // Cache do payload completo da listagem de compras com fornecedor embutido,
