@@ -13,6 +13,7 @@ import {
 import { isNetworkAuthError } from "@/lib/erpOfflineCache";
 import { aquecerPinServidor } from "@/integrations/desktop/serverConnection";
 import { getDesktopConfig } from "@/integrations/desktop/configStore";
+import { friendlyDeleteError, logSoftDelete } from "@/lib/softDeleteError";
 
 export type FuncionarioRole = FuncionarioRoleDomain;
 
