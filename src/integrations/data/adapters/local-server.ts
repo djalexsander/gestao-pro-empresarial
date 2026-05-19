@@ -2457,6 +2457,9 @@ async function postLocalAuthDetail<T>(
       error: err instanceof Error ? err.message : "Falha ao contatar servidor local",
     };
   }
+}
+
+
 
 async function postLocalAuth<T>(path: string, body: unknown): Promise<T | null> {
   const baseUrl = await resolveBaseUrl();
