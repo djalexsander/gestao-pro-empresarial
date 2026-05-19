@@ -263,13 +263,35 @@ export function useUpdateProduto() {
 }
 
 /**
- * Hard delete. A RPC bloqueia se houver vendas/compras/movimentos/lotes
- * vinculados — nesse caso, oriente o usuário a inativar o produto.
+ * "Excluir" produto = soft delete (inativação).
+ * Preserva todo o histórico (vendas, compras, movimentos, lotes) e simplesmente
+ * marca o produto como `inativo`. O produto some das listas ativas, do PDV,
+ * scanner e busca, mas continua sendo referenciado por registros antigos.
+ *
+ * Local-first: o adapter local-server grava no SQLite e gera outbox; o cloud
+ * recebe via fallback ou sincronização posterior.
  */
 export function useDeleteProduto() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => dataClient.produtos.excluir(id),
+    mutationFn: async (id: string) => {
+      if (import.meta.env.DEV) console.debug("[PRODUTO_DELETE]", { produto_id: id, modo: "inativar" });
+      try {
+        const r = await dataClient.produtos.alterarStatus({ produto_id: id, status: "inativo" });
+        if (import.meta.env.DEV) console.debug("[PRODUTO_INATIVAR_LOCAL]", { produto_id: id, status: r.status });
+        return r;
+      } catch (err) {
+        if (import.meta.env.DEV) console.error("[PRODUTO_DELETE_ERROR]", err);
+        const msg = err instanceof Error ? err.message : String(err);
+        const isNet =
+          /failed to fetch|networkerror|load failed|fetch failed/i.test(msg) ||
+          (typeof err === "object" && err !== null && "name" in err && (err as { name?: string }).name === "TypeError");
+        if (isNet) {
+          throw new Error("Não foi possível desativar o produto agora. Verifique sua conexão e tente novamente.");
+        }
+        throw err instanceof Error ? err : new Error(msg);
+      }
+    },
     // Otimista: remove da listagem antes do round-trip.
     onMutate: async (id: string) => {
       await qc.cancelQueries({ queryKey: ["produtos"] });
@@ -287,7 +309,7 @@ export function useDeleteProduto() {
       qc.invalidateQueries({ queryKey: ["produtos"] });
       qc.invalidateQueries({ queryKey: ["estoque-saldos"] });
     },
-    onSuccess: () => toast.success("Produto excluído."),
+    onSuccess: () => toast.success("Produto desativado."),
   });
 }
 
