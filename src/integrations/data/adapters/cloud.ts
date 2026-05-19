@@ -640,7 +640,7 @@ const caixa: DataAdapter["caixa"] = {
   async abrir(input: AbrirCaixaInput): Promise<string> {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await withTimeout(
+      const { data, error } = await withTimeout<{ data: any; error: any }>(
         (supabase as any).rpc("abrir_caixa", {
           _valor_inicial: input.valor_inicial,
           _observacao: input.observacao ?? undefined,
@@ -661,7 +661,7 @@ const caixa: DataAdapter["caixa"] = {
   async fechar(input: FecharCaixaInput): Promise<FecharCaixaResult> {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await withTimeout(
+      const { data, error } = await withTimeout<{ data: any; error: any }>(
         (supabase as any).rpc("fechar_caixa", {
           _caixa_id: input.caixa_id,
           _valor_informado: input.valor_informado,
@@ -681,7 +681,7 @@ const caixa: DataAdapter["caixa"] = {
   async registrarMovimento(input: RegistrarMovimentoCaixaInput): Promise<string> {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await withTimeout(
+      const { data, error } = await withTimeout<{ data: any; error: any }>(
         (supabase as any).rpc("caixa_registrar_movimento", {
           _caixa_id: input.caixa_id,
           _tipo: input.tipo,
