@@ -333,13 +333,51 @@ function DashboardPage() {
     );
   }
 
-  const varVendas = variacao(data.vendasMes, data.vendasMesAnterior);
-  const varCompras = variacao(data.comprasMes, data.comprasMesAnterior);
+  // ============ Período-scoped KPIs ============
+  // Soma compras (data_emissao no intervalo, excluindo canceladas) a partir da lista completa.
+  const comprasPeriodoTotal = useMemo(() => {
+    const lista = comprasListQuery.data ?? [];
+    return lista.reduce((acc, c) => {
+      if (c.status === "cancelada") return acc;
+      if (!inRange(c.data_emissao, inicio, fim)) return acc;
+      return acc + (Number(c.total) || 0);
+    }, 0);
+  }, [comprasListQuery.data, inicio, fim]);
+  const comprasPeriodoAnteriorTotal = useMemo(() => {
+    const lista = comprasListQuery.data ?? [];
+    return lista.reduce((acc, c) => {
+      if (c.status === "cancelada") return acc;
+      if (!inRange(c.data_emissao, periodoAnterior.inicio, periodoAnterior.fim)) return acc;
+      return acc + (Number(c.total) || 0);
+    }, 0);
+  }, [comprasListQuery.data, periodoAnterior]);
+
+  const vendasPeriodoTotal = vendasMetricasQuery.data?.total_vendido ?? 0;
+  const vendasPeriodoAnteriorTotal = vendasMetricasPrevQuery.data?.total_vendido ?? 0;
+  const qtdVendasPeriodo = vendasMetricasQuery.data?.qtd_vendas ?? 0;
+  const ticketMedioPeriodo = vendasMetricasQuery.data?.ticket_medio ?? 0;
+  const lucroPeriodo = vendasPeriodoTotal - comprasPeriodoTotal;
+  const margemPeriodo = vendasPeriodoTotal > 0 ? (lucroPeriodo / vendasPeriodoTotal) * 100 : 0;
+  const varVendas = variacao(vendasPeriodoTotal, vendasPeriodoAnteriorTotal);
+  const varCompras = variacao(comprasPeriodoTotal, comprasPeriodoAnteriorTotal);
+
+  if (import.meta.env.DEV) {
+    // eslint-disable-next-line no-console
+    console.debug("[DASHBOARD_KPI] recalculando cards", {
+      vendasPeriodoTotal,
+      comprasPeriodoTotal,
+      lucroPeriodo,
+      margemPeriodo,
+      qtdVendasPeriodo,
+      ticketMedioPeriodo,
+    });
+  }
+
   const ultimasVendas = (data.ultimasVendas ?? []).filter((item) => inRange(item.data, inicio, fim));
   const ultimasCompras = (data.ultimasCompras ?? []).filter((item) => inRange(item.data, inicio, fim));
   const totalDados =
-    data.vendasMes +
-    data.comprasMes +
+    vendasPeriodoTotal +
+    comprasPeriodoTotal +
     data.contasPagar +
     data.contasReceber +
     data.estoqueBaixo;
