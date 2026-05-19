@@ -217,6 +217,49 @@ async function tryLocalSearch<T>(
   }
 }
 
+// ---- Onda 3 — PR-O3-1: shape do mapContasReceber reproduzido localmente ----
+// Mantém o mesmo contrato do `mapContasReceber` de cloud-relatorios.ts. O cache
+// `financeiro_lancamentos_local` agora carrega cliente.id/nome_fantasia e
+// venda.id/data_emissao (select expandido no Rust). Para entries antigos no
+// cache (pré-expansão), caímos para os fields disponíveis para não quebrar.
+function mapContasReceberLocal(l: Record<string, unknown>) {
+  const cli = (l.cliente as Record<string, unknown> | null) ?? null;
+  const ven = (l.venda as Record<string, unknown> | null) ?? null;
+  const valor = Number(l.valor) || 0;
+  const pago = Number(l.valor_pago) || 0;
+  const clienteNome = cli
+    ? ((cli.nome_fantasia as string) || (cli.nome as string) || null)
+    : null;
+  const vendaData =
+    (ven?.data_emissao as string | undefined) ??
+    (ven?.data_finalizacao as string | undefined) ??
+    null;
+  return {
+    id: String(l.id),
+    descricao: String(l.descricao ?? ""),
+    valor,
+    valor_pago: pago,
+    data_emissao: (l.data_emissao as string) ?? null,
+    data_vencimento: String(l.data_vencimento ?? ""),
+    data_pagamento: (l.data_pagamento as string) ?? null,
+    status: l.status as string,
+    forma_pagamento: (l.forma_pagamento as string) ?? null,
+    observacoes: (l.observacoes as string) ?? null,
+    numero_documento: (l.numero_documento as string) ?? null,
+    cliente_id: (l.cliente_id as string) ?? null,
+    cliente_nome: clienteNome,
+    cliente_documento: (cli?.documento as string) ?? null,
+    cliente_telefone: (cli?.telefone as string) ?? null,
+    cliente_celular: (cli?.celular as string) ?? null,
+    cliente_email: (cli?.email as string) ?? null,
+    venda_id: ((ven?.id as string) ?? (l.venda_id as string)) ?? null,
+    venda_numero: (ven?.numero as string) ?? null,
+    venda_data: vendaData,
+    venda_total: ven ? Number(ven.total) || 0 : null,
+    conciliado_em: (l.conciliado_em as string) ?? null,
+  };
+}
+
 // ----------------------------------------------------------------------------
 // Adapter
 // ----------------------------------------------------------------------------
