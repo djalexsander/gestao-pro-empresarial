@@ -3234,6 +3234,51 @@ async fn financeiro_indicadores_mes_handler(
 }
 
 
+// ---------- /api/financeiro/ifood-pendentes (Onda 2 — item 11) ----------
+//
+// Lista lançamentos com forma_pagamento='ifood' e status='pendente' direto
+// do cache `financeiro_lancamentos_local` (cliente_nome já embutido via
+// PostgREST). Devolve 503 se o cache está vazio → fallback cloud.
+
+async fn financeiro_ifood_pendentes_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let limit: i64 = q
+        .get("limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(500)
+        .clamp(1, 5000);
+    let result = db::list_ifood_pendentes_local(limit).map_err(|e| {
+        eprintln!("[LOCAL_FINANCE] ifood-pendentes falha: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    })?;
+    let body = match result {
+        Some(s) => s,
+        None => {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                "cache de lançamentos vazio — fallback cloud".into(),
+            ));
+        }
+    };
+    eprintln!("[LOCAL_FINANCE] ifood-pendentes hit limit={limit}");
+    let merged = format!("{{\"data\":{body}}}");
+    let mut resp = axum::response::Response::new(axum::body::Body::from(merged));
+    resp.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    resp.headers_mut().insert(
+        axum::http::HeaderName::from_static("x-gp-source"),
+        axum::http::HeaderValue::from_static("local-table"),
+    );
+    Ok(resp)
+}
+
+
+
+
+
 
 
 
