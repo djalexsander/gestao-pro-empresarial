@@ -3479,15 +3479,7 @@ async fn vendas_metricas_periodo_handler(
         ));
     };
     let wrapped = format!(r#"{{"data":{body}}}"#);
-    Ok((
-        StatusCode::OK,
-        [
-            (axum::http::header::CONTENT_TYPE, "application/json"),
-            (axum::http::HeaderName::from_static("x-gp-source"), "local-table"),
-        ],
-        wrapped,
-    )
-        .into_response())
+    Ok(typed_response(StatusCode::OK, "local-table", wrapped.into_bytes()))
 }
 
 // ---------- /api/relatorios/caixas (v17) ----------
