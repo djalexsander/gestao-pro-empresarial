@@ -1232,6 +1232,21 @@ export const localServerAdapter: DataAdapter = {
           ),
         () => cloudAdapter.financeiro.indicadoresMes(),
       ),
+    // Onda 2 — item 11: listIfoodPendentes lido direto do cache
+    // `financeiro_lancamentos_local` (cliente.nome já embutido via PostgREST).
+    listIfoodPendentes: async () =>
+      withCloudFallback(
+        "financeiro",
+        "listIfoodPendentes",
+        () =>
+          tryLocal<Awaited<ReturnType<typeof cloudAdapter.financeiro.listIfoodPendentes>>>(
+            "financeiro",
+            "listIfoodPendentes",
+            "/api/financeiro/ifood-pendentes",
+            { limit: "500" },
+          ),
+        () => cloudAdapter.financeiro.listIfoodPendentes(),
+      ),
     // Onda 2 — item 3: performancePeriodo agregado dos caches locais
     // `vendas_remote_cache` + `venda_itens_remote_cache` (este último já
     // traz `produto.preco_custo` embutido via PostgREST).
