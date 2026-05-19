@@ -276,21 +276,13 @@ export function useDeleteProduto() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      if (import.meta.env.DEV) console.debug("[PRODUTO_DELETE]", { produto_id: id, modo: "inativar" });
+      logSoftDelete("produto", id, { acao: "inativar" });
       try {
         const r = await dataClient.produtos.alterarStatus({ produto_id: id, status: "inativo" });
-        if (import.meta.env.DEV) console.debug("[PRODUTO_INATIVAR_LOCAL]", { produto_id: id, status: r.status });
+        if (import.meta.env.DEV) console.debug("[INATIVAR_LOCAL]", { entidade: "produto", id, status: r.status });
         return r;
       } catch (err) {
-        if (import.meta.env.DEV) console.error("[PRODUTO_DELETE_ERROR]", err);
-        const msg = err instanceof Error ? err.message : String(err);
-        const isNet =
-          /failed to fetch|networkerror|load failed|fetch failed/i.test(msg) ||
-          (typeof err === "object" && err !== null && "name" in err && (err as { name?: string }).name === "TypeError");
-        if (isNet) {
-          throw new Error("Não foi possível desativar o produto agora. Verifique sua conexão e tente novamente.");
-        }
-        throw err instanceof Error ? err : new Error(msg);
+        throw friendlyDeleteError(err, "produto");
       }
     },
     // Otimista: remove da listagem antes do round-trip.
