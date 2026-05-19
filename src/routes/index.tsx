@@ -233,6 +233,10 @@ function DashboardPage() {
   async function exportarDashboard(formato: ExportFormato) {
     if (!data) return;
     setExporting(true);
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.debug("[DASHBOARD_EXPORT] exportando período", { inicio, fim, periodo });
+    }
     toast.loading("Gerando exportação...", { id: "export-dashboard" });
     try {
       const vendasRows = (data.ultimasVendas ?? []).filter((item) =>
@@ -241,6 +245,16 @@ function DashboardPage() {
       const comprasRows = (data.ultimasCompras ?? []).filter((item) =>
         inRange(item.data, inicio, fim),
       );
+
+      // Recalcula totais do período (mesma fonte dos cards)
+      const vendasTotal = vendasMetricasQuery.data?.total_vendido ?? 0;
+      const comprasTotal = (comprasListQuery.data ?? []).reduce((acc, c) => {
+        if (c.status === "cancelada") return acc;
+        if (!inRange(c.data_emissao, inicio, fim)) return acc;
+        return acc + (Number(c.total) || 0);
+      }, 0);
+      const lucroTotal = vendasTotal - comprasTotal;
+      const margemTotal = vendasTotal > 0 ? (lucroTotal / vendasTotal) * 100 : 0;
 
       type LinhaMov = {
         tipo: "Venda" | "Compra";
@@ -284,12 +298,17 @@ function DashboardPage() {
         titulo: "Dashboard — Resumo geral",
         periodo: `${formatPeriodoBR(inicio)} a ${formatPeriodoBR(fim)}`,
         resumo: [
-          { label: "Vendas do período", valor: formatBRL(data.vendasMes), tone: "success" },
-          { label: "Compras do período", valor: formatBRL(data.comprasMes), tone: "info" },
+          { label: "Vendas do período", valor: formatBRL(vendasTotal), tone: "success" },
+          { label: "Compras do período", valor: formatBRL(comprasTotal), tone: "info" },
           {
             label: "Lucro do período",
-            valor: formatBRL(data.lucroMes),
-            tone: data.lucroMes >= 0 ? "success" : "danger",
+            valor: formatBRL(lucroTotal),
+            tone: lucroTotal >= 0 ? "success" : "danger",
+          },
+          {
+            label: "Margem do período",
+            valor: `${margemTotal.toFixed(1)}%`,
+            tone: margemTotal >= 0 ? "success" : "danger",
           },
           { label: "Contas a pagar", valor: formatBRL(data.contasPagar), tone: "warning" },
           { label: "Contas a receber", valor: formatBRL(data.contasReceber), tone: "success" },
