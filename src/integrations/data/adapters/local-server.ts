@@ -1231,43 +1231,64 @@ export const localServerAdapter: DataAdapter = {
       return result;
     },
     fechar: async (input) => {
-      console.info("[CAIXA_LOCAL] fechamento local iniciado");
-      const r = await postLocalAuth<{
-        fechamento_id: string;
-        idempotente: boolean;
-        valor_informado: number;
-        outbox_status: "pending" | "sending" | "sent" | "error";
-        remote_id: string | null;
-      }>("/api/caixa/fechar", {
-        caixa_id: input.caixa_id,
-        valor_informado: input.valor_informado,
-        observacao: input.observacao ?? null,
-        client_uuid:
-          (input as typeof input & { client_uuid?: string | null })
-            .client_uuid ?? null,
-      });
-      if (r) {
-        console.info("[CAIXA_LOCAL] persistido SQLite (fechamento)", { fechamento_id: r.fechamento_id });
-        if (r.outbox_status === "pending" || r.outbox_status === "sending") {
-          console.info("[CAIXA_OUTBOX] item criado (fechamento)");
-        }
-        reportDataSource({ source: "local-server", domain: "caixa", method: "fechar", fallback: false });
-        if (r.outbox_status === "sent" && r.remote_id) {
-          try {
-            return await cloudAdapter.caixa.fechar(input);
-          } catch {
-            /* cai no resumo mínimo abaixo */
-          }
-        }
-        return {
-          caixa_id: r.remote_id ?? input.caixa_id,
-          valor_esperado: input.valor_informado,
-          valor_informado: r.valor_informado,
-          diferenca: 0,
-          fechado_em: new Date().toISOString(),
-        };
+      const online = typeof navigator === "undefined" ? true : navigator.onLine;
+      const baseUrl = await resolveBaseUrl();
+      if (import.meta.env.DEV) {
+        console.info("[CAIXA_FECHAR] iniciado", {
+          modo: baseUrl ? "local-server" : "cloud",
+          online,
+        });
       }
-      console.warn("[CAIXA_TIMEOUT] fallback local acionado (fechar)");
+      if (baseUrl) {
+        if (import.meta.env.DEV) console.info("[CAIXA_FECHAR_LOCAL] gravando SQLite");
+        const r = await postLocalAuth<{
+          fechamento_id: string;
+          idempotente: boolean;
+          valor_informado: number;
+          outbox_status: "pending" | "sending" | "sent" | "error";
+          remote_id: string | null;
+        }>("/api/caixa/fechar", {
+          caixa_id: input.caixa_id,
+          valor_informado: input.valor_informado,
+          observacao: input.observacao ?? null,
+          client_uuid:
+            (input as typeof input & { client_uuid?: string | null })
+              .client_uuid ?? null,
+        });
+        if (r) {
+          if (import.meta.env.DEV) {
+            console.info("[CAIXA_FECHAR_LOCAL] auditoria criada", { fechamento_id: r.fechamento_id });
+            if (r.outbox_status === "pending" || r.outbox_status === "sending") {
+              console.info("[CAIXA_FECHAR_OUTBOX] criado");
+            }
+            console.info("[CAIXA_FECHAR_OK] fechado offline", { online });
+          }
+          reportDataSource({ source: "local-server", domain: "caixa", method: "fechar", fallback: false });
+          // Só consulta cloud quando online e já sincronizado — nunca trava o fechamento offline.
+          if (online && r.outbox_status === "sent" && r.remote_id) {
+            try {
+              return await cloudAdapter.caixa.fechar(input);
+            } catch {
+              /* cai no resumo mínimo abaixo */
+            }
+          }
+          return {
+            caixa_id: r.remote_id ?? input.caixa_id,
+            valor_esperado: input.valor_informado,
+            valor_informado: r.valor_informado,
+            diferenca: 0,
+            fechado_em: new Date().toISOString(),
+          };
+        }
+        if (!online) {
+          if (import.meta.env.DEV) console.warn("[CAIXA_FECHAR_ERRO] offline e servidor local indisponível");
+          throw new Error("Sem conexão com o servidor local. Verifique se o servidor está em execução para fechar o caixa.");
+        }
+      } else if (!online) {
+        if (import.meta.env.DEV) console.warn("[CAIXA_FECHAR_ERRO] offline sem servidor local");
+        throw new Error("Sem conexão com a internet e sem servidor local. Não foi possível fechar o caixa.");
+      }
+      if (import.meta.env.DEV) console.info("[CAIXA_FECHAR] fallback cloud");
       const result = await cloudAdapter.caixa.fechar(input);
       reportDataSource({ source: "cloud", domain: "caixa", method: "fechar", fallback: true });
       return result;
