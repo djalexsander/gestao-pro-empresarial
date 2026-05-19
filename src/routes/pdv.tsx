@@ -254,6 +254,7 @@ function PDVPage() {
   const [finalizarOpen, setFinalizarOpen] = useState(false);
   const [sucessoOpen, setSucessoOpen] = useState(false);
   const [quickView, setQuickView] = useState<PdvQuickViewKey | null>(null);
+  const [cancelItemOpen, setCancelItemOpen] = useState(false);
   const { isCaixa, isAdminLike } = useUserRole();
   const podeAcessarRapido = isCaixa || isAdminLike;
   const [vendaConcluida, setVendaConcluida] = useState<null | {
