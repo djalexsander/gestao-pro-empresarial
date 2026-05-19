@@ -98,6 +98,19 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatBRL } from "@/lib/mock-data";
 import { useConfigEmpresa } from "@/hooks/useConfigEmpresa";
+import { withTimeoutFallback } from "@/lib/withTimeout";
+
+// ============================================================================
+// Local-first PDV — timeouts curtos para nunca travar a adição de item.
+// Sem internet, o lookup local (SQLite/local-server) responde em ms; se cair
+// no fallback cloud e a rede estiver fora, o timeout abaixo encerra a promise
+// rapidamente em vez de deixá-la pendente acumulando cliques que duplicariam
+// itens ao reconectar.
+// ============================================================================
+const PDV_LOOKUP_TIMEOUT_MS = 1500;
+const PDV_SALDO_TIMEOUT_MS = 1000;
+/** Janela em que um MESMO código bipado é considerado duplicata rápida. */
+const PDV_DUPLICATE_LOCK_MS = 700;
 
 export const Route = createFileRoute("/pdv")({
   head: () => ({
@@ -386,6 +399,16 @@ function PDVPage() {
   const manualSearchInputRef = useRef<HTMLInputElement>(null);
   const scanFocusBlockedRef = useRef(false);
   const hasPriorityOverlayRef = useRef(false);
+  // ============================================================================
+  // Anti-duplicação local (offline-first).
+  // - `scanInFlightRef`: trava de re-entrância; segundo bipe enquanto o
+  //   primeiro ainda está sendo processado é ignorado.
+  // - `recentScansRef`: códigos bipados nos últimos PDV_DUPLICATE_LOCK_MS.
+  //   Bloqueia Enter repetido / clique duplicado no MESMO código por essa
+  //   janela curta. Não bloqueia códigos diferentes.
+  // ============================================================================
+  const scanInFlightRef = useRef(false);
+  const recentScansRef = useRef<Map<string, number>>(new Map());
 
   // Hierarquia de foco no PDV:
   //   modal aberto > busca manual > popovers > input de código de barras.
@@ -571,35 +594,40 @@ function PDVPage() {
     nome: string,
     qtdNova: number,
   ): Promise<boolean> {
-    try {
-      const saldos = await saldosLote.mutateAsync([produtoId]);
-      const saldo = saldos.get(produtoId) ?? 0;
-      const noCarrinho = items
-        .filter((i) => i.produto_id === produtoId)
-        .reduce((s, i) => s + i.quantidade, 0);
-      const totalPedido = noCarrinho + qtdNova;
-      if (saldo < totalPedido) {
-        som.beep("error");
-        toast.error(
-          `Estoque insuficiente para "${nome}".`,
-          {
-            description: `Disponível: ${saldo}. ${
-              noCarrinho > 0
-                ? `Já no carrinho: ${noCarrinho}. Tentando adicionar: ${qtdNova}.`
-                : `Tentando adicionar: ${qtdNova}.`
-            } Reduza a quantidade ou atualize o estoque.`,
-            duration: 5000,
-          },
-        );
-        return false;
+    // Local-first: timeout curto. Se cloud demorar (offline / instável), NÃO
+    // bloqueia a adição — o backend ainda valida na finalização da venda.
+    const saldos = await withTimeoutFallback(
+      saldosLote.mutateAsync([produtoId]),
+      PDV_SALDO_TIMEOUT_MS,
+      () => new Map<string, number>(),
+      "pdv:saldosLote",
+    );
+    const saldo = saldos.get(produtoId);
+    if (saldo == null) {
+      // Sem resposta a tempo → não bloqueia (validação definitiva no backend).
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.debug("[PDV_OFFLINE] saldo indisponível em tempo hábil — seguindo local-first", { produtoId });
       }
       return true;
-    } catch (e) {
-      // Em caso de falha na consulta de saldo, NÃO bloqueia — o backend
-      // ainda fará a validação definitiva ao finalizar a venda.
-      console.warn("Falha ao consultar saldo para validação preventiva:", e);
-      return true;
     }
+    const noCarrinho = items
+      .filter((i) => i.produto_id === produtoId)
+      .reduce((s, i) => s + i.quantidade, 0);
+    const totalPedido = noCarrinho + qtdNova;
+    if (saldo < totalPedido) {
+      som.beep("error");
+      toast.error(`Estoque insuficiente para "${nome}".`, {
+        description: `Disponível: ${saldo}. ${
+          noCarrinho > 0
+            ? `Já no carrinho: ${noCarrinho}. Tentando adicionar: ${qtdNova}.`
+            : `Tentando adicionar: ${qtdNova}.`
+        } Reduza a quantidade ou atualize o estoque.`,
+        duration: 5000,
+      });
+      return false;
+    }
+    return true;
   }
 
   // ============ Balança / peso ============
@@ -617,10 +645,53 @@ function PDVPage() {
   async function handleScanCode(value: string) {
     const v = value.trim();
     if (!v) return;
+
+    // ---- Trava de re-entrância: ignora cliques/Enter enquanto outro código
+    //      ainda está sendo processado. Evita fila de promises pendentes que
+    //      duplicariam itens ao reconectar.
+    if (scanInFlightRef.current) {
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.debug("[PDV_LOCAL_ADD] bloqueado: outro código em processamento", { v });
+      }
+      return;
+    }
+
+    // ---- Janela curta de dedup por código (Enter repetido / clique duplo)
+    const now = Date.now();
+    const last = recentScansRef.current.get(v);
+    if (last && now - last < PDV_DUPLICATE_LOCK_MS) {
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.debug("[PDV_LOCAL_ADD] bloqueado duplicado rápido", { v, dtMs: now - last });
+      }
+      // Limpa o input para evitar nova submissão idêntica.
+      setCode("");
+      return;
+    }
+    recentScansRef.current.set(v, now);
+    // Limpeza preguiçosa do mapa para não vazar memória em sessões longas.
+    if (recentScansRef.current.size > 64) {
+      const cutoff = now - PDV_DUPLICATE_LOCK_MS * 4;
+      for (const [k, t] of recentScansRef.current) {
+        if (t < cutoff) recentScansRef.current.delete(k);
+      }
+    }
+
+    scanInFlightRef.current = true;
     setBusy(true);
+    // Limpa o input ANTES do await — operador percebe que o bipe foi capturado
+    // e não consegue submeter o mesmo código de novo enquanto resolve.
+    setCode("");
     try {
-      // 1) Tenta produto normal pelo código exato
-      const found = await buscarProdutoPorCodigo(v);
+      // 1) Tenta produto normal pelo código exato.
+      //    Timeout curto: se cair no fallback cloud sem rede, não trava o caixa.
+      const found = await withTimeoutFallback(
+        buscarProdutoPorCodigo(v),
+        PDV_LOOKUP_TIMEOUT_MS,
+        null,
+        "pdv:buscarPorCodigo",
+      );
       if (found) {
         if (found.status !== "ativo") {
           som.beep("warn");
@@ -678,7 +749,12 @@ function PDVPage() {
       if (balancaCfg?.ativo) {
         const parsed = parseEtiquetaBalanca(v, balancaCfg);
         if (parsed.ok) {
-          const prod = await buscarProdutoPorPlu(parsed.plu);
+          const prod = await withTimeoutFallback(
+            buscarProdutoPorPlu(parsed.plu),
+            PDV_LOOKUP_TIMEOUT_MS,
+            null,
+            "pdv:buscarPorPlu",
+          );
           if (!prod) {
             som.beep("error");
             toast.error("Produto da etiqueta não encontrado. Verifique o PLU.");
@@ -746,6 +822,7 @@ function PDVPage() {
       som.beep("error");
       toast.error((e as Error).message);
     } finally {
+      scanInFlightRef.current = false;
       setBusy(false);
       setCode("");
       focusScanInput(DEFAULT_FOCUS_DELAY);
