@@ -1,5 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { dataClient } from "@/integrations/data";
 import {
   TrendingUp,
   ShoppingCart,
@@ -158,7 +160,55 @@ function DashboardPage() {
   const [kpiTipo, setKpiTipo] = useState<KpiTipo | null>(null);
   const [kpiOpen, setKpiOpen] = useState(false);
 
+  // ============ Período-scoped queries (cards/KPIs respeitam o filtro) ============
+  const periodoLabel = useMemo(() => {
+    if (periodo === "mes") return "do mês";
+    if (periodo === "30d") return "últimos 30 dias";
+    if (periodo === "90d") return "últimos 90 dias";
+    if (periodo === "6m") return "últimos 6 meses";
+    return "do período";
+  }, [periodo]);
+
+  // Período anterior de mesmo tamanho para variação %
+  const periodoAnterior = useMemo(() => {
+    const start = new Date(`${inicio}T00:00:00`);
+    const end = new Date(`${fim}T23:59:59`);
+    const ms = end.getTime() - start.getTime();
+    const prevEnd = new Date(start.getTime() - 1);
+    const prevStart = new Date(prevEnd.getTime() - ms);
+    return { inicio: formatDateInput(prevStart), fim: formatDateInput(prevEnd) };
+  }, [inicio, fim]);
+
+  if (import.meta.env.DEV) {
+    // eslint-disable-next-line no-console
+    console.debug("[DASHBOARD_FILTER] período aplicado", { periodo, inicio, fim, periodoAnterior });
+  }
+
+  const vendasMetricasQuery = useQuery({
+    queryKey: ["dashboard", "vendas-metricas", inicio, fim],
+    enabled: !!inicio && !!fim,
+    queryFn: () => dataClient.vendas.metricasPeriodo({ data_inicio: inicio, data_fim: fim }),
+  });
+  const vendasMetricasPrevQuery = useQuery({
+    queryKey: ["dashboard", "vendas-metricas-prev", periodoAnterior.inicio, periodoAnterior.fim],
+    enabled: !!periodoAnterior.inicio && !!periodoAnterior.fim,
+    queryFn: () =>
+      dataClient.vendas.metricasPeriodo({
+        data_inicio: periodoAnterior.inicio,
+        data_fim: periodoAnterior.fim,
+      }),
+  });
+  const comprasListQuery = useQuery({
+    queryKey: ["dashboard", "compras-list-500"],
+    queryFn: () => dataClient.compras.list({ limit: 500 }),
+    refetchInterval: 60_000,
+  });
+
   function abrirKpi(tipo: KpiTipo) {
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.debug("[DASHBOARD_MODAL] usando período ativo", { tipo, inicio, fim });
+    }
     setKpiTipo(tipo);
     setKpiOpen(true);
   }
@@ -183,6 +233,10 @@ function DashboardPage() {
   async function exportarDashboard(formato: ExportFormato) {
     if (!data) return;
     setExporting(true);
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.debug("[DASHBOARD_EXPORT] exportando período", { inicio, fim, periodo });
+    }
     toast.loading("Gerando exportação...", { id: "export-dashboard" });
     try {
       const vendasRows = (data.ultimasVendas ?? []).filter((item) =>
@@ -191,6 +245,16 @@ function DashboardPage() {
       const comprasRows = (data.ultimasCompras ?? []).filter((item) =>
         inRange(item.data, inicio, fim),
       );
+
+      // Recalcula totais do período (mesma fonte dos cards)
+      const vendasTotal = vendasMetricasQuery.data?.total_vendido ?? 0;
+      const comprasTotal = (comprasListQuery.data ?? []).reduce((acc, c) => {
+        if (c.status === "cancelada") return acc;
+        if (!inRange(c.data_emissao, inicio, fim)) return acc;
+        return acc + (Number(c.total) || 0);
+      }, 0);
+      const lucroTotal = vendasTotal - comprasTotal;
+      const margemTotal = vendasTotal > 0 ? (lucroTotal / vendasTotal) * 100 : 0;
 
       type LinhaMov = {
         tipo: "Venda" | "Compra";
@@ -234,12 +298,17 @@ function DashboardPage() {
         titulo: "Dashboard — Resumo geral",
         periodo: `${formatPeriodoBR(inicio)} a ${formatPeriodoBR(fim)}`,
         resumo: [
-          { label: "Vendas do período", valor: formatBRL(data.vendasMes), tone: "success" },
-          { label: "Compras do período", valor: formatBRL(data.comprasMes), tone: "info" },
+          { label: "Vendas do período", valor: formatBRL(vendasTotal), tone: "success" },
+          { label: "Compras do período", valor: formatBRL(comprasTotal), tone: "info" },
           {
             label: "Lucro do período",
-            valor: formatBRL(data.lucroMes),
-            tone: data.lucroMes >= 0 ? "success" : "danger",
+            valor: formatBRL(lucroTotal),
+            tone: lucroTotal >= 0 ? "success" : "danger",
+          },
+          {
+            label: "Margem do período",
+            valor: `${margemTotal.toFixed(1)}%`,
+            tone: margemTotal >= 0 ? "success" : "danger",
           },
           { label: "Contas a pagar", valor: formatBRL(data.contasPagar), tone: "warning" },
           { label: "Contas a receber", valor: formatBRL(data.contasReceber), tone: "success" },
@@ -283,13 +352,51 @@ function DashboardPage() {
     );
   }
 
-  const varVendas = variacao(data.vendasMes, data.vendasMesAnterior);
-  const varCompras = variacao(data.comprasMes, data.comprasMesAnterior);
+  // ============ Período-scoped KPIs ============
+  // Soma compras (data_emissao no intervalo, excluindo canceladas) a partir da lista completa.
+  const comprasPeriodoTotal = useMemo(() => {
+    const lista = comprasListQuery.data ?? [];
+    return lista.reduce((acc, c) => {
+      if (c.status === "cancelada") return acc;
+      if (!inRange(c.data_emissao, inicio, fim)) return acc;
+      return acc + (Number(c.total) || 0);
+    }, 0);
+  }, [comprasListQuery.data, inicio, fim]);
+  const comprasPeriodoAnteriorTotal = useMemo(() => {
+    const lista = comprasListQuery.data ?? [];
+    return lista.reduce((acc, c) => {
+      if (c.status === "cancelada") return acc;
+      if (!inRange(c.data_emissao, periodoAnterior.inicio, periodoAnterior.fim)) return acc;
+      return acc + (Number(c.total) || 0);
+    }, 0);
+  }, [comprasListQuery.data, periodoAnterior]);
+
+  const vendasPeriodoTotal = vendasMetricasQuery.data?.total_vendido ?? 0;
+  const vendasPeriodoAnteriorTotal = vendasMetricasPrevQuery.data?.total_vendido ?? 0;
+  const qtdVendasPeriodo = vendasMetricasQuery.data?.qtd_vendas ?? 0;
+  const ticketMedioPeriodo = vendasMetricasQuery.data?.ticket_medio ?? 0;
+  const lucroPeriodo = vendasPeriodoTotal - comprasPeriodoTotal;
+  const margemPeriodo = vendasPeriodoTotal > 0 ? (lucroPeriodo / vendasPeriodoTotal) * 100 : 0;
+  const varVendas = variacao(vendasPeriodoTotal, vendasPeriodoAnteriorTotal);
+  const varCompras = variacao(comprasPeriodoTotal, comprasPeriodoAnteriorTotal);
+
+  if (import.meta.env.DEV) {
+    // eslint-disable-next-line no-console
+    console.debug("[DASHBOARD_KPI] recalculando cards", {
+      vendasPeriodoTotal,
+      comprasPeriodoTotal,
+      lucroPeriodo,
+      margemPeriodo,
+      qtdVendasPeriodo,
+      ticketMedioPeriodo,
+    });
+  }
+
   const ultimasVendas = (data.ultimasVendas ?? []).filter((item) => inRange(item.data, inicio, fim));
   const ultimasCompras = (data.ultimasCompras ?? []).filter((item) => inRange(item.data, inicio, fim));
   const totalDados =
-    data.vendasMes +
-    data.comprasMes +
+    vendasPeriodoTotal +
+    comprasPeriodoTotal +
     data.contasPagar +
     data.contasReceber +
     data.estoqueBaixo;
@@ -347,31 +454,35 @@ function DashboardPage() {
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          label="Vendas do mês"
-          value={formatBRL(data.vendasMes)}
+          label={`Vendas ${periodoLabel}`}
+          value={formatBRL(vendasPeriodoTotal)}
           change={Math.abs(Math.round(varVendas * 10) / 10)}
           trend={varVendas >= 0 ? "up" : "down"}
-          hint="vs. mês anterior"
+          hint={
+            qtdVendasPeriodo > 0
+              ? `${qtdVendasPeriodo} ${qtdVendasPeriodo === 1 ? "venda" : "vendas"} · ticket ${formatBRL(ticketMedioPeriodo)}`
+              : "vs. período anterior"
+          }
           icon={TrendingUp}
           iconTone="primary"
           onClick={() => abrirKpi("vendas")}
         />
         <StatCard
-          label="Compras do mês"
-          value={formatBRL(data.comprasMes)}
+          label={`Compras ${periodoLabel}`}
+          value={formatBRL(comprasPeriodoTotal)}
           change={Math.abs(Math.round(varCompras * 10) / 10)}
           trend={varCompras >= 0 ? "up" : "down"}
-          hint="vs. mês anterior"
+          hint="vs. período anterior"
           icon={ShoppingCart}
           iconTone="info"
           onClick={() => abrirKpi("compras")}
         />
         <StatCard
-          label="Lucro do mês"
-          value={formatBRL(data.lucroMes)}
-          hint={`margem ${data.margem.toFixed(1)}%`}
+          label={`Lucro ${periodoLabel}`}
+          value={formatBRL(lucroPeriodo)}
+          hint={`margem ${margemPeriodo.toFixed(1)}%`}
           icon={Wallet}
-          iconTone={data.lucroMes >= 0 ? "success" : "danger"}
+          iconTone={lucroPeriodo >= 0 ? "success" : "danger"}
           onClick={() => abrirKpi("lucro")}
         />
         <StatCard
@@ -463,7 +574,7 @@ function DashboardPage() {
       <Card>
         <CardHeader>
           <CardTitle>Fluxo financeiro</CardTitle>
-          <p className="text-sm text-muted-foreground">Entradas vs. saídas — mês atual</p>
+          <p className="text-sm text-muted-foreground">Entradas vs. saídas — mês atual (referência)</p>
         </CardHeader>
         <CardContent>
           <div className="h-[220px]">
