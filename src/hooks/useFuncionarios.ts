@@ -13,6 +13,7 @@ import {
 import { isNetworkAuthError } from "@/lib/erpOfflineCache";
 import { aquecerPinServidor } from "@/integrations/desktop/serverConnection";
 import { getDesktopConfig } from "@/integrations/desktop/configStore";
+import { friendlyDeleteError, logSoftDelete } from "@/lib/softDeleteError";
 
 export type FuncionarioRole = FuncionarioRoleDomain;
 
@@ -191,14 +192,26 @@ export function useToggleFuncionarioAtivo() {
 }
 
 /**
- * Hard delete. RPC bloqueia se houver caixas/movimentos/vendas — nesses casos
- * a UI deve oferecer inativação.
+ * "Excluir" funcionário = soft delete (inativação).
+ * Preserva todo o histórico (caixas, vendas, movimentos). O operador apenas
+ * deixa de poder logar no PDV. RPC bloqueia inativar o último gerente ativo.
  */
 export function useExcluirFuncionario() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      return dataClient.funcionarios.excluir(id);
+      logSoftDelete("funcionario", id, { acao: "inativar" });
+      try {
+        const r = await dataClient.funcionarios.alterarStatus({
+          funcionario_id: id,
+          ativo: false,
+        });
+        if (import.meta.env.DEV)
+          console.debug("[INATIVAR_LOCAL]", { entidade: "funcionario", id });
+        return r;
+      } catch (err) {
+        throw friendlyDeleteError(err, "funcionário");
+      }
     },
     onMutate: async (id) => {
       await qc.cancelQueries({ queryKey: ["funcionarios"] });
@@ -217,7 +230,7 @@ export function useExcluirFuncionario() {
       toast.error(e.message);
     },
     onSuccess: () => {
-      toast.success("Funcionário removido.");
+      toast.success("Funcionário inativado.");
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["funcionarios"] }),
   });

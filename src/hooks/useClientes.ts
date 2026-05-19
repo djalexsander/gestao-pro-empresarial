@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { dataClient } from "@/integrations/data";
+import { friendlyDeleteError, logSoftDelete } from "@/lib/softDeleteError";
 
 // =============== Tipos ===============
 export type ClienteStatus = "ativo" | "inativo";
@@ -242,13 +243,23 @@ export function useToggleClienteStatus() {
 }
 
 /**
- * Hard delete. A RPC bloqueia se houver vendas/lançamentos vinculados —
- * nesse caso, a UI deve oferecer "inativar" via `useToggleClienteStatus`.
+ * "Remover" cliente = soft delete (inativação).
+ * Preserva vendas e contas a receber antigas; o cliente apenas deixa de aparecer
+ * em buscas/listas ativas para novas operações.
  */
 export function useDeleteCliente() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => dataClient.clientes.excluir(id),
+    mutationFn: async (id: string) => {
+      logSoftDelete("cliente", id, { acao: "inativar" });
+      try {
+        const r = await dataClient.clientes.alterarStatus({ cliente_id: id, status: "inativo" });
+        if (import.meta.env.DEV) console.debug("[INATIVAR_LOCAL]", { entidade: "cliente", id });
+        return r;
+      } catch (err) {
+        throw friendlyDeleteError(err, "cliente");
+      }
+    },
     onMutate: async (id) => {
       await qc.cancelQueries({ queryKey: ["clientes"] });
       await qc.cancelQueries({ queryKey: ["clientes-lite"] });
@@ -273,7 +284,7 @@ export function useDeleteCliente() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["clientes-lite"] });
       qc.invalidateQueries({ queryKey: ["clientes"] });
-      toast.success("Cliente removido");
+      toast.success("Cliente inativado.");
     },
   });
 }
