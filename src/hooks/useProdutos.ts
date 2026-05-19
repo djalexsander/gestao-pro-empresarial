@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { dataClient } from "@/integrations/data";
 import type { Produto, ProdutoComCategoria, TipoIdentificacao } from "@/integrations/data";
+import { friendlyDeleteError, logSoftDelete } from "@/lib/softDeleteError";
 
 // Re-exports para preservar a API pública anterior deste módulo.
 export type { Produto, TipoIdentificacao };
