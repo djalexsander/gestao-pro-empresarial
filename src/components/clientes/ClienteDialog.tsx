@@ -273,124 +273,139 @@ export function ClienteDialog({
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="dados" className="space-y-3 pt-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Tipo</Label>
-                <Select
-                  value={form.tipo}
-                  onValueChange={(v) => {
-                    update_("tipo", v as PessoaTipo);
-                    update_("documento", "");
-                    setDocConflict(null);
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PF">Pessoa Física (CPF)</SelectItem>
-                    <SelectItem value="PJ">Pessoa Jurídica (CNPJ)</SelectItem>
-                  </SelectContent>
-                </Select>
+          <TabsContent value="dados" className="space-y-6 pt-3">
+            <FormSection
+              title="Identificação"
+              subtitle="Dados principais usados em vendas e relatórios."
+              tone="operacional"
+              divider={false}
+            >
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Tipo</Label>
+                  <Select
+                    value={form.tipo}
+                    onValueChange={(v) => {
+                      update_("tipo", v as PessoaTipo);
+                      update_("documento", "");
+                      setDocConflict(null);
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PF">Pessoa Física (CPF)</SelectItem>
+                      <SelectItem value="PJ">Pessoa Jurídica (CNPJ)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Status</Label>
+                  <Select
+                    value={form.status}
+                    onValueChange={(v) =>
+                      update_("status", v as "ativo" | "inativo")
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ativo">Ativo</SelectItem>
+                      <SelectItem value="inativo">Inativo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
+
               <div>
-                <Label>Status</Label>
-                <Select
-                  value={form.status}
-                  onValueChange={(v) =>
-                    update_("status", v as "ativo" | "inativo")
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ativo">Ativo</SelectItem>
-                    <SelectItem value="inativo">Inativo</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div>
-              <Label>{form.tipo === "PF" ? "Nome completo *" : "Razão social *"}</Label>
-              <Input
-                value={form.nome}
-                onChange={(e) => update_("nome", e.target.value)}
-                placeholder={form.tipo === "PF" ? "Maria Silva" : "Empresa Exemplo LTDA"}
-                autoFocus
-              />
-            </div>
-
-            <div>
-              <Label>
-                {form.tipo === "PF" ? "Nome social / apelido" : "Nome fantasia"}
-              </Label>
-              <Input
-                value={form.nome_fantasia}
-                onChange={(e) => update_("nome_fantasia", e.target.value)}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>{form.tipo === "PF" ? "CPF" : "CNPJ"}</Label>
+                <Label>{form.tipo === "PF" ? "Nome completo *" : "Razão social *"}</Label>
                 <Input
-                  value={form.documento}
-                  onChange={(e) => {
-                    const v = maskDoc(e.target.value, form.tipo);
-                    update_("documento", v);
-                    setDocConflict(null);
-                  }}
-                  onBlur={(e) => checkDoc(e.target.value)}
-                  placeholder={form.tipo === "PF" ? "000.000.000-00" : "00.000.000/0000-00"}
-                  className={docConflict ? "border-destructive focus-visible:ring-destructive" : ""}
-                />
-                {checkingDoc && (
-                  <p className="mt-1 text-xs text-muted-foreground">Verificando duplicidade…</p>
-                )}
-                {docConflict && (
-                  <p className="mt-1 text-xs text-destructive">{docConflict}</p>
-                )}
-              </div>
-              <div>
-                <Label>Inscrição estadual</Label>
-                <Input
-                  value={form.inscricao_estadual}
-                  onChange={(e) => update_("inscricao_estadual", e.target.value)}
+                  value={form.nome}
+                  onChange={(e) => update_("nome", e.target.value)}
+                  placeholder={form.tipo === "PF" ? "Maria Silva" : "Empresa Exemplo LTDA"}
+                  autoFocus
                 />
               </div>
-            </div>
 
-            <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Telefone</Label>
+                <Label>
+                  {form.tipo === "PF" ? "Nome social / apelido" : "Nome fantasia"}
+                </Label>
                 <Input
-                  value={form.telefone}
-                  onChange={(e) => update_("telefone", maskPhone(e.target.value))}
-                  placeholder="(11) 1234-5678"
+                  value={form.nome_fantasia}
+                  onChange={(e) => update_("nome_fantasia", e.target.value)}
                 />
               </div>
+            </FormSection>
+
+            <FormSection
+              title="Documentos fiscais"
+              subtitle="Usados em notas, cobranças e validação de duplicidade."
+              tone="fiscal"
+            >
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>{form.tipo === "PF" ? "CPF" : "CNPJ"}</Label>
+                  <Input
+                    value={form.documento}
+                    onChange={(e) => {
+                      const v = maskDoc(e.target.value, form.tipo);
+                      update_("documento", v);
+                      setDocConflict(null);
+                    }}
+                    onBlur={(e) => checkDoc(e.target.value)}
+                    placeholder={form.tipo === "PF" ? "000.000.000-00" : "00.000.000/0000-00"}
+                    className={docConflict ? "border-destructive focus-visible:ring-destructive" : ""}
+                  />
+                  {checkingDoc && (
+                    <p className="mt-1 text-xs text-muted-foreground">Verificando duplicidade…</p>
+                  )}
+                  {docConflict && (
+                    <p className="mt-1 text-xs text-destructive">{docConflict}</p>
+                  )}
+                </div>
+                <div>
+                  <Label>Inscrição estadual</Label>
+                  <Input
+                    value={form.inscricao_estadual}
+                    onChange={(e) => update_("inscricao_estadual", e.target.value)}
+                  />
+                </div>
+              </div>
+            </FormSection>
+
+            <FormSection title="Contato" tone="operacional">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Telefone</Label>
+                  <Input
+                    value={form.telefone}
+                    onChange={(e) => update_("telefone", maskPhone(e.target.value))}
+                    placeholder="(11) 1234-5678"
+                  />
+                </div>
+                <div>
+                  <Label>Celular</Label>
+                  <Input
+                    value={form.celular}
+                    onChange={(e) => update_("celular", maskPhone(e.target.value))}
+                    placeholder="(11) 91234-5678"
+                  />
+                </div>
+              </div>
+
               <div>
-                <Label>Celular</Label>
+                <Label>E-mail</Label>
                 <Input
-                  value={form.celular}
-                  onChange={(e) => update_("celular", maskPhone(e.target.value))}
-                  placeholder="(11) 91234-5678"
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => update_("email", e.target.value)}
+                  placeholder="cliente@exemplo.com"
                 />
               </div>
-            </div>
-
-            <div>
-              <Label>E-mail</Label>
-              <Input
-                type="email"
-                value={form.email}
-                onChange={(e) => update_("email", e.target.value)}
-                placeholder="cliente@exemplo.com"
-              />
-            </div>
+            </FormSection>
           </TabsContent>
 
           <TabsContent value="endereco" className="space-y-3 pt-3">
