@@ -23,6 +23,7 @@ import {
 import { dataClient } from "@/integrations/data";
 import { formatBRL } from "@/lib/mock-data";
 import { useHotkeys } from "@/hooks/useHotkeys";
+import { FormSection } from "@/components/shared/FormSection";
 
 type FormaPag =
   | "dinheiro"
