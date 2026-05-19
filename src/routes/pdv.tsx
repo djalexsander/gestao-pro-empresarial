@@ -1081,13 +1081,19 @@ function PDVPage() {
       toast.warning("Adicione ao menos um item à venda.");
       return;
     }
+    // Itens cancelados não vão para o backend nem geram baixa de estoque.
+    const ativos = items.filter((it) => !it.cancelado);
+    if (ativos.length === 0) {
+      toast.warning("Todos os itens estão cancelados. Adicione ao menos um item ativo.");
+      return;
+    }
 
     // ============ Validação de estoque ============
     try {
-      const ids = Array.from(new Set(items.map((it) => it.produto_id)));
+      const ids = Array.from(new Set(ativos.map((it) => it.produto_id)));
       const saldos = await saldosLote.mutateAsync(ids);
       const req = new Map<string, number>();
-      for (const it of items) {
+      for (const it of ativos) {
         req.set(it.produto_id, (req.get(it.produto_id) ?? 0) + it.quantidade);
       }
       const insuficientes: string[] = [];
