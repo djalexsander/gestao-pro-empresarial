@@ -82,6 +82,7 @@ export function MultiplicadorDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        keyboardNav={false}
         className="max-w-sm"
         onOpenAutoFocus={(e) => {
           // Bloqueia o foco padrão do Radix (que vai para o primeiro
