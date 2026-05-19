@@ -4193,6 +4193,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/financeiro/performance-periodo", get(financeiro_performance_periodo_handler))
         .route("/api/financeiro/indicadores-mes", get(financeiro_indicadores_mes_handler))
         .route("/api/financeiro/ifood-pendentes", get(financeiro_ifood_pendentes_handler))
+        .route("/api/financeiro/pagamentos", get(financeiro_pagamentos_handler))
         .route("/api/financeiro/receber", get(financeiro_receber_listar_handler))
         .route("/api/financeiro/receber/baixar", post(financeiro_receber_baixar_handler))
         .route("/api/financeiro/receber/cancelar", post(financeiro_receber_cancelar_handler))
