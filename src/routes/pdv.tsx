@@ -1669,7 +1669,7 @@ function PDVPage() {
                 </kbd>
               </Button>
             </div>
-            <div className="grid grid-cols-[1fr_120px_140px_140px_44px] items-center gap-2 border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="grid grid-cols-[1fr_120px_140px_140px] items-center gap-2 border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               <span>Produto</span>
               <span className="text-center">Quantidade</span>
               <span className="text-right">Unitário</span>
@@ -1689,7 +1689,7 @@ function PDVPage() {
                       <Fragment key={it.key}>
                         <li
                           className={cn(
-                            "grid grid-cols-[1fr_120px_140px_140px_44px] items-center gap-2 border-b border-border/60 px-4 py-3 transition-colors",
+                            "grid grid-cols-[1fr_120px_140px_140px] items-center gap-2 border-b border-border/60 px-4 py-3 transition-colors",
                             lastAddedKey === it.key && "bg-success/10 animate-in fade-in",
                             it.cancelado && "bg-destructive/5 text-muted-foreground",
                           )}
@@ -1760,7 +1760,7 @@ function PDVPage() {
                         </li>
                         {it.cancelado && (
                           <li
-                            className="grid grid-cols-[1fr_120px_140px_140px_44px] items-center gap-2 border-b border-border/60 bg-destructive/10 px-4 py-2 text-sm"
+                            className="grid grid-cols-[1fr_120px_140px_140px] items-center gap-2 border-b border-border/60 bg-destructive/10 px-4 py-2 text-sm"
                             aria-label="Linha de cancelamento"
                           >
                             <div className="flex items-center gap-2 text-destructive">
