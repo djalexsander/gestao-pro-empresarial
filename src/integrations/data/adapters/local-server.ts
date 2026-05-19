@@ -1854,6 +1854,54 @@ export const localServerAdapter: DataAdapter = {
         },
         () => cloudAdapter.relatorios.lancamentosFinanceiroPeriodo({ inicio, fim }),
       ),
+    // ---- Onda 3 — PR-O3-1: contas a receber 100% locais via cache completo ----
+    cardContasReceber: () =>
+      withCloudFallback(
+        "relatorios", "cardContasReceber",
+        async () => {
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "financeiro_lancamentos_completo", "listLancamentosCompleto",
+            "/api/financeiro/lancamentos-completo",
+          );
+          if (!Array.isArray(raw)) return null;
+          return raw
+            .filter((l) => l.tipo === "receber" && l.status !== "cancelado")
+            .sort((a, b) => String(b.data_vencimento ?? "").localeCompare(String(a.data_vencimento ?? "")))
+            .slice(0, 2000)
+            .map(mapContasReceberLocal);
+        },
+        () => cloudAdapter.relatorios.cardContasReceber(),
+      ),
+    lancamentosContasReceber: ({ inicio, fim, campoData, clienteId }) =>
+      withCloudFallback(
+        "relatorios", "lancamentosContasReceber",
+        async () => {
+          const raw = await tryLocal<Array<Record<string, unknown>>>(
+            "financeiro_lancamentos_completo", "listLancamentosCompleto",
+            "/api/financeiro/lancamentos-completo",
+          );
+          if (!Array.isArray(raw)) return null;
+          const campo: "data_vencimento" | "data_emissao" | "data_pagamento" =
+            campoData === "emissao" ? "data_emissao"
+            : campoData === "pagamento" ? "data_pagamento"
+            : "data_vencimento";
+          const filtroCliente = clienteId && clienteId !== "todos" ? String(clienteId) : null;
+          return raw
+            .filter((l) => {
+              if (l.tipo !== "receber") return false;
+              const d = l[campo] as string | null | undefined;
+              if (campo === "data_pagamento" && (d == null || d === "")) return false;
+              if (d == null) return false;
+              if (d < inicio || d > fim) return false;
+              if (filtroCliente && String(l.cliente_id ?? "") !== filtroCliente) return false;
+              return true;
+            })
+            .sort((a, b) => String(b[campo] ?? "").localeCompare(String(a[campo] ?? "")))
+            .slice(0, 2000)
+            .map(mapContasReceberLocal);
+        },
+        () => cloudAdapter.relatorios.lancamentosContasReceber({ inicio, fim, campoData, clienteId }),
+      ),
     saldoAcumuladoFinanceiro: () =>
       withCloudFallback(
         "relatorios", "saldoAcumuladoFinanceiro",
