@@ -1137,6 +1137,7 @@ export const localServerAdapter: DataAdapter = {
   caixa: {
     ...cloudAdapter.caixa,
     abrir: async (input) => {
+      console.info("[CAIXA_LOCAL] abertura local iniciada");
       const r = await postLocalAuth<{
         caixa_id: string;
         idempotente: boolean;
@@ -1152,14 +1153,23 @@ export const localServerAdapter: DataAdapter = {
             .client_uuid ?? null,
       });
       if (r) {
+        console.info("[CAIXA_LOCAL] persistido SQLite", { caixa_id: r.caixa_id, idempotente: r.idempotente });
+        if (r.outbox_status === "pending" || r.outbox_status === "sending") {
+          console.info("[CAIXA_OUTBOX] item criado", { caixa_id: r.caixa_id, status: r.outbox_status });
+          console.info("[CAIXA_SYNC] aguardando internet");
+        } else if (r.outbox_status === "sent") {
+          console.info("[CAIXA_SYNC] sincronizado");
+        }
         reportDataSource({ source: "local-server", domain: "caixa", method: "abrir", fallback: false });
         return r.remote_id ?? r.caixa_id;
       }
+      console.warn("[CAIXA_TIMEOUT] fallback local acionado (abrir) — servidor local indisponível, tentando cloud");
       const result = await cloudAdapter.caixa.abrir(input);
       reportDataSource({ source: "cloud", domain: "caixa", method: "abrir", fallback: true });
       return result;
     },
     registrarMovimento: async (input) => {
+      console.info("[CAIXA_LOCAL] movimento local iniciado", { tipo: input.tipo });
       const r = await postLocalAuth<{
         movimento_id: string;
         idempotente: boolean;
@@ -1173,14 +1183,20 @@ export const localServerAdapter: DataAdapter = {
         client_uuid: input.client_uuid ?? null,
       });
       if (r) {
+        console.info("[CAIXA_LOCAL] persistido SQLite", { movimento_id: r.movimento_id });
+        if (r.outbox_status === "pending" || r.outbox_status === "sending") {
+          console.info("[CAIXA_OUTBOX] item criado", { movimento_id: r.movimento_id });
+        }
         reportDataSource({ source: "local-server", domain: "caixa", method: "registrarMovimento", fallback: false });
         return r.remote_id ?? r.movimento_id;
       }
+      console.warn("[CAIXA_TIMEOUT] fallback local acionado (movimento)");
       const result = await cloudAdapter.caixa.registrarMovimento(input);
       reportDataSource({ source: "cloud", domain: "caixa", method: "registrarMovimento", fallback: true });
       return result;
     },
     fechar: async (input) => {
+      console.info("[CAIXA_LOCAL] fechamento local iniciado");
       const r = await postLocalAuth<{
         fechamento_id: string;
         idempotente: boolean;
@@ -1196,6 +1212,10 @@ export const localServerAdapter: DataAdapter = {
             .client_uuid ?? null,
       });
       if (r) {
+        console.info("[CAIXA_LOCAL] persistido SQLite (fechamento)", { fechamento_id: r.fechamento_id });
+        if (r.outbox_status === "pending" || r.outbox_status === "sending") {
+          console.info("[CAIXA_OUTBOX] item criado (fechamento)");
+        }
         reportDataSource({ source: "local-server", domain: "caixa", method: "fechar", fallback: false });
         if (r.outbox_status === "sent" && r.remote_id) {
           try {
@@ -1212,6 +1232,7 @@ export const localServerAdapter: DataAdapter = {
           fechado_em: new Date().toISOString(),
         };
       }
+      console.warn("[CAIXA_TIMEOUT] fallback local acionado (fechar)");
       const result = await cloudAdapter.caixa.fechar(input);
       reportDataSource({ source: "cloud", domain: "caixa", method: "fechar", fallback: true });
       return result;

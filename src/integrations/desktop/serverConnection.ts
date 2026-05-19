@@ -999,12 +999,17 @@ async function postLocalJson<TReq, TRes>(
   }
 }
 
+// Caixa precisa ser offline-first: timeouts CURTOS para nunca travar o modal.
+// Se o servidor local não responder em ~4s, devolvemos null e o adapter decide
+// o que fazer (idealmente: surfacear erro claro em vez de bloquear o operador).
+const CAIXA_LOCAL_TIMEOUT_MS = 4000;
+
 export function abrirCaixaLocal(
   cfg: TerminalConexaoConfig | undefined,
   payload: AbrirCaixaLocalRequest,
   authToken?: string | null,
 ): Promise<AbrirCaixaLocalResponse | null> {
-  return postLocalJson(cfg, "/api/caixa/abrir", payload, authToken);
+  return postLocalJson(cfg, "/api/caixa/abrir", payload, authToken, CAIXA_LOCAL_TIMEOUT_MS);
 }
 
 export function registrarMovCaixaLocal(
@@ -1012,7 +1017,7 @@ export function registrarMovCaixaLocal(
   payload: MovCaixaLocalRequest,
   authToken?: string | null,
 ): Promise<MovCaixaLocalResponse | null> {
-  return postLocalJson(cfg, "/api/caixa/movimento", payload, authToken);
+  return postLocalJson(cfg, "/api/caixa/movimento", payload, authToken, CAIXA_LOCAL_TIMEOUT_MS);
 }
 
 export function fecharCaixaLocal(
@@ -1020,7 +1025,7 @@ export function fecharCaixaLocal(
   payload: FecharCaixaLocalRequest,
   authToken?: string | null,
 ): Promise<FecharCaixaLocalResponse | null> {
-  return postLocalJson(cfg, "/api/caixa/fechar", payload, authToken);
+  return postLocalJson(cfg, "/api/caixa/fechar", payload, authToken, CAIXA_LOCAL_TIMEOUT_MS);
 }
 
 export async function fetchCaixaLocalAberto(

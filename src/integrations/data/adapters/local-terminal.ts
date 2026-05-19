@@ -2463,6 +2463,7 @@ export const localTerminalAdapter: DataAdapter = {
     abrir: async (input: AbrirCaixaInput): Promise<string> => {
       const cfg = getDesktopConfig().terminal;
       if (getBaseUrl(cfg)) {
+        console.info("[CAIXA_LOCAL] abertura local iniciada");
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token ?? null;
         const local = await abrirCaixaLocal(
@@ -2479,6 +2480,13 @@ export const localTerminalAdapter: DataAdapter = {
           token,
         );
         if (local) {
+          console.info("[CAIXA_LOCAL] persistido SQLite", { caixa_id: local.caixa_id });
+          if (local.outbox_status === "pending" || local.outbox_status === "sending") {
+            console.info("[CAIXA_OUTBOX] item criado", { caixa_id: local.caixa_id });
+            console.info("[CAIXA_SYNC] aguardando internet");
+          } else if (local.outbox_status === "sent") {
+            console.info("[CAIXA_SYNC] sincronizado");
+          }
           reportDataSource({
             source: "local-server",
             domain: "caixa",
@@ -2487,6 +2495,7 @@ export const localTerminalAdapter: DataAdapter = {
           });
           return local.remote_id ?? local.caixa_id;
         }
+        console.warn("[CAIXA_TIMEOUT] fallback local acionado (abrir) — servidor local indisponível");
       }
       const result = await cloudAdapter.caixa.abrir(input);
       reportDataSource({
