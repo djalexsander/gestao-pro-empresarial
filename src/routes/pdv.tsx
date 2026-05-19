@@ -1016,6 +1016,34 @@ function PDVPage() {
     setItems((prev) => prev.filter((it) => it.key !== key));
   }
 
+  // ============ Cancelar item (mantém na lista, valor sai do total) ============
+  function cancelarItem(key: string) {
+    setItems((prev) => {
+      const idx = prev.findIndex((it) => it.key === key);
+      if (idx < 0) return prev;
+      const it = prev[idx];
+      if (it.cancelado) {
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.debug("[PDV_CANCEL_ITEM] tentativa duplicada ignorada", { key });
+        }
+        toast.info("Este item já foi cancelado.");
+        return prev;
+      }
+      const next = [...prev];
+      next[idx] = { ...it, cancelado: true, cancelado_em: Date.now() };
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.debug("[PDV_CANCEL_ITEM] item cancelado", { key, nome: it.nome });
+      }
+      return next;
+    });
+    som.beep("ok");
+    toast.success("Item cancelado.");
+    setCancelItemOpen(false);
+    focusScanInput(DEFAULT_FOCUS_DELAY);
+  }
+
   function clearVenda() {
     setItems([]);
     setObservacao("");
