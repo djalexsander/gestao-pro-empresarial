@@ -3513,6 +3513,59 @@ pub fn indicadores_mes_local(
     })
 }
 
+/// Onda 2 — item 11: lista lançamentos com `forma_pagamento='ifood'` e
+/// `status='pendente'` direto do cache `financeiro_lancamentos_local`.
+/// O payload já vem com `cliente:clientes(nome,...)` embutido via PostgREST
+/// (ver `financeiro_completo_select`), então temos `cliente_nome` offline.
+/// Retorna JSON-string no shape de `IfoodPendenteDomain[]`.
+///
+/// Safety gate: se o cache de lançamentos está totalmente vazio, devolve
+/// `None` para forçar fallback cloud.
+pub fn list_ifood_pendentes_local(limit: i64) -> DbResult<Option<String>> {
+    with_conn(|conn| {
+        let total: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM financeiro_lancamentos_local WHERE deleted_at_ms IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        if total == 0 {
+            return Ok(None);
+        }
+
+        let mut stmt = conn.prepare(
+            "SELECT json_object(
+                'id', id,
+                'descricao', json_extract(payload, '$.descricao'),
+                'valor', COALESCE(CAST(json_extract(payload, '$.valor') AS REAL), 0),
+                'data_emissao', json_extract(payload, '$.data_emissao'),
+                'cliente_nome', json_extract(payload, '$.cliente.nome')
+             )
+             FROM financeiro_lancamentos_local
+             WHERE deleted_at_ms IS NULL
+               AND json_extract(payload, '$.forma_pagamento') = 'ifood'
+               AND status = 'pendente'
+             ORDER BY json_extract(payload, '$.data_emissao') ASC
+             LIMIT ?1",
+        )?;
+        let mut rows = stmt.query(params![limit])?;
+        let mut out = String::from("[");
+        let mut first = true;
+        while let Some(row) = rows.next()? {
+            let s: String = row.get(0)?;
+            if !first {
+                out.push(',');
+            }
+            out.push_str(&s);
+            first = false;
+        }
+        out.push(']');
+        Ok(Some(out))
+    })
+}
+
+
+
+
 
 
 // ---------- Compras (v15) ----------
