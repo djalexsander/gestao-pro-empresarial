@@ -114,9 +114,15 @@ export const MODULES: ModuleDef[] = [
       },
       {
         to: "/financeiro?tab=fluxo",
-        label: "Fluxo de caixa",
+        label: "Caixa Operacional",
         icon: TrendingUp,
-        description: "Entradas e saídas no tempo",
+        description: "Movimentos do PDV/caixa",
+      },
+      {
+        to: "/financeiro?tab=fluxo-financeiro",
+        label: "Fluxo Financeiro",
+        icon: TrendingUp,
+        description: "Compras, despesas e contas",
       },
       {
         to: "/fiado",
