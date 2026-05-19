@@ -2886,6 +2886,8 @@ async fn financeiro_fluxo_por_forma_handler(
     );
     Ok(resp)
 }
+
+// ---------- /api/compras (v15) ----------
 //
 // Espelha `cloudAdapter.compras.list`: lista as compras com fornecedor
 // embutido (id/razao_social/nome_fantasia), ordenadas por data_emissao
