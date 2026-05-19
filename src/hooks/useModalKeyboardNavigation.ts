@@ -91,8 +91,8 @@ export function useModalKeyboardNavigation(
       // Enter advance
       if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
         // IME composing
-        // @ts-expect-error isComposing nem sempre tipado
-        if (e.isComposing || e.keyCode === 229) return;
+        const ne = e as KeyboardEvent & { isComposing?: boolean };
+        if (ne.isComposing || e.keyCode === 229) return;
         if (target.hasAttribute("data-no-enter-advance")) return;
         if (!isFormInput(target)) return; // textarea/select/button/combobox: ignora
 
