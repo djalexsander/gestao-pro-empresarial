@@ -188,12 +188,35 @@ function ProdutosVendidosContent() {
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["produtos-vendidos", inicio, fim],
     queryFn: async (): Promise<ItemRow[]> => {
+      if (import.meta.env.DEV) {
+        console.log("[PRODUTOS_VENDIDOS]", { periodo_inicio: inicio, periodo_fim: fim });
+      }
       const data = await dataClient.relatorios.produtosVendidosPeriodo({ inicio, fim });
-      return data.map((r) => ({
+      const mapped = data.map((r) => ({
         ...r,
         produtoId: r.produtoId ?? "",
         vendaStatusPagamento: r.vendaStatusPagamento ?? "",
       }));
+      if (import.meta.env.DEV) {
+        const vendasUnicas = new Set(mapped.map((r) => r.vendaId)).size;
+        const totalVendido = mapped.reduce((s, r) => s + r.total, 0);
+        const custoTotal = mapped.reduce((s, r) => s + r.quantidade * r.precoCusto, 0);
+        const itens = mapped.reduce((s, r) => s + r.quantidade, 0);
+        console.log("[PRODUTOS_VENDIDOS]", {
+          vendas_encontradas: vendasUnicas,
+          itens_encontrados: mapped.length,
+          total_vendido: totalVendido,
+          custo_total: custoTotal,
+          lucro_bruto: totalVendido - custoTotal,
+        });
+        console.log("[PRODUTOS_VENDIDOS_OK]", {
+          total: totalVendido,
+          itens,
+          vendas: vendasUnicas,
+          periodo: `${inicio} → ${fim}`,
+        });
+      }
+      return mapped;
     },
   });
 
