@@ -140,6 +140,15 @@ interface VendaItem {
   preco_unitario: number;
   quantidade: number;
   desconto: number; // valor absoluto por linha
+  /**
+   * Item cancelado no carrinho atual.
+   * - Não é enviado ao backend na finalização (não baixa estoque).
+   * - Permanece visível na tela com linha "CANCELADO" e valor negativo.
+   * - Aparece no comprovante como linha de estorno.
+   */
+  cancelado?: boolean;
+  /** Timestamp do cancelamento (ms). */
+  cancelado_em?: number;
   // ===== Vendido por peso / auditoria de balança =====
   vendido_por_peso?: boolean;
   /** Preço por KG (snapshot) — só para vendido_por_peso. */
