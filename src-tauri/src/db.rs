@@ -1105,6 +1105,22 @@ pub fn init() -> DbResult<()> {
         CREATE INDEX IF NOT EXISTS idx_venda_itens_rc_produto
             ON venda_itens_remote_cache(produto_id);
 
+        -- Onda 2 — item 9 (PR-F0): cache do histórico de pagamentos por
+        -- lançamento (`lancamento_pagamentos` upstream). Sincronização é
+        -- pontual / on-demand: cada vez que a UI abre um lançamento, o
+        -- handler busca upstream e substitui os registros desse
+        -- lancamento_id no cache. Offline, lê direto do cache.
+        CREATE TABLE IF NOT EXISTS pagamentos_local (
+            id                   TEXT PRIMARY KEY,
+            lancamento_id        TEXT NOT NULL,
+            payload              TEXT NOT NULL,
+            synced_at_ms         INTEGER NOT NULL,
+            deleted_at_ms        INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_pagamentos_local_lanc
+            ON pagamentos_local(lancamento_id);
+
+
         -- v17 (Sub-etapa 4.1): verificador local seguro de PIN do operador.
         -- Permite validação offline pelo servidor local (LAN central) sem
         -- depender do cache JS de cada terminal.
