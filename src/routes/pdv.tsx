@@ -1653,58 +1653,100 @@ function PDVPage() {
                 <ul>
                   {items.map((it) => {
                     const sub = it.preco_unitario * it.quantidade - it.desconto;
+                    const subShown = Math.max(0, sub);
                     return (
-                      <li
-                        key={it.key}
-                        className={cn(
-                          "grid grid-cols-[1fr_120px_140px_140px_44px] items-center gap-2 border-b border-border/60 px-4 py-3 transition-colors",
-                          lastAddedKey === it.key && "bg-success/10 animate-in fade-in",
-                        )}
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate font-medium">{it.nome}</p>
-                          <p className="font-mono text-xs text-muted-foreground">
-                            {it.sku} · {it.unidade}
-                            {it.desconto > 0 && (
-                              <span className="ml-2 text-warning">
-                                desc. {formatBRL(it.desconto)}
-                              </span>
-                            )}
-                          </p>
-                          {it.vendido_por_peso && (
-                            <p className="mt-0.5 font-mono text-xs text-primary">
-                              {it.quantidade.toFixed(it.casas_decimais ?? 3)} {it.unidade || "KG"}
-                              {" × "}
-                              {formatBRL(it.preco_por_kg ?? it.preco_unitario)}/{it.unidade || "KG"}
-                              {" = "}
-                              {formatBRL(
-                                Math.max(0, it.preco_unitario * it.quantidade - it.desconto),
+                      <div key={it.key}>
+                        <li
+                          className={cn(
+                            "grid grid-cols-[1fr_120px_140px_140px_44px] items-center gap-2 border-b border-border/60 px-4 py-3 transition-colors",
+                            lastAddedKey === it.key && "bg-success/10 animate-in fade-in",
+                            it.cancelado && "bg-destructive/5 text-muted-foreground",
+                          )}
+                        >
+                          <div className="min-w-0">
+                            <p
+                              className={cn(
+                                "truncate font-medium",
+                                it.cancelado && "line-through",
+                              )}
+                            >
+                              {it.nome}
+                            </p>
+                            <p className="font-mono text-xs text-muted-foreground">
+                              {it.sku} · {it.unidade}
+                              {it.desconto > 0 && (
+                                <span className="ml-2 text-warning">
+                                  desc. {formatBRL(it.desconto)}
+                                </span>
                               )}
                             </p>
-                          )}
-                        </div>
-                        <div className="text-center font-mono text-sm tabular-nums">
-                          {it.vendido_por_peso
-                            ? `${it.quantidade.toFixed(it.casas_decimais ?? 3)} ${it.unidade || "KG"}`
-                            : `${it.quantidade} ${it.unidade || "un."}`}
-                        </div>
-                        <div className="text-right tabular-nums">
-                          {formatBRL(it.preco_unitario)}
-                        </div>
-                        <div className="text-right font-semibold tabular-nums">
-                          {formatBRL(Math.max(0, sub))}
-                        </div>
-                        <div className="flex justify-end">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                            onClick={() => removeItem(it.key)}
+                            {it.vendido_por_peso && (
+                              <p className="mt-0.5 font-mono text-xs text-primary">
+                                {it.quantidade.toFixed(it.casas_decimais ?? 3)} {it.unidade || "KG"}
+                                {" × "}
+                                {formatBRL(it.preco_por_kg ?? it.preco_unitario)}/{it.unidade || "KG"}
+                                {" = "}
+                                {formatBRL(subShown)}
+                              </p>
+                            )}
+                          </div>
+                          <div
+                            className={cn(
+                              "text-center font-mono text-sm tabular-nums",
+                              it.cancelado && "line-through",
+                            )}
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </li>
+                            {it.vendido_por_peso
+                              ? `${it.quantidade.toFixed(it.casas_decimais ?? 3)} ${it.unidade || "KG"}`
+                              : `${it.quantidade} ${it.unidade || "un."}`}
+                          </div>
+                          <div
+                            className={cn(
+                              "text-right tabular-nums",
+                              it.cancelado && "line-through",
+                            )}
+                          >
+                            {formatBRL(it.preco_unitario)}
+                          </div>
+                          <div
+                            className={cn(
+                              "text-right font-semibold tabular-nums",
+                              it.cancelado && "line-through",
+                            )}
+                          >
+                            {formatBRL(subShown)}
+                          </div>
+                          <div className="flex justify-end">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                              onClick={() => removeItem(it.key)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </li>
+                        {it.cancelado && (
+                          <li
+                            className="grid grid-cols-[1fr_120px_140px_140px_44px] items-center gap-2 border-b border-border/60 bg-destructive/10 px-4 py-2 text-sm"
+                            aria-label="Linha de cancelamento"
+                          >
+                            <div className="flex items-center gap-2 text-destructive">
+                              <Ban className="h-3.5 w-3.5" />
+                              <span className="font-semibold uppercase tracking-wide">
+                                Cancelado
+                              </span>
+                            </div>
+                            <div />
+                            <div />
+                            <div className="text-right font-mono font-semibold tabular-nums text-destructive">
+                              - {formatBRL(subShown)}
+                            </div>
+                            <div />
+                          </li>
+                        )}
+                      </div>
                     );
                   })}
                 </ul>
