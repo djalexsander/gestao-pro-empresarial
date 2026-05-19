@@ -855,9 +855,21 @@ export const localTerminalAdapter: DataAdapter = {
      */
     finalizar: async (input: FinalizarVendaInput): Promise<string> => {
       const cfg = getDesktopConfig().terminal;
-      if (getBaseUrl(cfg)) {
+      const hasBase = !!getBaseUrl(cfg);
+      const online = typeof navigator === "undefined" ? true : navigator.onLine;
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.log("[PDV_FINALIZAR] iniciado", {
+          modo: hasBase ? "local-terminal" : "cloud",
+          online,
+          itens: input.itens?.length ?? 0,
+          total: input.total,
+        });
+      }
+      if (hasBase) {
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token ?? null;
+        if (import.meta.env.DEV) console.log("[PDV_FINALIZAR_LOCAL] gravando SQLite (terminal → servidor local)");
         const local = await registrarVendaLocal(
           cfg,
           {
@@ -879,20 +891,43 @@ export const localTerminalAdapter: DataAdapter = {
           },
           token,
         );
-        if (local) {
+        if (local.ok) {
           reportDataSource({
             source: "local-server",
             domain: "vendas",
             method: "finalizar",
             fallback: false,
           });
-          // Quando upstream entregou, preferimos o id remoto (consistência
-          // com o que o cloud devolveria). Em pendente, devolvemos o
-          // local_uuid — o PDV consegue exibir cupom mesmo offline.
-          return local.remote_id ?? local.venda_id;
+          if (import.meta.env.DEV) {
+            console.log("[PDV_FINALIZAR_LOCAL] estoque baixado / caixa vinculado", {
+              venda_id: local.data.venda_id,
+              outbox_status: local.data.outbox_status,
+            });
+            console.log("[PDV_FINALIZAR_OUTBOX]", { status: local.data.outbox_status });
+            console.log("[PDV_FINALIZAR_OK] venda finalizada", {
+              modo: "local-terminal",
+              venda_id: local.data.venda_id,
+            });
+          }
+          return local.data.remote_id ?? local.data.venda_id;
         }
+        // Servidor local devolveu erro de validação → não tentar cloud,
+        // mostra a mensagem real do servidor local.
+        if (local.reason === "http_error") {
+          if (import.meta.env.DEV) console.warn("[PDV_FINALIZAR_ERRO] servidor local rejeitou", local);
+          throw new Error(local.error);
+        }
+        // Servidor local inalcançável → se offline, não cair pra cloud.
+        if (!online) {
+          if (import.meta.env.DEV) console.warn("[PDV_FINALIZAR_ERRO] offline e servidor local indisponível");
+          throw new Error("Sem conexão com o servidor local. Reabra o terminal ou conecte ao servidor para finalizar a venda.");
+        }
+      } else if (!online) {
+        if (import.meta.env.DEV) console.warn("[PDV_FINALIZAR_ERRO] offline sem servidor local configurado");
+        throw new Error("Sem conexão com a internet e sem servidor local. Não foi possível finalizar a venda.");
       }
       // Fallback cloud — mantém o app funcional sem servidor local.
+      if (import.meta.env.DEV) console.log("[PDV_FINALIZAR] fallback cloud");
       const result = await cloudAdapter.vendas.finalizar(input);
       reportDataSource({
         source: "cloud",
@@ -900,6 +935,7 @@ export const localTerminalAdapter: DataAdapter = {
         method: "finalizar",
         fallback: true,
       });
+      if (import.meta.env.DEV) console.log("[PDV_FINALIZAR_OK] venda finalizada", { modo: "cloud", venda_id: result });
       return result;
     },
 

@@ -764,15 +764,21 @@ export interface RegistrarVendaLocalResponse {
   remote_id: string | null;
 }
 
+export type RegistrarVendaLocalResult =
+  | { ok: true; data: RegistrarVendaLocalResponse }
+  | { ok: false; reason: "unreachable" | "http_error"; status: number | null; error: string };
+
 export async function registrarVendaLocal(
   cfg: TerminalConexaoConfig | undefined,
   payload: RegistrarVendaLocalRequest,
   authToken?: string | null,
-): Promise<RegistrarVendaLocalResponse | null> {
+): Promise<RegistrarVendaLocalResult> {
   const baseUrl = getBaseUrl(cfg);
-  if (!baseUrl) return null;
+  if (!baseUrl) {
+    return { ok: false, reason: "unreachable", status: null, error: "Servidor local indisponível" };
+  }
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 12_000);
+  const timer = setTimeout(() => ctrl.abort(), 15_000);
   try {
     const headers: Record<string, string> = {
       Accept: "application/json",
@@ -787,11 +793,29 @@ export async function registrarVendaLocal(
       cache: "no-store",
     });
     clearTimeout(timer);
-    if (!res.ok) return null;
-    return (await res.json()) as RegistrarVendaLocalResponse;
-  } catch {
+    if (!res.ok) {
+      let msg = `Servidor local respondeu ${res.status}`;
+      try {
+        const body = (await res.json()) as { error?: string; message?: string };
+        msg = body?.error ?? body?.message ?? msg;
+      } catch {
+        try {
+          const txt = await res.text();
+          if (txt) msg = txt;
+        } catch { /* ignore */ }
+      }
+      return { ok: false, reason: "http_error", status: res.status, error: msg };
+    }
+    const data = (await res.json()) as RegistrarVendaLocalResponse;
+    return { ok: true, data };
+  } catch (err) {
     clearTimeout(timer);
-    return null;
+    return {
+      ok: false,
+      reason: "unreachable",
+      status: null,
+      error: err instanceof Error ? err.message : "Falha ao contatar servidor local",
+    };
   }
 }
 
