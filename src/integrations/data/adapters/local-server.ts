@@ -2400,6 +2400,64 @@ function toUnderscoredBody(payload: Record<string, unknown>): Record<string, unk
   return out;
 }
 
+type PostLocalDetail<T> =
+  | { ok: true; data: T }
+  | { ok: false; reason: "unreachable" | "http_error"; status: number | null; error: string };
+
+async function postLocalAuthDetail<T>(
+  path: string,
+  body: unknown,
+  timeoutMs = HTTP_TIMEOUT_MS,
+): Promise<PostLocalDetail<T>> {
+  const baseUrl = await resolveBaseUrl();
+  if (!baseUrl) {
+    return { ok: false, reason: "unreachable", status: null, error: "Servidor local indisponível" };
+  }
+  let token: string | null = null;
+  try {
+    const { supabase } = await import("@/integrations/supabase/client");
+    const { data } = await supabase.auth.getSession();
+    token = data.session?.access_token ?? null;
+  } catch { /* sem token → segue só com body */ }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(`${baseUrl}${path}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body ?? {}),
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (!res.ok) {
+      let msg = `Servidor local respondeu ${res.status}`;
+      try {
+        const j = (await res.json()) as { error?: string; message?: string };
+        msg = j?.error ?? j?.message ?? msg;
+      } catch {
+        try { const t = await res.text(); if (t) msg = t; } catch { /* ignore */ }
+      }
+      return { ok: false, reason: "http_error", status: res.status, error: msg };
+    }
+    const data = (await res.json()) as T;
+    return { ok: true, data };
+  } catch (err) {
+    clearTimeout(timer);
+    cachedBaseUrl = null;
+    return {
+      ok: false,
+      reason: "unreachable",
+      status: null,
+      error: err instanceof Error ? err.message : "Falha ao contatar servidor local",
+    };
+  }
+
 async function postLocalAuth<T>(path: string, body: unknown): Promise<T | null> {
   const baseUrl = await resolveBaseUrl();
   if (!baseUrl) return null;
