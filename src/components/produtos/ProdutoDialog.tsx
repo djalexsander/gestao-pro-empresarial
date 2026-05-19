@@ -213,56 +213,72 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
           </TabsList>
 
           {/* ============== DADOS ============== */}
-          <TabsContent value="dados" className="mt-4 space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="nome">Nome *</Label>
-              <Input id="nome" value={form.nome}
-                onChange={(e) => setForm({ ...form, nome: e.target.value })} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+          <TabsContent value="dados" className="mt-4 space-y-6">
+            <FormSection
+              title="Identificação operacional"
+              subtitle="Como o produto aparece na venda, PDV e estoque."
+              tone="operacional"
+              divider={false}
+            >
               <div className="space-y-1.5">
-                <Label htmlFor="cat">Categoria</Label>
-                <CategoriaCombobox
-                  id="cat"
-                  value={form.categoria_id}
-                  onChange={(catId) => setForm({ ...form, categoria_id: catId })}
-                />
+                <Label htmlFor="nome">Nome *</Label>
+                <Input id="nome" value={form.nome}
+                  onChange={(e) => setForm({ ...form, nome: e.target.value })} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="cat">Categoria</Label>
+                  <CategoriaCombobox
+                    id="cat"
+                    value={form.categoria_id}
+                    onChange={(catId) => setForm({ ...form, categoria_id: catId })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="marca">Marca</Label>
+                  <Input id="marca" value={form.marca}
+                    onChange={(e) => setForm({ ...form, marca: e.target.value })} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="un">Unidade</Label>
+                  <Input id="un" value={form.unidade} maxLength={10}
+                    onChange={(e) => setForm({ ...form, unidade: e.target.value.toUpperCase() })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="status">Status</Label>
+                  <Select value={form.status}
+                    onValueChange={(v) => setForm({ ...form, status: v as typeof form.status })}>
+                    <SelectTrigger id="status"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ativo">Ativo</SelectItem>
+                      <SelectItem value="inativo">Inativo</SelectItem>
+                      <SelectItem value="descontinuado">Descontinuado</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="marca">Marca</Label>
-                <Input id="marca" value={form.marca}
-                  onChange={(e) => setForm({ ...form, marca: e.target.value })} />
+                <Label htmlFor="desc">Descrição</Label>
+                <Textarea id="desc" rows={3} value={form.descricao}
+                  onChange={(e) => setForm({ ...form, descricao: e.target.value })} />
               </div>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="un">Unidade</Label>
-                <Input id="un" value={form.unidade} maxLength={10}
-                  onChange={(e) => setForm({ ...form, unidade: e.target.value.toUpperCase() })} />
+            </FormSection>
+
+            <FormSection
+              title="Dados fiscais"
+              subtitle="Classificação tributária usada em notas e relatórios fiscais."
+              tone="fiscal"
+            >
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="ncm">NCM</Label>
+                  <Input id="ncm" value={form.ncm} placeholder="0000.00.00"
+                    onChange={(e) => setForm({ ...form, ncm: e.target.value })} />
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="ncm">NCM</Label>
-                <Input id="ncm" value={form.ncm}
-                  onChange={(e) => setForm({ ...form, ncm: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="status">Status</Label>
-                <Select value={form.status}
-                  onValueChange={(v) => setForm({ ...form, status: v as typeof form.status })}>
-                  <SelectTrigger id="status"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ativo">Ativo</SelectItem>
-                    <SelectItem value="inativo">Inativo</SelectItem>
-                    <SelectItem value="descontinuado">Descontinuado</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="desc">Descrição</Label>
-              <Textarea id="desc" rows={3} value={form.descricao}
-                onChange={(e) => setForm({ ...form, descricao: e.target.value })} />
-            </div>
+            </FormSection>
           </TabsContent>
 
           {/* ============== CÓDIGOS ============== */}
