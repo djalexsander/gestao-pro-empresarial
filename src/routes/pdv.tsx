@@ -822,6 +822,7 @@ function PDVPage() {
       som.beep("error");
       toast.error((e as Error).message);
     } finally {
+      scanInFlightRef.current = false;
       setBusy(false);
       setCode("");
       focusScanInput(DEFAULT_FOCUS_DELAY);
