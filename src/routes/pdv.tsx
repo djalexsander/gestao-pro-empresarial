@@ -749,7 +749,12 @@ function PDVPage() {
       if (balancaCfg?.ativo) {
         const parsed = parseEtiquetaBalanca(v, balancaCfg);
         if (parsed.ok) {
-          const prod = await buscarProdutoPorPlu(parsed.plu);
+          const prod = await withTimeoutFallback(
+            buscarProdutoPorPlu(parsed.plu),
+            PDV_LOOKUP_TIMEOUT_MS,
+            null,
+            "pdv:buscarPorPlu",
+          );
           if (!prod) {
             som.beep("error");
             toast.error("Produto da etiqueta não encontrado. Verifique o PLU.");
