@@ -574,7 +574,7 @@ function DashboardPage() {
       <Card>
         <CardHeader>
           <CardTitle>Fluxo financeiro</CardTitle>
-          <p className="text-sm text-muted-foreground">Entradas vs. saídas — mês atual</p>
+          <p className="text-sm text-muted-foreground">Entradas vs. saídas — mês atual (referência)</p>
         </CardHeader>
         <CardContent>
           <div className="h-[220px]">
