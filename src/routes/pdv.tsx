@@ -435,7 +435,8 @@ function PDVPage() {
     sucessoOpen ||
     multDialogOpen ||
     consultaPrecoOpen ||
-    quickView !== null;
+    quickView !== null ||
+    cancelItemOpen;
 
   hasPriorityOverlayRef.current = hasPriorityOverlay;
   if (!hasPriorityOverlay) {
