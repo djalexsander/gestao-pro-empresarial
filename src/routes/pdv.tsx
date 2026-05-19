@@ -1655,7 +1655,7 @@ function PDVPage() {
                     const sub = it.preco_unitario * it.quantidade - it.desconto;
                     const subShown = Math.max(0, sub);
                     return (
-                      <div key={it.key}>
+                      <Fragment key={it.key}>
                         <li
                           className={cn(
                             "grid grid-cols-[1fr_120px_140px_140px_44px] items-center gap-2 border-b border-border/60 px-4 py-3 transition-colors",
