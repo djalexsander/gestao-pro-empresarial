@@ -2122,6 +2122,9 @@ export const localTerminalAdapter: DataAdapter = {
         "relatorios",
         "produtosVendidosPeriodo",
         async () => {
+          if (import.meta.env.DEV) {
+            console.log("[PRODUTOS_VENDIDOS] local-terminal query", { inicio, fim });
+          }
           const raw = await tryLocal<Array<Record<string, unknown>>>(
             "venda_itens_remote",
             "list",
@@ -2129,33 +2132,46 @@ export const localTerminalAdapter: DataAdapter = {
             { inicio, fim },
           );
           if (!Array.isArray(raw)) return null;
-          return raw.map((it) => {
-            const v = (it.__venda as Record<string, unknown>) ?? {};
-            const produto = (it.produto as Record<string, unknown> | null) ?? null;
-            const cliente = (v.cliente as { nome?: string } | null) ?? null;
-            return {
-              itemId: String(it.id),
-              vendaId: String(v.id ?? it.venda_id ?? ""),
-              vendaNumero: String(v.numero ?? ""),
-              dataEmissao: String(v.data_emissao ?? ""),
-              vendaStatus: String(v.status ?? ""),
-              vendaStatusPagamento: String(v.status_pagamento ?? ""),
-              formaPagamento: (v.forma_pagamento as string) ?? "",
-              clienteId: (v.cliente_id as string) ?? null,
-              clienteNome: cliente?.nome ?? null,
-              operadorId: (v.operador_id as string) ?? null,
-              caixaId: (v.caixa_id as string) ?? null,
-              produtoId: (it.produto_id as string) ?? null,
-              produtoNome:
-                (produto?.nome as string) ?? (it.descricao as string) ?? "—",
-              produtoSku: (produto?.sku as string) ?? "",
-              categoriaId: (produto?.categoria_id as string) ?? null,
-              precoCusto: Number(produto?.preco_custo) || 0,
-              quantidade: Number(it.quantidade) || 0,
-              precoUnitario: Number(it.preco_unitario) || 0,
-              total: Number(it.total) || 0,
-            };
-          });
+          const mapped = raw
+            .map((it) => {
+              const v = (it.__venda as Record<string, unknown>) ?? {};
+              const produto = (it.produto as Record<string, unknown> | null) ?? null;
+              const cliente = (v.cliente as { nome?: string } | null) ?? null;
+              return {
+                itemId: String(it.id),
+                vendaId: String(v.id ?? it.venda_id ?? ""),
+                vendaNumero: String(v.numero ?? ""),
+                dataEmissao: String(v.data_emissao ?? ""),
+                vendaStatus: String(v.status ?? ""),
+                vendaStatusPagamento: String(v.status_pagamento ?? ""),
+                formaPagamento: (v.forma_pagamento as string) ?? "",
+                clienteId: (v.cliente_id as string) ?? null,
+                clienteNome: cliente?.nome ?? null,
+                operadorId: (v.operador_id as string) ?? null,
+                caixaId: (v.caixa_id as string) ?? null,
+                produtoId: (it.produto_id as string) ?? null,
+                produtoNome:
+                  (produto?.nome as string) ?? (it.descricao as string) ?? "—",
+                produtoSku: (produto?.sku as string) ?? "",
+                categoriaId: (produto?.categoria_id as string) ?? null,
+                precoCusto: Number(produto?.preco_custo) || 0,
+                quantidade: Number(it.quantidade) || 0,
+                precoUnitario: Number(it.preco_unitario) || 0,
+                total: Number(it.total) || 0,
+              };
+            })
+            .filter((r) => {
+              if (r.dataEmissao && (r.dataEmissao < inicio || r.dataEmissao > fim)) return false;
+              if (r.vendaStatus === "cancelada" || r.vendaStatus === "rascunho") return false;
+              return true;
+            });
+          if (import.meta.env.DEV) {
+            console.log("[PRODUTOS_VENDIDOS] local-terminal result", {
+              itens: mapped.length,
+              origem: "local-terminal",
+            });
+          }
+          return mapped;
         },
         () => cloudAdapter.relatorios.produtosVendidosPeriodo({ inicio, fim }),
       ),

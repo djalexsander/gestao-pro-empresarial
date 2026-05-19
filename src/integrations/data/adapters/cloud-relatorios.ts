@@ -503,6 +503,9 @@ export const cloudRelatoriosAdapter: RelatoriosAdapter = {
     if (error) throw error;
   },
   async produtosVendidosPeriodo({ inicio, fim }) {
+    if (import.meta.env.DEV) {
+      console.log("[PRODUTOS_VENDIDOS] cloud query", { inicio, fim });
+    }
     const { data, error } = await supabase
       .from("vendas")
       .select(
@@ -516,10 +519,15 @@ export const cloudRelatoriosAdapter: RelatoriosAdapter = {
       )
       .gte("data_emissao", inicio)
       .lte("data_emissao", fim)
-      .neq("status", "cancelada")
+      // Aceitos: aprovada, faturada (+ qualquer status de pagamento pago/recebido/parcial).
+      // Excluídas: cancelada (e rascunho que ainda não conta como venda real).
+      .not("status", "in", "(cancelada,rascunho)")
       .order("data_emissao", { ascending: false })
-      .limit(2000);
-    if (error) throw error;
+      .limit(5000);
+    if (error) {
+      if (import.meta.env.DEV) console.error("[PRODUTOS_VENDIDOS] cloud error", error);
+      throw error;
+    }
     const out: import("../relatorios-adapter").ProdutoVendidoLinhaDomain[] = [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const v of (data ?? []) as any[]) {
@@ -547,6 +555,13 @@ export const cloudRelatoriosAdapter: RelatoriosAdapter = {
           total: Number(it.total) || 0,
         });
       }
+    }
+    if (import.meta.env.DEV) {
+      console.log("[PRODUTOS_VENDIDOS] cloud result", {
+        vendas: (data ?? []).length,
+        itens: out.length,
+        origem: "cloud",
+      });
     }
     return out;
   },
