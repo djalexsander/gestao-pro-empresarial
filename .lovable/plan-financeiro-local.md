@@ -30,23 +30,45 @@ Quick wins (badge, status, useFuncionarios) já foram aplicados.
 
 ---
 
+## Auditoria das tabelas SQLite (validação do plano)
+
+Verificação contra `src-tauri/src/db.rs` antes de implementar:
+
+| Tabela assumida no plano | Existe? | Observação |
+|---|---|---|
+| `financeiro_lancamentos_completo` (cache → `financeiro_lancamentos_local`) | ✅ | OK — payload JSON completo armazenado |
+| `caixa_movimentos_local` | ✅ | Nome real: `caixa_movs_local` |
+| `vendas_local` / `vendas_itens_local` | ✅ | OK (verificar se sync traz `custo_unitario`) |
+| `venda_pagamentos_local` | ✅ | É de PAGAMENTOS DE VENDA, não de lançamento financeiro |
+| `pagamentos_local` (pagamentos de lançamento financeiro) | ❌ | **NÃO existe** — precisa migration + sync |
+| `ifood_pedidos_local` | ❌ | **NÃO existe** — precisa migration + sync |
+
+### Implicações no roadmap
+
+- Itens **9** (`pagamentosPorLancamento`) e **11** (`listIfoodPendentes`) ficam **bloqueados** até criar:
+  1. Migration SQLite para `pagamentos_local` e `ifood_pedidos_local`.
+  2. Sync incremental dessas tabelas (similar ao `financeiro_lancamentos_completo`).
+- Item **10** (`lancamentoFks`) ✅ implementado nesta sessão usando o cache existente.
+
+---
+
 ## Métodos pendentes — mapeamento
 
 Legenda da coluna "Fonte SQLite": tabelas já existentes no `src-tauri/src/db.rs`.
 
-| # | Método (dataClient.financeiro.*) | Endpoint Rust a criar                                  | Verbo | Fonte SQLite                                                                 | Fallback                                  |
-|---|----------------------------------|--------------------------------------------------------|-------|-------------------------------------------------------------------------------|-------------------------------------------|
-| 1 | `indicadoresMes()`               | `/api/financeiro/indicadores-mes`                      | GET   | `financeiro_lancamentos_completo` (agregado do mês) + `caixa_movimentos_local` | `cloudAdapter.financeiro.indicadoresMes`  |
-| 2 | `posicaoPeriodo({inicio,fim})`   | `/api/financeiro/posicao-periodo?inicio=&fim=`         | GET   | `financeiro_lancamentos_completo` (sum por tipo + status)                     | `cloudAdapter.financeiro.posicaoPeriodo`  |
-| 3 | `performancePeriodo({inicio,fim})` | `/api/financeiro/performance-periodo?inicio=&fim=`   | GET   | `vendas_local` + `vendas_itens_local` (vendido) + `compras_local` (custo)     | `cloudAdapter.financeiro.performancePeriodo` |
-| 4 | `receberOrigem({periodo,forma})` | `/api/financeiro/receber-origem?inicio=&fim=&forma=`   | GET   | `financeiro_lancamentos_completo WHERE tipo='receber'` agrupado por origem    | `cloudAdapter.financeiro.receberOrigem`   |
-| 5 | `listLancamentosCompleto({...})` | `/api/financeiro/lancamentos-completo` (já existe; expandir filtros opcionais `tipo`, `status`, `inicio`, `fim`, `forma`, `limit`) | GET | `financeiro_lancamentos_completo`                                            | já existe                                 |
-| 6 | `fluxoPorForma({inicio,fim})`    | `/api/financeiro/fluxo-por-forma?inicio=&fim=`         | GET   | `pagamentos_local` (group by forma)                                           | `cloudAdapter.financeiro.fluxoPorForma`   |
-| 7 | `movimentosCaixaPeriodo({inicio,fim,caixaId?})` | `/api/financeiro/movimentos-caixa?inicio=&fim=&caixa_id=` | GET | `caixa_movimentos_local` JOIN `caixas_local`                                  | `cloudAdapter.financeiro.movimentosCaixaPeriodo` |
-| 8 | `lancamentosAvulsosPagos({inicio,fim})` | `/api/financeiro/avulsos-pagos?inicio=&fim=`    | GET   | `financeiro_lancamentos_completo WHERE avulso=1 AND status='pago'`            | `cloudAdapter.financeiro.lancamentosAvulsosPagos` |
-| 9 | `pagamentosPorLancamento(lancId)`| `/api/financeiro/pagamentos?lancamento_id=`            | GET   | `pagamentos_local WHERE lancamento_id=?`                                      | `cloudAdapter.financeiro.pagamentosPorLancamento` |
-|10 | `lancamentoFks(lancId)`          | `/api/financeiro/lancamento-fks?lancamento_id=`        | GET   | `financeiro_lancamentos_completo` + JOIN soft em `vendas_local`/`compras_local` | `cloudAdapter.financeiro.lancamentoFks`   |
-|11 | `listIfoodPendentes({limit?})`   | `/api/financeiro/ifood-pendentes?limit=`               | GET   | `ifood_pedidos_local WHERE conciliado=0`                                      | `cloudAdapter.financeiro.listIfoodPendentes` |
+| # | Método (dataClient.financeiro.*) | Endpoint Rust a criar                                  | Verbo | Fonte SQLite                                                                 | Fallback                                  | Status |
+|---|----------------------------------|--------------------------------------------------------|-------|-------------------------------------------------------------------------------|-------------------------------------------|--------|
+| 1 | `indicadoresMes()`               | `/api/financeiro/indicadores-mes`                      | GET   | `financeiro_lancamentos_local` (agregado do mês) + `caixa_movs_local`         | `cloudAdapter.financeiro.indicadoresMes`  | ⏳ |
+| 2 | `posicaoPeriodo({inicio,fim})`   | `/api/financeiro/posicao-periodo?inicio=&fim=`         | GET   | `financeiro_lancamentos_local` (sum por tipo + status)                        | `cloudAdapter.financeiro.posicaoPeriodo`  | ⏳ |
+| 3 | `performancePeriodo({inicio,fim})` | `/api/financeiro/performance-periodo?inicio=&fim=`   | GET   | `vendas_local` + `vendas_itens_local` (validar `custo_unitario`)              | `cloudAdapter.financeiro.performancePeriodo` | ⏳ |
+| 4 | `receberOrigem({periodo,forma})` | `/api/financeiro/receber-origem?inicio=&fim=&forma=`   | GET   | `financeiro_lancamentos_local WHERE tipo='receber'` agrupado por origem       | `cloudAdapter.financeiro.receberOrigem`   | ⏳ |
+| 5 | `listLancamentosCompleto({...})` | `/api/financeiro/lancamentos-completo` (já existe via proxy+cache) | GET | `financeiro_lancamentos_local`                                            | já existe                                 | ✅ (já local via proxy) |
+| 6 | `fluxoPorForma({inicio,fim})`    | `/api/financeiro/fluxo-por-forma?inicio=&fim=`         | GET   | `venda_pagamentos_local` (group by forma)                                     | `cloudAdapter.financeiro.fluxoPorForma`   | ⏳ |
+| 7 | `movimentosCaixaPeriodo({inicio,fim,caixaId?})` | `/api/financeiro/movimentos-caixa?inicio=&fim=&caixa_id=` | GET | `caixa_movs_local` JOIN `caixa_local`                                  | `cloudAdapter.financeiro.movimentosCaixaPeriodo` | ⏳ |
+| 8 | `lancamentosAvulsosPagos({inicio,fim})` | `/api/financeiro/avulsos-pagos?inicio=&fim=`    | GET   | `financeiro_lancamentos_local WHERE avulso=1 AND status='pago'`               | `cloudAdapter.financeiro.lancamentosAvulsosPagos` | ⏳ |
+| 9 | `pagamentosPorLancamento(lancId)`| `/api/financeiro/pagamentos?lancamento_id=`            | GET   | ❌ **falta `pagamentos_local`** (migration + sync)                            | `cloudAdapter.financeiro.pagamentosPorLancamento` | 🚫 Bloqueado |
+|10 | `lancamentoFks(lancId)`          | `/api/financeiro/lancamento-fks?lancamento_id=`        | GET   | `financeiro_lancamentos_local.payload` (extrai FKs do JSON)                   | `cloudAdapter.financeiro.lancamentoFks`   | ✅ **Feito** |
+|11 | `listIfoodPendentes({limit?})`   | `/api/financeiro/ifood-pendentes?limit=`               | GET   | ❌ **falta `ifood_pedidos_local`** (migration + sync)                         | `cloudAdapter.financeiro.listIfoodPendentes` | 🚫 Bloqueado |
 
 ---
 
