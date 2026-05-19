@@ -2130,6 +2130,18 @@ export const localServerAdapter: DataAdapter = {
         "dashboard",
         "carregar",
         async () => {
+          // 1) Fast path: agregação SQL única no Rust
+          //    (`GET /api/dashboard/carregar`). 503 quando os caches
+          //    primários estão frios — aí tentamos a composição abaixo.
+          const aggregated = await tryLocal<
+            Awaited<ReturnType<DataAdapter["dashboard"]["carregar"]>>
+          >("dashboard", "carregar", "/api/dashboard/carregar");
+          if (aggregated) return aggregated;
+
+          // 2) Fallback intermediário: composição cliente a partir dos
+          //    endpoints locais já existentes. Útil quando o endpoint
+          //    agregado falhar ou um dos caches estiver vazio mas os
+          //    outros tiverem dados.
           const baseUrl = await resolveBaseUrl();
           if (!baseUrl) return null;
           const [vendas, compras, lancamentos, produtos, saldos] = await Promise.all([
@@ -2156,7 +2168,7 @@ export const localServerAdapter: DataAdapter = {
           });
           if (import.meta.env.DEV) {
             // eslint-disable-next-line no-console
-            console.debug("[LOCAL_DASHBOARD] server carregar", {
+            console.debug("[LOCAL_DASHBOARD] server carregar (composto)", {
               ok: dash != null,
               vendasMes: dash?.vendasMes,
               contasReceber: dash?.contasReceber,
