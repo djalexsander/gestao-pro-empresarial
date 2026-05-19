@@ -3482,7 +3482,29 @@ async fn vendas_metricas_periodo_handler(
     Ok(typed_response(StatusCode::OK, "local-table", wrapped.into_bytes()))
 }
 
-// ---------- /api/relatorios/caixas (v17) ----------
+// ---------- /api/compras/fornecedor-metricas (Onda 3 — PR-O3-2) ----------
+//
+// Espelha o RPC `fornecedor_metricas`: agregação por fornecedor a partir
+// de `compras_local` + `fornecedores_local`. 503 quando cache de
+// fornecedores estiver vazio (cache frio → fallback cloud).
+
+async fn compras_fornecedor_metricas_handler(
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let body_opt = db::compras_fornecedor_metricas_local().map_err(|e| {
+        eprintln!("[LOCAL_COMPRAS] fornecedor-metricas falha: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    })?;
+    let Some(body) = body_opt else {
+        eprintln!("[LOCAL_COMPRAS] fornecedor-metricas cache frio → fallback cloud");
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "cache de fornecedores vazio".into(),
+        ));
+    };
+    let wrapped = format!(r#"{{"data":{body}}}"#);
+    Ok(typed_response(StatusCode::OK, "local-table", wrapped.into_bytes()))
+}
+
 //
 // Cache de leitura para os relatórios de caixa (cardCaixas + caixasSessoes).
 // Filtragem por período / operador / terminal / status é feita client-side
