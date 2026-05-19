@@ -4024,7 +4024,360 @@ pub fn compras_fornecedor_metricas_local() -> DbResult<Option<String>> {
     })
 }
 
+// ---------- Dashboard agregado (Onda 4 — PR-O3-5) ----------
+//
+// Espelha `cloudAdapter.dashboard.carregar()` em SQL: cards (vendas/
+// compras/lucro/contas), série de 6 meses (vendas vs compras), fluxo
+// de caixa do mês (entrada/saída por dia), estoque baixo e top 5
+// vendas/compras com nomes joinados de clientes/fornecedores.
+//
+// Fontes:
+//   - vendas_remote_cache         (vendas 6 meses)
+//   - compras_local               (compras 6 meses)
+//   - financeiro_lancamentos_local (contas + fluxo de caixa)
+//   - produtos_local + estoque_saldos_local (estoque baixo)
+//   - clientes_local / fornecedores_local (joins de nome)
+//
+// Aceita tipos `despesa|pagar` e `receita|receber` (variações de
+// schema entre cache antigo e novo).
+//
+// Safety gate: 503 quando TODOS os caches primários (vendas, compras,
+// financeiro) estiverem vazios — o adapter cai em fallback cloud.
+pub fn dashboard_carregar_local() -> DbResult<Option<String>> {
+    use chrono::{Datelike, NaiveDate};
+    let today = chrono::Local::now().date_naive();
+    let inicio_mes = today.with_day(1).unwrap();
+    let inicio_mes_ant = if inicio_mes.month() == 1 {
+        NaiveDate::from_ymd_opt(inicio_mes.year() - 1, 12, 1).unwrap()
+    } else {
+        NaiveDate::from_ymd_opt(inicio_mes.year(), inicio_mes.month() - 1, 1).unwrap()
+    };
+    let prox_mes = if inicio_mes.month() == 12 {
+        NaiveDate::from_ymd_opt(inicio_mes.year() + 1, 1, 1).unwrap()
+    } else {
+        NaiveDate::from_ymd_opt(inicio_mes.year(), inicio_mes.month() + 1, 1).unwrap()
+    };
+    let dias_no_mes = (prox_mes - inicio_mes).num_days() as usize;
+    let mut y6 = inicio_mes.year();
+    let mut m6: i32 = inicio_mes.month() as i32 - 5;
+    while m6 <= 0 {
+        m6 += 12;
+        y6 -= 1;
+    }
+    let inicio_6m = NaiveDate::from_ymd_opt(y6, m6 as u32, 1).unwrap();
+    let to_ms = |d: NaiveDate| {
+        d.and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp_millis()
+    };
+    let inicio_mes_ms = to_ms(inicio_mes);
+    let inicio_mes_ant_ms = to_ms(inicio_mes_ant);
+    let inicio_6m_ms = to_ms(inicio_6m);
+    let prox_mes_ms = to_ms(prox_mes);
+
+    // Helper local: serializa string como literal JSON (com escapes).
+    fn js(s: Option<&str>) -> String {
+        match s {
+            Some(v) => serde_json::Value::String(v.to_string()).to_string(),
+            None => "null".to_string(),
+        }
+    }
+
+    with_conn(|conn| {
+        let total_v: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM vendas_remote_cache WHERE deleted_at_ms IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        let total_c: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM compras_local WHERE deleted_at_ms IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        let total_f: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM financeiro_lancamentos_local WHERE deleted_at_ms IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        if total_v == 0 && total_c == 0 && total_f == 0 {
+            return Ok(None);
+        }
+
+        // ---- Vendas mes / mes anterior ----
+        let (vendas_mes, vendas_mes_ant): (f64, f64) = conn.query_row(
+            "SELECT
+               COALESCE(SUM(CASE WHEN data_emissao_ms >= ?1 AND data_emissao_ms < ?2
+                                 THEN CAST(json_extract(payload,'$.total') AS REAL) ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN data_emissao_ms >= ?3 AND data_emissao_ms < ?1
+                                 THEN CAST(json_extract(payload,'$.total') AS REAL) ELSE 0 END), 0)
+             FROM vendas_remote_cache
+             WHERE deleted_at_ms IS NULL AND status != 'cancelada'",
+            params![inicio_mes_ms, prox_mes_ms, inicio_mes_ant_ms],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+
+        // ---- Compras mes / mes anterior (cloud não exclui canceladas aqui) ----
+        let (compras_mes, compras_mes_ant): (f64, f64) = conn.query_row(
+            "SELECT
+               COALESCE(SUM(CASE WHEN data_emissao_ms >= ?1 AND data_emissao_ms < ?2
+                                 THEN CAST(json_extract(payload,'$.total') AS REAL) ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN data_emissao_ms >= ?3 AND data_emissao_ms < ?1
+                                 THEN CAST(json_extract(payload,'$.total') AS REAL) ELSE 0 END), 0)
+             FROM compras_local
+             WHERE deleted_at_ms IS NULL",
+            params![inicio_mes_ms, prox_mes_ms, inicio_mes_ant_ms],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+
+        let lucro_mes = vendas_mes - compras_mes;
+        let margem = if vendas_mes > 0.0 { (lucro_mes / vendas_mes) * 100.0 } else { 0.0 };
+
+        // ---- Contas a pagar / receber (aberto) ----
+        let (cp_total, cp_qtd): (f64, i64) = conn.query_row(
+            "SELECT
+               COALESCE(SUM(COALESCE(CAST(json_extract(payload,'$.valor') AS REAL),0)
+                          - COALESCE(CAST(json_extract(payload,'$.valor_pago') AS REAL),0)), 0),
+               COUNT(*)
+             FROM financeiro_lancamentos_local
+             WHERE deleted_at_ms IS NULL
+               AND tipo IN ('despesa','pagar')
+               AND status NOT IN ('pago','cancelado')",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        let (cr_total, cr_qtd): (f64, i64) = conn.query_row(
+            "SELECT
+               COALESCE(SUM(COALESCE(CAST(json_extract(payload,'$.valor') AS REAL),0)
+                          - COALESCE(CAST(json_extract(payload,'$.valor_pago') AS REAL),0)), 0),
+               COUNT(*)
+             FROM financeiro_lancamentos_local
+             WHERE deleted_at_ms IS NULL
+               AND tipo IN ('receita','receber')
+               AND status NOT IN ('pago','cancelado')",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+
+        // ---- Série 6 meses (vendas vs compras) ----
+        let meses_pt = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+        let mut keys: Vec<(i32, u32)> = Vec::with_capacity(6);
+        for i in 0..6 {
+            let mut yy = inicio_6m.year();
+            let mut mm = inicio_6m.month() as i32 + i;
+            while mm > 12 {
+                mm -= 12;
+                yy += 1;
+            }
+            keys.push((yy, mm as u32));
+        }
+        let mut v_por_mes: std::collections::HashMap<String, (f64, f64)> =
+            std::collections::HashMap::new();
+        for (yy, mm) in &keys {
+            v_por_mes.insert(format!("{:04}-{:02}", yy, mm), (0.0, 0.0));
+        }
+        {
+            let mut stmt = conn.prepare(
+                "SELECT strftime('%Y-%m', data_emissao_ms/1000, 'unixepoch') AS ym,
+                        COALESCE(SUM(CAST(json_extract(payload,'$.total') AS REAL)), 0)
+                 FROM vendas_remote_cache
+                 WHERE deleted_at_ms IS NULL AND status != 'cancelada'
+                   AND data_emissao_ms >= ?1
+                 GROUP BY ym",
+            )?;
+            let rows = stmt.query_map(params![inicio_6m_ms], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?))
+            })?;
+            for r in rows {
+                let (ym, total) = r?;
+                if let Some(e) = v_por_mes.get_mut(&ym) {
+                    e.0 = total;
+                }
+            }
+        }
+        {
+            let mut stmt = conn.prepare(
+                "SELECT strftime('%Y-%m', data_emissao_ms/1000, 'unixepoch') AS ym,
+                        COALESCE(SUM(CAST(json_extract(payload,'$.total') AS REAL)), 0)
+                 FROM compras_local
+                 WHERE deleted_at_ms IS NULL AND data_emissao_ms >= ?1
+                 GROUP BY ym",
+            )?;
+            let rows = stmt.query_map(params![inicio_6m_ms], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?))
+            })?;
+            for r in rows {
+                let (ym, total) = r?;
+                if let Some(e) = v_por_mes.get_mut(&ym) {
+                    e.1 = total;
+                }
+            }
+        }
+        let mut vpm = String::from("[");
+        for (i, (yy, mm)) in keys.iter().enumerate() {
+            let key = format!("{:04}-{:02}", yy, mm);
+            let (vv, cc) = v_por_mes.get(&key).copied().unwrap_or((0.0, 0.0));
+            if i > 0 { vpm.push(','); }
+            vpm.push_str(&format!(
+                r#"{{"month":"{}","vendas":{},"compras":{}}}"#,
+                meses_pt[(*mm as usize) - 1], vv, cc
+            ));
+        }
+        vpm.push(']');
+
+        // ---- Fluxo de caixa (mês corrente, por dia, via data_pagamento ISO) ----
+        let mut fluxo: Vec<(f64, f64)> = vec![(0.0, 0.0); dias_no_mes];
+        let mes_ref = format!("{:04}-{:02}", inicio_mes.year(), inicio_mes.month());
+        {
+            let mut stmt = conn.prepare(
+                "SELECT json_extract(payload,'$.tipo'),
+                        COALESCE(CAST(json_extract(payload,'$.valor_pago') AS REAL),0),
+                        json_extract(payload,'$.data_pagamento')
+                 FROM financeiro_lancamentos_local
+                 WHERE deleted_at_ms IS NULL
+                   AND json_extract(payload,'$.data_pagamento') IS NOT NULL
+                   AND substr(json_extract(payload,'$.data_pagamento'),1,7) = ?1",
+            )?;
+            let rows = stmt.query_map(params![mes_ref], |r| {
+                Ok((
+                    r.get::<_, Option<String>>(0)?,
+                    r.get::<_, f64>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                ))
+            })?;
+            for r in rows {
+                let (tp, vp, dp) = r?;
+                let Some(dp) = dp else { continue; };
+                if dp.len() < 10 { continue; }
+                let dia: usize = match dp[8..10].parse() { Ok(d) => d, Err(_) => continue };
+                if dia == 0 || dia > dias_no_mes { continue; }
+                let entry = &mut fluxo[dia - 1];
+                match tp.as_deref() {
+                    Some("receita") | Some("receber") => entry.0 += vp,
+                    Some("despesa") | Some("pagar") => entry.1 += vp,
+                    _ => {}
+                }
+            }
+        }
+        let mut fc = String::from("[");
+        for (i, (e, s)) in fluxo.iter().enumerate() {
+            if i > 0 { fc.push(','); }
+            fc.push_str(&format!(
+                r#"{{"day":"{:02}","entrada":{},"saida":{}}}"#,
+                i + 1, e, s
+            ));
+        }
+        fc.push(']');
+
+        // ---- Estoque baixo ----
+        let estoque_baixo: i64 = conn.query_row(
+            "SELECT COUNT(*)
+             FROM produtos_local p
+             LEFT JOIN estoque_saldos_local s
+                ON s.produto_id = p.id AND s.variacao_id = ''
+             WHERE p.deleted_at_ms IS NULL
+               AND p.status = 'ativo'
+               AND COALESCE(CAST(json_extract(p.payload,'$.estoque_minimo') AS REAL), 0) > 0
+               AND COALESCE(s.quantidade, p.estoque_atual, 0)
+                   <= COALESCE(CAST(json_extract(p.payload,'$.estoque_minimo') AS REAL), 0)",
+            [],
+            |r| r.get(0),
+        )?;
+
+        // ---- Últimas 5 vendas (com cliente) ----
+        let v_rows: Vec<(String, Option<String>, Option<String>, Option<String>, f64, Option<String>, Option<String>)> = {
+            let mut stmt = conn.prepare(
+                "SELECT v.id, v.numero, v.cliente_id, v.status,
+                        CAST(json_extract(v.payload,'$.total') AS REAL),
+                        json_extract(v.payload,'$.data_emissao'),
+                        COALESCE(c.nome_fantasia, c.nome)
+                 FROM vendas_remote_cache v
+                 LEFT JOIN clientes_local c ON c.id = v.cliente_id AND c.deleted_at_ms IS NULL
+                 WHERE v.deleted_at_ms IS NULL AND v.status != 'cancelada'
+                 ORDER BY v.data_emissao_ms DESC
+                 LIMIT 5",
+            )?;
+            stmt.query_map([], |r| {
+                Ok((
+                    r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?,
+                    r.get::<_, Option<f64>>(4)?.unwrap_or(0.0),
+                    r.get(5)?, r.get(6)?,
+                ))
+            })?.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        let mut uv = String::from("[");
+        for (i, (id, numero, cli_id, status, total, data, nome)) in v_rows.iter().enumerate() {
+            if i > 0 { uv.push(','); }
+            let cliente = if cli_id.is_some() {
+                nome.clone().unwrap_or_else(|| "—".to_string())
+            } else {
+                "Consumidor".to_string()
+            };
+            uv.push_str(&format!(
+                r#"{{"id":{},"numero":{},"cliente":{},"valor":{},"status":{},"data":{}}}"#,
+                js(Some(id)),
+                js(numero.as_deref()),
+                js(Some(&cliente)),
+                total,
+                js(status.as_deref()),
+                js(data.as_deref()),
+            ));
+        }
+        uv.push(']');
+
+        // ---- Últimas 5 compras (com fornecedor) ----
+        let c_rows: Vec<(String, Option<String>, Option<String>, Option<String>, f64, Option<String>, Option<String>)> = {
+            let mut stmt = conn.prepare(
+                "SELECT c.id, c.numero, c.fornecedor_id, c.status,
+                        CAST(json_extract(c.payload,'$.total') AS REAL),
+                        json_extract(c.payload,'$.data_emissao'),
+                        COALESCE(f.nome_fantasia, f.razao_social)
+                 FROM compras_local c
+                 LEFT JOIN fornecedores_local f ON f.id = c.fornecedor_id AND f.deleted_at_ms IS NULL
+                 WHERE c.deleted_at_ms IS NULL
+                 ORDER BY c.data_emissao_ms DESC
+                 LIMIT 5",
+            )?;
+            stmt.query_map([], |r| {
+                Ok((
+                    r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?,
+                    r.get::<_, Option<f64>>(4)?.unwrap_or(0.0),
+                    r.get(5)?, r.get(6)?,
+                ))
+            })?.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        let mut uc = String::from("[");
+        for (i, (id, numero, _forn_id, status, total, data, nome)) in c_rows.iter().enumerate() {
+            if i > 0 { uc.push(','); }
+            let fornecedor = nome.clone().unwrap_or_else(|| "—".to_string());
+            uc.push_str(&format!(
+                r#"{{"id":{},"numero":{},"fornecedor":{},"valor":{},"status":{},"data":{}}}"#,
+                js(Some(id)),
+                js(numero.as_deref()),
+                js(Some(&fornecedor)),
+                total,
+                js(status.as_deref()),
+                js(data.as_deref()),
+            ));
+        }
+        uc.push(']');
+
+        let body = format!(
+            r#"{{"vendasMes":{vm},"vendasMesAnterior":{vma},"comprasMes":{cm},"comprasMesAnterior":{cma},"lucroMes":{lm},"margem":{mg},"contasPagar":{cpt},"qtdContasPagar":{cpq},"contasReceber":{crt},"qtdContasReceber":{crq},"estoqueBaixo":{eb},"vendasPorMes":{vpm},"fluxoCaixa":{fc},"ultimasVendas":{uv},"ultimasCompras":{uc}}}"#,
+            vm = vendas_mes, vma = vendas_mes_ant,
+            cm = compras_mes, cma = compras_mes_ant,
+            lm = lucro_mes, mg = margem,
+            cpt = cp_total, cpq = cp_qtd,
+            crt = cr_total, crq = cr_qtd,
+            eb = estoque_baixo,
+            vpm = vpm, fc = fc, uv = uv, uc = uc,
+        );
+        Ok(Some(body))
+    })
+}
+
 // ---------- Caches de relatórios: caixas / movimentos / func / term ----------
+
 
 fn ingest_simple_cache(
     domain: &str,
