@@ -220,6 +220,21 @@ function FinanceContent() {
   const totalPay = pagar.reduce((s, l) => s + Number(l.valor) - Number(l.valor_pago ?? 0), 0);
   const saldo = totalRec - totalPay;
 
+  // DEV log — Posição financeira
+  useEffect(() => {
+    if (typeof window === "undefined" || !import.meta.env.DEV) return;
+    if (!posicao) return;
+    // eslint-disable-next-line no-console
+    console.log("[POSICAO_FINANCEIRA]", {
+      total_a_receber: posicao.totalReceber,
+      qtd_receber: posicao.qtdReceber,
+      total_a_pagar: posicao.totalPagar,
+      qtd_pagar: posicao.qtdPagar,
+      saldo_previsto: posicao.saldo,
+      periodo: { inicio: posicao.periodo.inicio, fim: posicao.periodo.fim },
+    });
+  }, [posicao]);
+
   const consolidado = useMemo(
     () => buildConsolidado({ totalRec, totalPay, saldo, receber, pagar, ind }),
     [totalRec, totalPay, saldo, receber, pagar, ind],
