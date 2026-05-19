@@ -120,13 +120,27 @@ interface ItemRow {
   total: number;
 }
 
+// Datas no fuso local do Brasil (America/Sao_Paulo) — evita off-by-one quando
+// o relógio UTC já virou o dia mas no Brasil ainda é o dia anterior.
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return fmt.format(new Date());
 }
 function daysAgoISO(d: number): string {
-  const dt = new Date();
-  dt.setDate(dt.getDate() - d);
-  return dt.toISOString().slice(0, 10);
+  const base = new Date();
+  base.setDate(base.getDate() - d);
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return fmt.format(base);
 }
 
 function formatDateLong(iso: string): string {
