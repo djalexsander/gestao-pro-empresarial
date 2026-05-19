@@ -20,7 +20,7 @@ import { useEffect } from "react";
  *  - `IME composing` (acentos/teclado asiático) nunca é interceptado.
  */
 export function useModalKeyboardNavigation(
-  containerRef: React.RefObject<HTMLElement>,
+  containerRef: React.RefObject<HTMLElement | null>,
   options?: { enabled?: boolean },
 ) {
   const enabled = options?.enabled !== false;
