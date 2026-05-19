@@ -3010,7 +3010,50 @@ pub fn movimentos_caixa_periodo_local(
     })
 }
 
-
+/// Onda 2 — item 8: lança avulsos pagos (sem caixa_id e sem venda_id) no
+/// período. Lê do cache `financeiro_lancamentos_local`, com filtros via
+/// JSON1 sobre o payload (caixa_id IS NULL, venda_id IS NULL,
+/// data_pagamento BETWEEN). Retorna JSON-string já no shape do domínio
+/// `LancamentoAvulsoPagoDomain` (id, descricao, tipo, valor, valor_pago,
+/// data_pagamento, status, caixa_id, venda_id).
+pub fn lancamentos_avulsos_pagos_local(inicio: &str, fim: &str) -> DbResult<String> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT json_object(
+                'id', id,
+                'descricao', json_extract(payload, '$.descricao'),
+                'tipo', tipo,
+                'valor', json_extract(payload, '$.valor'),
+                'valor_pago', json_extract(payload, '$.valor_pago'),
+                'data_pagamento', json_extract(payload, '$.data_pagamento'),
+                'status', status,
+                'caixa_id', json_extract(payload, '$.caixa_id'),
+                'venda_id', json_extract(payload, '$.venda_id')
+             )
+             FROM financeiro_lancamentos_local
+             WHERE deleted_at_ms IS NULL
+               AND status IN ('pago','recebido')
+               AND json_extract(payload, '$.caixa_id') IS NULL
+               AND json_extract(payload, '$.venda_id') IS NULL
+               AND json_extract(payload, '$.data_pagamento') BETWEEN ?1 AND ?2
+             ORDER BY json_extract(payload, '$.data_pagamento') DESC
+             LIMIT 2000",
+        )?;
+        let mut rows = stmt.query(params![inicio, fim])?;
+        let mut out = String::from("[");
+        let mut first = true;
+        while let Some(row) = rows.next()? {
+            let s: String = row.get(0)?;
+            if !first {
+                out.push(',');
+            }
+            out.push_str(&s);
+            first = false;
+        }
+        out.push(']');
+        Ok(out)
+    })
+}
 
 // ---------- Compras (v15) ----------
 //
