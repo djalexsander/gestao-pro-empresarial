@@ -2887,6 +2887,68 @@ async fn financeiro_fluxo_por_forma_handler(
     Ok(resp)
 }
 
+// ---------- /api/financeiro/movimentos-caixa (Onda 2 — item 7) ----------
+//
+// Lista movimentos de caixa do período direto do SQLite local
+// (`caixa_movs_local` JOIN `caixa_local`). Mesmo shape do
+// `cloudAdapter.financeiro.movimentosCaixaPeriodo`. O adapter TS cobre
+// com `withCloudFallback` quando o backend local cai/erra.
+
+async fn financeiro_movimentos_caixa_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let inicio = q
+        .get("inicio")
+        .cloned()
+        .ok_or((StatusCode::BAD_REQUEST, "inicio é obrigatório".into()))?;
+    let fim = q
+        .get("fim")
+        .cloned()
+        .ok_or((StatusCode::BAD_REQUEST, "fim é obrigatório".into()))?;
+    let inicio_ms = parse_iso_date_ms(&inicio).unwrap_or(0);
+    let fim_ms = parse_iso_date_ms(&fim)
+        .map(|d| d + 24 * 60 * 60 * 1000 - 1)
+        .unwrap_or(i64::MAX);
+    let rows = db::movimentos_caixa_periodo_local(inicio_ms, fim_ms).map_err(|e| {
+        eprintln!("[LOCAL_FINANCE] movimentos-caixa falha: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    })?;
+    let arr: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|(id, tipo, valor, motivo, created_ms, caixa_id)| {
+            let created_iso = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(created_ms)
+                .map(|d| d.to_rfc3339())
+                .unwrap_or_else(|| String::new());
+            serde_json::json!({
+                "id": id,
+                "tipo": tipo,
+                "valor": valor,
+                "motivo": motivo,
+                "created_at": created_iso,
+                "caixa_id": caixa_id,
+                "venda_id": serde_json::Value::Null,
+            })
+        })
+        .collect();
+    eprintln!(
+        "[LOCAL_FINANCE] movimentos-caixa hit inicio={inicio} fim={fim} linhas={}",
+        arr.len()
+    );
+    let body = serde_json::json!({ "data": arr });
+    let mut resp = axum::response::Response::new(axum::body::Body::from(body.to_string()));
+    resp.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    resp.headers_mut().insert(
+        axum::http::HeaderName::from_static("x-gp-source"),
+        axum::http::HeaderValue::from_static("local-table"),
+    );
+    Ok(resp)
+}
+
+
+
 // ---------- /api/compras (v15) ----------
 //
 // Espelha `cloudAdapter.compras.list`: lista as compras com fornecedor
