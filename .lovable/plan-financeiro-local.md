@@ -58,9 +58,9 @@ Legenda da coluna "Fonte SQLite": tabelas já existentes no `src-tauri/src/db.rs
 
 | # | Método (dataClient.financeiro.*) | Endpoint Rust a criar                                  | Verbo | Fonte SQLite                                                                 | Fallback                                  | Status |
 |---|----------------------------------|--------------------------------------------------------|-------|-------------------------------------------------------------------------------|-------------------------------------------|--------|
-| 1 | `indicadoresMes()`               | `/api/financeiro/indicadores-mes`                      | GET   | `financeiro_lancamentos_local` (agregado do mês) + `caixa_movs_local`         | `cloudAdapter.financeiro.indicadoresMes`  | ⏳ |
+| 1 | `indicadoresMes()`               | `/api/financeiro/indicadores-mes`                      | GET   | precisa `vendas_remote_cache` + cache de `venda_itens` com `preco_custo` (não existe) | `cloudAdapter.financeiro.indicadoresMes`  | 🚫 Bloqueado (custo/itens não cacheados; agregar parcial geraria margem errada) |
 | 2 | `posicaoPeriodo({inicio,fim})`   | `/api/financeiro/posicao-periodo?inicio=&fim=`         | GET   | `financeiro_lancamentos_local` (JSON1: valor/valor_pago por tipo, filtro `data_vencimento_ms`) | `cloudAdapter.financeiro.posicaoPeriodo`  | ✅ **Feito** |
-| 3 | `performancePeriodo({inicio,fim})` | `/api/financeiro/performance-periodo?inicio=&fim=`   | GET   | `vendas_local` + `vendas_itens_local` (validar `custo_unitario`)              | `cloudAdapter.financeiro.performancePeriodo` | ⏳ |
+| 3 | `performancePeriodo({inicio,fim})` | `/api/financeiro/performance-periodo?inicio=&fim=`   | GET   | precisa cache de `venda_itens` com `preco_custo` do upstream (não existe — `venda_itens_local` só tem vendas do PDV offline) | `cloudAdapter.financeiro.performancePeriodo` | 🚫 Bloqueado |
 | 4 | `receberOrigem({periodo,forma})` | `/api/financeiro/receber-origem?inicio=&fim=&forma=&hoje=` | GET | `financeiro_lancamentos_local` (JSON1: abertos fiado/ifood + pagos no período + vencidos < hoje) | `cloudAdapter.financeiro.receberOrigem`   | ✅ **Feito** |
 | 5 | `listLancamentosCompleto({...})` | `/api/financeiro/lancamentos-completo` (já existe via proxy+cache) | GET | `financeiro_lancamentos_local`                                            | já existe                                 | ✅ (já local via proxy) |
 | 6 | `fluxoPorForma({inicio,fim})`    | `/api/financeiro/fluxo-por-forma?inicio=&fim=`         | GET   | `venda_pagamentos_local` JOIN `vendas_local` (filtro por `created_at_ms`) | `cloudAdapter.financeiro.fluxoPorForma`   | ✅ **Feito** |
@@ -69,6 +69,18 @@ Legenda da coluna "Fonte SQLite": tabelas já existentes no `src-tauri/src/db.rs
 | 9 | `pagamentosPorLancamento(lancId)`| `/api/financeiro/pagamentos?lancamento_id=`            | GET   | ❌ **falta `pagamentos_local`** (migration + sync)                            | `cloudAdapter.financeiro.pagamentosPorLancamento` | 🚫 Bloqueado |
 |10 | `lancamentoFks(lancId)`          | `/api/financeiro/lancamento-fks?lancamento_id=`        | GET   | `financeiro_lancamentos_local.payload` (extrai FKs do JSON)                   | `cloudAdapter.financeiro.lancamentoFks`   | ✅ **Feito** |
 |11 | `listIfoodPendentes({limit?})`   | `/api/financeiro/ifood-pendentes?limit=`               | GET   | ❌ **falta `ifood_pedidos_local`** (migration + sync)                         | `cloudAdapter.financeiro.listIfoodPendentes` | 🚫 Bloqueado |
+
+### Status geral da Onda 2
+
+Todos os itens **desbloqueados** foram implementados:
+- ✅ 2, 4, 6, 7, 8, 10 (novos endpoints Rust + adapter local-first).
+- ✅ 5 já era local via proxy/cache existente.
+- 🚫 1, 3, 9, 11 ficam pendentes de **PR-F0 (sync)**: criar e sincronizar
+  `pagamentos_local`, `ifood_pedidos_local`, e um cache de `venda_itens`
+  vindas do upstream contendo `preco_custo`. Sem esses caches o local
+  retornaria números parciais (margem/lucro/ifood incompletos), o que é
+  pior do que cair em cloud — então propositalmente continuam herdando
+  o `cloudAdapter`.
 
 ---
 
