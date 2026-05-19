@@ -149,6 +149,17 @@ mostram quais métodos herdam direto da cloud (sem fallback local):
      drift. Cloud direto é aceitável para clique pontual.
    - ⏭️ `vendas.historico(id)` — adiado: requer cache novo de
      `vendas_status_historico`.
-4. **PR-O3-2** (compras) — maior, depende de sync.
+4. **PR-O3-2** (compras) — ✅ **parcial**:
+   - ✅ `compras.list` já era local-first (de antes).
+   - ✅ `compras.fornecedorMetricas` — novo endpoint
+     `GET /api/compras/fornecedor-metricas` agrega `compras_local` +
+     `fornecedores_local` espelhando o RPC `fornecedor_metricas`
+     (inclui fornecedores sem compras, exclui `cancelada`, conta
+     pendente/aprovada/recebida_parcial/rascunho em `compras_em_aberto`).
+     Safety gate: 503 com fallback cloud se `fornecedores_local` vazio.
+   - ⏭️ `compras.get(id)` — adiado: depende de `compra_itens_local` +
+     join com produtos (sku/nome) e drift de `quantidade_recebida` em
+     recebimentos parciais offline. Cloud direto é seguro para
+     abrir o detalhe.
 5. **PR-O3-5** (dashboard) — depende dos anteriores.
 6. **PR-O3-6** (QA) — fecha a onda.
