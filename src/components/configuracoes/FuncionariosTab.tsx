@@ -189,10 +189,10 @@ export function FuncionariosTab() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir funcionário?</AlertDialogTitle>
+            <AlertDialogTitle>Inativar funcionário?</AlertDialogTitle>
             <AlertDialogDescription>
-              {excluirFunc?.nome} não poderá mais fazer login no PDV. Esta ação
-              não pode ser desfeita.
+              {excluirFunc?.nome} não poderá mais fazer login no PDV. O histórico de vendas, caixas
+              e movimentações é preservado. Você pode reativá-lo depois pelo filtro de status.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -205,7 +205,7 @@ export function FuncionariosTab() {
                 }
               }}
             >
-              Excluir
+              Inativar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
