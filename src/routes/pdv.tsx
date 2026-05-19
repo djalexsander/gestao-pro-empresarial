@@ -1746,16 +1746,6 @@ function PDVPage() {
                           >
                             {formatBRL(subShown)}
                           </div>
-                          <div className="flex justify-end">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                              onClick={() => removeItem(it.key)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
                         </li>
                         {it.cancelado && (
                           <li
