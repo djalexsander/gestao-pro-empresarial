@@ -136,8 +136,8 @@ const reports: Report[] = [
   },
   {
     key: "fluxo-caixa",
-    title: "Fluxo de caixa",
-    description: "Entradas, saídas e projeção.",
+    title: "Fluxo Financeiro Gerencial",
+    description: "Compras, despesas, fornecedores e contas no período.",
     icon: Wallet,
     tone: "bg-success/10 text-success",
     route: "/relatorios/fluxo-caixa",

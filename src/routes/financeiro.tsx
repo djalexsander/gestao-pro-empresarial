@@ -80,12 +80,14 @@ import { ExportFormatDialog } from "@/components/shared/ExportFormatDialog";
 import { exportarRelatorioCard, type ExportFormato } from "@/lib/export-relatorio-card";
 import { toast } from "sonner";
 
-type FinTab = "receber" | "pagar" | "fluxo";
+type FinTab = "receber" | "pagar" | "fluxo" | "fluxo-financeiro";
 
 export const Route = createFileRoute("/financeiro")({
   validateSearch: (search: Record<string, unknown>): { tab?: FinTab } => {
     const t = search.tab;
-    return t === "pagar" || t === "receber" || t === "fluxo" ? { tab: t } : {};
+    return t === "pagar" || t === "receber" || t === "fluxo" || t === "fluxo-financeiro"
+      ? { tab: t }
+      : {};
   },
   head: () => ({
     meta: [
@@ -532,7 +534,8 @@ function FinanceContent() {
         <TabsList>
           <TabsTrigger value="receber">Contas a receber</TabsTrigger>
           <TabsTrigger value="pagar">Contas a pagar</TabsTrigger>
-          <TabsTrigger value="fluxo">Fluxo de caixa</TabsTrigger>
+          <TabsTrigger value="fluxo">Caixa Operacional</TabsTrigger>
+          <TabsTrigger value="fluxo-financeiro">Fluxo Financeiro</TabsTrigger>
         </TabsList>
 
         <TabsContent value="receber" className="mt-4">
@@ -554,6 +557,10 @@ function FinanceContent() {
 
         <TabsContent value="fluxo" className="mt-4">
           <FluxoCaixaPanel />
+        </TabsContent>
+
+        <TabsContent value="fluxo-financeiro" className="mt-4">
+          <FluxoFinanceiroPanel />
         </TabsContent>
       </Tabs>
 
@@ -1239,33 +1246,27 @@ function ContasPagarPanel({
 }
 
 // ============================================================================
-// Fluxo de Caixa — consolidado a partir do módulo Caixa/Operacional
-// (aberturas, vendas, sangrias, suprimentos, fechamentos) + lançamentos
-// financeiros pagos/recebidos que NÃO vieram do caixa (para evitar duplicação).
+// Caixa Operacional — APENAS movimentos do caixa do PDV
+// (abertura, venda, sangria, suprimento, fechamento). Sem lançamentos
+// financeiros administrativos (compras, fornecedores, despesas, iFood).
 // ============================================================================
 
 type FluxoPeriodo = "7d" | "30d" | "mes" | "ano";
 
-type FluxoTipo =
+type FluxoOperTipo =
   | "abertura"
   | "venda"
   | "sangria"
   | "suprimento"
-  | "fechamento"
-  | "receita"
-  | "despesa";
+  | "fechamento";
 
-interface FluxoRow {
+interface FluxoOperRow {
   id: string;
-  data: string; // ISO timestamp
-  tipo: FluxoTipo;
-  origem: "caixa" | "financeiro";
+  data: string;
+  tipo: FluxoOperTipo;
   descricao: string;
-  valor: number; // positivo = entrada, negativo = saída
-  status?: string | null;
+  valor: number;
   caixaId?: string | null;
-  // Operacional = não conta como receita/despesa real (fundo de troco,
-  // encerramento). Apenas informativo no extrato.
   operacional?: boolean;
 }
 
@@ -1291,14 +1292,12 @@ function formatDateTime(iso: string): string {
   return `${dd}/${mm}/${yyyy} ${hh}:${mi}`;
 }
 
-const TIPO_LABEL: Record<FluxoTipo, string> = {
+const TIPO_OPER_LABEL: Record<FluxoOperTipo, string> = {
   abertura: "Abertura de caixa",
   venda: "Venda",
   sangria: "Sangria de caixa",
   suprimento: "Suprimento de caixa",
   fechamento: "Fechamento de caixa",
-  receita: "Receita",
-  despesa: "Despesa",
 };
 
 const FORMA_LABELS: Record<string, string> = {
@@ -1318,7 +1317,6 @@ function FluxoCaixaPanel() {
   const [periodo, setPeriodo] = useState<FluxoPeriodo>("30d");
   const { inicio, fim } = useMemo(() => calcRangeFluxo(periodo), [periodo]);
 
-  // Breakdown por forma de pagamento das vendas no período
   const { data: porForma = [] } = useQuery({
     queryKey: ["financeiro", "fluxo-por-forma", inicio, fim],
     queryFn: () => dataClient.financeiro.fluxoPorForma({ inicio, fim }),
@@ -1326,11 +1324,11 @@ function FluxoCaixaPanel() {
   });
 
   const { data: rows = [], isLoading } = useQuery({
-    queryKey: ["financeiro", "fluxo-caixa", inicio, fim],
-    queryFn: async (): Promise<FluxoRow[]> => {
+    queryKey: ["financeiro", "caixa-operacional", inicio, fim],
+    queryFn: async (): Promise<FluxoOperRow[]> => {
       const movs = await dataClient.financeiro.movimentosCaixaPeriodo({ inicio, fim });
-      const movRows: FluxoRow[] = movs.map((m) => {
-        const tipo = m.tipo as FluxoTipo;
+      const movRows: FluxoOperRow[] = movs.map((m) => {
+        const tipo = m.tipo as FluxoOperTipo;
         const bruto = Number(m.valor) || 0;
         let valor = bruto;
         if (tipo === "sangria" || tipo === "fechamento") valor = -Math.abs(bruto);
@@ -1340,33 +1338,23 @@ function FluxoCaixaPanel() {
           id: `mov-${m.id}`,
           data: m.created_at,
           tipo,
-          origem: "caixa",
-          descricao: m.motivo ?? TIPO_LABEL[tipo] ?? "Movimento de caixa",
+          descricao: m.motivo ?? TIPO_OPER_LABEL[tipo] ?? "Movimento de caixa",
           valor,
           operacional,
           caixaId: m.caixa_id,
         };
       });
-
-      const lancs = await dataClient.financeiro.lancamentosAvulsosPagos({ inicio, fim });
-      const lancRows: FluxoRow[] = lancs.map((l) => {
-        const v = Number(l.valor_pago ?? l.valor) || 0;
-        const isReceita = l.tipo === "receber" || l.tipo === "receita";
-        return {
-          id: `lanc-${l.id}`,
-          data: l.data_pagamento ?? `${inicio}T00:00:00`,
-          tipo: isReceita ? "receita" : "despesa",
-          origem: "financeiro",
-          descricao: l.descricao,
-          valor: isReceita ? Math.abs(v) : -Math.abs(v),
-          status: l.status,
-        };
+      const ordered = movRows.sort((a, b) => (a.data < b.data ? 1 : a.data > b.data ? -1 : 0));
+      console.log("[FLUXO_OPERACIONAL]", {
+        origem: "caixa_movimentos",
+        periodo: { inicio, fim },
+        registros: ordered.length,
       });
-
-      const all = [...movRows, ...lancRows].sort((a, b) =>
-        a.data < b.data ? 1 : a.data > b.data ? -1 : 0,
-      );
-      return all;
+      console.log("[CAIXA_OPERACIONAL]", {
+        periodo: { inicio, fim },
+        total: ordered.length,
+      });
+      return ordered;
     },
     staleTime: 15_000,
   });
@@ -1374,22 +1362,38 @@ function FluxoCaixaPanel() {
   const totais = useMemo(() => {
     let entradas = 0;
     let saidas = 0;
-    let fundoAberturas = 0; // valor inicial colocado nos caixas (operacional)
+    let vendas = 0;
+    let sangrias = 0;
+    let suprimentos = 0;
+    let qtdVendas = 0;
+    let fundoAberturas = 0;
     for (const r of rows) {
-      if (r.operacional) {
-        // Apenas soma o valor das aberturas para exibir como "Fundo de caixa".
-        // Fechamento é informativo e não entra em nenhum total.
-        if (r.tipo === "abertura") fundoAberturas += Math.abs(r.valor);
+      if (r.tipo === "abertura") {
+        fundoAberturas += Math.abs(r.valor);
         continue;
       }
+      if (r.operacional) continue;
+      if (r.tipo === "venda") {
+        vendas += r.valor;
+        qtdVendas += 1;
+      }
+      if (r.tipo === "sangria") sangrias += Math.abs(r.valor);
+      if (r.tipo === "suprimento") suprimentos += r.valor;
       if (r.valor >= 0) entradas += r.valor;
       else saidas += Math.abs(r.valor);
     }
-    return { entradas, saidas, saldo: entradas - saidas, fundoAberturas };
+    return {
+      entradas,
+      saidas,
+      vendas,
+      sangrias,
+      suprimentos,
+      qtdVendas,
+      esperadoGaveta: fundoAberturas + entradas - saidas,
+      fundoAberturas,
+    };
   }, [rows]);
 
-  // Saldo acumulado REAL (financeiro): ignora abertura e fechamento.
-  // Reflete apenas entradas e saídas reais do período.
   const rowsComSaldo = useMemo(() => {
     const ordenadas = [...rows].sort((a, b) => (a.data < b.data ? -1 : 1));
     let acc = 0;
@@ -1401,26 +1405,17 @@ function FluxoCaixaPanel() {
     return rows.map((r) => ({ ...r, saldoAcumulado: map.get(r.id) ?? 0 }));
   }, [rows]);
 
-  const [conciliarLoteOpen, setConciliarLoteOpen] = useState(false);
   const [caixaRelatorio, setCaixaRelatorio] = useState<string | null>(null);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
         <div className="text-sm text-muted-foreground">
-          Consolida movimentos do <strong>Caixa/Operacional</strong> e lançamentos do{" "}
-          <strong>Financeiro</strong> sem duplicar vendas já registradas no caixa.
+          Apenas movimentos do <strong>Caixa/PDV</strong>: abertura, vendas, sangrias, suprimentos e
+          fechamento. Despesas administrativas e compras vivem em{" "}
+          <strong>Fluxo Financeiro</strong>.
         </div>
         <div className="flex w-full gap-2 sm:w-auto">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setConciliarLoteOpen(true)}
-            className="gap-1.5"
-          >
-            <Receipt className="h-4 w-4" />
-            Conciliar repasse iFood
-          </Button>
           <Select value={periodo} onValueChange={(v) => setPeriodo(v as FluxoPeriodo)}>
             <SelectTrigger className="w-full sm:w-44">
               <SelectValue />
@@ -1437,40 +1432,39 @@ function FluxoCaixaPanel() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          label="Entradas reais"
+          label="Entradas operacionais"
           value={formatBRL(totais.entradas)}
           icon={ArrowDownToLine}
           iconTone="success"
-          hint="Vendas, suprimento de caixa e recebimentos"
+          hint="Vendas + suprimentos"
         />
         <StatCard
-          label="Saídas reais"
+          label="Saídas operacionais"
           value={formatBRL(totais.saidas)}
           icon={ArrowUpFromLine}
           iconTone="warning"
-          hint="Sangria de caixa e despesas pagas"
+          hint="Sangrias do caixa"
         />
         <StatCard
-          label="Resultado do período"
-          value={formatBRL(totais.saldo)}
+          label="Total vendido"
+          value={formatBRL(totais.vendas)}
           icon={TrendingUp}
-          iconTone={totais.saldo >= 0 ? "success" : "danger"}
-          hint="Entradas − Saídas (sem fundo)"
+          iconTone="success"
+          hint={`${totais.qtdVendas} vendas no PDV`}
         />
         <StatCard
-          label="Fundo de caixa"
-          value={formatBRL(totais.fundoAberturas)}
+          label="Esperado na gaveta"
+          value={formatBRL(totais.esperadoGaveta)}
           icon={Wallet}
           iconTone="info"
-          hint="Aberturas — operacional, não é receita"
+          hint={`Fundo ${formatBRL(totais.fundoAberturas)} + entradas − saídas`}
         />
       </div>
 
       <div className="rounded-md border border-dashed border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground">
-        <strong className="text-foreground">Como ler:</strong> abertura e fechamento de caixa são{" "}
-        <em>movimentos operacionais</em> (fundo de troco / encerramento). Eles aparecem no extrato
-        como referência, mas <strong>não entram</strong> nas entradas, saídas, resultado nem no
-        saldo acumulado real do período.
+        <strong className="text-foreground">Como ler:</strong> esta tela é o{" "}
+        <em>caixa do operador</em>. Despesas, compras, fornecedores, iFood e contas a pagar não
+        aparecem aqui — abra a aba <strong>Fluxo Financeiro</strong> para a visão gerencial.
       </div>
 
       {porForma.length > 0 && (
@@ -1526,7 +1520,7 @@ function FluxoCaixaPanel() {
               ) : rowsComSaldo.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                    Nenhuma movimentação no período selecionado.
+                    Nenhuma movimentação de caixa no período.
                   </TableCell>
                 </TableRow>
               ) : (
@@ -1551,7 +1545,7 @@ function FluxoCaixaPanel() {
                           r.operacional && "border-info/40 bg-info/10 text-info",
                         )}
                       >
-                        {TIPO_LABEL[r.tipo]}
+                        {TIPO_OPER_LABEL[r.tipo]}
                         {r.operacional && (
                           <span className="ml-1 text-[10px] opacity-80">• operacional</span>
                         )}
@@ -1563,15 +1557,8 @@ function FluxoCaixaPanel() {
                       {r.descricao}
                     </TableCell>
                     <TableCell>
-                      <span
-                        className={cn(
-                          "rounded-md px-2 py-0.5 text-xs",
-                          r.origem === "caixa"
-                            ? "bg-primary/10 text-primary"
-                            : "bg-muted text-muted-foreground",
-                        )}
-                      >
-                        {r.origem === "caixa" ? "Caixa" : "Financeiro"}
+                      <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                        PDV / Caixa
                       </span>
                     </TableCell>
                     <TableCell
@@ -1603,15 +1590,196 @@ function FluxoCaixaPanel() {
         </CardContent>
       </Card>
 
-      <ConciliarIfoodDialog
-        open={conciliarLoteOpen}
-        onOpenChange={setConciliarLoteOpen}
-        mode="lote"
-      />
       <CaixaRelatorioDialog
         open={!!caixaRelatorio}
         onOpenChange={(o) => !o && setCaixaRelatorio(null)}
         caixaId={caixaRelatorio}
+      />
+    </div>
+  );
+}
+
+// ============================================================================
+// Fluxo Financeiro Gerencial — APENAS lançamentos administrativos
+// (compras, despesas, fornecedores, contas a pagar/receber, iFood, etc.)
+// Sem movimentos do caixa do PDV.
+// ============================================================================
+
+interface FluxoFinRow {
+  id: string;
+  data: string;
+  tipo: "receita" | "despesa";
+  descricao: string;
+  valor: number;
+  status?: string | null;
+}
+
+function FluxoFinanceiroPanel() {
+  const [periodo, setPeriodo] = useState<FluxoPeriodo>("30d");
+  const { inicio, fim } = useMemo(() => calcRangeFluxo(periodo), [periodo]);
+  const [conciliarLoteOpen, setConciliarLoteOpen] = useState(false);
+
+  const { data: rows = [], isLoading } = useQuery({
+    queryKey: ["financeiro", "fluxo-financeiro", inicio, fim],
+    queryFn: async (): Promise<FluxoFinRow[]> => {
+      const lancs = await dataClient.financeiro.lancamentosAvulsosPagos({ inicio, fim });
+      const out: FluxoFinRow[] = lancs.map((l) => {
+        const v = Number(l.valor_pago ?? l.valor) || 0;
+        const isReceita = l.tipo === "receber" || l.tipo === "receita";
+        return {
+          id: `lanc-${l.id}`,
+          data: l.data_pagamento ?? `${inicio}T00:00:00`,
+          tipo: isReceita ? "receita" : "despesa",
+          descricao: l.descricao,
+          valor: isReceita ? Math.abs(v) : -Math.abs(v),
+          status: l.status,
+        };
+      });
+      const ordered = out.sort((a, b) => (a.data < b.data ? 1 : a.data > b.data ? -1 : 0));
+      console.log("[FLUXO_FINANCEIRO]", {
+        origem: "financeiro_lancamentos",
+        periodo: { inicio, fim },
+        registros: ordered.length,
+      });
+      console.log("[FINANCEIRO_GERENCIAL]", {
+        periodo: { inicio, fim },
+        total: ordered.length,
+      });
+      return ordered;
+    },
+    staleTime: 15_000,
+  });
+
+  const totais = useMemo(() => {
+    let receitas = 0;
+    let despesas = 0;
+    for (const r of rows) {
+      if (r.valor >= 0) receitas += r.valor;
+      else despesas += Math.abs(r.valor);
+    }
+    return { receitas, despesas, saldo: receitas - despesas };
+  }, [rows]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+        <div className="text-sm text-muted-foreground">
+          Visão <strong>gerencial</strong>: compras, despesas, fornecedores, contas a pagar/receber,
+          iFood, receitas extras. Movimentos do PDV ficam em{" "}
+          <strong>Caixa Operacional</strong>.
+        </div>
+        <div className="flex w-full gap-2 sm:w-auto">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setConciliarLoteOpen(true)}
+            className="gap-1.5"
+          >
+            <Receipt className="h-4 w-4" />
+            Conciliar repasse iFood
+          </Button>
+          <Select value={periodo} onValueChange={(v) => setPeriodo(v as FluxoPeriodo)}>
+            <SelectTrigger className="w-full sm:w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7d">Últimos 7 dias</SelectItem>
+              <SelectItem value="30d">Últimos 30 dias</SelectItem>
+              <SelectItem value="mes">Este mês</SelectItem>
+              <SelectItem value="ano">Este ano</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <StatCard
+          label="Receitas"
+          value={formatBRL(totais.receitas)}
+          icon={ArrowDownToLine}
+          iconTone="success"
+          hint="Lançamentos recebidos no período"
+        />
+        <StatCard
+          label="Despesas"
+          value={formatBRL(totais.despesas)}
+          icon={ArrowUpFromLine}
+          iconTone="warning"
+          hint="Lançamentos pagos no período"
+        />
+        <StatCard
+          label="Saldo gerencial"
+          value={formatBRL(totais.saldo)}
+          icon={TrendingUp}
+          iconTone={totais.saldo >= 0 ? "success" : "danger"}
+          hint="Receitas − Despesas"
+        />
+      </div>
+
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[160px]">Data</TableHead>
+                <TableHead>Tipo</TableHead>
+                <TableHead>Descrição</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Valor</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                    Carregando…
+                  </TableCell>
+                </TableRow>
+              ) : rows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                    Nenhum lançamento financeiro no período.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                rows.map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell className="text-muted-foreground">
+                      {formatDateTime(r.data)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="font-normal capitalize">
+                        {r.tipo}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="font-medium">{r.descricao}</TableCell>
+                    <TableCell className="text-muted-foreground capitalize">
+                      {r.status ?? "—"}
+                    </TableCell>
+                    <TableCell
+                      className={cn(
+                        "text-right font-medium tabular-nums",
+                        r.valor > 0
+                          ? "text-success"
+                          : r.valor < 0
+                            ? "text-destructive"
+                            : "",
+                      )}
+                    >
+                      {formatBRL(r.valor)}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <ConciliarIfoodDialog
+        open={conciliarLoteOpen}
+        onOpenChange={setConciliarLoteOpen}
+        mode="lote"
       />
     </div>
   );

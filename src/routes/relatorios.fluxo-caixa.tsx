@@ -31,12 +31,12 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/relatorios/fluxo-caixa")({
   head: () => ({
     meta: [
-      { title: "Fluxo de Caixa — Gestão Pro" },
-      { name: "description", content: "Entradas e saídas no período." },
+      { title: "Fluxo Financeiro Gerencial — Gestão Pro" },
+      { name: "description", content: "Lançamentos financeiros (compras, despesas, contas) no período." },
     ],
   }),
   component: () => (
-    <ModuloGate chave="relatorios" titulo="Fluxo de Caixa">
+    <ModuloGate chave="relatorios" titulo="Fluxo Financeiro Gerencial">
       <Conteudo />
     </ModuloGate>
   ),
@@ -137,8 +137,8 @@ function Conteudo() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Fluxo de Caixa"
-        description="Entradas e saídas registradas no financeiro."
+        title="Fluxo Financeiro Gerencial"
+        description="Lançamentos administrativos: compras, despesas, fornecedores, contas a pagar/receber."
         actions={
           <div className="flex gap-2">
             <Button
