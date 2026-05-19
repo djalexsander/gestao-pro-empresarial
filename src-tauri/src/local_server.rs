@@ -3447,6 +3447,49 @@ async fn vendas_historico_handler(
     proxy_with_incremental_sync(&ctx, &headers, "vendas_remote", "/rest/v1/vendas", &params, false).await
 }
 
+// ---------- /api/vendas/metricas-periodo (Onda 3 — PR-O3-3) ----------
+//
+// Agrega métricas do período direto do cache `vendas_remote_cache`, no
+// mesmo shape do RPC `venda_metricas_periodo` usado em
+// `cloudAdapter.vendas.metricasPeriodo`. Devolve 503 quando o cache está
+// vazio para que o adapter caia em fallback cloud.
+
+async fn vendas_metricas_periodo_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let inicio = q
+        .get("inicio")
+        .cloned()
+        .ok_or((StatusCode::BAD_REQUEST, "inicio é obrigatório (YYYY-MM-DD)".into()))?;
+    let fim = q
+        .get("fim")
+        .cloned()
+        .ok_or((StatusCode::BAD_REQUEST, "fim é obrigatório (YYYY-MM-DD)".into()))?;
+    let body_opt = db::vendas_metricas_periodo_local(&inicio, &fim).map_err(|e| {
+        eprintln!("[LOCAL_VENDAS] metricas-periodo falha: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    })?;
+    let Some(body) = body_opt else {
+        eprintln!(
+            "[LOCAL_VENDAS] metricas-periodo cache vazio inicio={inicio} fim={fim} → fallback cloud"
+        );
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "cache de vendas vazio".into(),
+        ));
+    };
+    let wrapped = format!(r#"{{"data":{body}}}"#);
+    Ok((
+        StatusCode::OK,
+        [
+            (axum::http::header::CONTENT_TYPE, "application/json"),
+            (axum::http::HeaderName::from_static("x-gp-source"), "local-table"),
+        ],
+        wrapped,
+    )
+        .into_response())
+}
+
 // ---------- /api/relatorios/caixas (v17) ----------
 //
 // Cache de leitura para os relatórios de caixa (cardCaixas + caixasSessoes).
