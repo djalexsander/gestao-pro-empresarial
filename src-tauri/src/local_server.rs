@@ -2947,6 +2947,44 @@ async fn financeiro_movimentos_caixa_handler(
     Ok(resp)
 }
 
+// ---------- /api/financeiro/avulsos-pagos (Onda 2 — item 8) ----------
+//
+// Lista lançamentos avulsos pagos (sem caixa_id e sem venda_id) no período
+// direto do cache `financeiro_lancamentos_local` via JSON1. Mesmo shape do
+// `cloudAdapter.financeiro.lancamentosAvulsosPagos`. Fallback cloud no
+// adapter TS via `withCloudFallback`.
+
+async fn financeiro_avulsos_pagos_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let inicio = q
+        .get("inicio")
+        .cloned()
+        .ok_or((StatusCode::BAD_REQUEST, "inicio é obrigatório".into()))?;
+    let fim = q
+        .get("fim")
+        .cloned()
+        .ok_or((StatusCode::BAD_REQUEST, "fim é obrigatório".into()))?;
+    let arr_json = db::lancamentos_avulsos_pagos_local(&inicio, &fim).map_err(|e| {
+        eprintln!("[LOCAL_FINANCE] avulsos-pagos falha: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    })?;
+    eprintln!("[LOCAL_FINANCE] avulsos-pagos hit inicio={inicio} fim={fim}");
+    let body = format!("{{\"data\":{}}}", arr_json);
+    let mut resp = axum::response::Response::new(axum::body::Body::from(body));
+    resp.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    resp.headers_mut().insert(
+        axum::http::HeaderName::from_static("x-gp-source"),
+        axum::http::HeaderValue::from_static("local-table"),
+    );
+    Ok(resp)
+}
+
+
+
 
 
 // ---------- /api/compras (v15) ----------
@@ -3744,6 +3782,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/financeiro/lancamento-fks", get(financeiro_lancamento_fks_handler))
         .route("/api/financeiro/fluxo-por-forma", get(financeiro_fluxo_por_forma_handler))
         .route("/api/financeiro/movimentos-caixa", get(financeiro_movimentos_caixa_handler))
+        .route("/api/financeiro/avulsos-pagos", get(financeiro_avulsos_pagos_handler))
         .route("/api/financeiro/receber", get(financeiro_receber_listar_handler))
         .route("/api/financeiro/receber/baixar", post(financeiro_receber_baixar_handler))
         .route("/api/financeiro/receber/cancelar", post(financeiro_receber_cancelar_handler))

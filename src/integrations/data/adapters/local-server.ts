@@ -1187,6 +1187,21 @@ export const localServerAdapter: DataAdapter = {
           ),
         () => cloudAdapter.financeiro.movimentosCaixaPeriodo({ inicio, fim }),
       ),
+    // Onda 2 — item 8: avulsos pagos lidos do cache local
+    // (financeiro_lancamentos_local via JSON1). Fallback cloud automático.
+    lancamentosAvulsosPagos: async ({ inicio, fim }) =>
+      withCloudFallback(
+        "financeiro",
+        "lancamentosAvulsosPagos",
+        () =>
+          tryLocal<Awaited<ReturnType<typeof cloudAdapter.financeiro.lancamentosAvulsosPagos>>>(
+            "financeiro",
+            "lancamentosAvulsosPagos",
+            "/api/financeiro/avulsos-pagos",
+            { inicio, fim },
+          ),
+        () => cloudAdapter.financeiro.lancamentosAvulsosPagos({ inicio, fim }),
+      ),
     listFiado: async () => {
       const baseUrl = await resolveBaseUrl();
       if (baseUrl) {
