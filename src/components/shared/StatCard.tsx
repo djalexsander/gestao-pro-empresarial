@@ -56,10 +56,12 @@ export function StatCard({
         <CardContent className="flex flex-1 flex-col justify-between p-6">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <p className="truncate text-sm font-medium text-muted-foreground">{label}</p>
+              <div className="flex items-start gap-1.5">
+                <p className="text-sm font-medium leading-tight text-muted-foreground [overflow-wrap:anywhere]">
+                  {label}
+                </p>
                 {clickable && (
-                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100" />
+                  <ChevronRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100" />
                 )}
               </div>
               <p className="mt-2 text-2xl font-semibold tracking-tight text-foreground tabular-nums">

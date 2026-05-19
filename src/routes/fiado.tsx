@@ -194,7 +194,7 @@ function FiadoContent() {
     },
   });
 
-  // KPIs
+  // KPIs — usa APENAS contas a receber (fiado). Não mistura caixa/financeiro.
   const kpis = useMemo(() => {
     const hojeStr = new Date().toISOString().slice(0, 10);
     const mesAtual = hojeStr.slice(0, 7);
@@ -203,11 +203,16 @@ function FiadoContent() {
     let totalAVencer = 0;
     let recebidoHoje = 0;
     let recebidoMes = 0;
+    let qtdTitulos = 0;
     const clientesComDivida = new Set<string>();
     for (const l of lancamentos) {
-      const aberto = Math.max(0, Number(l.valor) - Number(l.valor_pago ?? 0));
-      const pagoTotal = Number(l.valor_pago ?? 0);
-      if (aberto > 0 && l.status !== "pago" && l.status !== "recebido") {
+      // status cancelado já é filtrado na origem; defesa extra:
+      if (l.status === "cancelado") continue;
+      qtdTitulos += 1;
+      const valor = Number(l.valor) || 0;
+      const pagoTotal = Number(l.valor_pago ?? 0) || 0;
+      const aberto = Math.max(0, valor - pagoTotal);
+      if (aberto > 0) {
         totalFiado += aberto;
         if (isVencido(l.data_vencimento, l.status)) totalVencido += aberto;
         else totalAVencer += aberto;
@@ -218,14 +223,26 @@ function FiadoContent() {
         if (l.data_pagamento.startsWith(mesAtual)) recebidoMes += pagoTotal;
       }
     }
-    return {
+    const out = {
       totalFiado,
       totalVencido,
       totalAVencer,
       qtdClientes: clientesComDivida.size,
       recebidoHoje,
       recebidoMes,
+      qtdTitulos,
     };
+    console.log("[CLIENTES_RECEBER]", {
+      origem: "contas_a_receber/fiado",
+      total_aberto: out.totalFiado,
+      vencido: out.totalVencido,
+      a_vencer: out.totalAVencer,
+      clientes_em_aberto: out.qtdClientes,
+      recebido_hoje: out.recebidoHoje,
+      recebido_periodo: out.recebidoMes,
+      qtd_titulos: out.qtdTitulos,
+    });
+    return out;
   }, [lancamentos]);
 
   // Agrupamento por cliente
@@ -540,13 +557,13 @@ function FiadoContent() {
         }
       />
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
         <StatCard label="Total a receber" value={formatBRL(kpis.totalFiado)} icon={HandCoins} iconTone="warning" />
         <StatCard label="Vencido" value={formatBRL(kpis.totalVencido)} icon={AlertTriangle} iconTone="danger" />
         <StatCard label="A vencer" value={formatBRL(kpis.totalAVencer)} icon={CalendarClock} iconTone="info" />
         <StatCard label="Clientes em aberto" value={String(kpis.qtdClientes)} icon={Users} iconTone="primary" />
         <StatCard label="Recebido hoje" value={formatBRL(kpis.recebidoHoje)} icon={Wallet} iconTone="success" />
-        <StatCard label="Recebido no mês" value={formatBRL(kpis.recebidoMes)} icon={TrendingUp} iconTone="success" />
+        <StatCard label="Recebido no período" value={formatBRL(kpis.recebidoMes)} icon={TrendingUp} iconTone="success" hint="Mês atual" />
       </div>
 
       <Card>
