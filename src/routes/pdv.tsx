@@ -1100,7 +1100,7 @@ function PDVPage() {
       for (const [pid, qty] of req.entries()) {
         const saldo = saldos.get(pid) ?? 0;
         if (saldo < qty) {
-          const it = items.find((i) => i.produto_id === pid);
+          const it = ativos.find((i) => i.produto_id === pid);
           insuficientes.push(
             `${it?.nome ?? pid} (saldo ${saldo}, pedido ${qty})`,
           );
