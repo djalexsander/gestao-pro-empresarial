@@ -160,7 +160,55 @@ function DashboardPage() {
   const [kpiTipo, setKpiTipo] = useState<KpiTipo | null>(null);
   const [kpiOpen, setKpiOpen] = useState(false);
 
+  // ============ Período-scoped queries (cards/KPIs respeitam o filtro) ============
+  const periodoLabel = useMemo(() => {
+    if (periodo === "mes") return "do mês";
+    if (periodo === "30d") return "últimos 30 dias";
+    if (periodo === "90d") return "últimos 90 dias";
+    if (periodo === "6m") return "últimos 6 meses";
+    return "do período";
+  }, [periodo]);
+
+  // Período anterior de mesmo tamanho para variação %
+  const periodoAnterior = useMemo(() => {
+    const start = new Date(`${inicio}T00:00:00`);
+    const end = new Date(`${fim}T23:59:59`);
+    const ms = end.getTime() - start.getTime();
+    const prevEnd = new Date(start.getTime() - 1);
+    const prevStart = new Date(prevEnd.getTime() - ms);
+    return { inicio: formatDateInput(prevStart), fim: formatDateInput(prevEnd) };
+  }, [inicio, fim]);
+
+  if (import.meta.env.DEV) {
+    // eslint-disable-next-line no-console
+    console.debug("[DASHBOARD_FILTER] período aplicado", { periodo, inicio, fim, periodoAnterior });
+  }
+
+  const vendasMetricasQuery = useQuery({
+    queryKey: ["dashboard", "vendas-metricas", inicio, fim],
+    enabled: !!inicio && !!fim,
+    queryFn: () => dataClient.vendas.metricasPeriodo({ data_inicio: inicio, data_fim: fim }),
+  });
+  const vendasMetricasPrevQuery = useQuery({
+    queryKey: ["dashboard", "vendas-metricas-prev", periodoAnterior.inicio, periodoAnterior.fim],
+    enabled: !!periodoAnterior.inicio && !!periodoAnterior.fim,
+    queryFn: () =>
+      dataClient.vendas.metricasPeriodo({
+        data_inicio: periodoAnterior.inicio,
+        data_fim: periodoAnterior.fim,
+      }),
+  });
+  const comprasListQuery = useQuery({
+    queryKey: ["dashboard", "compras-list-500"],
+    queryFn: () => dataClient.compras.list({ limit: 500 }),
+    refetchInterval: 60_000,
+  });
+
   function abrirKpi(tipo: KpiTipo) {
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.debug("[DASHBOARD_MODAL] usando período ativo", { tipo, inicio, fim });
+    }
     setKpiTipo(tipo);
     setKpiOpen(true);
   }
