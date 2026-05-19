@@ -3951,6 +3951,8 @@ pub fn vendas_metricas_periodo_local(
     })
 }
 
+// ---------- Caches de relatórios: caixas / movimentos / func / term ----------
+
 fn ingest_simple_cache(
     domain: &str,
     table: &str,
