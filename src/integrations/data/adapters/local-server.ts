@@ -1172,6 +1172,21 @@ export const localServerAdapter: DataAdapter = {
           ),
         () => cloudAdapter.financeiro.fluxoPorForma({ inicio, fim }),
       ),
+    // Onda 2 — item 7: movimentos de caixa do período direto do SQLite
+    // (caixa_movs_local JOIN caixa_local). Fallback cloud automático.
+    movimentosCaixaPeriodo: async ({ inicio, fim }) =>
+      withCloudFallback(
+        "financeiro",
+        "movimentosCaixaPeriodo",
+        () =>
+          tryLocal<Awaited<ReturnType<typeof cloudAdapter.financeiro.movimentosCaixaPeriodo>>>(
+            "financeiro",
+            "movimentosCaixaPeriodo",
+            "/api/financeiro/movimentos-caixa",
+            { inicio, fim },
+          ),
+        () => cloudAdapter.financeiro.movimentosCaixaPeriodo({ inicio, fim }),
+      ),
     listFiado: async () => {
       const baseUrl = await resolveBaseUrl();
       if (baseUrl) {
