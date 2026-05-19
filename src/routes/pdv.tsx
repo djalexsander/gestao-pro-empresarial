@@ -1973,6 +1973,26 @@ function PDVPage() {
         }}
       />
 
+      {/* Cancelar item do carrinho atual (atalho Delete) */}
+      <CancelarItemDialog
+        open={cancelItemOpen}
+        onOpenChange={setCancelItemOpen}
+        itens={items.map((it) => ({
+          key: it.key,
+          nome: it.nome,
+          sku: it.sku,
+          unidade: it.unidade,
+          quantidade: it.quantidade,
+          preco_unitario: it.preco_unitario,
+          desconto: it.desconto,
+          cancelado: it.cancelado,
+          vendido_por_peso: it.vendido_por_peso,
+          casas_decimais: it.casas_decimais,
+        }))}
+        onConfirm={(key) => cancelarItem(key)}
+      />
+
+
       {/* Cadastro rápido de cliente (PDV) */}
       <ClienteDialog
         open={novoClienteOpen}
