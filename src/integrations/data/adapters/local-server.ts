@@ -1216,6 +1216,22 @@ export const localServerAdapter: DataAdapter = {
           ),
         () => cloudAdapter.financeiro.posicaoPeriodo(periodo),
       ),
+    // Onda 2 — item 1: indicadoresMes agregado dos caches locais
+    // (vendas + venda_itens + financeiro_lancamentos). Envia `hoje` no
+    // fuso local para casar com a noção de "recebido hoje"/"vencidos" do cloud.
+    indicadoresMes: async () =>
+      withCloudFallback(
+        "financeiro",
+        "indicadoresMes",
+        () =>
+          tryLocal<Awaited<ReturnType<typeof cloudAdapter.financeiro.indicadoresMes>>>(
+            "financeiro",
+            "indicadoresMes",
+            "/api/financeiro/indicadores-mes",
+            { hoje: new Date().toISOString().slice(0, 10) },
+          ),
+        () => cloudAdapter.financeiro.indicadoresMes(),
+      ),
     // Onda 2 — item 3: performancePeriodo agregado dos caches locais
     // `vendas_remote_cache` + `venda_itens_remote_cache` (este último já
     // traz `produto.preco_custo` embutido via PostgREST).
