@@ -1013,6 +1013,19 @@ export const localServerAdapter: DataAdapter = {
           ),
         () => cloudAdapter.vendas.list(input),
       ),
+    metricasPeriodo: (input) =>
+      withCloudFallback(
+        "vendas",
+        "metricasPeriodo",
+        () =>
+          tryLocal<Awaited<ReturnType<DataAdapter["vendas"]["metricasPeriodo"]>>>(
+            "vendas",
+            "metricasPeriodo",
+            "/api/vendas/metricas-periodo",
+            { inicio: input.data_inicio, fim: input.data_fim },
+          ),
+        () => cloudAdapter.vendas.metricasPeriodo(input),
+      ),
     finalizar: async (input) => {
       const r = await postLocalAuth<{
         venda_id: string;
