@@ -3032,6 +3032,66 @@ async fn financeiro_posicao_periodo_handler(
     Ok(resp)
 }
 
+// ---------- /api/financeiro/receber-origem (Onda 2 — item 4) ----------
+//
+// Agrega `ReceberOrigemDomain` direto do cache local
+// (`financeiro_lancamentos_local`). Aceita filtro `forma` ("todos" ou
+// código). `hoje` é passado pelo cliente (data ISO local) — assim o
+// agregado de "vencidos" respeita o fuso do usuário.
+
+async fn financeiro_receber_origem_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let inicio = q
+        .get("inicio")
+        .cloned()
+        .ok_or((StatusCode::BAD_REQUEST, "inicio é obrigatório".into()))?;
+    let fim = q
+        .get("fim")
+        .cloned()
+        .ok_or((StatusCode::BAD_REQUEST, "fim é obrigatório".into()))?;
+    let forma = q.get("forma").cloned().unwrap_or_else(|| "todos".into());
+    let hoje = q.get("hoje").cloned().unwrap_or_else(|| {
+        chrono::Utc::now().format("%Y-%m-%d").to_string()
+    });
+    let inicio_ms = parse_iso_date_ms(&inicio).unwrap_or(0);
+    let fim_ms = parse_iso_date_ms(&fim)
+        .map(|d| d + 24 * 60 * 60 * 1000 - 1)
+        .unwrap_or(i64::MAX);
+    let (fiado_t, fiado_q, ifood_t, ifood_q, rec_t, rec_q, venc_t, venc_q) =
+        db::receber_origem_local(&inicio, &fim, inicio_ms, fim_ms, &forma, &hoje).map_err(|e| {
+            eprintln!("[LOCAL_FINANCE] receber-origem falha: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
+    eprintln!(
+        "[LOCAL_FINANCE] receber-origem hit forma={forma} inicio={inicio} fim={fim}"
+    );
+    let body = serde_json::json!({
+        "data": {
+            "fiadoEmAberto": fiado_t,
+            "qtdFiado": fiado_q,
+            "ifoodAReceber": ifood_t,
+            "qtdIfood": ifood_q,
+            "recebidoPeriodo": rec_t,
+            "qtdRecebimentos": rec_q,
+            "vencidosTotal": venc_t,
+            "qtdVencidos": venc_q,
+        }
+    });
+    let mut resp = axum::response::Response::new(axum::body::Body::from(body.to_string()));
+    resp.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    resp.headers_mut().insert(
+        axum::http::HeaderName::from_static("x-gp-source"),
+        axum::http::HeaderValue::from_static("local-table"),
+    );
+    Ok(resp)
+}
+
+
+
 
 
 
@@ -3835,6 +3895,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/financeiro/movimentos-caixa", get(financeiro_movimentos_caixa_handler))
         .route("/api/financeiro/avulsos-pagos", get(financeiro_avulsos_pagos_handler))
         .route("/api/financeiro/posicao-periodo", get(financeiro_posicao_periodo_handler))
+        .route("/api/financeiro/receber-origem", get(financeiro_receber_origem_handler))
         .route("/api/financeiro/receber", get(financeiro_receber_listar_handler))
         .route("/api/financeiro/receber/baixar", post(financeiro_receber_baixar_handler))
         .route("/api/financeiro/receber/cancelar", post(financeiro_receber_cancelar_handler))

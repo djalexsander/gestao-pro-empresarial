@@ -1216,6 +1216,27 @@ export const localServerAdapter: DataAdapter = {
           ),
         () => cloudAdapter.financeiro.posicaoPeriodo(periodo),
       ),
+    // Onda 2 — item 4: receberOrigem agregado direto do cache local.
+    // Passa `hoje` (data local do cliente) para alinhar a noção de
+    // "vencidos hoje" com o fuso do usuário.
+    receberOrigem: async (input) =>
+      withCloudFallback(
+        "financeiro",
+        "receberOrigem",
+        () =>
+          tryLocal<Awaited<ReturnType<typeof cloudAdapter.financeiro.receberOrigem>>>(
+            "financeiro",
+            "receberOrigem",
+            "/api/financeiro/receber-origem",
+            {
+              inicio: input.periodo.inicio,
+              fim: input.periodo.fim,
+              forma: input.forma ?? "todos",
+              hoje: new Date().toISOString().slice(0, 10),
+            },
+          ),
+        () => cloudAdapter.financeiro.receberOrigem(input),
+      ),
     listFiado: async () => {
       const baseUrl = await resolveBaseUrl();
       if (baseUrl) {
