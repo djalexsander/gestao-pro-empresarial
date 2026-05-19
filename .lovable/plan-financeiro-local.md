@@ -68,17 +68,17 @@ Legenda da coluna "Fonte SQLite": tabelas já existentes no `src-tauri/src/db.rs
 | 8 | `lancamentosAvulsosPagos({inicio,fim})` | `/api/financeiro/avulsos-pagos?inicio=&fim=`    | GET   | `financeiro_lancamentos_local` (JSON1: caixa_id/venda_id null + data_pagamento) | `cloudAdapter.financeiro.lancamentosAvulsosPagos` | ✅ **Feito** |
 | 9 | `pagamentosPorLancamento(lancId)`| `/api/financeiro/pagamentos?lancamento_id=`            | GET   | ❌ **falta `pagamentos_local`** (migration + sync)                            | `cloudAdapter.financeiro.pagamentosPorLancamento` | 🚫 Bloqueado |
 |10 | `lancamentoFks(lancId)`          | `/api/financeiro/lancamento-fks?lancamento_id=`        | GET   | `financeiro_lancamentos_local.payload` (extrai FKs do JSON)                   | `cloudAdapter.financeiro.lancamentoFks`   | ✅ **Feito** |
-|11 | `listIfoodPendentes({limit?})`   | `/api/financeiro/ifood-pendentes?limit=`               | GET   | ❌ **falta `ifood_pedidos_local`** (migration + sync)                         | `cloudAdapter.financeiro.listIfoodPendentes` | 🚫 Bloqueado |
+|11 | `listIfoodPendentes({limit?})`   | `/api/financeiro/ifood-pendentes?limit=`               | GET   | `financeiro_lancamentos_local` (JSON1: forma_pagamento='ifood' AND status='pendente'; cliente.nome embutido via PostgREST) | `cloudAdapter.financeiro.listIfoodPendentes` | ✅ **Feito** |
 
 ### Status geral da Onda 2
 
 Status atual:
-- ✅ 1, 2, 3, 4, 6, 7, 8, 10 — local-first com `withCloudFallback`.
+- ✅ 1, 2, 3, 4, 6, 7, 8, 10, 11 — local-first com `withCloudFallback`.
 - ✅ 5 já era local via proxy/cache existente.
-- 🚫 9, 11 seguem pendentes de **PR-F0 (sync)**: criar e sincronizar
-  `pagamentos_local` e `ifood_pedidos_local`. Sem esses caches o local
-  retornaria listas vazias/parciais — propositalmente continuam herdando
-  o `cloudAdapter`.
+- 🚫 9 segue pendente de **PR-F0 (sync)**: criar e sincronizar
+  `pagamentos_local` (tabela `lancamento_pagamentos` upstream). Sem esse
+  cache o local retornaria listas vazias — propositalmente continua
+  herdando o `cloudAdapter`.
 
 ---
 
