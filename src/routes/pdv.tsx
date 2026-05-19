@@ -645,10 +645,53 @@ function PDVPage() {
   async function handleScanCode(value: string) {
     const v = value.trim();
     if (!v) return;
+
+    // ---- Trava de re-entrância: ignora cliques/Enter enquanto outro código
+    //      ainda está sendo processado. Evita fila de promises pendentes que
+    //      duplicariam itens ao reconectar.
+    if (scanInFlightRef.current) {
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.debug("[PDV_LOCAL_ADD] bloqueado: outro código em processamento", { v });
+      }
+      return;
+    }
+
+    // ---- Janela curta de dedup por código (Enter repetido / clique duplo)
+    const now = Date.now();
+    const last = recentScansRef.current.get(v);
+    if (last && now - last < PDV_DUPLICATE_LOCK_MS) {
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.debug("[PDV_LOCAL_ADD] bloqueado duplicado rápido", { v, dtMs: now - last });
+      }
+      // Limpa o input para evitar nova submissão idêntica.
+      setCode("");
+      return;
+    }
+    recentScansRef.current.set(v, now);
+    // Limpeza preguiçosa do mapa para não vazar memória em sessões longas.
+    if (recentScansRef.current.size > 64) {
+      const cutoff = now - PDV_DUPLICATE_LOCK_MS * 4;
+      for (const [k, t] of recentScansRef.current) {
+        if (t < cutoff) recentScansRef.current.delete(k);
+      }
+    }
+
+    scanInFlightRef.current = true;
     setBusy(true);
+    // Limpa o input ANTES do await — operador percebe que o bipe foi capturado
+    // e não consegue submeter o mesmo código de novo enquanto resolve.
+    setCode("");
     try {
-      // 1) Tenta produto normal pelo código exato
-      const found = await buscarProdutoPorCodigo(v);
+      // 1) Tenta produto normal pelo código exato.
+      //    Timeout curto: se cair no fallback cloud sem rede, não trava o caixa.
+      const found = await withTimeoutFallback(
+        buscarProdutoPorCodigo(v),
+        PDV_LOOKUP_TIMEOUT_MS,
+        null,
+        "pdv:buscarPorCodigo",
+      );
       if (found) {
         if (found.status !== "ativo") {
           som.beep("warn");
