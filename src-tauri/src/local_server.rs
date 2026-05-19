@@ -2983,6 +2983,57 @@ async fn financeiro_avulsos_pagos_handler(
     Ok(resp)
 }
 
+// ---------- /api/financeiro/posicao-periodo (Onda 2 — item 2) ----------
+//
+// Agrega `PosicaoFinanceiraDomain` direto do cache local
+// (`financeiro_lancamentos_local`). Filtro por `data_vencimento_ms` no
+// período. Fallback cloud via `withCloudFallback` no adapter TS.
+
+async fn financeiro_posicao_periodo_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let inicio = q
+        .get("inicio")
+        .cloned()
+        .ok_or((StatusCode::BAD_REQUEST, "inicio é obrigatório".into()))?;
+    let fim = q
+        .get("fim")
+        .cloned()
+        .ok_or((StatusCode::BAD_REQUEST, "fim é obrigatório".into()))?;
+    let inicio_ms = parse_iso_date_ms(&inicio).unwrap_or(0);
+    let fim_ms = parse_iso_date_ms(&fim)
+        .map(|d| d + 24 * 60 * 60 * 1000 - 1)
+        .unwrap_or(i64::MAX);
+    let (tr, qr, tp, qp) = db::posicao_periodo_local(inicio_ms, fim_ms).map_err(|e| {
+        eprintln!("[LOCAL_FINANCE] posicao-periodo falha: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    })?;
+    eprintln!(
+        "[LOCAL_FINANCE] posicao-periodo hit inicio={inicio} fim={fim} qtdReceber={qr} qtdPagar={qp}"
+    );
+    let body = serde_json::json!({
+        "data": {
+            "totalReceber": tr,
+            "qtdReceber": qr,
+            "totalPagar": tp,
+            "qtdPagar": qp,
+            "saldo": tr - tp,
+        }
+    });
+    let mut resp = axum::response::Response::new(axum::body::Body::from(body.to_string()));
+    resp.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    resp.headers_mut().insert(
+        axum::http::HeaderName::from_static("x-gp-source"),
+        axum::http::HeaderValue::from_static("local-table"),
+    );
+    Ok(resp)
+}
+
+
+
 
 
 
@@ -3783,6 +3834,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/financeiro/fluxo-por-forma", get(financeiro_fluxo_por_forma_handler))
         .route("/api/financeiro/movimentos-caixa", get(financeiro_movimentos_caixa_handler))
         .route("/api/financeiro/avulsos-pagos", get(financeiro_avulsos_pagos_handler))
+        .route("/api/financeiro/posicao-periodo", get(financeiro_posicao_periodo_handler))
         .route("/api/financeiro/receber", get(financeiro_receber_listar_handler))
         .route("/api/financeiro/receber/baixar", post(financeiro_receber_baixar_handler))
         .route("/api/financeiro/receber/cancelar", post(financeiro_receber_cancelar_handler))

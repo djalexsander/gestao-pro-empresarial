@@ -3055,6 +3055,44 @@ pub fn lancamentos_avulsos_pagos_local(inicio: &str, fim: &str) -> DbResult<Stri
     })
 }
 
+/// Onda 2 — item 2: agrega `PosicaoFinanceiraDomain` do cache local
+/// (`financeiro_lancamentos_local`). Filtra por `data_vencimento_ms` no
+/// intervalo, ignora status pago/recebido/cancelado, e soma o aberto
+/// (`valor - valor_pago`) por tipo (receber/pagar).
+///
+/// Retorna tupla (totalReceber, qtdReceber, totalPagar, qtdPagar).
+pub fn posicao_periodo_local(
+    inicio_ms: i64,
+    fim_ms: i64,
+) -> DbResult<(f64, i64, f64, i64)> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT tipo,
+                    COALESCE(CAST(json_extract(payload, '$.valor') AS REAL), 0),
+                    COALESCE(CAST(json_extract(payload, '$.valor_pago') AS REAL), 0)
+             FROM financeiro_lancamentos_local
+             WHERE deleted_at_ms IS NULL
+               AND data_vencimento_ms BETWEEN ?1 AND ?2
+               AND COALESCE(status, '') NOT IN ('pago','recebido','cancelado')",
+        )?;
+        let mut rows = stmt.query(params![inicio_ms, fim_ms])?;
+        let (mut tr, mut qr, mut tp, mut qp) = (0.0_f64, 0_i64, 0.0_f64, 0_i64);
+        while let Some(row) = rows.next()? {
+            let tipo: Option<String> = row.get(0)?;
+            let valor: f64 = row.get(1)?;
+            let pago: f64 = row.get(2)?;
+            let aberto = valor - pago;
+            if aberto <= 0.0 { continue; }
+            match tipo.as_deref() {
+                Some("receber") => { tr += aberto; qr += 1; }
+                Some("pagar")   => { tp += aberto; qp += 1; }
+                _ => {}
+            }
+        }
+        Ok((tr, qr, tp, qp))
+    })
+}
+
 // ---------- Compras (v15) ----------
 //
 // Cache do payload completo da listagem de compras com fornecedor embutido,
