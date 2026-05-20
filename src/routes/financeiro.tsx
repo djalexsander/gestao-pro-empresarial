@@ -2190,3 +2190,82 @@ function FiadoIfoodBlocos() {
   );
 }
 
+
+// ============================================================================
+// Onda 6 — Auditoria de rateio por pagamento
+// ============================================================================
+function AuditoriaRateioBloco() {
+  const { linhas, totais, isLoading } = useAuditoriaRateio(30);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Auditoria de rateio (últimos pagamentos)
+        </p>
+        <span className="text-[11px] text-muted-foreground">
+          {totais.qtd} baixa(s) · bruto {formatBRL(totais.bruto)} · taxas −
+          {formatBRL(totais.taxa)} · líquido {formatBRL(totais.liquido)}
+        </span>
+      </div>
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[110px]">Data</TableHead>
+                <TableHead>Título</TableHead>
+                <TableHead>Cliente</TableHead>
+                <TableHead className="capitalize">Forma</TableHead>
+                <TableHead className="text-right">Valor</TableHead>
+                <TableHead className="text-right">% do título</TableHead>
+                <TableHead className="text-right">Taxa</TableHead>
+                <TableHead className="text-right">Líquido</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="py-6 text-center text-muted-foreground">
+                    Carregando…
+                  </TableCell>
+                </TableRow>
+              ) : linhas.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="py-6 text-center text-muted-foreground">
+                    Nenhuma baixa registrada ainda.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                linhas.map((l) => (
+                  <TableRow key={l.id}>
+                    <TableCell className="text-muted-foreground tabular-nums">
+                      {l.data_pagamento}
+                    </TableCell>
+                    <TableCell className="max-w-[240px] truncate font-medium">
+                      {l.descricao}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{l.cliente}</TableCell>
+                    <TableCell className="capitalize">{l.forma}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatBRL(l.valor)}
+                    </TableCell>
+                    <TableCell className="text-right text-muted-foreground">
+                      {l.percentual.toFixed(1)}%
+                    </TableCell>
+                    <TableCell className="text-right text-muted-foreground">
+                      {l.taxa > 0 ? `−${formatBRL(l.taxa)}` : "—"}
+                    </TableCell>
+                    <TableCell className="text-right font-semibold">
+                      {formatBRL(l.liquido)}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
