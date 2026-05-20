@@ -152,6 +152,31 @@ export function useDeleteEmpresa() {
   });
 }
 
+/** Zera dados operacionais de uma empresa via RPC `admin_zerar_empresa`. */
+export function useZerarEmpresa() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: { empresaId: string; incluirProdutos: boolean }) => {
+      const { supabase } = await import("@/integrations/supabase/client");
+      const { data, error } = await supabase.rpc("admin_zerar_empresa", {
+        p_empresa_id: vars.empresaId,
+        p_incluir_produtos: vars.incluirProdutos,
+      });
+      if (error) throw new Error(error.message);
+      return data as { removidos: Record<string, number>; owner_id: string };
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["admin-empresas"] });
+      qc.invalidateQueries({ queryKey: ["admin-stats"] });
+      qc.invalidateQueries({ queryKey: ["admin-audit-logs"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      const total = Object.values(data?.removidos ?? {}).reduce((a, b) => a + (Number(b) || 0), 0);
+      toast.success("Empresa zerada", { description: `${total} registro(s) removido(s).` });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
 /* =========================================================
  * AUDITORIA
  * =======================================================*/
