@@ -12,7 +12,10 @@ import {
   Download,
   Filter,
   RotateCcw,
+  Receipt,
+  Clock,
 } from "lucide-react";
+import { useFinanceiroResultadoReal } from "@/hooks/useFinanceiroResultadoReal";
 import { toast } from "sonner";
 import {
   ResponsiveContainer,
