@@ -112,15 +112,19 @@ impl LocalEvent {
 
 /// Inicializa o bus uma única vez. Idempotente.
 pub fn init() -> broadcast::Sender<LocalEvent> {
+    REPLAY.get_or_init(|| Mutex::new(VecDeque::with_capacity(REPLAY_CAPACITY)));
     BUS.get_or_init(|| {
         let (tx, _rx) = broadcast::channel(CHANNEL_CAPACITY);
-        eprintln!("[LOCAL_REALTIME] bus inicializado cap={CHANNEL_CAPACITY}");
+        eprintln!(
+            "[LOCAL_REALTIME] bus inicializado cap={CHANNEL_CAPACITY} replay={REPLAY_CAPACITY}"
+        );
         tx
     })
     .clone()
 }
 
 /// Retorna o sender atual (ou inicializa sob demanda).
+#[allow(dead_code)]
 pub fn sender() -> broadcast::Sender<LocalEvent> {
     init()
 }
@@ -130,17 +134,30 @@ pub fn subscribe() -> broadcast::Receiver<LocalEvent> {
     init().subscribe()
 }
 
-/// Publica um evento. Fire-and-forget — se não houver consumidores ou se o
-/// canal não estiver inicializado, ignora silenciosamente.
-pub fn publish(evt: LocalEvent) {
+/// Publica um evento. Atribui seq monotônico, armazena no ring buffer de
+/// replay e dispara para os subscribers. Fire-and-forget se 0 consumidores.
+pub fn publish(mut evt: LocalEvent) {
+    init();
+    let seq = SEQ.fetch_add(1, Ordering::SeqCst) + 1;
+    evt.seq = seq;
+
+    if let Some(ring) = REPLAY.get() {
+        if let Ok(mut r) = ring.lock() {
+            if r.len() >= REPLAY_CAPACITY {
+                r.pop_front();
+            }
+            r.push_back((seq, evt.clone()));
+        }
+    }
+
     if let Some(tx) = BUS.get() {
         let domain = evt.domain.clone();
         let action = evt.action.clone();
         match tx.send(evt) {
             Ok(n) => {
                 eprintln!(
-                    "[REALTIME_EVENT] published domain={} action={} subscribers={}",
-                    domain, action, n
+                    "[REALTIME_EVENT] published seq={} domain={} action={} subscribers={}",
+                    seq, domain, action, n
                 );
             }
             Err(_) => {
@@ -157,6 +174,31 @@ pub fn publish_many<I: IntoIterator<Item = LocalEvent>>(events: I) {
         publish(e);
     }
 }
+
+/// Retorna eventos com seq > `since`, ordenados crescente. Usado pelo SSE
+/// quando o cliente reconecta enviando `Last-Event-ID`.
+/// Se `since` estiver abaixo do menor seq do ring (gap real), devolve
+/// `None` para o handler emitir `realtime.lagged` e forçar resync global.
+pub fn replay_since(since: u64) -> Option<Vec<LocalEvent>> {
+    init();
+    let ring = REPLAY.get()?;
+    let r = ring.lock().ok()?;
+    if r.is_empty() {
+        return Some(Vec::new());
+    }
+    let oldest = r.front().map(|(s, _)| *s).unwrap_or(0);
+    if since + 1 < oldest {
+        // Gap — eventos perdidos caíram fora do buffer.
+        return None;
+    }
+    Some(
+        r.iter()
+            .filter(|(s, _)| *s > since)
+            .map(|(_, e)| e.clone())
+            .collect(),
+    )
+}
+
 
 fn gen_id() -> String {
     // UUID v4 simples sem dependência extra: 16 bytes random hex.
