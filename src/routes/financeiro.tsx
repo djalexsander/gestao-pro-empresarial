@@ -85,6 +85,7 @@ import { useFinanceiroResultadoReal } from "@/hooks/useFinanceiroResultadoReal";
 import { useFiadoPorCliente } from "@/hooks/useFiadoPorCliente";
 import { useIfoodRepasses } from "@/hooks/useIfoodRepasses";
 import { useAuditoriaRateio } from "@/hooks/useAuditoriaRateio";
+import { ExportTabelaButton } from "@/components/financeiro/ExportTabelaButton";
 
 
 type FinTab = "receber" | "pagar" | "fluxo" | "fluxo-financeiro";
