@@ -15,6 +15,9 @@
  * que já estavam no cache. Funciona online, local-server e offline.
  */
 import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { dataClient } from "@/integrations/data/client";
+import type { LancamentoDetalhe } from "@/components/financeiro/LancamentoDetalheDialog";
 import { useFinanceiroIndicadores } from "./useFinanceiroIndicadores";
 import { useVendas } from "./useVendas";
 import {
@@ -46,13 +49,16 @@ function normalizarForma(v: string | null | undefined): FormaPagamento {
   return FORMA_MAP[v.toLowerCase()] ?? "outro";
 }
 
-/** Estima percentual recebido a partir do status_pagamento. */
+/**
+ * Estima percentual recebido a partir do status_pagamento.
+ * Usado APENAS como fallback quando não há lançamento financeiro vinculado.
+ * Quando existem `financeiro_lancamentos` da venda, o valor_pago real é usado.
+ */
 function estimarValorPago(total: number, status: string | null | undefined): number {
   const s = (status ?? "").toLowerCase();
   if (s === "pago" || s === "recebido" || s === "quitado") return total;
   if (s === "cancelado") return 0;
-  if (s === "parcial") return total * 0.5; // heurística — refinada na Onda 4 com lancamento_pagamentos reais
-  // pendente, vencido, outros
+  if (s === "parcial") return total * 0.5;
   return 0;
 }
 
@@ -66,20 +72,47 @@ export interface FinanceiroResultadoReal {
 export function useFinanceiroResultadoReal(): FinanceiroResultadoReal {
   const ind = useFinanceiroIndicadores();
   const vendas = useVendas();
+  const lancamentosQ = useQuery({
+    queryKey: ["financeiro_lancamentos"],
+    queryFn: async () =>
+      (await dataClient.financeiro.listLancamentosCompleto()) as LancamentoDetalhe[],
+    staleTime: 30_000,
+  });
 
   return useMemo(() => {
     const data = ind.data;
     const vendasList = vendas.data ?? [];
+    const lancs = lancamentosQ.data ?? [];
 
     const totalVendido = data?.totalVendido ?? 0;
     const custoTotal = data?.custoTotal ?? 0;
     const custoMedio = totalVendido > 0 ? custoTotal / totalVendido : 0;
 
+    // Agrega valor_pago REAL por venda_id a partir de financeiro_lancamentos.
+    const pagoPorVenda = new Map<string, number>();
+    const temLancPorVenda = new Set<string>();
+    for (const l of lancs) {
+      if (l.tipo !== "receber") continue;
+      const vid = (l as { venda_id?: string | null }).venda_id;
+      if (!vid) continue;
+      temLancPorVenda.add(vid);
+      if (l.status === "cancelado") continue;
+      pagoPorVenda.set(vid, (pagoPorVenda.get(vid) ?? 0) + (Number(l.valor_pago) || 0));
+    }
+
+    let comReal = 0;
+    let comFallback = 0;
+
     const vendasFin: VendaFinanceiraInput[] = vendasList
       .filter((v) => v.status !== "cancelada")
       .map((v) => {
         const valor_total = Number(v.total) || 0;
-        const valor_pago = estimarValorPago(valor_total, v.status_pagamento);
+        const temLanc = temLancPorVenda.has(v.id);
+        const valor_pago = temLanc
+          ? Math.min(valor_total, pagoPorVenda.get(v.id) ?? 0)
+          : estimarValorPago(valor_total, v.status_pagamento);
+        if (temLanc) comReal++;
+        else comFallback++;
         return {
           venda_id: v.id,
           valor_total,
@@ -91,8 +124,13 @@ export function useFinanceiroResultadoReal(): FinanceiroResultadoReal {
         };
       });
 
-    // Despesas pagas no mês — preenchido na Onda 4 a partir de financeiro_lancamentos.
-    const despesas = 0;
+    // Despesas administrativas pagas — soma de lançamentos a pagar quitados.
+    let despesas = 0;
+    for (const l of lancs) {
+      if (l.tipo === "pagar" && (l.status === "pago" || l.status === "recebido")) {
+        despesas += Number(l.valor_pago ?? l.valor) || 0;
+      }
+    }
 
     const resultado = calcularResultadoReal({ vendas: vendasFin, despesas });
     const porForma = agregarPorForma(vendasFin);
@@ -101,6 +139,9 @@ export function useFinanceiroResultadoReal(): FinanceiroResultadoReal {
       // eslint-disable-next-line no-console
       console.log("[RESULTADO_REAL][hook]", {
         qtd_vendas: vendasFin.length,
+        com_pagamento_real: comReal,
+        com_fallback_status: comFallback,
+        despesas_administrativas: despesas,
         custoMedio,
         resultado,
       });
@@ -109,8 +150,9 @@ export function useFinanceiroResultadoReal(): FinanceiroResultadoReal {
     return {
       resultado,
       porForma,
-      loading: ind.isLoading || vendas.isLoading,
+      loading: ind.isLoading || vendas.isLoading || lancamentosQ.isLoading,
     };
-  }, [ind.data, ind.isLoading, vendas.data, vendas.isLoading]);
+  }, [ind.data, ind.isLoading, vendas.data, vendas.isLoading, lancamentosQ.data, lancamentosQ.isLoading]);
 }
+
 
