@@ -177,6 +177,11 @@ function AdminEmpresasPage() {
                         )}
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
+                          onSelect={() => { setZerando(e); setConfirmaNome(""); setIncluirProdutos(false); }}
+                        >
+                          <Eraser className="mr-2 h-4 w-4" /> Zerar dados operacionais
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
                           className="text-destructive"
                           onSelect={() => setRemovendo(e)}
                         >
