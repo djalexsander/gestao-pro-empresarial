@@ -17,6 +17,7 @@ import {
   type ServerConnInfo,
 } from "./serverConnection";
 import type { TerminalConexaoConfig } from "./types";
+import { discoverLanServers as mdnsDiscover } from "@/integrations/realtime/lanDiscovery";
 
 export interface ServidorEncontrado {
   host: string;
@@ -98,9 +99,53 @@ export async function descobrirServidoresLan(opts?: {
   const intervalo = opts?.intervalo ?? 30;
   const paralelismo = opts?.paralelismo ?? 16;
 
-  // Monta a lista de alvos.
+  const encontrados: ServidorEncontrado[] = [];
+  const dedup = new Set<string>();
+
+  // FASE 1 — mDNS (Tauri). Instantâneo, sem varrer rede. Resultados aqui já
+  // chegam com nome/id corretos vindos do próprio anúncio do servidor.
+  try {
+    const mdnsList = await mdnsDiscover(1500);
+    for (const m of mdnsList) {
+      const cfg: TerminalConexaoConfig = {
+        host: m.host,
+        porta: m.port,
+        terminalId: "discovery",
+        terminalNome: "discovery",
+      };
+      // Confirma com /health para medir latência e validar.
+      const c = await pingServidorLocal(cfg);
+      if (c.status !== "online") continue;
+      const info = await fetchServerInfo(cfg);
+      const item: ServidorEncontrado = {
+        host: m.host,
+        porta: m.port,
+        baseUrl: m.base_url,
+        latenciaMs: c.latenciaMs,
+        serverName: m.server_name ?? c.serverName ?? info?.server_name ?? null,
+        serverId: m.server_id ?? c.serverId ?? info?.server_id ?? null,
+        serverVersion: m.version ?? c.serverVersion ?? info?.version ?? null,
+        hostname: m.hostname ?? info?.hostname ?? null,
+        info,
+      };
+      const key = item.serverId ?? `${item.host}:${item.porta}`;
+      if (!dedup.has(key)) {
+        dedup.add(key);
+        encontrados.push(item);
+        opts?.onEncontrado?.(item);
+      }
+    }
+    if (encontrados.length > 0) {
+      // Achou via mDNS: pula a varredura TCP (lenta) e devolve direto.
+      opts?.onProgresso?.(100);
+      return encontrados;
+    }
+  } catch (err) {
+    console.warn("[lanDiscovery] mDNS falhou, caindo para varredura TCP:", err);
+  }
+
+  // FASE 2 — Fallback: varredura TCP do /24 (rede que bloqueia mDNS, web app).
   const alvos: Array<{ host: string; porta: number }> = [];
-  // Sempre tenta loopback primeiro.
   for (const porta of portas) alvos.push({ host: "127.0.0.1", porta });
   for (const prefixo of prefixos) {
     for (let i = 1; i <= intervalo; i++) {
@@ -110,8 +155,7 @@ export async function descobrirServidoresLan(opts?: {
     }
   }
 
-  const encontrados: ServidorEncontrado[] = [];
-  const dedup = new Set<string>();
+
   let feitos = 0;
 
   // Worker pool simples.
