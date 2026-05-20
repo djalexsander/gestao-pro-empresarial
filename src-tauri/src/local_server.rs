@@ -4897,6 +4897,16 @@ async fn cancelar_venda_local_handler(
         r.cancelamento_local_uuid, r.idempotente, r.qtd_itens_estornados
     );
 
+    // Realtime: cancelamento confirmado afeta vendas, estoque, caixa e financeiro.
+    if !r.idempotente {
+        event_bus::publish_many([
+            LocalEvent::new("vendas", "cancelled").with_entity(&r.venda_local_uuid),
+            LocalEvent::new("estoque", "updated"),
+            LocalEvent::new("caixa", "updated"),
+            LocalEvent::new("financeiro", "updated"),
+        ]);
+    }
+
     let mut outbox_status = r.outbox_status.clone();
     let mut remote_response: Option<String> = None;
     if !r.idempotente && ctx.upstream.is_some() {
