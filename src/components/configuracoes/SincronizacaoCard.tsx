@@ -169,6 +169,19 @@ export function SincronizacaoCard({ cfg }: Props) {
             )}
             {showDetails ? "Ocultar detalhes" : "Ver detalhes"}
           </Button>
+          <Button
+            variant="outline"
+            onClick={handlePurge}
+            disabled={purging}
+            title="Use se o Dashboard mostrar dados antigos ou a sincronização estiver presa em erro de autenticação."
+          >
+            {purging ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Trash2 className="mr-2 h-4 w-4" />
+            )}
+            Limpar cache local
+          </Button>
         </div>
 
         {/* Detalhes por domínio */}
