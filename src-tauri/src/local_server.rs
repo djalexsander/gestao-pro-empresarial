@@ -4108,6 +4108,12 @@ async fn financeiro_pagar_baixar_handler(
     );
     eprintln!("[LOCAL_FINANCE_AUDIT] pagamento titulo={} valor={}", r.pagar_local_uuid, r.valor);
     eprintln!("[LOCAL_CASHFLOW] saida realizada valor={} forma={:?}", r.valor, None::<String>);
+    if !r.idempotente {
+        event_bus::publish_many([
+            LocalEvent::new("financeiro", "pagar_baixado").with_entity(&r.pagar_local_uuid),
+            LocalEvent::new("caixa", "updated"),
+        ]);
+    }
     Ok(Json(r))
 }
 
