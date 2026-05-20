@@ -3969,6 +3969,7 @@ async fn financeiro_manual_handler(
         })?;
     eprintln!("[LOCAL_FINANCE] manual ok local_uuid={}", r.local_uuid);
     eprintln!("[LOCAL_FINANCE_OUTBOX] manual enfileirado local_uuid={}", r.local_uuid);
+    event_bus::publish(LocalEvent::new("financeiro", "manual_created").with_entity(&r.local_uuid));
     Ok(Json(r))
 }
 
@@ -3985,6 +3986,9 @@ async fn financeiro_cancelar_handler(
             (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
         })?;
     eprintln!("[LOCAL_FINANCE_AUDIT] cancelamento lancamento={} ok={}", lu, ok);
+    if ok {
+        event_bus::publish(LocalEvent::new("financeiro", "cancelled").with_entity(&lu));
+    }
     Ok(Json(serde_json::json!({ "ok": ok, "local_uuid": lu })))
 }
 
@@ -4030,6 +4034,12 @@ async fn financeiro_receber_baixar_handler(
     );
     eprintln!("[LOCAL_FINANCE_AUDIT] recebimento titulo={} valor={}", r.receber_local_uuid, r.valor);
     eprintln!("[LOCAL_CASHFLOW] entrada realizada valor={} forma={:?}", r.valor, None::<String>);
+    if !r.idempotente {
+        event_bus::publish_many([
+            LocalEvent::new("financeiro", "receber_baixado").with_entity(&r.receber_local_uuid),
+            LocalEvent::new("caixa", "updated"),
+        ]);
+    }
     Ok(Json(r))
 }
 
@@ -4048,6 +4058,11 @@ async fn financeiro_receber_cancelar_handler(
         r.receber_local_uuid, r.status, r.idempotente
     );
     eprintln!("[LOCAL_FINANCE_AUDIT] cancelamento titulo={}", r.receber_local_uuid);
+    if !r.idempotente {
+        event_bus::publish(
+            LocalEvent::new("financeiro", "receber_cancelado").with_entity(&r.receber_local_uuid),
+        );
+    }
     Ok(Json(r))
 }
 
@@ -4093,6 +4108,12 @@ async fn financeiro_pagar_baixar_handler(
     );
     eprintln!("[LOCAL_FINANCE_AUDIT] pagamento titulo={} valor={}", r.pagar_local_uuid, r.valor);
     eprintln!("[LOCAL_CASHFLOW] saida realizada valor={} forma={:?}", r.valor, None::<String>);
+    if !r.idempotente {
+        event_bus::publish_many([
+            LocalEvent::new("financeiro", "pagar_baixado").with_entity(&r.pagar_local_uuid),
+            LocalEvent::new("caixa", "updated"),
+        ]);
+    }
     Ok(Json(r))
 }
 
@@ -4109,6 +4130,11 @@ async fn financeiro_pagar_cancelar_handler(
         r.pagar_local_uuid, r.status, r.idempotente
     );
     eprintln!("[LOCAL_FINANCE_AUDIT] cancelamento_pagar titulo={}", r.pagar_local_uuid);
+    if !r.idempotente {
+        event_bus::publish(
+            LocalEvent::new("financeiro", "pagar_cancelado").with_entity(&r.pagar_local_uuid),
+        );
+    }
     Ok(Json(r))
 }
 
@@ -5397,6 +5423,11 @@ async fn cliente_criar_handler(
         }
     }
     let cliente_id = cliente_remote_id.clone().unwrap_or_else(|| r.cliente_local_uuid.clone());
+    if !r.idempotente {
+        event_bus::publish(
+            LocalEvent::new("clientes", "created").with_entity(&r.cliente_local_uuid),
+        );
+    }
     Ok(Json(ClienteCriarResponse {
         cliente_id,
         cliente_local_uuid: r.cliente_local_uuid,
@@ -5449,6 +5480,11 @@ async fn cliente_editar_handler(
             }
         }
     }
+    if !r.idempotente {
+        event_bus::publish(
+            LocalEvent::new("clientes", "updated").with_entity(&r.cliente_local_uuid),
+        );
+    }
     Ok(Json(ClienteSimpleResponse {
         cliente_id: r.cliente_remote_id.clone().unwrap_or_else(|| r.cliente_local_uuid.clone()),
         cliente_local_uuid: r.cliente_local_uuid,
@@ -5483,6 +5519,11 @@ async fn cliente_alterar_status_handler(
                 }
             }
         }
+    }
+    if !r.idempotente {
+        event_bus::publish(
+            LocalEvent::new("clientes", "status_changed").with_entity(&r.cliente_local_uuid),
+        );
     }
     Ok(Json(ClienteSimpleResponse {
         cliente_id: r.cliente_remote_id.clone().unwrap_or_else(|| r.cliente_local_uuid.clone()),
@@ -5521,6 +5562,9 @@ async fn cliente_excluir_handler(
         // criar+excluir colapsados — nada vai pro servidor.
         outbox_status = "skipped".to_string();
     }
+    event_bus::publish(
+        LocalEvent::new("clientes", "deleted").with_entity(&r.cliente_local_uuid),
+    );
     Ok(Json(ClienteSimpleResponse {
         cliente_id: r.cliente_remote_id.clone().unwrap_or_else(|| r.cliente_local_uuid.clone()),
         cliente_local_uuid: r.cliente_local_uuid,
@@ -5756,6 +5800,11 @@ async fn fornecedor_criar_handler(
         }
     }
     let fornecedor_id = fornecedor_remote_id.clone().unwrap_or_else(|| r.fornecedor_local_uuid.clone());
+    if !r.idempotente {
+        event_bus::publish(
+            LocalEvent::new("fornecedores", "created").with_entity(&r.fornecedor_local_uuid),
+        );
+    }
     Ok(Json(FornecedorCriarResponse {
         fornecedor_id,
         fornecedor_local_uuid: r.fornecedor_local_uuid,
@@ -5814,6 +5863,11 @@ async fn fornecedor_editar_handler(
             }
         }
     }
+    if !r.idempotente {
+        event_bus::publish(
+            LocalEvent::new("fornecedores", "updated").with_entity(&r.fornecedor_local_uuid),
+        );
+    }
     Ok(Json(FornecedorSimpleResponse {
         fornecedor_id: r.fornecedor_remote_id.clone().unwrap_or_else(|| r.fornecedor_local_uuid.clone()),
         fornecedor_local_uuid: r.fornecedor_local_uuid,
@@ -5855,6 +5909,11 @@ async fn fornecedor_alterar_status_handler(
                 }
             }
         }
+    }
+    if !r.idempotente {
+        event_bus::publish(
+            LocalEvent::new("fornecedores", "status_changed").with_entity(&r.fornecedor_local_uuid),
+        );
     }
     Ok(Json(FornecedorSimpleResponse {
         fornecedor_id: r.fornecedor_remote_id.clone().unwrap_or_else(|| r.fornecedor_local_uuid.clone()),
@@ -5899,6 +5958,9 @@ async fn fornecedor_excluir_handler(
     } else if r.idempotente {
         outbox_status = "skipped".to_string();
     }
+    event_bus::publish(
+        LocalEvent::new("fornecedores", "deleted").with_entity(&r.fornecedor_local_uuid),
+    );
     Ok(Json(FornecedorSimpleResponse {
         fornecedor_id: r.fornecedor_remote_id.clone().unwrap_or_else(|| r.fornecedor_local_uuid.clone()),
         fornecedor_local_uuid: r.fornecedor_local_uuid,
@@ -6132,6 +6194,11 @@ async fn compra_criar_handler(
         r.compra_local_uuid, compra_remote_id, r.idempotente, outbox_status
     );
     eprintln!("[LOCAL_PURCHASE_OUTBOX] enqueue action=criar local={}", r.compra_local_uuid);
+    if !r.idempotente {
+        event_bus::publish(
+            LocalEvent::new("compras", "created").with_entity(&r.compra_local_uuid),
+        );
+    }
     Ok(Json(CompraCriarResponse {
         compra_id,
         compra_local_uuid: r.compra_local_uuid,
@@ -6194,6 +6261,11 @@ async fn compra_editar_metadados_handler(
     } else if r.idempotente {
         outbox_status = "merged".to_string();
     }
+    if !r.idempotente {
+        event_bus::publish(
+            LocalEvent::new("compras", "updated").with_entity(&r.compra_local_uuid),
+        );
+    }
     Ok(Json(CompraSimpleResponse {
         compra_id: r.compra_remote_id.clone().unwrap_or_else(|| r.compra_local_uuid.clone()),
         compra_local_uuid: r.compra_local_uuid,
@@ -6240,6 +6312,11 @@ async fn compra_alterar_status_handler(
     } else if r.idempotente {
         outbox_status = "merged".to_string();
     }
+    if !r.idempotente {
+        event_bus::publish(
+            LocalEvent::new("compras", "status_changed").with_entity(&r.compra_local_uuid),
+        );
+    }
     Ok(Json(CompraSimpleResponse {
         compra_id: r.compra_remote_id.clone().unwrap_or_else(|| r.compra_local_uuid.clone()),
         compra_local_uuid: r.compra_local_uuid,
@@ -6282,6 +6359,11 @@ async fn compra_excluir_handler(
                 }
             }
         }
+    }
+    if !r.idempotente {
+        event_bus::publish(
+            LocalEvent::new("compras", "deleted").with_entity(&r.compra_local_uuid),
+        );
     }
     Ok(Json(CompraSimpleResponse {
         compra_id: r.compra_remote_id.clone().unwrap_or_else(|| r.compra_local_uuid.clone()),
@@ -6331,6 +6413,12 @@ async fn compra_receber_handler(
             }
         }
     }
+    // compra_receber gera entradas de estoque + (opcional) financeiro.
+    event_bus::publish_many([
+        LocalEvent::new("compras", "received").with_entity(&r.compra_local_uuid),
+        LocalEvent::new("estoque", "updated"),
+        LocalEvent::new("financeiro", "updated"),
+    ]);
     Ok(Json(CompraSimpleResponse {
         compra_id: r.compra_remote_id.clone().unwrap_or_else(|| r.compra_local_uuid.clone()),
         compra_local_uuid: r.compra_local_uuid,
@@ -6397,6 +6485,11 @@ async fn compra_receber_itens_handler(
             }
         }
     }
+    event_bus::publish_many([
+        LocalEvent::new("compras", "items_received").with_entity(&r.compra_local_uuid),
+        LocalEvent::new("estoque", "updated"),
+        LocalEvent::new("financeiro", "updated"),
+    ]);
     Ok(Json(CompraSimpleResponse {
         compra_id: r.compra_remote_id.clone().unwrap_or_else(|| r.compra_local_uuid.clone()),
         compra_local_uuid: r.compra_local_uuid,
@@ -6801,6 +6894,11 @@ async fn funcionario_criar_local_handler(
         ("pending".into(), result.funcionario_remote_id.clone())
     };
 
+    if !result.idempotente {
+        event_bus::publish(
+            LocalEvent::new("funcionarios", "created").with_entity(&result.funcionario_local_uuid),
+        );
+    }
     Ok(Json(FuncionarioMutacaoResponse {
         funcionario_id: result.funcionario_local_uuid,
         idempotente: result.idempotente,
@@ -6836,6 +6934,9 @@ async fn funcionario_editar_local_handler(
     ).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     eprintln!("[FUNCIONARIOS_OUTBOX] editar local_uuid={}", result.funcionario_local_uuid);
     let (status, remote) = try_push_func(&ctx, &headers, &result.funcionario_local_uuid).await;
+    event_bus::publish(
+        LocalEvent::new("funcionarios", "updated").with_entity(&result.funcionario_local_uuid),
+    );
     Ok(Json(FuncionarioMutacaoResponse {
         funcionario_id: result.funcionario_local_uuid,
         idempotente: false, outbox_status: status, remote_id: remote,
@@ -6878,6 +6979,9 @@ async fn funcionario_resetar_pin_local_handler(
     }
 
     let (status, remote) = try_push_func(&ctx, &headers, &result.funcionario_local_uuid).await;
+    event_bus::publish(
+        LocalEvent::new("funcionarios", "pin_reset").with_entity(&result.funcionario_local_uuid),
+    );
     Ok(Json(FuncionarioMutacaoResponse {
         funcionario_id: result.funcionario_local_uuid,
         idempotente: false, outbox_status: status, remote_id: remote,
@@ -6905,6 +7009,9 @@ async fn funcionario_alterar_status_local_handler(
     ).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     eprintln!("[FUNCIONARIOS_OUTBOX] alterar_status local_uuid={} ativo={}", result.funcionario_local_uuid, req.ativo);
     let (status, remote) = try_push_func(&ctx, &headers, &result.funcionario_local_uuid).await;
+    event_bus::publish(
+        LocalEvent::new("funcionarios", "status_changed").with_entity(&result.funcionario_local_uuid),
+    );
     Ok(Json(FuncionarioMutacaoResponse {
         funcionario_id: result.funcionario_local_uuid,
         idempotente: false, outbox_status: status, remote_id: remote,
@@ -6927,6 +7034,9 @@ async fn funcionario_excluir_local_handler(
     ).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     eprintln!("[FUNCIONARIOS_OUTBOX] excluir local_uuid={}", result.funcionario_local_uuid);
     let (status, remote) = try_push_func(&ctx, &headers, &result.funcionario_local_uuid).await;
+    event_bus::publish(
+        LocalEvent::new("funcionarios", "deleted").with_entity(&result.funcionario_local_uuid),
+    );
     Ok(Json(FuncionarioMutacaoResponse {
         funcionario_id: result.funcionario_local_uuid,
         idempotente: false, outbox_status: status, remote_id: remote,

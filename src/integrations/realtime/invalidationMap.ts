@@ -1,6 +1,7 @@
 /**
  * Mapa centralizado domain → queryKeys a invalidar.
  * Onda 1: vendas, caixa, estoque, produtos, sync, terminais.
+ * Onda 2: financeiro, clientes, fornecedores, funcionarios, compras, dashboard.
  */
 import type { QueryClient } from "@tanstack/react-query";
 
@@ -9,7 +10,12 @@ const MAP: Record<string, string[]> = {
   estoque: ["estoque", "produtos", "dashboard"],
   caixa: ["caixa", "dashboard", "financeiro"],
   produtos: ["produtos", "pdv-busca-local"],
-  financeiro: ["financeiro", "dashboard"],
+  financeiro: ["financeiro", "dashboard", "contas-pagar", "contas-receber"],
+  clientes: ["clientes", "clientes-lite"],
+  fornecedores: ["fornecedores"],
+  funcionarios: ["funcionarios", "operadores"],
+  compras: ["compras", "estoque", "produtos", "financeiro", "dashboard"],
+  dashboard: ["dashboard"],
   sync: ["sync"],
   terminais: ["terminais"],
 };
