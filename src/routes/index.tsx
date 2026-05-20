@@ -208,6 +208,26 @@ function DashboardPage() {
     refetchInterval: 60_000,
   });
 
+  // ============ Período-scoped KPIs ============
+  // Estes hooks precisam ficar antes de qualquer return condicional para manter
+  // a ordem de hooks idêntica entre loading e tela carregada.
+  const comprasPeriodoTotal = useMemo(() => {
+    const lista = comprasListQuery.data ?? [];
+    return lista.reduce((acc, c) => {
+      if (c.status === "cancelada") return acc;
+      if (!inRange(c.data_emissao, inicio, fim)) return acc;
+      return acc + (Number(c.total) || 0);
+    }, 0);
+  }, [comprasListQuery.data, inicio, fim]);
+  const comprasPeriodoAnteriorTotal = useMemo(() => {
+    const lista = comprasListQuery.data ?? [];
+    return lista.reduce((acc, c) => {
+      if (c.status === "cancelada") return acc;
+      if (!inRange(c.data_emissao, periodoAnterior.inicio, periodoAnterior.fim)) return acc;
+      return acc + (Number(c.total) || 0);
+    }, 0);
+  }, [comprasListQuery.data, periodoAnterior]);
+
   function abrirKpi(tipo: KpiTipo) {
     if (import.meta.env.DEV) {
       // eslint-disable-next-line no-console
@@ -355,25 +375,6 @@ function DashboardPage() {
       </div>
     );
   }
-
-  // ============ Período-scoped KPIs ============
-  // Soma compras (data_emissao no intervalo, excluindo canceladas) a partir da lista completa.
-  const comprasPeriodoTotal = useMemo(() => {
-    const lista = comprasListQuery.data ?? [];
-    return lista.reduce((acc, c) => {
-      if (c.status === "cancelada") return acc;
-      if (!inRange(c.data_emissao, inicio, fim)) return acc;
-      return acc + (Number(c.total) || 0);
-    }, 0);
-  }, [comprasListQuery.data, inicio, fim]);
-  const comprasPeriodoAnteriorTotal = useMemo(() => {
-    const lista = comprasListQuery.data ?? [];
-    return lista.reduce((acc, c) => {
-      if (c.status === "cancelada") return acc;
-      if (!inRange(c.data_emissao, periodoAnterior.inicio, periodoAnterior.fim)) return acc;
-      return acc + (Number(c.total) || 0);
-    }, 0);
-  }, [comprasListQuery.data, periodoAnterior]);
 
   const vendasPeriodoTotal = vendasMetricasQuery.data?.total_vendido ?? 0;
   const vendasPeriodoAnteriorTotal = vendasMetricasPrevQuery.data?.total_vendido ?? 0;
