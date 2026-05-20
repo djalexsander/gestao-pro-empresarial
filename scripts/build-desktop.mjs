@@ -57,21 +57,22 @@ function runStep(cmd, args, { onStdout, timeoutMs } = {}) {
 
     let exited = false;
     let forceKillTimer = null;
+    let forcedKill = false;
 
     const finish = (code, reason) => {
       if (exited) return;
       exited = true;
       if (forceKillTimer) clearTimeout(forceKillTimer);
-      log(`step "${cmd} ${args.join(" ")}" finalizou (${reason}) code=${code}`);
-      resolvePromise(code ?? 0);
+      log(`step "${cmd} ${args.join(" ")}" finalizou (${reason}) code=${code} forcedKill=${forcedKill}`);
+      resolvePromise({ code: code ?? 0, forcedKill, reason });
     };
 
     const forceKill = (reason) => {
       if (exited) return;
+      forcedKill = true;
       err(`forçando encerramento do child (${reason})`);
       try {
         if (process.platform === "win32") {
-          // taskkill árvore inteira
           spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
             shell: true,
             stdio: "ignore",
@@ -82,7 +83,6 @@ function runStep(cmd, args, { onStdout, timeoutMs } = {}) {
       } catch (e) {
         err(`erro ao matar child: ${e?.message || e}`);
       }
-      // dá um instante para o exit event disparar
       setTimeout(() => finish(0, reason), 1500);
     };
 
@@ -122,14 +122,13 @@ function runStep(cmd, args, { onStdout, timeoutMs } = {}) {
 
     // --- Step 1: vite build ---
     let prerenderDone = false;
-    const viteCode = await runStep(
+    const viteResult = await runStep(
       "npx",
       ["vite", "build", "--config", "vite.config.desktop.ts"],
       {
         timeoutMs: 10 * 60 * 1000,
         onStdout: (text, markDone) => {
           if (prerenderDone) return;
-          // detecta o fim do prerender
           if (
             /Prerendered\s+\d+\s+pages/i.test(text) ||
             /\[prerender\][^\n]*-\s*\//.test(text)
@@ -142,29 +141,40 @@ function runStep(cmd, args, { onStdout, timeoutMs } = {}) {
       },
     );
 
-    if (viteCode !== 0) {
-      err(`vite build falhou (code=${viteCode})`);
+    // Sucesso real: exit 0 espontâneo
+    // Sucesso tolerado: prerender concluiu E processo foi morto manualmente
+    const viteOk =
+      viteResult.code === 0 ||
+      (prerenderDone && viteResult.forcedKill);
+
+    if (!viteOk) {
+      err(`vite build falhou (code=${viteResult.code}, prerenderDone=${prerenderDone}, forcedKill=${viteResult.forcedKill})`);
       clearTimeout(globalWatchdog);
-      process.exit(viteCode || 1);
+      process.exit(viteResult.code || 1);
     }
+
+    if (prerenderDone && viteResult.forcedKill) {
+      log("[desktop-build] prerender already completed");
+      log("[desktop-build] ignoring forced child termination");
+    }
+    log("[desktop-build] continuing build pipeline");
     log("vite build OK");
 
     // --- Step 2: prepare-tauri-dist ---
-    const prepCode = await runStep(
+    const prepResult = await runStep(
       process.execPath,
       ["scripts/prepare-tauri-dist.mjs"],
       { timeoutMs: PREPARE_TIMEOUT_MS },
     );
-    if (prepCode !== 0) {
-      err(`prepare-tauri-dist falhou (code=${prepCode})`);
+    if (prepResult.code !== 0) {
+      err(`prepare-tauri-dist falhou (code=${prepResult.code})`);
       clearTimeout(globalWatchdog);
-      process.exit(prepCode || 1);
+      process.exit(prepResult.code || 1);
     }
 
     log("[desktop-build] all steps OK");
     log("[desktop-build] exiting with code 0");
     clearTimeout(globalWatchdog);
-    // Garante encerramento mesmo se algum handle ficou pendurado.
     process.exit(0);
   } catch (e) {
     err(`exceção: ${e?.stack || e}`);
@@ -172,3 +182,4 @@ function runStep(cmd, args, { onStdout, timeoutMs } = {}) {
     process.exit(1);
   }
 })();
+
