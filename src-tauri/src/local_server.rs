@@ -7284,6 +7284,10 @@ async fn produto_excluir_local_handler(
     ).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     eprintln!("[PRODUTOS_OUTBOX] excluir local_uuid={}", result.produto_local_uuid);
     let (status, remote) = try_push_prod(&ctx, &headers, &result.produto_local_uuid).await;
+    event_bus::publish_many([
+        LocalEvent::new("produtos", "deleted").with_entity(&result.produto_local_uuid),
+        LocalEvent::new("estoque", "updated"),
+    ]);
     Ok(Json(ProdutoMutacaoResponse {
         produto_id: result.produto_local_uuid,
         idempotente: false, outbox_status: status, remote_id: remote,
