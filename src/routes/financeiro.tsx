@@ -2152,13 +2152,33 @@ function FiadoIfoodBlocos() {
 
       {/* iFood — repasses detalhados */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             iFood — últimos repasses
           </p>
-          <span className="text-[11px] text-muted-foreground">
-            Taxa média {ifood.taxa_media_pct.toFixed(1)}%
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-muted-foreground">
+              Taxa média {ifood.taxa_media_pct.toFixed(1)}%
+            </span>
+            <ExportTabelaButton
+              prefix="financeiro_ifood_repasses"
+              titulo="iFood — repasses"
+              rows={ifood.repasses}
+              columns={[
+                { header: "Data", accessor: (r) => r.data_repasse, type: "date" },
+                { header: "Nº", accessor: (r) => r.numero_repasse ?? "", type: "text" },
+                { header: "Lançamentos", accessor: (r) => r.qtd_lancamentos, type: "integer" },
+                { header: "Bruto (R$)", accessor: (r) => r.valor_bruto, type: "currency" },
+                { header: "Taxa (R$)", accessor: (r) => r.taxa_total, type: "currency" },
+                { header: "Líquido (R$)", accessor: (r) => r.valor_liquido, type: "currency" },
+              ]}
+              resumo={[
+                { label: "Bruto", valor: formatBRL(ifood.total_bruto) },
+                { label: "Taxa", valor: `−${formatBRL(ifood.total_taxa)}`, tone: "danger" },
+                { label: "Líquido", valor: formatBRL(ifood.total_liquido), tone: "success" },
+              ]}
+            />
+          </div>
         </div>
         <div className="grid grid-cols-3 gap-2">
           <Card>
