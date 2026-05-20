@@ -54,6 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(
     DESKTOP_BOOT_LOCAL_FIRST ? HAS_CACHED_SESSION : true,
   );
+  const queryClient = useQueryClient();
   const lastEventUserRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -72,6 +73,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (event === "SIGNED_IN" && sess?.user && lastEventUserRef.current !== sess.user.id) {
         lastEventUserRef.current = sess.user.id;
+
+        // Se mudou de usuário neste dispositivo, purgar cache local para
+        // evitar que dados (e outbox) da conta anterior contaminem a sessão.
+        if (shouldPurgeOnSignIn(sess.user.id)) {
+          console.warn("[LOCAL_PURGE] usuário diferente detectado — limpando cache local.");
+          void purgeLocalState("auth.user_changed", queryClient);
+        }
+        rememberSignedInUid(sess.user.id);
+
         dataClient.auth.garantirEmpresaAtual().then(() => {
           registrarAuditLog("auth.login", {
             target_type: "user",
@@ -82,6 +92,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       if (event === "SIGNED_OUT") {
         lastEventUserRef.current = null;
+        clearRememberedUid();
       }
     });
 
