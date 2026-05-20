@@ -85,6 +85,7 @@ import { useFinanceiroResultadoReal } from "@/hooks/useFinanceiroResultadoReal";
 import { useFiadoPorCliente } from "@/hooks/useFiadoPorCliente";
 import { useIfoodRepasses } from "@/hooks/useIfoodRepasses";
 import { useAuditoriaRateio } from "@/hooks/useAuditoriaRateio";
+import { ExportTabelaButton } from "@/components/financeiro/ExportTabelaButton";
 
 
 type FinTab = "receber" | "pagar" | "fluxo" | "fluxo-financeiro";
@@ -449,13 +450,40 @@ function FinanceContent() {
 
       {/* Bloco Resultado Real — motor financeiro Onda 3 */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Resultado real (recebido x previsto)
           </p>
-          <span className="hidden text-[11px] text-muted-foreground sm:inline">
-            Baseado em pagamentos efetivos · taxas e custos proporcionais
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="hidden text-[11px] text-muted-foreground sm:inline">
+              Pagamentos efetivos · taxas e custos proporcionais
+            </span>
+            <ExportTabelaButton
+              prefix="financeiro_resultado_real"
+              titulo="Resultado real"
+              rows={resultadoReal.porForma}
+              columns={[
+                { header: "Forma", accessor: (l) => l.forma, type: "text" },
+                { header: "Qtd vendas", accessor: (l) => l.qtd_vendas, type: "integer" },
+                { header: "Vendido (R$)", accessor: (l) => l.total_vendido, type: "currency" },
+                { header: "Recebido (R$)", accessor: (l) => l.total_recebido, type: "currency" },
+                { header: "Taxa (R$)", accessor: (l) => l.taxa, type: "currency" },
+                { header: "Líquido (R$)", accessor: (l) => l.total_recebido - l.taxa, type: "currency" },
+              ]}
+              resumo={[
+                { label: "Receita bruta", valor: formatBRL(resultadoReal.resultado.receita_bruta) },
+                { label: "Recebido", valor: formatBRL(resultadoReal.resultado.recebido) },
+                { label: "Previsto/pendente", valor: formatBRL(resultadoReal.resultado.pendente) },
+                { label: "Taxas", valor: formatBRL(resultadoReal.resultado.taxas) },
+                { label: "Custo realizado", valor: formatBRL(resultadoReal.resultado.custos_realizados) },
+                {
+                  label: "Resultado operacional",
+                  valor: formatBRL(resultadoReal.resultado.resultado_operacional_real),
+                  tone: resultadoReal.resultado.resultado_operacional_real >= 0 ? "success" : "danger",
+                },
+              ]}
+            />
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
           <StatCard
@@ -2049,13 +2077,28 @@ function FiadoIfoodBlocos() {
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       {/* Fiado por cliente */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Fiado por cliente
           </p>
-          <span className="text-[11px] text-muted-foreground">
-            {fiado.linhas.length} cliente(s)
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-muted-foreground">
+              {fiado.linhas.length} cliente(s)
+            </span>
+            <ExportTabelaButton
+              prefix="financeiro_fiado_clientes"
+              titulo="Fiado por cliente"
+              rows={fiado.linhas}
+              columns={[
+                { header: "Cliente", accessor: (l) => l.cliente_nome, type: "text" },
+                { header: "Títulos", accessor: (l) => l.qtd_titulos, type: "integer" },
+                { header: "Vencidos", accessor: (l) => l.qtd_vencidos, type: "integer" },
+                { header: "Total vencido (R$)", accessor: (l) => l.total_vencido, type: "currency" },
+                { header: "Em aberto (R$)", accessor: (l) => l.total_aberto, type: "currency" },
+                { header: "Próximo vencimento", accessor: (l) => l.proximo_vencimento ?? "", type: "date" },
+              ]}
+            />
+          </div>
         </div>
         <Card>
           <CardContent className="p-0">
@@ -2109,13 +2152,33 @@ function FiadoIfoodBlocos() {
 
       {/* iFood — repasses detalhados */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             iFood — últimos repasses
           </p>
-          <span className="text-[11px] text-muted-foreground">
-            Taxa média {ifood.taxa_media_pct.toFixed(1)}%
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-muted-foreground">
+              Taxa média {ifood.taxa_media_pct.toFixed(1)}%
+            </span>
+            <ExportTabelaButton
+              prefix="financeiro_ifood_repasses"
+              titulo="iFood — repasses"
+              rows={ifood.repasses}
+              columns={[
+                { header: "Data", accessor: (r) => r.data_repasse, type: "date" },
+                { header: "Nº", accessor: (r) => r.numero_repasse ?? "", type: "text" },
+                { header: "Lançamentos", accessor: (r) => r.qtd_lancamentos, type: "integer" },
+                { header: "Bruto (R$)", accessor: (r) => r.valor_bruto, type: "currency" },
+                { header: "Taxa (R$)", accessor: (r) => r.taxa_total, type: "currency" },
+                { header: "Líquido (R$)", accessor: (r) => r.valor_liquido, type: "currency" },
+              ]}
+              resumo={[
+                { label: "Bruto", valor: formatBRL(ifood.total_bruto) },
+                { label: "Taxa", valor: `−${formatBRL(ifood.total_taxa)}`, tone: "danger" },
+                { label: "Líquido", valor: formatBRL(ifood.total_liquido), tone: "success" },
+              ]}
+            />
+          </div>
         </div>
         <div className="grid grid-cols-3 gap-2">
           <Card>
@@ -2199,14 +2262,36 @@ function AuditoriaRateioBloco() {
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Auditoria de rateio (últimos pagamentos)
         </p>
-        <span className="text-[11px] text-muted-foreground">
-          {totais.qtd} baixa(s) · bruto {formatBRL(totais.bruto)} · taxas −
-          {formatBRL(totais.taxa)} · líquido {formatBRL(totais.liquido)}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="hidden text-[11px] text-muted-foreground lg:inline">
+            {totais.qtd} baixa(s) · bruto {formatBRL(totais.bruto)} · taxas −
+            {formatBRL(totais.taxa)} · líquido {formatBRL(totais.liquido)}
+          </span>
+          <ExportTabelaButton
+            prefix="financeiro_auditoria_rateio"
+            titulo="Auditoria de rateio"
+            rows={linhas}
+            columns={[
+              { header: "Data", accessor: (l) => l.data_pagamento, type: "date" },
+              { header: "Título", accessor: (l) => l.descricao, type: "text" },
+              { header: "Cliente", accessor: (l) => l.cliente, type: "text" },
+              { header: "Forma", accessor: (l) => l.forma, type: "text" },
+              { header: "Valor (R$)", accessor: (l) => l.valor, type: "currency" },
+              { header: "% do título", accessor: (l) => l.percentual, type: "number" },
+              { header: "Taxa (R$)", accessor: (l) => l.taxa, type: "currency" },
+              { header: "Líquido (R$)", accessor: (l) => l.liquido, type: "currency" },
+            ]}
+            resumo={[
+              { label: "Bruto", valor: formatBRL(totais.bruto) },
+              { label: "Taxas", valor: `−${formatBRL(totais.taxa)}`, tone: "danger" },
+              { label: "Líquido", valor: formatBRL(totais.liquido), tone: "success" },
+            ]}
+          />
+        </div>
       </div>
       <Card>
         <CardContent className="p-0">
