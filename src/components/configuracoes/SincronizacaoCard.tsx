@@ -8,7 +8,9 @@ import {
   Loader2,
   RefreshCw,
   ShieldAlert,
+  Trash2,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +21,7 @@ import {
   type SyncOverview,
 } from "@/integrations/desktop/serverConnection";
 import type { TerminalConexaoConfig } from "@/integrations/desktop/types";
+import { purgeLocalState } from "@/integrations/data/local-purge";
 
 interface Props {
   cfg: TerminalConexaoConfig;
