@@ -6312,6 +6312,11 @@ async fn compra_alterar_status_handler(
     } else if r.idempotente {
         outbox_status = "merged".to_string();
     }
+    if !r.idempotente {
+        event_bus::publish(
+            LocalEvent::new("compras", "status_changed").with_entity(&r.compra_local_uuid),
+        );
+    }
     Ok(Json(CompraSimpleResponse {
         compra_id: r.compra_remote_id.clone().unwrap_or_else(|| r.compra_local_uuid.clone()),
         compra_local_uuid: r.compra_local_uuid,
