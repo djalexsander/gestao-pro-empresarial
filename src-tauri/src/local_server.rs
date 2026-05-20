@@ -5774,6 +5774,11 @@ async fn fornecedor_criar_handler(
         }
     }
     let fornecedor_id = fornecedor_remote_id.clone().unwrap_or_else(|| r.fornecedor_local_uuid.clone());
+    if !r.idempotente {
+        event_bus::publish(
+            LocalEvent::new("fornecedores", "created").with_entity(&r.fornecedor_local_uuid),
+        );
+    }
     Ok(Json(FornecedorCriarResponse {
         fornecedor_id,
         fornecedor_local_uuid: r.fornecedor_local_uuid,
