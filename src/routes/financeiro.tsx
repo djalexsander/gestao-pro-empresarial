@@ -82,6 +82,8 @@ import { toast } from "sonner";
 import { CarteiraDialog } from "@/components/financeiro/CarteiraDialog";
 import { SaldoPrevistoDialog } from "@/components/financeiro/SaldoPrevistoDialog";
 import { useFinanceiroResultadoReal } from "@/hooks/useFinanceiroResultadoReal";
+import { useFiadoPorCliente } from "@/hooks/useFiadoPorCliente";
+import { useIfoodRepasses } from "@/hooks/useIfoodRepasses";
 
 
 type FinTab = "receber" | "pagar" | "fluxo" | "fluxo-financeiro";
