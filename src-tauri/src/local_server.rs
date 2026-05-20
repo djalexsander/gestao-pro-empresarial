@@ -5494,6 +5494,11 @@ async fn cliente_alterar_status_handler(
             }
         }
     }
+    if !r.idempotente {
+        event_bus::publish(
+            LocalEvent::new("clientes", "status_changed").with_entity(&r.cliente_local_uuid),
+        );
+    }
     Ok(Json(ClienteSimpleResponse {
         cliente_id: r.cliente_remote_id.clone().unwrap_or_else(|| r.cliente_local_uuid.clone()),
         cliente_local_uuid: r.cliente_local_uuid,
