@@ -515,6 +515,49 @@ function DashboardPage() {
         />
       </div>
 
+      {/* Resultado real — motor financeiro */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Resultado real (pagamentos efetivos)
+          </p>
+          <button
+            onClick={() => navigate({ to: "/financeiro" })}
+            className="text-[11px] text-primary hover:underline"
+          >
+            Ver detalhe →
+          </button>
+        </div>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <StatCard
+            label="Recebido"
+            value={formatBRL(resultadoReal.resultado.recebido)}
+            icon={ArrowDownToLine}
+            iconTone="success"
+          />
+          <StatCard
+            label="Previsto"
+            value={formatBRL(resultadoReal.resultado.pendente)}
+            icon={Clock}
+            iconTone="warning"
+          />
+          <StatCard
+            label="Taxas"
+            value={formatBRL(resultadoReal.resultado.taxas)}
+            icon={Receipt}
+            iconTone="warning"
+          />
+          <StatCard
+            label="Resultado operacional"
+            value={formatBRL(resultadoReal.resultado.resultado_operacional_real)}
+            icon={TrendingUp}
+            iconTone={resultadoReal.resultado.resultado_operacional_real >= 0 ? "success" : "danger"}
+          />
+        </div>
+      </div>
+
+
+
       {/* Charts */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
