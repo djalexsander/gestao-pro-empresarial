@@ -40,11 +40,15 @@ function AdminEmpresasPage() {
   const { data: empresas = [], isLoading } = useAdminEmpresas();
   const setStatus = useSetEmpresaStatus();
   const del = useDeleteEmpresa();
+  const zerar = useZerarEmpresa();
 
   const [busca, setBusca] = useState("");
   const [statusFiltro, setStatusFiltro] = useState<"todos" | EmpresaStatus>("todos");
   const [editando, setEditando] = useState<AdminEmpresa | null>(null);
   const [removendo, setRemovendo] = useState<AdminEmpresa | null>(null);
+  const [zerando, setZerando] = useState<AdminEmpresa | null>(null);
+  const [confirmaNome, setConfirmaNome] = useState("");
+  const [incluirProdutos, setIncluirProdutos] = useState(false);
 
   const filtradas = useMemo(() => {
     const q = busca.trim().toLowerCase();
