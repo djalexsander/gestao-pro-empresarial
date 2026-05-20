@@ -4058,6 +4058,11 @@ async fn financeiro_receber_cancelar_handler(
         r.receber_local_uuid, r.status, r.idempotente
     );
     eprintln!("[LOCAL_FINANCE_AUDIT] cancelamento titulo={}", r.receber_local_uuid);
+    if !r.idempotente {
+        event_bus::publish(
+            LocalEvent::new("financeiro", "receber_cancelado").with_entity(&r.receber_local_uuid),
+        );
+    }
     Ok(Json(r))
 }
 
