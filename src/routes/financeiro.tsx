@@ -82,6 +82,8 @@ import { toast } from "sonner";
 import { CarteiraDialog } from "@/components/financeiro/CarteiraDialog";
 import { SaldoPrevistoDialog } from "@/components/financeiro/SaldoPrevistoDialog";
 import { useFinanceiroResultadoReal } from "@/hooks/useFinanceiroResultadoReal";
+import { useFiadoPorCliente } from "@/hooks/useFiadoPorCliente";
+import { useIfoodRepasses } from "@/hooks/useIfoodRepasses";
 
 
 type FinTab = "receber" | "pagar" | "fluxo" | "fluxo-financeiro";
@@ -543,6 +545,11 @@ function FinanceContent() {
         })()}
 
       </div>
+
+      {/* Onda 5: Fiado por cliente + iFood detalhado */}
+      <FiadoIfoodBlocos />
+
+
 
 
 
@@ -2026,3 +2033,156 @@ function FluxoFinanceiroPanel() {
     </div>
   );
 }
+
+// ============================================================================
+// Onda 5 — Fiado por cliente + iFood detalhado
+// ============================================================================
+function FiadoIfoodBlocos() {
+  const fiado = useFiadoPorCliente();
+  const ifood = useIfoodRepasses(10);
+
+  return (
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      {/* Fiado por cliente */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Fiado por cliente
+          </p>
+          <span className="text-[11px] text-muted-foreground">
+            {fiado.linhas.length} cliente(s)
+          </span>
+        </div>
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead className="text-right">Títulos</TableHead>
+                  <TableHead className="text-right">Vencidos</TableHead>
+                  <TableHead className="text-right">Em aberto</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {fiado.isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">
+                      Carregando…
+                    </TableCell>
+                  </TableRow>
+                ) : fiado.linhas.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">
+                      Sem fiado em aberto.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  fiado.linhas.slice(0, 10).map((l) => (
+                    <TableRow key={l.cliente_id ?? l.cliente_nome}>
+                      <TableCell className="font-medium">{l.cliente_nome}</TableCell>
+                      <TableCell className="text-right">{l.qtd_titulos}</TableCell>
+                      <TableCell className="text-right">
+                        {l.qtd_vencidos > 0 ? (
+                          <span className="text-destructive font-medium">
+                            {l.qtd_vencidos} · {formatBRL(l.total_vencido)}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold">
+                        {formatBRL(l.total_aberto)}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* iFood — repasses detalhados */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            iFood — últimos repasses
+          </p>
+          <span className="text-[11px] text-muted-foreground">
+            Taxa média {ifood.taxa_media_pct.toFixed(1)}%
+          </span>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <Card>
+            <CardContent className="p-3">
+              <p className="text-[10px] uppercase text-muted-foreground">Bruto</p>
+              <p className="text-sm font-bold">{formatBRL(ifood.total_bruto)}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-3">
+              <p className="text-[10px] uppercase text-muted-foreground">Taxa</p>
+              <p className="text-sm font-bold text-destructive">
+                −{formatBRL(ifood.total_taxa)}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-3">
+              <p className="text-[10px] uppercase text-muted-foreground">Líquido</p>
+              <p className="text-sm font-bold text-success">
+                {formatBRL(ifood.total_liquido)}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[110px]">Data</TableHead>
+                  <TableHead>Nº</TableHead>
+                  <TableHead className="text-right">Qtd</TableHead>
+                  <TableHead className="text-right">Líquido</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {ifood.isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">
+                      Carregando…
+                    </TableCell>
+                  </TableRow>
+                ) : ifood.repasses.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">
+                      Nenhum repasse iFood ainda.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  ifood.repasses.map((r) => (
+                    <TableRow key={r.id}>
+                      <TableCell className="text-muted-foreground tabular-nums">
+                        {r.data_repasse}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {r.numero_repasse ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-right">{r.qtd_lancamentos}</TableCell>
+                      <TableCell className="text-right font-semibold">
+                        {formatBRL(r.valor_liquido)}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
