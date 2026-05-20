@@ -1,5 +1,5 @@
 import { dataClient } from "@/integrations/data/client";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDownToLine,
@@ -41,7 +41,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
 import { cn } from "@/lib/utils";
 import {
   Table,
@@ -183,7 +183,7 @@ function buildConsolidado(args: {
 
 function FinanceContent() {
   const { tab } = Route.useSearch();
-  const navigate = useNavigate({ from: Route.fullPath });
+  
   const activeTab: FinTab = tab ?? "receber";
   const [selected, setSelected] = useState<Lancamento | null>(null);
   const [blocoAberto, setBlocoAberto] = useState<BlocoChave | null>(null);
@@ -301,6 +301,7 @@ function FinanceContent() {
         }
       />
 
+      {!tab && (<>
       {/* Bloco 1: Posição financeira */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
@@ -685,45 +686,30 @@ function FinanceContent() {
           />
         </div>
       </div>
+      </>)}
 
-      <Tabs
-        value={activeTab}
-        onValueChange={(v) =>
-          navigate({ search: { tab: v === "receber" ? undefined : (v as FinTab) }, replace: true })
-        }
-      >
-        <TabsList>
-          <TabsTrigger value="receber">Contas a receber</TabsTrigger>
-          <TabsTrigger value="pagar">Contas a pagar</TabsTrigger>
-          <TabsTrigger value="fluxo">Caixa Operacional</TabsTrigger>
-          <TabsTrigger value="fluxo-financeiro">Fluxo Financeiro</TabsTrigger>
-        </TabsList>
+      {tab === "receber" && (
+        <LancamentosTable
+          items={receber}
+          loading={isLoading}
+          emptyMsg="Nenhuma conta a receber."
+          onSelect={setSelected}
+        />
+      )}
 
-        <TabsContent value="receber" className="mt-4">
-          <LancamentosTable
-            items={receber}
-            loading={isLoading}
-            emptyMsg="Nenhuma conta a receber."
-            onSelect={setSelected}
-          />
-        </TabsContent>
+      {tab === "pagar" && (
+        <ContasPagarPanel
+          items={pagar}
+          loading={isLoading}
+          onSelect={setSelected}
+        />
+      )}
 
-        <TabsContent value="pagar" className="mt-4">
-          <ContasPagarPanel
-            items={pagar}
-            loading={isLoading}
-            onSelect={setSelected}
-          />
-        </TabsContent>
+      {tab === "fluxo" && <FluxoCaixaPanel />}
 
-        <TabsContent value="fluxo" className="mt-4">
-          <FluxoCaixaPanel />
-        </TabsContent>
+      {tab === "fluxo-financeiro" && <FluxoFinanceiroPanel />}
 
-        <TabsContent value="fluxo-financeiro" className="mt-4">
-          <FluxoFinanceiroPanel />
-        </TabsContent>
-      </Tabs>
+
 
       <LancamentoDetalheDialog
         open={!!selected}
