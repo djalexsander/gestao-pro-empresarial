@@ -4130,6 +4130,11 @@ async fn financeiro_pagar_cancelar_handler(
         r.pagar_local_uuid, r.status, r.idempotente
     );
     eprintln!("[LOCAL_FINANCE_AUDIT] cancelamento_pagar titulo={}", r.pagar_local_uuid);
+    if !r.idempotente {
+        event_bus::publish(
+            LocalEvent::new("financeiro", "pagar_cancelado").with_entity(&r.pagar_local_uuid),
+        );
+    }
     Ok(Json(r))
 }
 
