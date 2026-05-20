@@ -1,10 +1,17 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
+import { useQueryClient } from "@tanstack/react-query";
 import { dataClient } from "@/integrations/data";
 import { registrarAuditLog } from "@/hooks/useAdmin";
 import { lockErp } from "@/lib/erpUnlock";
 import { withTimeout, TimeoutError } from "@/lib/withTimeout";
 import { isDesktop } from "@/integrations/data/mode";
+import {
+  purgeLocalState,
+  rememberSignedInUid,
+  shouldPurgeOnSignIn,
+  clearRememberedUid,
+} from "@/integrations/data/local-purge";
 
 interface AuthContextValue {
   user: User | null;
