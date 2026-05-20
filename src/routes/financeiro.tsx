@@ -686,45 +686,30 @@ function FinanceContent() {
           />
         </div>
       </div>
+      </>)}
 
-      <Tabs
-        value={activeTab}
-        onValueChange={(v) =>
-          navigate({ search: { tab: v === "receber" ? undefined : (v as FinTab) }, replace: true })
-        }
-      >
-        <TabsList>
-          <TabsTrigger value="receber">Contas a receber</TabsTrigger>
-          <TabsTrigger value="pagar">Contas a pagar</TabsTrigger>
-          <TabsTrigger value="fluxo">Caixa Operacional</TabsTrigger>
-          <TabsTrigger value="fluxo-financeiro">Fluxo Financeiro</TabsTrigger>
-        </TabsList>
+      {tab === "receber" && (
+        <LancamentosTable
+          items={receber}
+          loading={isLoading}
+          emptyMsg="Nenhuma conta a receber."
+          onSelect={setSelected}
+        />
+      )}
 
-        <TabsContent value="receber" className="mt-4">
-          <LancamentosTable
-            items={receber}
-            loading={isLoading}
-            emptyMsg="Nenhuma conta a receber."
-            onSelect={setSelected}
-          />
-        </TabsContent>
+      {tab === "pagar" && (
+        <ContasPagarPanel
+          items={pagar}
+          loading={isLoading}
+          onSelect={setSelected}
+        />
+      )}
 
-        <TabsContent value="pagar" className="mt-4">
-          <ContasPagarPanel
-            items={pagar}
-            loading={isLoading}
-            onSelect={setSelected}
-          />
-        </TabsContent>
+      {tab === "fluxo" && <FluxoCaixaPanel />}
 
-        <TabsContent value="fluxo" className="mt-4">
-          <FluxoCaixaPanel />
-        </TabsContent>
+      {tab === "fluxo-financeiro" && <FluxoFinanceiroPanel />}
 
-        <TabsContent value="fluxo-financeiro" className="mt-4">
-          <FluxoFinanceiroPanel />
-        </TabsContent>
-      </Tabs>
+
 
       <LancamentoDetalheDialog
         open={!!selected}
