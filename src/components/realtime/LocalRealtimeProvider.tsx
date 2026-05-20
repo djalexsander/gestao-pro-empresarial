@@ -3,8 +3,8 @@ import { useLocalRealtime } from "@/hooks/useLocalRealtime";
 import {
   getDesktopConfig,
   subscribeDesktopConfig,
-  type DesktopConfig,
 } from "@/integrations/desktop/configStore";
+import type { DesktopConfig } from "@/integrations/desktop/types";
 import { getBaseUrl } from "@/integrations/desktop/serverConnection";
 import { useEmpresaAtual } from "@/hooks/useEmpresa";
 import type { RealtimeStatus } from "@/integrations/realtime/localRealtimeClient";
