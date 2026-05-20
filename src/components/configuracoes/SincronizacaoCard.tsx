@@ -87,6 +87,25 @@ export function SincronizacaoCard({ cfg }: Props) {
     }
   };
 
+  const handlePurge = async () => {
+    if (!window.confirm(
+      "Limpar cache local desta máquina?\n\n" +
+      "Isso remove dados em cache do React Query, filas offline e bancos locais. " +
+      "Você continua logado. Use isso se o Dashboard estiver mostrando dados antigos " +
+      "ou se a sincronização estiver presa em erro de autenticação."
+    )) return;
+    setPurging(true);
+    try {
+      const r = await purgeLocalState("user.manual_purge", queryClient);
+      toast.success("Cache local limpo", {
+        description: `${r.localStorageKeys} chave(s) localStorage, ${r.indexedDbs} IndexedDB removidos.`,
+      });
+      await recarregar();
+    } finally {
+      setPurging(false);
+    }
+  };
+
   const totalProblemas = (ov?.error ?? 0) + (ov?.conflict ?? 0);
 
   return (
