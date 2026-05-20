@@ -7226,6 +7226,9 @@ async fn produto_editar_local_handler(
     ).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     eprintln!("[PRODUTOS_OUTBOX] editar local_uuid={}", result.produto_local_uuid);
     let (status, remote) = try_push_prod(&ctx, &headers, &result.produto_local_uuid).await;
+    event_bus::publish(
+        LocalEvent::new("produtos", "updated").with_entity(&result.produto_local_uuid),
+    );
     Ok(Json(ProdutoMutacaoResponse {
         produto_id: result.produto_local_uuid,
         idempotente: false, outbox_status: status, remote_id: remote,
