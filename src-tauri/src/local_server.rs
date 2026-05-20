@@ -6485,6 +6485,11 @@ async fn compra_receber_itens_handler(
             }
         }
     }
+    event_bus::publish_many([
+        LocalEvent::new("compras", "items_received").with_entity(&r.compra_local_uuid),
+        LocalEvent::new("estoque", "updated"),
+        LocalEvent::new("financeiro", "updated"),
+    ]);
     Ok(Json(CompraSimpleResponse {
         compra_id: r.compra_remote_id.clone().unwrap_or_else(|| r.compra_local_uuid.clone()),
         compra_local_uuid: r.compra_local_uuid,
