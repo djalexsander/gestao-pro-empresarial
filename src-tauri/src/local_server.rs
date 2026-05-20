@@ -1205,17 +1205,28 @@ async fn events_handler(
 // históricos) inalterado para não quebrar nada que já consuma essa rota.
 
 async fn events_stream_handler(
+    headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
 ) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
     let empresa_filter = q.get("empresa_id").cloned();
+
+    // Last-Event-ID: enviado automaticamente pelo EventSource em reconexões.
+    // Aceita também via query string (?last_event_id=) para clientes custom.
+    let last_event_id: Option<u64> = headers
+        .get("last-event-id")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok())
+        .or_else(|| q.get("last_event_id").and_then(|s| s.parse::<u64>().ok()));
+
     eprintln!(
-        "[REALTIME_SSE] cliente conectado empresa_filter={:?}",
-        empresa_filter
+        "[REALTIME_SSE] cliente conectado empresa_filter={:?} last_event_id={:?}",
+        empresa_filter, last_event_id
     );
 
     let rx = event_bus::subscribe();
     let hello = LocalEvent {
         id: format!("hello-{}", now_ms()),
+        seq: 0,
         kind: "realtime.hello".into(),
         domain: "system".into(),
         action: "connected".into(),
@@ -1228,7 +1239,44 @@ async fn events_stream_handler(
         version: 1,
     };
 
-    let hello_stream = tokio_stream::iter(vec![Ok::<LocalEvent, Infallible>(hello)]);
+    // Replay: se o cliente reconectou, devolve eventos perdidos primeiro.
+    let mut replay_events: Vec<LocalEvent> = Vec::new();
+    if let Some(since) = last_event_id {
+        match event_bus::replay_since(since) {
+            Some(evts) => {
+                if !evts.is_empty() {
+                    eprintln!(
+                        "[REALTIME_SSE] replay since={} eventos={}",
+                        since, evts.len()
+                    );
+                }
+                replay_events = evts;
+            }
+            None => {
+                // Gap real — força resync global no cliente.
+                eprintln!("[REALTIME_SSE] replay gap since={since} → lagged");
+                replay_events.push(LocalEvent {
+                    id: format!("lagged-{}", now_ms()),
+                    seq: 0,
+                    kind: "realtime.lagged".into(),
+                    domain: "system".into(),
+                    action: "resync".into(),
+                    entity_id: None,
+                    empresa_id: None,
+                    terminal_id: None,
+                    operator_id: None,
+                    timestamp: now_ms(),
+                    source: "local".into(),
+                    version: 1,
+                });
+            }
+        }
+    }
+
+    let intro: Vec<Result<LocalEvent, Infallible>> = std::iter::once(Ok(hello))
+        .chain(replay_events.into_iter().map(Ok))
+        .collect();
+    let intro_stream = tokio_stream::iter(intro);
 
     let bus_stream = BroadcastStream::new(rx).filter_map(move |res| match res {
         Ok(evt) => {
@@ -1246,6 +1294,7 @@ async fn events_stream_handler(
             eprintln!("[REALTIME_SSE] cliente atrasado, descartou {n} eventos");
             Some(Ok(LocalEvent {
                 id: format!("lagged-{}", now_ms()),
+                seq: 0,
                 kind: "realtime.lagged".into(),
                 domain: "system".into(),
                 action: "resync".into(),
@@ -1260,10 +1309,17 @@ async fn events_stream_handler(
         }
     });
 
-    let stream = hello_stream.chain(bus_stream).map(|res| {
+    let stream = intro_stream.chain(bus_stream).map(|res| {
         res.map(|evt| {
             let json = serde_json::to_string(&evt).unwrap_or_else(|_| "{}".into());
-            SseEvent::default().id(evt.id.clone()).event("message").data(json)
+            // SSE `id:` carrega o seq monotônico (quando > 0) para o
+            // navegador devolver via Last-Event-ID na reconexão.
+            let sse_id = if evt.seq > 0 {
+                evt.seq.to_string()
+            } else {
+                evt.id.clone()
+            };
+            SseEvent::default().id(sse_id).event("message").data(json)
         })
     });
 
