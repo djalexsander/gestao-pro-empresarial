@@ -15,8 +15,6 @@
  * que já estavam no cache. Funciona online, local-server e offline.
  */
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { dataClient } from "@/integrations/data";
 import { useFinanceiroIndicadores } from "./useFinanceiroIndicadores";
 import { useVendas } from "./useVendas";
 import {
