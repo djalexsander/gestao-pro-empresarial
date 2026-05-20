@@ -13,6 +13,7 @@ import { OfflineBanner } from "@/components/shared/OfflineBanner";
 
 import { CartProvider } from "@/components/saas/CartContext";
 import { DesktopRoleProvider } from "@/components/desktop/DesktopRoleProvider";
+import { LocalRealtimeProvider } from "@/components/realtime/LocalRealtimeProvider";
 
 import appCss from "../styles.css?url";
 
