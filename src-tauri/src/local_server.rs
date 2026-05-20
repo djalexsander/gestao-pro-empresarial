@@ -1194,6 +1194,88 @@ async fn events_handler(
     }))
 }
 
+// ---------- Realtime SSE (onda 1) ----------
+//
+// `GET /api/events/stream` — canal SSE para o front receber em tempo real
+// notificações de mudanças no banco local (vendas, caixa, estoque,
+// produtos, sync, terminais). Reconexão fica a cargo do `EventSource`
+// nativo do browser + backoff exponencial do cliente custom.
+//
+// Mantemos o `GET /events` antigo (lista persistida de eventos
+// históricos) inalterado para não quebrar nada que já consuma essa rota.
+
+async fn events_stream_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
+    let empresa_filter = q.get("empresa_id").cloned();
+    eprintln!(
+        "[REALTIME_SSE] cliente conectado empresa_filter={:?}",
+        empresa_filter
+    );
+
+    let rx = event_bus::subscribe();
+    let hello = LocalEvent {
+        id: format!("hello-{}", now_ms()),
+        kind: "realtime.hello".into(),
+        domain: "system".into(),
+        action: "connected".into(),
+        entity_id: None,
+        empresa_id: None,
+        terminal_id: None,
+        operator_id: None,
+        timestamp: now_ms(),
+        source: "local".into(),
+        version: 1,
+    };
+
+    let hello_stream = tokio_stream::iter(vec![Ok::<LocalEvent, Infallible>(hello)]);
+
+    let bus_stream = BroadcastStream::new(rx).filter_map(move |res| match res {
+        Ok(evt) => {
+            // Filtragem por empresa, quando o cliente passou o parâmetro.
+            if let (Some(filter), Some(evt_emp)) =
+                (empresa_filter.as_ref(), evt.empresa_id.as_ref())
+            {
+                if filter != evt_emp {
+                    return None;
+                }
+            }
+            Some(Ok::<LocalEvent, Infallible>(evt))
+        }
+        Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(n)) => {
+            eprintln!("[REALTIME_SSE] cliente atrasado, descartou {n} eventos");
+            Some(Ok(LocalEvent {
+                id: format!("lagged-{}", now_ms()),
+                kind: "realtime.lagged".into(),
+                domain: "system".into(),
+                action: "resync".into(),
+                entity_id: None,
+                empresa_id: None,
+                terminal_id: None,
+                operator_id: None,
+                timestamp: now_ms(),
+                source: "local".into(),
+                version: 1,
+            }))
+        }
+    });
+
+    let stream = hello_stream.chain(bus_stream).map(|res| {
+        res.map(|evt| {
+            let json = serde_json::to_string(&evt).unwrap_or_else(|_| "{}".into());
+            SseEvent::default().id(evt.id.clone()).event("message").data(json)
+        })
+    });
+
+    Sse::new(stream).keep_alive(
+        KeepAlive::new()
+            .interval(Duration::from_secs(15))
+            .text("ping"),
+    )
+}
+
+
+
 async fn db_info_handler() -> Result<Json<db::DbInfo>, (StatusCode, String)> {
     db::db_info()
         .map(Json)
