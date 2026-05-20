@@ -37,7 +37,7 @@ hostname = "0.4"
 
 # Descoberta de servidor na LAN via mDNS/Bonjour — terminais acham o
 # servidor sem precisar digitar IP. Pure-Rust, sem dependência nativa.
-mdns-sd = { version = "0.11", default-features = false, features = ["async"] }
+mdns-sd = "0.11"
 local-ip-address = "0.6"
 
 # Banco local (SQLite embutido) — inicia a camada de persistência local real.
