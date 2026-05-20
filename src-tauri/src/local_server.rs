@@ -6360,6 +6360,11 @@ async fn compra_excluir_handler(
             }
         }
     }
+    if !r.idempotente {
+        event_bus::publish(
+            LocalEvent::new("compras", "deleted").with_entity(&r.compra_local_uuid),
+        );
+    }
     Ok(Json(CompraSimpleResponse {
         compra_id: r.compra_remote_id.clone().unwrap_or_else(|| r.compra_local_uuid.clone()),
         compra_local_uuid: r.compra_local_uuid,
