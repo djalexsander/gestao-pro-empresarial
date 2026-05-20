@@ -15,24 +15,48 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-// Boot local-first: no desktop NUNCA bloqueamos a UI esperando o Supabase.
-// A sessão cacheada (Supabase mantém em localStorage) é restaurada em
-// background. Os gates (RequireAuth) só redirecionam para /auth se realmente
-// não houver usuário ao final. No web mantemos o comportamento clássico
-// (loading=true) para evitar flicker antes de saber se está logado.
+// Boot local-first: no desktop NUNCA bloqueamos a UI por mais que o necessário
+// para hidratar a sessão Supabase do localStorage. Se NÃO houver token
+// persistido, começamos com loading=false (não tem o que esperar). Se houver,
+// aguardamos a hidratação com timeout curto (1.2s) — suficiente para o
+// localStorage, longe dos 4s anteriores que travavam o boot offline.
 const DESKTOP_BOOT_LOCAL_FIRST = isDesktop();
+
+function hasPersistedSupabaseSession(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i) ?? "";
+      // chaves típicas: "sb-<projectref>-auth-token", "supabase.auth.token"
+      if (k.startsWith("sb-") && k.includes("auth-token")) return true;
+      if (k === "supabase.auth.token") return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+const HAS_CACHED_SESSION = DESKTOP_BOOT_LOCAL_FIRST ? hasPersistedSupabaseSession() : true;
+const AUTH_GETSESSION_TIMEOUT = DESKTOP_BOOT_LOCAL_FIRST ? 1200 : 4000;
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(!DESKTOP_BOOT_LOCAL_FIRST);
+  // No desktop sem sessão cacheada, não há razão para mostrar spinner.
+  const [loading, setLoading] = useState(
+    DESKTOP_BOOT_LOCAL_FIRST ? HAS_CACHED_SESSION : true,
+  );
   const lastEventUserRef = useRef<string | null>(null);
-  if (DESKTOP_BOOT_LOCAL_FIRST && typeof window !== "undefined") {
-    // log único de boot
-    (window as unknown as Record<string, unknown>).__gpBootLocalFirstLogged ||
-      (console.log("[BOOT_LOCAL_FIRST] Desktop: render imediato, auth em background."),
-      ((window as unknown as Record<string, unknown>).__gpBootLocalFirstLogged = true));
-  }
+
+  useEffect(() => {
+    if (DESKTOP_BOOT_LOCAL_FIRST) {
+      console.log(
+        `[BOOT_LOCAL_FIRST] Desktop boot — cached session: ${HAS_CACHED_SESSION}, timeout: ${AUTH_GETSESSION_TIMEOUT}ms`,
+      );
+    }
+  }, []);
+
 
   useEffect(() => {
     const subscription = dataClient.auth.onAuthStateChange((event, sess) => {
