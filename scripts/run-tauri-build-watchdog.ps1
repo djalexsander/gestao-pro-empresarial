@@ -65,6 +65,7 @@ try {
 
   Log "[BUILD_START] target=$Target no_output_timeout=${NoOutputTimeoutSeconds}s disable_updater_artifacts=$DisableUpdaterArtifacts"
   Log "[BUILD_HINTS] observar no log: candle.exe, light.exe, makensis.exe, signer, updater artifact, wix, nsis"
+  Log "[COMMAND] npx tauri build --verbose"
 
   $psi = New-Object System.Diagnostics.ProcessStartInfo
   $psi.FileName = "npx.cmd"
