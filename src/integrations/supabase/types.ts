@@ -3529,6 +3529,10 @@ export type Database = {
         }
         Returns: string
       }
+      admin_zerar_empresa: {
+        Args: { p_empresa_id: string; p_incluir_produtos?: boolean }
+        Returns: Json
+      }
       ajustar_quantidade_lote: {
         Args: {
           _client_uuid?: string

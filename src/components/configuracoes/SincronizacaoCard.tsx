@@ -8,7 +8,9 @@ import {
   Loader2,
   RefreshCw,
   ShieldAlert,
+  Trash2,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +21,7 @@ import {
   type SyncOverview,
 } from "@/integrations/desktop/serverConnection";
 import type { TerminalConexaoConfig } from "@/integrations/desktop/types";
+import { purgeLocalState } from "@/integrations/data/local-purge";
 
 interface Props {
   cfg: TerminalConexaoConfig;
@@ -49,7 +52,9 @@ const DOMAIN_LABEL: Record<string, string> = {
 export function SincronizacaoCard({ cfg }: Props) {
   const [ov, setOv] = useState<SyncOverview | null>(null);
   const [busy, setBusy] = useState(false);
+  const [purging, setPurging] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const queryClient = useQueryClient();
 
   const recarregar = async () => {
     const r = await fetchSyncOverview(cfg);
@@ -79,6 +84,25 @@ export function SincronizacaoCard({ cfg }: Props) {
       await recarregar();
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handlePurge = async () => {
+    if (!window.confirm(
+      "Limpar cache local desta máquina?\n\n" +
+      "Isso remove dados em cache do React Query, filas offline e bancos locais. " +
+      "Você continua logado. Use isso se o Dashboard estiver mostrando dados antigos " +
+      "ou se a sincronização estiver presa em erro de autenticação."
+    )) return;
+    setPurging(true);
+    try {
+      const r = await purgeLocalState("user.manual_purge", queryClient);
+      toast.success("Cache local limpo", {
+        description: `${r.localStorageKeys} chave(s) localStorage, ${r.indexedDbs} IndexedDB removidos.`,
+      });
+      await recarregar();
+    } finally {
+      setPurging(false);
     }
   };
 
@@ -144,6 +168,19 @@ export function SincronizacaoCard({ cfg }: Props) {
               <ChevronDown className="mr-2 h-4 w-4" />
             )}
             {showDetails ? "Ocultar detalhes" : "Ver detalhes"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handlePurge}
+            disabled={purging}
+            title="Use se o Dashboard mostrar dados antigos ou a sincronização estiver presa em erro de autenticação."
+          >
+            {purging ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Trash2 className="mr-2 h-4 w-4" />
+            )}
+            Limpar cache local
           </Button>
         </div>
 

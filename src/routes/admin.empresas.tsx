@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  Search, Pencil, Trash2, Lock, Unlock, Ban, Building2,
+  Search, Pencil, Trash2, Lock, Unlock, Ban, Building2, Eraser,
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,7 +25,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MoreHorizontal } from "lucide-react";
 import {
-  useAdminEmpresas, useDeleteEmpresa, useSetEmpresaStatus,
+  useAdminEmpresas, useDeleteEmpresa, useSetEmpresaStatus, useZerarEmpresa,
   type AdminEmpresa, type EmpresaStatus,
 } from "@/hooks/useAdmin";
 import { EmpresaDialog } from "@/components/admin/EmpresaDialog";
@@ -38,11 +40,15 @@ function AdminEmpresasPage() {
   const { data: empresas = [], isLoading } = useAdminEmpresas();
   const setStatus = useSetEmpresaStatus();
   const del = useDeleteEmpresa();
+  const zerar = useZerarEmpresa();
 
   const [busca, setBusca] = useState("");
   const [statusFiltro, setStatusFiltro] = useState<"todos" | EmpresaStatus>("todos");
   const [editando, setEditando] = useState<AdminEmpresa | null>(null);
   const [removendo, setRemovendo] = useState<AdminEmpresa | null>(null);
+  const [zerando, setZerando] = useState<AdminEmpresa | null>(null);
+  const [confirmaNome, setConfirmaNome] = useState("");
+  const [incluirProdutos, setIncluirProdutos] = useState(false);
 
   const filtradas = useMemo(() => {
     const q = busca.trim().toLowerCase();
@@ -171,6 +177,11 @@ function AdminEmpresasPage() {
                         )}
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
+                          onSelect={() => { setZerando(e); setConfirmaNome(""); setIncluirProdutos(false); }}
+                        >
+                          <Eraser className="mr-2 h-4 w-4" /> Zerar dados operacionais
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
                           className="text-destructive"
                           onSelect={() => setRemovendo(e)}
                         >
@@ -212,6 +223,52 @@ function AdminEmpresasPage() {
               }}
             >
               Excluir tudo
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!zerando} onOpenChange={(o) => !o && setZerando(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Zerar dados operacionais?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove vendas, compras, financeiro, caixas, estoque e logs da empresa{" "}
+              <strong>{zerando?.nome}</strong>. Mantém a empresa, membros, assinatura,
+              configurações, funcionários, clientes e fornecedores. Não pode ser desfeito.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="flex items-center gap-2">
+              <Checkbox id="inc-prod" checked={incluirProdutos} onCheckedChange={(v) => setIncluirProdutos(!!v)} />
+              <Label htmlFor="inc-prod" className="text-sm font-normal">
+                Incluir produtos, categorias e lotes
+              </Label>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">
+                Para confirmar, digite o nome da empresa: <strong>{zerando?.nome}</strong>
+              </Label>
+              <Input
+                value={confirmaNome}
+                onChange={(e) => setConfirmaNome(e.target.value)}
+                placeholder={zerando?.nome ?? ""}
+                className="mt-1"
+              />
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!zerando || confirmaNome !== zerando.nome || zerar.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (!zerando || confirmaNome !== zerando.nome) return;
+                zerar.mutate({ empresaId: zerando.id, incluirProdutos });
+                setZerando(null);
+              }}
+            >
+              Zerar dados
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
