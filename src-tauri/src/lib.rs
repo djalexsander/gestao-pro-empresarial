@@ -2,9 +2,11 @@ mod db;
 mod backup;
 mod event_bus;
 mod local_server;
+mod mdns_discovery;
 mod printers;
 
 use local_server::LocalServerStatus;
+use mdns_discovery::DiscoveredServer;
 use printers::PrinterInfo;
 
 #[tauri::command]
@@ -110,6 +112,15 @@ fn print_pdf_bytes(bytes: Vec<u8>, printer_name: String) -> Result<String, Strin
     printers::print_pdf(&path, &printer_name)
 }
 
+// ---- Descoberta LAN (mDNS) ----
+
+#[tauri::command]
+async fn mdns_discover_servers(timeout_ms: Option<u64>) -> Result<Vec<DiscoveredServer>, String> {
+    mdns_discovery::discover_servers(timeout_ms.unwrap_or(2000)).await
+}
+
+
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -136,6 +147,7 @@ pub fn run() {
             backup_delete,
             list_printers,
             print_pdf_bytes,
+            mdns_discover_servers,
         ])
         .setup(|_app| {
             // Aplica restauração pendente ANTES de abrir o banco. Se houver

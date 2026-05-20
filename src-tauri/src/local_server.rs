@@ -4882,6 +4882,28 @@ pub async fn start(
         s.terminals.clear();
     }
 
+    // Anuncia o servidor na LAN via mDNS para que terminais possam
+    // descobri-lo automaticamente. Falha silenciosa: se não der, o app
+    // continua funcionando — só perde a descoberta automática.
+    {
+        let s = STATE.lock().map_err(|e| e.to_string())?;
+        let sid = s.server_id.clone();
+        let sname = s.server_name.clone();
+        let hname = s.hostname.clone();
+        drop(s);
+        if let Err(e) = crate::mdns_discovery::start_advertise(
+            port,
+            sid.as_deref(),
+            sname.as_deref(),
+            hname.as_deref(),
+            APP_VERSION,
+        ) {
+            eprintln!("[gestao-pro] mDNS advertise falhou (não-fatal): {e}");
+        } else {
+            eprintln!("[gestao-pro] mDNS: servidor anunciado na LAN porta={port}");
+        }
+    }
+
     Ok(current_status())
 }
 
@@ -4924,6 +4946,10 @@ pub fn stop() -> Result<LocalServerStatus, String> {
     if let Some(tx) = produtos_sched_opt { let _ = tx.send(()); }
     if let Some(tx) = cat_prod_sched_opt { let _ = tx.send(()); }
     if let Some(tx) = backup_sched_opt { let _ = tx.send(()); }
+
+    // Para de anunciar na LAN.
+    crate::mdns_discovery::stop_advertise();
+
     Ok(current_status())
 }
 
