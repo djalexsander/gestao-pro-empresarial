@@ -227,6 +227,52 @@ function AdminEmpresasPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={!!zerando} onOpenChange={(o) => !o && setZerando(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Zerar dados operacionais?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove vendas, compras, financeiro, caixas, estoque e logs da empresa{" "}
+              <strong>{zerando?.nome}</strong>. Mantém a empresa, membros, assinatura,
+              configurações, funcionários, clientes e fornecedores. Não pode ser desfeito.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="flex items-center gap-2">
+              <Checkbox id="inc-prod" checked={incluirProdutos} onCheckedChange={(v) => setIncluirProdutos(!!v)} />
+              <Label htmlFor="inc-prod" className="text-sm font-normal">
+                Incluir produtos, categorias e lotes
+              </Label>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">
+                Para confirmar, digite o nome da empresa: <strong>{zerando?.nome}</strong>
+              </Label>
+              <Input
+                value={confirmaNome}
+                onChange={(e) => setConfirmaNome(e.target.value)}
+                placeholder={zerando?.nome ?? ""}
+                className="mt-1"
+              />
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!zerando || confirmaNome !== zerando.nome || zerar.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (!zerando || confirmaNome !== zerando.nome) return;
+                zerar.mutate({ empresaId: zerando.id, incluirProdutos });
+                setZerando(null);
+              }}
+            >
+              Zerar dados
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
