@@ -444,6 +444,100 @@ function FinanceContent() {
         </div>
       </div>
 
+      {/* Bloco Resultado Real — motor financeiro Onda 3 */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Resultado real (recebido x previsto)
+          </p>
+          <span className="hidden text-[11px] text-muted-foreground sm:inline">
+            Baseado em pagamentos efetivos · taxas e custos proporcionais
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+          <StatCard
+            label="Receita bruta"
+            value={formatBRL(resultadoReal.resultado.receita_bruta)}
+            icon={ShoppingCart}
+            iconTone="info"
+          />
+          <StatCard
+            label="Recebido"
+            value={formatBRL(resultadoReal.resultado.recebido)}
+            icon={ArrowDownToLine}
+            iconTone="success"
+          />
+          <StatCard
+            label="Previsto / pendente"
+            value={formatBRL(resultadoReal.resultado.pendente)}
+            icon={Clock}
+            iconTone="warning"
+          />
+          <StatCard
+            label="Taxas pagas"
+            value={formatBRL(resultadoReal.resultado.taxas)}
+            icon={Receipt}
+            iconTone="warning"
+          />
+          <StatCard
+            label="Custo realizado"
+            value={formatBRL(resultadoReal.resultado.custo_realizado)}
+            icon={Package}
+            iconTone="warning"
+            hint={`Pendente ${formatBRL(resultadoReal.resultado.custo_pendente)}`}
+          />
+          <StatCard
+            label="Resultado operacional"
+            value={formatBRL(resultadoReal.resultado.resultado_operacional)}
+            icon={TrendingUp}
+            iconTone={resultadoReal.resultado.resultado_operacional >= 0 ? "success" : "danger"}
+            hint={`Lucro líq. ${formatBRL(resultadoReal.resultado.lucro_liquido)}`}
+          />
+        </div>
+
+        {/* Tabela: vendas por forma de pagamento */}
+        {resultadoReal.porForma.length > 0 && (
+          <Card>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Forma</TableHead>
+                    <TableHead className="text-right">Qtd</TableHead>
+                    <TableHead className="text-right">Bruto</TableHead>
+                    <TableHead className="text-right">Recebido</TableHead>
+                    <TableHead className="text-right">Taxa</TableHead>
+                    <TableHead className="text-right">Líquido</TableHead>
+                    <TableHead className="text-right">Participação</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {resultadoReal.porForma.map((l) => (
+                    <TableRow key={l.forma}>
+                      <TableCell className="font-medium capitalize">{l.forma}</TableCell>
+                      <TableCell className="text-right">{l.qtd_vendas}</TableCell>
+                      <TableCell className="text-right">{formatBRL(l.total_bruto)}</TableCell>
+                      <TableCell className="text-right">{formatBRL(l.total_recebido)}</TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {formatBRL(l.taxa_total)}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold">
+                        {formatBRL(l.total_liquido)}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {l.participacao_pct.toFixed(1)}%
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+
+
       {/* Bloco 3: A receber por origem + operacional */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
