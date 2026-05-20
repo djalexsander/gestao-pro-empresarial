@@ -21,20 +21,25 @@
 use axum::{
     extract::{ConnectInfo, Query, State},
     http::{HeaderMap, StatusCode},
-    response::IntoResponse,
+    response::{sse::{Event as SseEvent, KeepAlive, Sse}, IntoResponse},
     routing::{get, post},
     Json, Router,
 };
+use futures_util::stream::Stream;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Mutex;
+use std::time::Duration;
 use tokio::sync::oneshot;
+use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::backup;
 use crate::db;
+use crate::event_bus::{self, LocalEvent};
 
 // ---------- Estado global ----------
 
