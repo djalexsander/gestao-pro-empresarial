@@ -81,6 +81,7 @@ import { exportarRelatorioCard, type ExportFormato } from "@/lib/export-relatori
 import { toast } from "sonner";
 import { CarteiraDialog } from "@/components/financeiro/CarteiraDialog";
 import { SaldoPrevistoDialog } from "@/components/financeiro/SaldoPrevistoDialog";
+import { useFinanceiroResultadoReal } from "@/hooks/useFinanceiroResultadoReal";
 
 
 type FinTab = "receber" | "pagar" | "fluxo" | "fluxo-financeiro";
@@ -197,6 +198,7 @@ function FinanceContent() {
   const posicao = usePosicaoFinanceira(filtroPosicao).data;
   const performance = usePerformancePeriodo(filtroPerformance).data;
   const receberOrigem = useReceberOrigem(filtroReceber).data;
+  const resultadoReal = useFinanceiroResultadoReal();
 
   const indicadores = useFinanceiroIndicadores();
   const ind = indicadores.data;
@@ -441,6 +443,108 @@ function FinanceContent() {
           />
         </div>
       </div>
+
+      {/* Bloco Resultado Real — motor financeiro Onda 3 */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Resultado real (recebido x previsto)
+          </p>
+          <span className="hidden text-[11px] text-muted-foreground sm:inline">
+            Baseado em pagamentos efetivos · taxas e custos proporcionais
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+          <StatCard
+            label="Receita bruta"
+            value={formatBRL(resultadoReal.resultado.receita_bruta)}
+            icon={ShoppingCart}
+            iconTone="info"
+          />
+          <StatCard
+            label="Recebido"
+            value={formatBRL(resultadoReal.resultado.recebido)}
+            icon={ArrowDownToLine}
+            iconTone="success"
+          />
+          <StatCard
+            label="Previsto / pendente"
+            value={formatBRL(resultadoReal.resultado.pendente)}
+            icon={Clock}
+            iconTone="warning"
+          />
+          <StatCard
+            label="Taxas pagas"
+            value={formatBRL(resultadoReal.resultado.taxas)}
+            icon={Receipt}
+            iconTone="warning"
+          />
+          <StatCard
+            label="Custo realizado"
+            value={formatBRL(resultadoReal.resultado.custos_realizados)}
+            icon={Package}
+            iconTone="warning"
+            hint={`Pendente ${formatBRL(resultadoReal.resultado.custos_pendentes)}`}
+          />
+          <StatCard
+            label="Resultado operacional"
+            value={formatBRL(resultadoReal.resultado.resultado_operacional_real)}
+            icon={TrendingUp}
+            iconTone={resultadoReal.resultado.resultado_operacional_real >= 0 ? "success" : "danger"}
+            hint={`Lucro líq. ${formatBRL(resultadoReal.resultado.lucro_liquido)}`}
+          />
+        </div>
+
+        {/* Tabela: vendas por forma de pagamento */}
+        {resultadoReal.porForma.length > 0 && (() => {
+          const totalRecebidoForma = resultadoReal.porForma.reduce((s, l) => s + l.total_recebido, 0);
+          return (
+          <Card>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Forma</TableHead>
+                    <TableHead className="text-right">Qtd</TableHead>
+                    <TableHead className="text-right">Vendido</TableHead>
+                    <TableHead className="text-right">Recebido</TableHead>
+                    <TableHead className="text-right">Taxa</TableHead>
+                    <TableHead className="text-right">Líquido</TableHead>
+                    <TableHead className="text-right">Participação</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {resultadoReal.porForma.map((l) => {
+                    const liquido = l.total_recebido - l.taxa;
+                    const part = totalRecebidoForma > 0 ? (l.total_recebido / totalRecebidoForma) * 100 : 0;
+                    return (
+                      <TableRow key={l.forma}>
+                        <TableCell className="font-medium capitalize">{l.forma}</TableCell>
+                        <TableCell className="text-right">{l.qtd_vendas}</TableCell>
+                        <TableCell className="text-right">{formatBRL(l.total_vendido)}</TableCell>
+                        <TableCell className="text-right">{formatBRL(l.total_recebido)}</TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {formatBRL(l.taxa)}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold">
+                          {formatBRL(liquido)}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {part.toFixed(1)}%
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+          );
+        })()}
+
+      </div>
+
+
 
       {/* Bloco 3: A receber por origem + operacional */}
       <div className="space-y-2">
