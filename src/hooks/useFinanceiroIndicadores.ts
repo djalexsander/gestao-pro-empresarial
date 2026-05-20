@@ -30,9 +30,20 @@ export function getMesAtual(): FinanceiroPeriodo {
 }
 
 export function useFinanceiroIndicadores() {
+  const { user } = useAuth();
   return useQuery({
-    queryKey: ["financeiro_indicadores_mes"],
-    queryFn: () => dataClient.financeiro.indicadoresMes(),
+    queryKey: ["financeiro_indicadores_mes", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const data = await dataClient.financeiro.indicadoresMes();
+      if (import.meta.env.DEV) {
+        console.debug("[DASH_AUDIT] financeiro.indicadoresMes", {
+          owner_id: user?.id,
+          data,
+        });
+      }
+      return data;
+    },
     staleTime: 30_000,
   });
 }
