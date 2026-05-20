@@ -1,8 +1,8 @@
 name: Desktop Release (Windows)
 
 # Dispara quando uma tag vX.Y.Z é criada, OU manualmente via "Run workflow".
-# Faz o build assinado do Tauri (npm run tauri:build:signed), gera o latest.json
-# e publica os instaladores .exe / .exe.sig + latest.json na GitHub Release.
+# Faz o build assinado do Tauri com diagnóstico verbose, gera o latest.json
+# e publica os instaladores .exe/.msi + assinaturas + latest.json na GitHub Release.
 on:
   push:
     tags:
@@ -142,6 +142,7 @@ jobs:
           Write-Host "::endgroup::"
 
       - name: Normalizar artefatos Tauri
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.disable_updater_artifacts != 'true' }}
         timeout-minutes: 2
         shell: bash
         run: |
@@ -152,14 +153,15 @@ jobs:
       - name: Listar bundle (pré geração latest.json)
         if: always()
         timeout-minutes: 2
-        shell: bash
+        shell: pwsh
         run: |
-          echo "::group::árvore bundle"
-          echo "[step] listando src-tauri/target/release/bundle"
-          ls -laR src-tauri/target/release/bundle || echo "(pasta bundle não existe)"
-          echo "::endgroup::"
+          Write-Host "::group::árvore bundle"
+          Write-Host "[step] listando src-tauri\target\release\bundle"
+          if (Test-Path "src-tauri\target\release\bundle") { cmd /c "dir src-tauri\target\release\bundle /s" } else { Write-Host "(pasta bundle não existe)" }
+          Write-Host "::endgroup::"
 
       - name: Gerar latest.json (passo explícito, idempotente)
+        if: ${{ github.event_name != 'workflow_dispatch' || (github.event.inputs.tauri_targets != 'msi' && github.event.inputs.disable_updater_artifacts != 'true') }}
         timeout-minutes: 3
         env:
           RELEASE_TAG: ${{ steps.ver.outputs.tag }}
@@ -170,6 +172,7 @@ jobs:
           echo "[step] latest.json gerado: $(date -u +%FT%TZ)"
 
       - name: Validar latest.json (campos obrigatórios + URL + assinatura)
+        if: ${{ github.event_name != 'workflow_dispatch' || (github.event.inputs.tauri_targets != 'msi' && github.event.inputs.disable_updater_artifacts != 'true') }}
         timeout-minutes: 3
         env:
           RELEASE_TAG: ${{ steps.ver.outputs.tag }}
@@ -192,6 +195,7 @@ jobs:
           ls -la src-tauri/target/release/bundle/msi/ || true
 
       - name: Copiar latest.json para a raiz dos artefatos
+        if: ${{ github.event_name != 'workflow_dispatch' || (github.event.inputs.tauri_targets != 'msi' && github.event.inputs.disable_updater_artifacts != 'true') }}
         timeout-minutes: 2
         shell: bash
         run: |
@@ -214,6 +218,7 @@ jobs:
           fi
 
       - name: Publicar na GitHub Release
+        if: ${{ github.event_name != 'workflow_dispatch' || (github.event.inputs.tauri_targets != 'msi' && github.event.inputs.disable_updater_artifacts != 'true') }}
         timeout-minutes: 10
         uses: softprops/action-gh-release@v2
         with:
@@ -230,6 +235,7 @@ jobs:
             release-assets/*.msi.sig
 
       - name: Validar assets publicados no GitHub Release
+        if: ${{ github.event_name != 'workflow_dispatch' || (github.event.inputs.tauri_targets != 'msi' && github.event.inputs.disable_updater_artifacts != 'true') }}
         timeout-minutes: 5
         env:
           RELEASE_TAG: ${{ steps.ver.outputs.tag }}
