@@ -550,6 +550,9 @@ function FinanceContent() {
       {/* Onda 5: Fiado por cliente + iFood detalhado */}
       <FiadoIfoodBlocos />
 
+      {/* Onda 6: Auditoria de rateio por pagamento */}
+      <AuditoriaRateioBloco />
+
 
 
 
