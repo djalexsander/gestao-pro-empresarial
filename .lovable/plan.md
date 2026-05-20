@@ -1,194 +1,58 @@
-## Objetivo
+# Plano: Consistência e limpeza Gestão Pro
 
-Criar uma camada **realtime local centralizada** que atualiza ERP/PDV/terminais/dashboards quando algo muda no SQLite local — **sem depender de Supabase Realtime** e **sem quebrar offline/PDV/caixa/financeiro/sync**.
+## Diagnóstico confirmado
 
-Stack alvo:
-- Backend: Rust + axum (já existe em `src-tauri/src/local_server.rs`).
-- Transporte: **SSE** (`text/event-stream`) — mais simples, atravessa proxy/firewall LAN, reconexão nativa do browser.
-- Frontend: cliente único `localRealtimeClient.ts` + integração com React Query.
+Rodei queries no Supabase pelos owners da empresa de teste:
 
-Não vou:
-- trocar para WebSocket;
-- emitir eventos "tela por tela" espalhados;
-- mandar dados sensíveis (PIN/senha/token/payload completo);
-- depender de Supabase Realtime;
-- mexer em RLS, schema SQLite ou outbox;
-- refatorar adapters de domínio existentes.
+| owner | lanç. | recebíveis | vendas | produtos | caixas | mov_caixa |
+|---|---|---|---|---|---|---|
+| `2aa0fdf8…` (xaviervieira1979) | 0 | 0 | 0 | 0 | 0 | 0 |
+| `a6b2e7b9…` (xaviervieira) | 0 | 0 | 0 | 0 | 2 | 3 |
 
----
+O banco **já está zerado**. Os 32 títulos / R$ 900,38 / 2 produtos críticos mostrados no Dashboard vêm do **cache local persistido** (`gp.rq.cache.v1` em localStorage via `QueryProvider`, mais o adapter local do desktop), e o "HTTP 400 Não autenticado" do Caixa vem da **outbox offline** tentando empurrar mutações antigas sem bearer token válido.
 
-## Arquitetura
+## O que vou implementar
 
-```text
- ┌────────────────────────────────────────────────┐
- │ Comandos de domínio no Rust                    │
- │ (vendas, caixa, estoque, produtos, sync, ...)  │
- └────────────┬───────────────────────────────────┘
-              │ após COMMIT SQLite OK
-              ▼
- ┌────────────────────────────────────────────────┐
- │ event_bus.rs  (tokio::sync::broadcast)         │
- │ - publish(LocalEvent)                          │
- │ - subscribe() -> Receiver                       │
- └────────────┬───────────────────────────────────┘
-              ▼
- ┌────────────────────────────────────────────────┐
- │ GET /api/events  (SSE handler axum)            │
- │ - heartbeat 15s                                │
- │ - filtra por empresa_id (query param)          │
- └────────────┬───────────────────────────────────┘
-              ▼
- ┌────────────────────────────────────────────────┐
- │ localRealtimeClient.ts                         │
- │ - EventSource + reconnect/backoff              │
- │ - debounce/coalesce por domain                 │
- │ - dispara invalidate no QueryClient            │
- └────────────────────────────────────────────────┘
-```
+### 1. RPC `admin_zerar_empresa(p_empresa_id uuid, p_incluir_produtos bool)`
+- `SECURITY DEFINER`, com guard `is_super_admin(auth.uid())`.
+- Transacional. Apaga por `owner_id` da empresa: `lancamento_pagamentos`, `financeiro_lancamentos`, `compra_itens`, `compras`, `estoque_movimentacoes`, `caixa_movimentos`, `caixas`, `cobranca_whatsapp_logs`, `ifood_repasses`, `autorizacoes_log`, `funcionario_tentativas_pin`, `funcionario_lockouts`, vendas + itens + pagamentos (verifico nomes exatos). Se `p_incluir_produtos`, também `produtos`, `categorias_produto`, `lotes`.
+- **Não toca** em `empresas`, `empresa_membros`, `empresa_assinaturas`, `empresa_modulos`, `configuracoes_empresa`, `funcionarios`, `clientes`, `fornecedores` (configurável, mas default = preservar).
+- Retorna `jsonb` com contagem do que foi removido (auditoria).
 
----
+### 2. Botão em `/admin/empresas` (super admin)
+- "Zerar dados operacionais" com modal de confirmação dupla (digitar nome da empresa).
+- Checkbox "Incluir produtos".
+- Chama RPC via `supabaseAdmin` em `createServerFn` com `requireSupabaseAuth` + verificação `is_super_admin`.
 
-## Mudanças (escopo fechado — onda 1)
+### 3. Limpeza de cache local quando o owner muda / dados zeram
+- Em `AuthProvider`: no `SIGNED_IN`, se o `user.id` mudou desde a última sessão (chave `gp.lastUid` em localStorage), **purgar** `gp.rq.cache.v1`, todas as chaves `gp.outbox.*`, `gp.local.*`, IndexedDB do adapter local, e chamar `queryClient.clear()`.
+- Adicionar utilitário `purgeLocalState(reason)` em `src/integrations/data/local-purge.ts` que centraliza isso.
+- Botão "Limpar cache local desta máquina" em `Configurações > Sincronização` para o usuário rodar manualmente.
 
-Onda 1 cobre: **vendas, caixa, estoque, produtos, sync/outbox, terminais**.
-Onda 2 (futura, não nesta PR): financeiro, contas a receber/pagar, clientes, fornecedores, funcionários, compras, dashboard.
+### 4. Outbox / sync: tratar 401/400 "não autenticado"
+- No worker que processa a outbox (provavelmente em `realtime-client` / `local-server` / `adapters/cloud.ts` — vou localizar): se a resposta for 401 ou 400 com mensagem auth, chamar `supabase.auth.refreshSession()` e tentar **1 vez** de novo.
+- Se falhar de novo: marcar o item da fila como `paused_auth`, parar o loop, e exibir banner "Sessão expirada — refaça login para sincronizar" em vez de logar erro infinito.
+- Se o item da outbox pertence a um `owner_id` que não bate com o usuário atual: descartar silenciosamente (item órfão de empresa que foi trocada/zerada).
 
-### Backend Rust
+### 5. Auditoria mínima dos cards do Dashboard
+- Em DEV, cada hook do Dashboard (`useDashboard`, `useFinanceiroIndicadores`, `useEstoque` low-stock) loga no console:
+  `[DASH_AUDIT] card=contas_receber owner=… filtros={tipo:receber,status:[pendente,parcial,vencido]} count=X total=R$ Y`
+- Garante que TODA query do Dashboard tem `.eq('owner_id', user.id)` explícito. Vou auditar os hooks listados e adicionar onde faltar.
 
-1. **`src-tauri/src/event_bus.rs`** (novo)
-   - `tokio::sync::broadcast::channel::<LocalEvent>(1024)` armazenado em `AppState`.
-   - Struct `LocalEvent` serializável com os campos exatos do brief: `id`, `type`, `domain`, `action`, `entity_id`, `empresa_id`, `terminal_id`, `operator_id`, `timestamp` (ms), `source`, `version: 1`.
-   - Helper `publish_after_commit(bus, event)` — chamada **apenas após** o `tx.commit()? ` retornar `Ok`.
-   - Slow-consumer policy: `RecvError::Lagged` → cliente recebe um evento `{ type: "realtime.lagged" }` e re-sincroniza via invalidate global.
+### 6. Não vou mexer
+- Layout, regras visuais, motor financeiro (`src/lib/finance/*` já está correto), Tauri, frontend de PDV/Vendas/Compras, RLS existente.
 
-2. **`src-tauri/src/local_server.rs`** — adicionar rota `GET /api/events`
-   - Handler SSE com `axum::response::sse`.
-   - Query param opcional `empresa_id` para filtrar.
-   - Keep-alive 15s (`KeepAlive::default().interval(Duration::from_secs(15))`).
-   - Header `Cache-Control: no-cache`, `X-Accel-Buffering: no`.
-   - Stream que faz `BroadcastStream` → `Event::default().id(uuid).event("message").json_data(evt)`.
+## Ordem de execução
 
-3. **Pontos de publicação (onda 1)** — inserir 1 `bus.publish(...)` logo após cada `commit`:
-   - venda finalizar → `vendas.created` + `estoque.updated` + `caixa.updated`
-   - venda cancelar/atualizar item → `vendas.updated` + `estoque.updated`
-   - caixa abrir → `caixa.opened`
-   - caixa fechar → `caixa.closed`
-   - movimento de caixa → `caixa.updated`
-   - produto upsert/delete → `produtos.updated`
-   - movimento de estoque → `estoque.updated`
-   - sync orquestrador ao terminar lote → `sync.updated`
-   - terminal heartbeat (já existe) → `terminais.updated` (com debounce 5s no lado do bus)
+1. Migration: criar RPC `admin_zerar_empresa` + helper `is_super_admin` (se não existir já).
+2. `local-purge.ts` + hook no `AuthProvider` para purgar em troca de usuário.
+3. Auditoria de owner_id nos hooks do Dashboard + log `[DASH_AUDIT]`.
+4. Retry com refresh + descarte de órfãos na outbox.
+5. UI: botão "Zerar empresa" em `/admin/empresas`, botão "Limpar cache local" em `/configuracoes`.
+6. Validar: logar com a empresa teste, abrir Dashboard → tudo deve zerar; rodar "Zerar empresa" no banco; erro do Caixa some.
 
-### Frontend
+## Riscos
 
-4. **`src/integrations/realtime/localRealtimeClient.ts`** (novo)
-   - Singleton com `connect(baseUrl, empresaId, queryClient)`.
-   - `new EventSource(\`${baseUrl}/api/events?empresa_id=...\`)`.
-   - `onmessage` → parse → coalescer (50ms) → `dispatchInvalidate(domain)`.
-   - Reconnect com backoff exponencial: 1s → 2s → 5s → 10s → 30s (cap).
-   - `onerror`: marca status `reconnecting`; após 3 falhas seguidas → `disconnected`.
-   - Cleanup em `disconnect()`.
-   - Logs: `[LOCAL_REALTIME]`, `[REALTIME_EVENT]`, `[REALTIME_SSE]`, `[REALTIME_RECONNECT]`, `[REALTIME_INVALIDATE]`.
-
-5. **`src/integrations/realtime/invalidationMap.ts`** (novo)
-   - Map estático `domain → queryKey[]`:
-     ```ts
-     vendas    → ["vendas","dashboard","caixa","financeiro"]
-     estoque   → ["estoque","produtos","dashboard"]
-     caixa     → ["caixa","dashboard","financeiro"]
-     produtos  → ["produtos","pdv-busca-local"]
-     sync      → ["sync"]
-     terminais → ["terminais"]
-     ```
-   - `invalidate(qc, domain)` itera e chama `qc.invalidateQueries({ queryKey: [k] })`.
-
-6. **`src/hooks/useLocalRealtime.ts`** (novo)
-   - Lê `serverConnection` (host/port atual) + `empresaId` do contexto.
-   - Em `useEffect`, conecta o singleton; desconecta no unmount.
-   - Expõe `{ status: 'connected'|'reconnecting'|'disconnected' }`.
-
-7. **Integração no `__root.tsx`** (1 linha)
-   - Renderiza `<LocalRealtimeProvider />` que apenas chama o hook acima e injeta o `QueryClient`.
-   - Sem UI invasiva.
-
-8. **`src/components/layout/RealtimeStatusDot.tsx`** (novo, discreto)
-   - Bolinha 6px ao lado do `SyncStatusPill` no header desktop:
-     - verde = `connected`, amarelo = `reconnecting`, cinza = `disconnected`.
-   - Tooltip: "Realtime local: conectado/reconectando/desconectado".
-
-### Segurança/Performance
-
-- Payload do evento NÃO inclui senha/PIN/token/colunas sensíveis — só metadados (`entity_id`, `domain`, `action`, IDs).
-- Coalescing de 50ms no front: múltiplos eventos do mesmo domínio em janela curta = 1 invalidate.
-- Debounce 5s no `terminais.heartbeat` no servidor para evitar flood.
-- `invalidateQueries` com `refetchType: 'active'` — só refetcha o que está na tela.
-
----
-
-## Detalhes técnicos
-
-**Crates Rust já presentes** (verificar `Cargo.toml`): `axum`, `tokio`, `serde`, `uuid`. SSE precisa de feature `axum/sse` ou `axum::response::sse` (incluso por padrão no axum 0.7+). Se faltar `tokio-stream` para `BroadcastStream`, adicionar com feature `sync`.
-
-**LocalEvent (Rust)**:
-```rust
-#[derive(Clone, Serialize, Debug)]
-pub struct LocalEvent {
-  pub id: String,
-  #[serde(rename = "type")] pub kind: String,        // "entity.changed"
-  pub domain: String,                                // "vendas" | ...
-  pub action: String,                                // "created"|"updated"|"deleted"|...
-  pub entity_id: Option<String>,
-  pub empresa_id: Option<String>,
-  pub terminal_id: Option<String>,
-  pub operator_id: Option<String>,
-  pub timestamp: i64,                                // ms
-  pub source: String,                                // "local"|"lan"|"sync"|"cloud"
-  pub version: u32,                                  // 1
-}
-```
-
-**AppState**: adicionar campo `pub event_bus: broadcast::Sender<LocalEvent>`. Inicializar com `broadcast::channel(1024).0` no startup.
-
-**Ordem de commit**: nunca chamar `bus.send` dentro do escopo de uma transação. Padrão:
-```rust
-let result = {
-  let mut tx = conn.transaction()?;
-  // ... writes ...
-  tx.commit()?;
-  outcome
-};
-let _ = state.event_bus.send(LocalEvent { ... });
-Ok(result)
-```
-
-**Cliente SSE — reconnect**: o `EventSource` nativo já reconecta, mas com janela fixa. Para honrar o backoff exponencial pedido, fechamos manualmente em `onerror` e reagendamos via `setTimeout` com jitter.
-
-**Filtragem por empresa**: lado Rust descarta eventos cujo `empresa_id` ≠ ao filtro do cliente (Option compare; se cliente não passou, recebe tudo — útil pra debug).
-
-**Sem quebra**:
-- Tudo é aditivo. Se o servidor Rust falhar ao subir o broadcast, rotas existentes continuam funcionando.
-- Se `/api/events` não responder, o front continua usando refetch periódico (já existe via `staleTime` do React Query).
-
----
-
-## Tarefas (ordem de execução)
-
-1. Rust: `event_bus.rs` + integrar no `AppState`.
-2. Rust: rota `GET /api/events` (SSE).
-3. Rust: publicar nos 6 domínios da onda 1 após commit.
-4. Front: `localRealtimeClient.ts` + `invalidationMap.ts`.
-5. Front: `useLocalRealtime` + `LocalRealtimeProvider` no `__root.tsx`.
-6. Front: `RealtimeStatusDot` no header.
-7. Validação: smoke test manual (venda → estoque atualiza sem F5).
-
----
-
-## Out of scope desta PR
-
-- WebSocket / fallback.
-- Onda 2 (financeiro, contas, clientes, fornecedores, funcionários, compras, dashboard agregado).
-- Push para terminais via mDNS/broadcast — terminais já se conectam ao servidor local via HTTP, então o mesmo `/api/events` resolve.
-- Persistência de eventos / replay histórico.
-- Testes automatizados (a verificação é manual nesta onda).
-
-Confirma que posso seguir com a onda 1 nesses termos?
+- RPC destrutiva: mitigado com guard super_admin + confirmação dupla na UI + retorno auditado.
+- Purgar cache em troca de usuário pode irritar quem alterna entre empresas legítimas — por isso a chave é `user.id` (não empresa), e a primeira sessão de um user em uma máquina não dispara purga.
+- Refresh de sessão automático: limitado a 1 retry para evitar loop.
