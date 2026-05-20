@@ -198,6 +198,7 @@ function FinanceContent() {
   const posicao = usePosicaoFinanceira(filtroPosicao).data;
   const performance = usePerformancePeriodo(filtroPerformance).data;
   const receberOrigem = useReceberOrigem(filtroReceber).data;
+  const resultadoReal = useFinanceiroResultadoReal();
 
   const indicadores = useFinanceiroIndicadores();
   const ind = indicadores.data;
