@@ -9,7 +9,7 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "dev:desktop": "vite dev --config vite.config.desktop.ts",
-    "build:desktop": "vite build --config vite.config.desktop.ts && node scripts/prepare-tauri-dist.mjs",
+    "build:desktop": "node scripts/build-desktop.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "npm run build:desktop && tauri build",
