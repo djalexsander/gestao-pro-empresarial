@@ -6194,6 +6194,11 @@ async fn compra_criar_handler(
         r.compra_local_uuid, compra_remote_id, r.idempotente, outbox_status
     );
     eprintln!("[LOCAL_PURCHASE_OUTBOX] enqueue action=criar local={}", r.compra_local_uuid);
+    if !r.idempotente {
+        event_bus::publish(
+            LocalEvent::new("compras", "created").with_entity(&r.compra_local_uuid),
+        );
+    }
     Ok(Json(CompraCriarResponse {
         compra_id,
         compra_local_uuid: r.compra_local_uuid,
