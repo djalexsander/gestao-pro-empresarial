@@ -162,6 +162,7 @@ function DashboardPage() {
   const [fim, setFim] = useState(formatDateInput(defaultRange.fim));
   const [kpiTipo, setKpiTipo] = useState<KpiTipo | null>(null);
   const [kpiOpen, setKpiOpen] = useState(false);
+  const resultadoReal = useFinanceiroResultadoReal();
 
   // ============ Período-scoped queries (cards/KPIs respeitam o filtro) ============
   const periodoLabel = useMemo(() => {
