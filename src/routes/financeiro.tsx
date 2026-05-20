@@ -546,6 +546,11 @@ function FinanceContent() {
 
       </div>
 
+      {/* Onda 5: Fiado por cliente + iFood detalhado */}
+      <FiadoIfoodBlocos />
+
+
+
 
 
       {/* Bloco 3: A receber por origem + operacional */}
