@@ -84,6 +84,7 @@ import { SaldoPrevistoDialog } from "@/components/financeiro/SaldoPrevistoDialog
 import { useFinanceiroResultadoReal } from "@/hooks/useFinanceiroResultadoReal";
 import { useFiadoPorCliente } from "@/hooks/useFiadoPorCliente";
 import { useIfoodRepasses } from "@/hooks/useIfoodRepasses";
+import { useAuditoriaRateio } from "@/hooks/useAuditoriaRateio";
 
 
 type FinTab = "receber" | "pagar" | "fluxo" | "fluxo-financeiro";
