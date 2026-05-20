@@ -156,8 +156,6 @@ export async function descobrirServidoresLan(opts?: {
   }
 
 
-  const encontrados: ServidorEncontrado[] = [];
-  const dedup = new Set<string>();
   let feitos = 0;
 
   // Worker pool simples.
