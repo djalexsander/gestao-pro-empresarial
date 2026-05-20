@@ -5884,6 +5884,11 @@ async fn fornecedor_alterar_status_handler(
             }
         }
     }
+    if !r.idempotente {
+        event_bus::publish(
+            LocalEvent::new("fornecedores", "status_changed").with_entity(&r.fornecedor_local_uuid),
+        );
+    }
     Ok(Json(FornecedorSimpleResponse {
         fornecedor_id: r.fornecedor_remote_id.clone().unwrap_or_else(|| r.fornecedor_local_uuid.clone()),
         fornecedor_local_uuid: r.fornecedor_local_uuid,
