@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MoreHorizontal } from "lucide-react";
 import {
-  useAdminEmpresas, useDeleteEmpresa, useSetEmpresaStatus,
+  useAdminEmpresas, useDeleteEmpresa, useSetEmpresaStatus, useZerarEmpresa,
   type AdminEmpresa, type EmpresaStatus,
 } from "@/hooks/useAdmin";
 import { EmpresaDialog } from "@/components/admin/EmpresaDialog";
