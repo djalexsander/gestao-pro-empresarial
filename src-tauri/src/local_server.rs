@@ -4558,6 +4558,10 @@ pub async fn start(
         return Err(msg);
     }
 
+    // Realtime bus: inicializa antes do router subir, para que qualquer
+    // handler possa publicar eventos sem checar se o canal existe.
+    let _ = event_bus::init();
+
     let ctx = AppCtx {
         upstream: upstream.clone(),
         http: reqwest::Client::builder()
