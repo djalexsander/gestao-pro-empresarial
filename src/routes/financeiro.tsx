@@ -1774,6 +1774,7 @@ function FluxoFinanceiroPanel() {
   const [periodo, setPeriodo] = useState<FluxoPeriodo>("30d");
   const { inicio, fim } = useMemo(() => calcRangeFluxo(periodo), [periodo]);
   const [conciliarLoteOpen, setConciliarLoteOpen] = useState(false);
+  const resultadoReal = useFinanceiroResultadoReal();
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["financeiro", "fluxo-financeiro", inicio, fim],
