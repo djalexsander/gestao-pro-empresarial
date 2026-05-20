@@ -7034,6 +7034,9 @@ async fn funcionario_excluir_local_handler(
     ).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     eprintln!("[FUNCIONARIOS_OUTBOX] excluir local_uuid={}", result.funcionario_local_uuid);
     let (status, remote) = try_push_func(&ctx, &headers, &result.funcionario_local_uuid).await;
+    event_bus::publish(
+        LocalEvent::new("funcionarios", "deleted").with_entity(&result.funcionario_local_uuid),
+    );
     Ok(Json(FuncionarioMutacaoResponse {
         funcionario_id: result.funcionario_local_uuid,
         idempotente: false, outbox_status: status, remote_id: remote,
