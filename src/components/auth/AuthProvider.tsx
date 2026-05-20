@@ -4,6 +4,7 @@ import { dataClient } from "@/integrations/data";
 import { registrarAuditLog } from "@/hooks/useAdmin";
 import { lockErp } from "@/lib/erpUnlock";
 import { withTimeout, TimeoutError } from "@/lib/withTimeout";
+import { isDesktop } from "@/integrations/data/mode";
 
 interface AuthContextValue {
   user: User | null;
@@ -14,11 +15,24 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+// Boot local-first: no desktop NUNCA bloqueamos a UI esperando o Supabase.
+// A sessão cacheada (Supabase mantém em localStorage) é restaurada em
+// background. Os gates (RequireAuth) só redirecionam para /auth se realmente
+// não houver usuário ao final. No web mantemos o comportamento clássico
+// (loading=true) para evitar flicker antes de saber se está logado.
+const DESKTOP_BOOT_LOCAL_FIRST = isDesktop();
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!DESKTOP_BOOT_LOCAL_FIRST);
   const lastEventUserRef = useRef<string | null>(null);
+  if (DESKTOP_BOOT_LOCAL_FIRST && typeof window !== "undefined") {
+    // log único de boot
+    (window as unknown as Record<string, unknown>).__gpBootLocalFirstLogged ||
+      (console.log("[BOOT_LOCAL_FIRST] Desktop: render imediato, auth em background."),
+      ((window as unknown as Record<string, unknown>).__gpBootLocalFirstLogged = true));
+  }
 
   useEffect(() => {
     const subscription = dataClient.auth.onAuthStateChange((event, sess) => {
