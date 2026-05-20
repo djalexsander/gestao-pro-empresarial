@@ -4897,6 +4897,16 @@ async fn cancelar_venda_local_handler(
         r.cancelamento_local_uuid, r.idempotente, r.qtd_itens_estornados
     );
 
+    // Realtime: cancelamento confirmado afeta vendas, estoque, caixa e financeiro.
+    if !r.idempotente {
+        event_bus::publish_many([
+            LocalEvent::new("vendas", "cancelled").with_entity(&r.venda_local_uuid),
+            LocalEvent::new("estoque", "updated"),
+            LocalEvent::new("caixa", "updated"),
+            LocalEvent::new("financeiro", "updated"),
+        ]);
+    }
+
     let mut outbox_status = r.outbox_status.clone();
     let mut remote_response: Option<String> = None;
     if !r.idempotente && ctx.upstream.is_some() {
@@ -7216,6 +7226,9 @@ async fn produto_editar_local_handler(
     ).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     eprintln!("[PRODUTOS_OUTBOX] editar local_uuid={}", result.produto_local_uuid);
     let (status, remote) = try_push_prod(&ctx, &headers, &result.produto_local_uuid).await;
+    event_bus::publish(
+        LocalEvent::new("produtos", "updated").with_entity(&result.produto_local_uuid),
+    );
     Ok(Json(ProdutoMutacaoResponse {
         produto_id: result.produto_local_uuid,
         idempotente: false, outbox_status: status, remote_id: remote,
@@ -7246,6 +7259,9 @@ async fn produto_alterar_status_local_handler(
         result.produto_local_uuid, req.status
     );
     let (status, remote) = try_push_prod(&ctx, &headers, &result.produto_local_uuid).await;
+    event_bus::publish(
+        LocalEvent::new("produtos", "status_changed").with_entity(&result.produto_local_uuid),
+    );
     Ok(Json(ProdutoMutacaoResponse {
         produto_id: result.produto_local_uuid,
         idempotente: false, outbox_status: status, remote_id: remote,
@@ -7268,6 +7284,10 @@ async fn produto_excluir_local_handler(
     ).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     eprintln!("[PRODUTOS_OUTBOX] excluir local_uuid={}", result.produto_local_uuid);
     let (status, remote) = try_push_prod(&ctx, &headers, &result.produto_local_uuid).await;
+    event_bus::publish_many([
+        LocalEvent::new("produtos", "deleted").with_entity(&result.produto_local_uuid),
+        LocalEvent::new("estoque", "updated"),
+    ]);
     Ok(Json(ProdutoMutacaoResponse {
         produto_id: result.produto_local_uuid,
         idempotente: false, outbox_status: status, remote_id: remote,
