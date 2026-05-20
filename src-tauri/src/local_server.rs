@@ -5397,6 +5397,11 @@ async fn cliente_criar_handler(
         }
     }
     let cliente_id = cliente_remote_id.clone().unwrap_or_else(|| r.cliente_local_uuid.clone());
+    if !r.idempotente {
+        event_bus::publish(
+            LocalEvent::new("clientes", "created").with_entity(&r.cliente_local_uuid),
+        );
+    }
     Ok(Json(ClienteCriarResponse {
         cliente_id,
         cliente_local_uuid: r.cliente_local_uuid,
