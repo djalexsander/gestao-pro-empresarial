@@ -2651,6 +2651,14 @@ async fn registrar_caixa_abrir_handler(
         }
     }
 
+    // Realtime: caixa aberto com sucesso.
+    if !result.idempotente {
+        event_bus::publish(
+            LocalEvent::new("caixa", "opened").with_entity(&result.local_uuid),
+        );
+        event_bus::publish(LocalEvent::new("financeiro", "updated"));
+    }
+
     Ok(Json(AbrirCaixaLocalResponse {
         caixa_id: result.local_uuid,
         idempotente: result.idempotente,
