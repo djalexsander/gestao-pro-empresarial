@@ -2077,13 +2077,28 @@ function FiadoIfoodBlocos() {
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       {/* Fiado por cliente */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Fiado por cliente
           </p>
-          <span className="text-[11px] text-muted-foreground">
-            {fiado.linhas.length} cliente(s)
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-muted-foreground">
+              {fiado.linhas.length} cliente(s)
+            </span>
+            <ExportTabelaButton
+              prefix="financeiro_fiado_clientes"
+              titulo="Fiado por cliente"
+              rows={fiado.linhas}
+              columns={[
+                { header: "Cliente", accessor: (l) => l.cliente_nome, type: "text" },
+                { header: "Títulos", accessor: (l) => l.qtd_titulos, type: "integer" },
+                { header: "Vencidos", accessor: (l) => l.qtd_vencidos, type: "integer" },
+                { header: "Total vencido (R$)", accessor: (l) => l.total_vencido, type: "currency" },
+                { header: "Em aberto (R$)", accessor: (l) => l.total_aberto, type: "currency" },
+                { header: "Próximo vencimento", accessor: (l) => l.proximo_vencimento ?? "", type: "date" },
+              ]}
+            />
+          </div>
         </div>
         <Card>
           <CardContent className="p-0">
