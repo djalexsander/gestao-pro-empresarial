@@ -7259,6 +7259,9 @@ async fn produto_alterar_status_local_handler(
         result.produto_local_uuid, req.status
     );
     let (status, remote) = try_push_prod(&ctx, &headers, &result.produto_local_uuid).await;
+    event_bus::publish(
+        LocalEvent::new("produtos", "status_changed").with_entity(&result.produto_local_uuid),
+    );
     Ok(Json(ProdutoMutacaoResponse {
         produto_id: result.produto_local_uuid,
         idempotente: false, outbox_status: status, remote_id: remote,
