@@ -2178,25 +2178,73 @@ export async function fetchSyncOverview(
 export async function sincronizarTudoAgora(
   cfg: TerminalConexaoConfig | undefined,
 ): Promise<{ ok: number; failed: number; perDomain: Record<string, boolean> }> {
-  const flushes: Array<[string, () => Promise<unknown>]> = [
-    ["estoque",       () => flushOutbox(cfg)],
-    ["vendas",        () => flushOutboxVendas(cfg)],
-    ["cancelamentos", () => flushOutboxCancelamentos(cfg)],
-    ["caixa",         () => flushOutboxCaixa(cfg)],
-    ["financeiro",    () => flushOutboxFinanceiro(cfg)],
-    ["clientes",      () => flushOutboxClientes(cfg)],
-    ["fornecedores",  () => flushOutboxFornecedores(cfg)],
-    ["compras",       () => flushOutboxCompras(cfg)],
+  // Reautenticação: pega token atual; se ausente/expirado, força refresh.
+  let authToken: string | null = null;
+  try {
+    const { supabase } = await import("@/integrations/supabase/client");
+    const { data: s1 } = await supabase.auth.getSession();
+    authToken = s1.session?.access_token ?? null;
+    if (!authToken) {
+      const { data: s2 } = await supabase.auth.refreshSession();
+      authToken = s2.session?.access_token ?? null;
+    }
+  } catch {
+    // silencia — flushes continuam sem token (compat)
+  }
+
+  const flushes = (token: string | null): Array<[string, () => Promise<unknown>]> => [
+    ["estoque",       () => flushOutbox(cfg, token)],
+    ["vendas",        () => flushOutboxVendas(cfg, token)],
+    ["cancelamentos", () => flushOutboxCancelamentos(cfg, token)],
+    ["caixa",         () => flushOutboxCaixa(cfg, token)],
+    ["financeiro",    () => flushOutboxFinanceiro(cfg, token)],
+    ["clientes",      () => flushOutboxClientes(cfg, token)],
+    ["fornecedores",  () => flushOutboxFornecedores(cfg, token)],
+    ["compras",       () => flushOutboxCompras(cfg, token)],
   ];
-  const perDomain: Record<string, boolean> = {};
-  let ok = 0, failed = 0;
-  const results = await Promise.allSettled(flushes.map(([, fn]) => fn()));
-  results.forEach((res, i) => {
-    const name = flushes[i][0];
-    const success = res.status === "fulfilled" && res.value !== null;
-    perDomain[name] = success;
-    if (success) ok++; else failed++;
-  });
+
+  const runRound = async (token: string | null) => {
+    const list = flushes(token);
+    const perDomain: Record<string, boolean> = {};
+    const results = await Promise.allSettled(list.map(([, fn]) => fn()));
+    results.forEach((res, i) => {
+      perDomain[list[i][0]] = res.status === "fulfilled" && res.value !== null;
+    });
+    return perDomain;
+  };
+
+  let perDomain = await runRound(authToken);
+  const anyFailed = Object.values(perDomain).some((v) => !v);
+
+  // Se algo falhou, tenta refresh + retry único dos domínios que falharam.
+  if (anyFailed) {
+    let refreshed: string | null = null;
+    try {
+      const { supabase } = await import("@/integrations/supabase/client");
+      const { data } = await supabase.auth.refreshSession();
+      refreshed = data.session?.access_token ?? null;
+    } catch {
+      refreshed = null;
+    }
+    if (refreshed && refreshed !== authToken) {
+      const list = flushes(refreshed);
+      const toRetry = list.filter(([name]) => !perDomain[name]);
+      const results = await Promise.allSettled(toRetry.map(([, fn]) => fn()));
+      results.forEach((res, i) => {
+        const name = toRetry[i][0];
+        perDomain[name] = res.status === "fulfilled" && res.value !== null;
+      });
+      if (typeof console !== "undefined") {
+        console.info(
+          "[SYNC_RETRY_AUTH] refreshed_session retried=%d",
+          toRetry.length,
+        );
+      }
+    }
+  }
+
+  const ok = Object.values(perDomain).filter(Boolean).length;
+  const failed = Object.values(perDomain).length - ok;
   if (typeof console !== "undefined") {
     console.info(
       "[SYNC_DONE] flush_all ok=%d failed=%d perDomain=%o",

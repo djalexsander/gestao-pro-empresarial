@@ -17,6 +17,15 @@ export function useDashboard() {
     queryKey: ["dashboard", user?.id],
     enabled: !!user,
     refetchInterval: 60_000,
-    queryFn: () => dataClient.dashboard.carregar(),
+    queryFn: async () => {
+      const data = await dataClient.dashboard.carregar();
+      if (import.meta.env.DEV) {
+        console.debug("[DASH_AUDIT] dashboard.carregar", {
+          owner_id: user?.id,
+          data,
+        });
+      }
+      return data;
+    },
   });
 }
