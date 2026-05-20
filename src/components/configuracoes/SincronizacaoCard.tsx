@@ -52,7 +52,9 @@ const DOMAIN_LABEL: Record<string, string> = {
 export function SincronizacaoCard({ cfg }: Props) {
   const [ov, setOv] = useState<SyncOverview | null>(null);
   const [busy, setBusy] = useState(false);
+  const [purging, setPurging] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const queryClient = useQueryClient();
 
   const recarregar = async () => {
     const r = await fetchSyncOverview(cfg);
