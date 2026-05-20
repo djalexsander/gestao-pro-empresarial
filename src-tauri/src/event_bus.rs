@@ -17,15 +17,31 @@
 
 use once_cell::sync::OnceCell;
 use serde::Serialize;
+use std::collections::VecDeque;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::broadcast;
 
 /// Capacidade do canal. ~1024 eventos pendentes por consumidor é suficiente
 /// para pequenas lojas / 2-8 terminais; o `Lagged` cobre o resto.
 const CHANNEL_CAPACITY: usize = 1024;
 
+/// Tamanho do ring buffer de replay. Cobre reconexões curtas (até alguns
+/// minutos de tráfego intenso) sem inflar memória. Eventos mais antigos
+/// caem para o resync global (`realtime.lagged`).
+const REPLAY_CAPACITY: usize = 500;
+
 /// Bus global. Inicializado uma única vez no boot do servidor local.
 /// Acessível por qualquer handler / scheduler sem precisar passar `AppCtx`.
 static BUS: OnceCell<broadcast::Sender<LocalEvent>> = OnceCell::new();
+
+/// Sequência monotônica global. Cada evento publicado recebe um seq único.
+/// O front usa esse seq como `Last-Event-ID` na reconexão SSE.
+static SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// Ring buffer (seq, evento) para replay em reconexões. Protegido por
+/// `std::sync::Mutex` — locks são micro (push/drena), sem await dentro.
+static REPLAY: OnceCell<Mutex<VecDeque<(u64, LocalEvent)>>> = OnceCell::new();
 
 /// Evento padronizado emitido pelo servidor local.
 /// Mantém os campos exatos definidos no brief de realtime.
