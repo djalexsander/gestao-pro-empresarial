@@ -1774,6 +1774,7 @@ function FluxoFinanceiroPanel() {
   const [periodo, setPeriodo] = useState<FluxoPeriodo>("30d");
   const { inicio, fim } = useMemo(() => calcRangeFluxo(periodo), [periodo]);
   const [conciliarLoteOpen, setConciliarLoteOpen] = useState(false);
+  const resultadoReal = useFinanceiroResultadoReal();
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["financeiro", "fluxo-financeiro", inicio, fim],
@@ -1848,29 +1849,114 @@ function FluxoFinanceiroPanel() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatCard
-          label="Receitas"
-          value={formatBRL(totais.receitas)}
-          icon={ArrowDownToLine}
-          iconTone="success"
-          hint="Lançamentos recebidos no período"
-        />
-        <StatCard
-          label="Despesas"
-          value={formatBRL(totais.despesas)}
-          icon={ArrowUpFromLine}
-          iconTone="warning"
-          hint="Lançamentos pagos no período"
-        />
-        <StatCard
-          label="Saldo gerencial"
-          value={formatBRL(totais.saldo)}
-          icon={TrendingUp}
-          iconTone={totais.saldo >= 0 ? "success" : "danger"}
-          hint="Receitas − Despesas"
-        />
+      {/* Onda 4: três seções claras + resultado operacional real */}
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Operacionais (recebidas)
+        </p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <StatCard
+            label="Receita bruta vendida"
+            value={formatBRL(resultadoReal.resultado.receita_bruta)}
+            icon={ShoppingCart}
+            iconTone="info"
+          />
+          <StatCard
+            label="Recebido efetivo"
+            value={formatBRL(resultadoReal.resultado.recebido)}
+            icon={ArrowDownToLine}
+            iconTone="success"
+            hint="Entrou em caixa/banco"
+          />
+          <StatCard
+            label="Receitas administrativas"
+            value={formatBRL(totais.receitas)}
+            icon={HandCoins}
+            iconTone="success"
+            hint="Lançamentos extras recebidos"
+          />
+        </div>
       </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Previstas (a receber)
+        </p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <StatCard
+            label="A receber (vendas)"
+            value={formatBRL(resultadoReal.resultado.previsto)}
+            icon={Clock}
+            iconTone="warning"
+            hint="Fiado, parciais, pendentes"
+          />
+          <StatCard
+            label="Custos pendentes"
+            value={formatBRL(resultadoReal.resultado.custos_pendentes)}
+            icon={Package}
+            iconTone="warning"
+            hint="Aguardando recebimento"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Saídas
+        </p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <StatCard
+            label="Despesas administrativas"
+            value={formatBRL(totais.despesas)}
+            icon={ArrowUpFromLine}
+            iconTone="danger"
+            hint="Lançamentos pagos no período"
+          />
+          <StatCard
+            label="Taxas pagas"
+            value={formatBRL(resultadoReal.resultado.taxas)}
+            icon={Receipt}
+            iconTone="warning"
+            hint="Cartão, iFood, Pix"
+          />
+          <StatCard
+            label="Custo realizado"
+            value={formatBRL(resultadoReal.resultado.custos_realizados)}
+            icon={Package}
+            iconTone="warning"
+            hint="Custo das vendas recebidas"
+          />
+        </div>
+      </div>
+
+      <Card className="border-2 border-primary/30 bg-primary/5">
+        <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Resultado operacional real
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Recebido − taxas − custos realizados − despesas administrativas
+            </p>
+          </div>
+          <div className="text-right">
+            <p
+              className={cn(
+                "text-3xl font-bold tabular-nums",
+                resultadoReal.resultado.resultado_operacional_real - totais.despesas >= 0
+                  ? "text-success"
+                  : "text-destructive",
+              )}
+            >
+              {formatBRL(resultadoReal.resultado.resultado_operacional_real - totais.despesas)}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Saldo gerencial só admin: {formatBRL(totais.saldo)}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
 
       <Card>
         <CardContent className="p-0">
