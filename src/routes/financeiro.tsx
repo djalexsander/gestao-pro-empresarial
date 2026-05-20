@@ -2262,14 +2262,36 @@ function AuditoriaRateioBloco() {
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Auditoria de rateio (últimos pagamentos)
         </p>
-        <span className="text-[11px] text-muted-foreground">
-          {totais.qtd} baixa(s) · bruto {formatBRL(totais.bruto)} · taxas −
-          {formatBRL(totais.taxa)} · líquido {formatBRL(totais.liquido)}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="hidden text-[11px] text-muted-foreground lg:inline">
+            {totais.qtd} baixa(s) · bruto {formatBRL(totais.bruto)} · taxas −
+            {formatBRL(totais.taxa)} · líquido {formatBRL(totais.liquido)}
+          </span>
+          <ExportTabelaButton
+            prefix="financeiro_auditoria_rateio"
+            titulo="Auditoria de rateio"
+            rows={linhas}
+            columns={[
+              { header: "Data", accessor: (l) => l.data_pagamento, type: "date" },
+              { header: "Título", accessor: (l) => l.descricao, type: "text" },
+              { header: "Cliente", accessor: (l) => l.cliente, type: "text" },
+              { header: "Forma", accessor: (l) => l.forma, type: "text" },
+              { header: "Valor (R$)", accessor: (l) => l.valor, type: "currency" },
+              { header: "% do título", accessor: (l) => l.percentual, type: "number" },
+              { header: "Taxa (R$)", accessor: (l) => l.taxa, type: "currency" },
+              { header: "Líquido (R$)", accessor: (l) => l.liquido, type: "currency" },
+            ]}
+            resumo={[
+              { label: "Bruto", valor: formatBRL(totais.bruto) },
+              { label: "Taxas", valor: `−${formatBRL(totais.taxa)}`, tone: "danger" },
+              { label: "Líquido", valor: formatBRL(totais.liquido), tone: "success" },
+            ]}
+          />
+        </div>
       </div>
       <Card>
         <CardContent className="p-0">
