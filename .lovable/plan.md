@@ -1,80 +1,93 @@
+## Objetivo
 
-# Refatoração — Motor Financeiro Real (proporcional, auditável, local-first)
+O app desktop (Tauri) deve abrir e renderizar **imediatamente com dados do SQLite local**, sem esperar Supabase. Sync cloud roda em background e nunca apaga cache local. Caixa aberto e vendas locais sobrevivem reinício offline. Terminais LAN continuam usando o servidor local.
 
-Esta é uma refatoração grande. Para não quebrar PDV/caixa/estoque/sincronização, vou implementar em **ondas incrementais**, cada uma autocontida e testável. Abaixo o escopo completo e a ordem.
+**Não vou:** trocar Tauri, trocar SQLite, migrar pra Electron, recriar adapters, mexer em endpoints de domínio que já funcionam.
 
-## Arquitetura proposta
+**Vou:** corrigir só o caminho de boot e as 5 regras que estão violadas hoje.
 
-```text
-src/lib/finance/
-  financeEngine.ts        ← núcleo puro (sem I/O): rateio, lucro/custo proporcional, líquido
-  taxas.ts                ← tabela de taxas por forma de pagamento (Pix, débito, crédito, iFood)
-  formasPagamento.ts      ← agregadores por forma (vendido, recebido, pendente, lucro, taxa)
-  resultadoReal.ts        ← Resultado operacional real = recebido líquido − custos realizados − taxas − despesas
-  fluxoCaixa.ts           ← separa Entradas Operacionais / Previstas / Saídas
-  types.ts                ← VendaFinanceira, Recebimento, RateioProporcional, ResultadoReal…
-  __tests__/              ← testes unitários do motor (Vitest)
-```
+---
 
-Princípios:
-- **Motor puro**: funções determinísticas, sem acesso a Supabase/SQLite. Recebem venda + pagamentos, devolvem números.
-- **Adapters chamam o motor**: `cloud.ts`, `local-server.ts`, `local-terminal.ts` continuam responsáveis por buscar dados; passam para o motor calcular.
-- **Sem migração obrigatória de schema** na primeira onda — todos os cálculos derivam de `vendas`, `venda_itens`, `lancamento_pagamentos`, `financeiro_lancamentos`, `ifood_repasses`. Migração só se for necessário persistir custo histórico (Onda 4).
+## Diagnóstico que farei antes de codar (1 sessão)
 
-## Fórmulas centrais
+Ler em paralelo, sem alterar:
+- `src-tauri/src/lib.rs`, `local_server.rs`, `db.rs` — confirmar que o SQLite já abre antes do webview e que `local_server` sobe sem rede.
+- `src/integrations/data/adapters/local-server.ts` e `local-terminal.ts` — ver se hoje fazem fallback pro cloud quando endpoint local responde.
+- `src/integrations/data/mode.ts` — ver se `getDataMode()` no desktop já resolve `local-server`/`local-terminal` sem internet.
+- `src/components/auth/AuthProvider.tsx`, `OperadorProvider`, `TerminalProvider` — identificar se algum deles **bloqueia render** esperando `supabase.auth.getUser()` ou sessão online.
+- `src/components/providers/QueryProvider.tsx` — confirmar `staleTime`, `gcTime`, persistência (provavelmente sem persister; é por isso que parece "vazio" no boot).
+- `src/components/shared/OfflineBanner.tsx`, `useLocalServerWatchdog` — entender o status visual atual.
+- `src/routes/__root.tsx` + `AppLayout` — achar todos os `Suspense`/loaders bloqueantes.
 
-```text
-percentual_recebido = valor_pago / valor_total
-custo_realizado    = custo_total × percentual_recebido
-lucro_realizado    = (valor_total − custo_total) × percentual_recebido
-custo_pendente     = custo_total − custo_realizado
-lucro_pendente     = lucro_total − lucro_realizado
+Saída do diagnóstico: lista exata dos pontos que bloqueiam, anotada em notas das tasks. **Não codifico nada antes disso.**
 
-receita_liquida    = Σ (valor_pago − taxa_forma_pagamento)
-lucro_liquido      = receita_liquida − custo_realizado − despesas_proporcionais
-resultado_real     = receita_liquida − custo_realizado − taxas − despesas
-```
+---
 
-Recebimento misto: rateio proporcional do custo/lucro por forma usando `valor_forma / total_pago`.
+## Mudanças (escopo fechado)
 
-## Ondas
+### 1. AuthProvider não bloqueia em desktop offline
+- Se `isDesktop()` e não há internet, render imediatamente com sessão local cacheada (`localStorage`/secure storage). Supabase `getSession()` roda em background; quando voltar, atualiza.
+- Logs: `[BOOT_LOCAL_FIRST]`, `[LOCAL_STATE_RESTORED]`.
 
-### Onda 1 — Motor puro + testes (esta entrega)
-- Criar `src/lib/finance/{types,taxas,financeEngine,formasPagamento,resultadoReal,fluxoCaixa}.ts`.
-- Testes Vitest cobrindo: parcial proporcional, misto, fiado 0%, 100%, taxas cartão/Pix/iFood, resultado real.
-- Logs `[FINANCE_ENGINE]`, `[LUCRO_PROPORCIONAL]`, `[CUSTO_PROPORCIONAL]` (apenas em DEV).
-- Nenhuma tela alterada ainda → zero risco de regressão.
+### 2. Persistência do React Query (cache que sobrevive reload)
+- Adicionar `@tanstack/react-query-persist-client` + `createSyncStoragePersister` no `QueryProvider` **somente no shell desktop**.
+- Resultado: ao reabrir, listas (produtos/clientes/estoque/financeiro) aparecem instantaneamente do cache enquanto o adapter local refaz a query.
 
-### Onda 2 — Indicadores financeiros usam o motor
-- Refatorar `useFinanceiroIndicadores`, `usePosicaoFinanceira`, `usePerformancePeriodo` para chamar `financeEngine` em vez dos cálculos atuais.
-- Adicionar campos: `receita_bruta`, `receita_liquida`, `recebido`, `previsto`, `pendente`, `lucro_bruto`, `lucro_liquido`, `custos_realizados`, `custos_pendentes`, `taxas`.
-- Manter contratos antigos por trás (campos legados continuam preenchidos) para não quebrar telas.
+### 3. Resolução de modo no boot prioriza local
+- Em `getDataMode()`: no desktop, se há `local.db` válido (checar via `invoke('local_db_status')` que vou adicionar no Rust), forçar `local-server`/`local-terminal` mesmo se houver internet. Cloud vira backup, não fonte.
 
-### Onda 3 — Dashboard + página Financeiro
-- Adicionar cards: Receita bruta, Receita líquida, Recebido (hoje/mês), Previsto, Pendente, Lucro bruto/líquido, Custos realizados/pendentes, Taxas, Vendas por forma de pagamento.
-- Bloco "Vendas por forma de pagamento" com colunas: vendido / recebido / pendente / custo / lucro bruto / lucro líquido / taxa / ticket médio / qtd.
+### 4. Adapter local nunca cai pra cloud silenciosamente em leitura
+- Revisar `local-server.ts`/`local-terminal.ts`: se endpoint local responde (mesmo vazio legítimo), **não** consultar cloud. Fallback cloud só quando local está fisicamente fora (timeout/erro de rede LAN), e mesmo assim sem sobrescrever cache local com vazio.
 
-### Onda 4 — Fluxo de caixa reestruturado
-- `relatorios.fluxo-caixa.tsx`: três seções — Entradas Operacionais / Entradas Previstas / Saídas — alimentadas por `fluxoCaixa.ts`.
-- Card "Resultado Operacional Real".
+### 5. Sync cloud → local NUNCA limpa local com resposta vazia
+- Adicionar guarda no caminho de sync (provavelmente em `local_server.rs` ou no orquestrador de sync TS): se payload remoto = `[]` ou erro, **manter snapshot local**. Só substituir quando vier payload com `count > 0` ou `last_sync` mais novo que o local.
+- Logs: `[LOCAL_CACHE_PRESERVED]`, `[CLOUD_SYNC_SKIPPED]`.
 
-### Onda 5 — Fiado por cliente + iFood detalhado
-- `fiado.tsx`: colunas vendido / recebido / pendente / vencido / lucro realizado / lucro pendente por cliente.
-- Bloco iFood: bruto / comissão / entrega / repasse / líquido / lucro líquido pós-taxas, alimentado por `ifood_repasses`.
+### 6. Caixa aberto sobrevive reinício
+- Garantir comando Tauri `caixa_aberto_local()` que lê da tabela `caixas` local com `status='aberto'`.
+- No boot do `CaixaProvider` (ou rota `/caixa`/`/pdv`), consultar primeiro o local; se houver caixa aberto, restaurar operador/terminal sem chamar Supabase.
+- Logs: `[CAIXA_RESTORE]`.
 
-### Onda 6 — Auditoria (opcional, depende de feedback)
-- Migração: tabela `financeiro_auditoria_rateio` registrando, para cada `lancamento_pagamento`, o percentual realizado, custo proporcional, lucro proporcional, forma de pagamento, operador, terminal, venda.
-- Trigger preenche no momento do recebimento.
+### 7. Status visual honesto
+- `OfflineBanner` passa a mostrar 3 estados separados: **Operando localmente / Sincronizando em segundo plano / Sem internet — dados locais**. Nunca "erro crítico" se `local.db` está OK.
+- Adicionar "Última sincronização: há X min" lendo de uma chave em `local_meta`.
 
-## Garantias de não-quebra
+### 8. Diagnóstico estendido (`/diagnostico` ou tela existente)
+- Adicionar bloco "Estado local" com: banco existe, schema version, contagens (produtos/clientes/vendas/caixa aberto), última venda local, outbox pendente, terminais conectados, última sync cloud, status cloud separado.
 
-- Motor é puro e novo → não afeta PDV, caixa, estoque, sincronização.
-- Adapters atuais (`cloud.ts`, `local-server.ts`, `local-terminal.ts`) continuam funcionando; novos campos são aditivos.
-- Offline/local-first preservado: todos os cálculos rodam no cliente a partir de dados já cacheados.
-- Sem alteração em vendas históricas ou movimentações.
+### 9. Sync em background
+- Garantir que o orquestrador de sync (já existe) roda via `setInterval` em web worker / task Rust, **nunca no caminho de render**. Cancela limpo no `beforeunload`.
 
-## Esta entrega (Onda 1)
+---
 
-Vou implementar agora **apenas a Onda 1**: criar o motor + testes. Isso valida as fórmulas antes de tocar nas telas. Nas próximas mensagens você pode pedir "seguir para Onda 2/3/…" e eu ligo o motor às telas progressivamente — assim cada passo é revisável no preview sem risco de quebrar o PDV.
+## Fora de escopo (não toco agora)
 
-Se você preferir que eu faça **todas as ondas de uma vez**, me avise e eu sigo direto (vai gerar um diff bem maior).
+- Reescrever protocolo LAN, schema SQLite, outbox, backup/restore.
+- Adicionar novos módulos de domínio.
+- Mudar fluxo de auth para login offline novo (uso o cache existente).
+- UI nova além dos status no banner e bloco diagnóstico.
+
+---
+
+## Tasks (ordem de execução)
+
+1. Diagnóstico de boot (leitura + notas).
+2. Persister do React Query no shell desktop.
+3. AuthProvider non-blocking em desktop offline.
+4. `getDataMode()` prioriza local quando `local.db` válido.
+5. Guarda anti-wipe no sync cloud→local.
+6. Restauração de caixa aberto no boot.
+7. OfflineBanner com 3 estados + "última sync".
+8. Bloco "Estado local" no diagnóstico.
+9. QA: roteiro dos 13 testes do seu spec (com internet off no DevTools / firewall).
+
+Cada task é um commit pequeno. Você pode parar entre qualquer uma.
+
+---
+
+## Tecnicalidades
+
+- Comandos Tauri novos a adicionar (mínimos): `local_db_status`, `caixa_aberto_local`, `local_meta_get`, `local_meta_set`. Implementação trivial em cima do `db.rs` existente.
+- Sem novas dependências npm além de `@tanstack/react-query-persist-client` e `@tanstack/query-sync-storage-persister`.
+- Sem migration SQL nova (uso tabela `local_meta` se existir, senão crio via comando Rust idempotente).
+- Tudo guardado por `isDesktop()` — web continua igual.
