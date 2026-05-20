@@ -6894,6 +6894,11 @@ async fn funcionario_criar_local_handler(
         ("pending".into(), result.funcionario_remote_id.clone())
     };
 
+    if !result.idempotente {
+        event_bus::publish(
+            LocalEvent::new("funcionarios", "created").with_entity(&result.funcionario_local_uuid),
+        );
+    }
     Ok(Json(FuncionarioMutacaoResponse {
         funcionario_id: result.funcionario_local_uuid,
         idempotente: result.idempotente,
