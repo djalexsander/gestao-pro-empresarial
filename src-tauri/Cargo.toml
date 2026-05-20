@@ -35,6 +35,11 @@ once_cell = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 hostname = "0.4"
 
+# Descoberta de servidor na LAN via mDNS/Bonjour — terminais acham o
+# servidor sem precisar digitar IP. Pure-Rust, sem dependência nativa.
+mdns-sd = { version = "0.11", default-features = false, features = ["async"] }
+local-ip-address = "0.6"
+
 # Banco local (SQLite embutido) — inicia a camada de persistência local real.
 # `bundled` evita depender do SQLite do sistema; gera build self-contained.
 rusqlite = { version = "0.31", features = ["bundled"] }
