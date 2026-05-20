@@ -6979,6 +6979,9 @@ async fn funcionario_resetar_pin_local_handler(
     }
 
     let (status, remote) = try_push_func(&ctx, &headers, &result.funcionario_local_uuid).await;
+    event_bus::publish(
+        LocalEvent::new("funcionarios", "pin_reset").with_entity(&result.funcionario_local_uuid),
+    );
     Ok(Json(FuncionarioMutacaoResponse {
         funcionario_id: result.funcionario_local_uuid,
         idempotente: false, outbox_status: status, remote_id: remote,
