@@ -48,6 +48,10 @@ static REPLAY: OnceCell<Mutex<VecDeque<(u64, LocalEvent)>>> = OnceCell::new();
 #[derive(Clone, Debug, Serialize)]
 pub struct LocalEvent {
     pub id: String,
+    /// Seq monotônico atribuído na publicação. 0 antes do publish.
+    /// Vai como `id:` do SSE para suportar `Last-Event-ID` no replay.
+    #[serde(default)]
+    pub seq: u64,
     /// Tipo de evento — por padrão "entity.changed". Reservamos
     /// "realtime.lagged" para reportar slow-consumer e "realtime.hello"
     /// para o evento inicial enviado ao conectar.
@@ -68,6 +72,7 @@ impl LocalEvent {
     pub fn new(domain: &str, action: &str) -> Self {
         Self {
             id: gen_id(),
+            seq: 0,
             kind: "entity.changed".into(),
             domain: domain.into(),
             action: action.into(),
@@ -86,16 +91,19 @@ impl LocalEvent {
         self
     }
 
+    #[allow(dead_code)]
     pub fn with_empresa(mut self, id: Option<String>) -> Self {
         self.empresa_id = id;
         self
     }
 
+    #[allow(dead_code)]
     pub fn with_terminal(mut self, id: Option<String>) -> Self {
         self.terminal_id = id;
         self
     }
 
+    #[allow(dead_code)]
     pub fn with_source(mut self, source: &str) -> Self {
         self.source = source.into();
         self
