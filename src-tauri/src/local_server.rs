@@ -3986,6 +3986,9 @@ async fn financeiro_cancelar_handler(
             (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
         })?;
     eprintln!("[LOCAL_FINANCE_AUDIT] cancelamento lancamento={} ok={}", lu, ok);
+    if ok {
+        event_bus::publish(LocalEvent::new("financeiro", "cancelled").with_entity(&lu));
+    }
     Ok(Json(serde_json::json!({ "ok": ok, "local_uuid": lu })))
 }
 
