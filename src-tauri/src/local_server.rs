@@ -4322,6 +4322,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/terminals", get(terminals_handler))
         .route("/terminals/known", get(known_terminals_handler))
         .route("/events", get(events_handler))
+        .route("/api/events/stream", get(events_stream_handler))
         .route("/db/info", get(db_info_handler))
         .route("/db/domains", get(db_domains_handler))
         .route("/db/sync", post(db_sync_handler))
