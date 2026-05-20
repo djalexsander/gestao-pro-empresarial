@@ -3969,6 +3969,7 @@ async fn financeiro_manual_handler(
         })?;
     eprintln!("[LOCAL_FINANCE] manual ok local_uuid={}", r.local_uuid);
     eprintln!("[LOCAL_FINANCE_OUTBOX] manual enfileirado local_uuid={}", r.local_uuid);
+    event_bus::publish(LocalEvent::new("financeiro", "manual_created").with_entity(&r.local_uuid));
     Ok(Json(r))
 }
 
