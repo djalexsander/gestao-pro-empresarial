@@ -2802,6 +2802,14 @@ async fn registrar_caixa_fechar_handler(
         }
     }
 
+    // Realtime: caixa fechado.
+    if !result.idempotente {
+        event_bus::publish(
+            LocalEvent::new("caixa", "closed").with_entity(&result.local_uuid),
+        );
+        event_bus::publish(LocalEvent::new("financeiro", "updated"));
+    }
+
     Ok(Json(FecharCaixaLocalResponse {
         fechamento_id: result.local_uuid,
         idempotente: result.idempotente,
