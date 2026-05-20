@@ -2055,6 +2055,13 @@ async fn registrar_mov_local_handler(
         }
     }
 
+    // Realtime: movimento de estoque confirmado.
+    if !result.idempotente {
+        event_bus::publish(
+            LocalEvent::new("estoque", "updated").with_entity(&req.produto_id),
+        );
+    }
+
     Ok(Json(RegistrarMovLocalResponse {
         movimento_id: result.local_uuid,
         idempotente: result.idempotente,
