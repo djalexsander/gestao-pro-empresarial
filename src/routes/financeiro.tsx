@@ -481,22 +481,24 @@ function FinanceContent() {
           />
           <StatCard
             label="Custo realizado"
-            value={formatBRL(resultadoReal.resultado.custo_realizado)}
+            value={formatBRL(resultadoReal.resultado.custos_realizados)}
             icon={Package}
             iconTone="warning"
-            hint={`Pendente ${formatBRL(resultadoReal.resultado.custo_pendente)}`}
+            hint={`Pendente ${formatBRL(resultadoReal.resultado.custos_pendentes)}`}
           />
           <StatCard
             label="Resultado operacional"
-            value={formatBRL(resultadoReal.resultado.resultado_operacional)}
+            value={formatBRL(resultadoReal.resultado.resultado_operacional_real)}
             icon={TrendingUp}
-            iconTone={resultadoReal.resultado.resultado_operacional >= 0 ? "success" : "danger"}
+            iconTone={resultadoReal.resultado.resultado_operacional_real >= 0 ? "success" : "danger"}
             hint={`Lucro líq. ${formatBRL(resultadoReal.resultado.lucro_liquido)}`}
           />
         </div>
 
         {/* Tabela: vendas por forma de pagamento */}
-        {resultadoReal.porForma.length > 0 && (
+        {resultadoReal.porForma.length > 0 && (() => {
+          const totalRecebidoForma = resultadoReal.porForma.reduce((s, l) => s + l.total_recebido, 0);
+          return (
           <Card>
             <CardContent className="p-0">
               <Table>
@@ -504,7 +506,7 @@ function FinanceContent() {
                   <TableRow>
                     <TableHead>Forma</TableHead>
                     <TableHead className="text-right">Qtd</TableHead>
-                    <TableHead className="text-right">Bruto</TableHead>
+                    <TableHead className="text-right">Vendido</TableHead>
                     <TableHead className="text-right">Recebido</TableHead>
                     <TableHead className="text-right">Taxa</TableHead>
                     <TableHead className="text-right">Líquido</TableHead>
@@ -512,28 +514,34 @@ function FinanceContent() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {resultadoReal.porForma.map((l) => (
-                    <TableRow key={l.forma}>
-                      <TableCell className="font-medium capitalize">{l.forma}</TableCell>
-                      <TableCell className="text-right">{l.qtd_vendas}</TableCell>
-                      <TableCell className="text-right">{formatBRL(l.total_bruto)}</TableCell>
-                      <TableCell className="text-right">{formatBRL(l.total_recebido)}</TableCell>
-                      <TableCell className="text-right text-muted-foreground">
-                        {formatBRL(l.taxa_total)}
-                      </TableCell>
-                      <TableCell className="text-right font-semibold">
-                        {formatBRL(l.total_liquido)}
-                      </TableCell>
-                      <TableCell className="text-right text-muted-foreground">
-                        {l.participacao_pct.toFixed(1)}%
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {resultadoReal.porForma.map((l) => {
+                    const liquido = l.total_recebido - l.taxa;
+                    const part = totalRecebidoForma > 0 ? (l.total_recebido / totalRecebidoForma) * 100 : 0;
+                    return (
+                      <TableRow key={l.forma}>
+                        <TableCell className="font-medium capitalize">{l.forma}</TableCell>
+                        <TableCell className="text-right">{l.qtd_vendas}</TableCell>
+                        <TableCell className="text-right">{formatBRL(l.total_vendido)}</TableCell>
+                        <TableCell className="text-right">{formatBRL(l.total_recebido)}</TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {formatBRL(l.taxa)}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold">
+                          {formatBRL(liquido)}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {part.toFixed(1)}%
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </CardContent>
           </Card>
-        )}
+          );
+        })()}
+
       </div>
 
 
