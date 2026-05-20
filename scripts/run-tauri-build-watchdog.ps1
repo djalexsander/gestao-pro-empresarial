@@ -44,13 +44,15 @@ try {
   $bundleArg = if ($Target -eq "all") { "all" } else { $Target }
 
   Log "[BUILD_START] target=$Target disable_updater_artifacts=$DisableUpdaterArtifacts"
-  Log "[COMMAND] bun run tauri build -- --verbose --bundles $bundleArg"
+  Log "[COMMAND] bun x @tauri-apps/cli build --verbose --bundles $bundleArg"
 
   # Execução direta — sem ProcessStartInfo / async handlers para evitar
   # "There is no Runspace available to run scripts in this thread".
-  # Usar bun (gerenciador instalado no workflow) em vez de npx, que
-  # falha com "could not determine executable to run".
-  & bun.exe run tauri build -- --verbose --bundles $bundleArg
+  # Invocar o binário do Tauri CLI diretamente via `bun x` para que os flags
+  # (--verbose, --bundles) sejam passados ao Tauri e não ao cargo. Usar
+  # `bun run tauri -- ...` faria o `--` repassar os argumentos para o cargo,
+  # que não conhece `--bundles` e quebra com "unexpected argument".
+  & bun.exe x @tauri-apps/cli build --verbose --bundles $bundleArg
   $code = $LASTEXITCODE
 
   Log "[EXIT_CODE] $code"
