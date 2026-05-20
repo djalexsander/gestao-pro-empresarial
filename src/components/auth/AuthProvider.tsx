@@ -82,15 +82,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Se a sessão demorar > 4s (offline / DNS travado), seguimos como
     // "sem sessão" e o RequireAuth/RequireErpUnlock decidem o caminho
     // (cache local no desktop, login no web).
-    withTimeout(dataClient.auth.getSession(), 4000, "auth.getSession")
+    withTimeout(dataClient.auth.getSession(), AUTH_GETSESSION_TIMEOUT, "auth.getSession")
       .then(({ session: sess }) => {
         setSession(sess);
         setUser(sess?.user ?? null);
         if (sess?.user) lastEventUserRef.current = sess.user.id;
+        if (DESKTOP_BOOT_LOCAL_FIRST) {
+          console.log("[LOCAL_STATE_RESTORED] sessão Supabase hidratada.");
+        }
       })
       .catch((err) => {
         if (err instanceof TimeoutError) {
-          console.warn("[AuthProvider] getSession timeout — seguindo sem sessão (modo offline?)");
+          console.warn(
+            DESKTOP_BOOT_LOCAL_FIRST
+              ? "[BOOT_LOCAL_FIRST] getSession timeout — seguindo com dados locais."
+              : "[AuthProvider] getSession timeout — seguindo sem sessão (modo offline?)",
+          );
         } else {
           console.warn("[AuthProvider] getSession falhou:", err);
         }
@@ -98,6 +105,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .finally(() => {
         setLoading(false);
       });
+
 
     return () => subscription.unsubscribe();
   }, []);
