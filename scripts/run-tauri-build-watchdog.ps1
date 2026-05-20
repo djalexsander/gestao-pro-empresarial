@@ -27,6 +27,19 @@ function Show-BundleTree {
   }
 }
 
+function Show-RelevantProcesses {
+  Log "[PROCESS_TREE] processos relevantes ativos"
+  $patterns = "candle|light|makensis|signtool|signer|wix|tauri|cargo|rustc|node|npx"
+  $rows = Get-CimInstance Win32_Process |
+    Where-Object { $_.Name -match $patterns -or $_.CommandLine -match $patterns } |
+    Select-Object ProcessId, ParentProcessId, Name, CommandLine
+  if ($rows) {
+    $rows | Format-Table -AutoSize -Wrap | Out-String -Width 240 | Write-Host
+  } else {
+    Write-Host "(nenhum processo candle/light/makensis/signtool/signer/wix/tauri/cargo/rustc/node/npx encontrado)"
+  }
+}
+
 function Write-DiagnosticConfig {
   $json = $originalConfig | ConvertFrom-Json -Depth 100
   $json.bundle.targets = if ($Target -eq "all") { "all" } else { @($Target) }
@@ -92,10 +105,12 @@ try {
     $elapsed = [int]((Get-Date) - $startedAt).TotalSeconds
     if ($idle -ge 60 -and ($idle % 60 -lt 10)) {
       Log "[WATCHDOG] build ainda rodando; elapsed=${elapsed}s sem_saida=${idle}s target=$Target"
+      Show-RelevantProcesses
       Show-BundleTree
     }
     if ($idle -ge $NoOutputTimeoutSeconds) {
       Log "[WATCHDOG_TIMEOUT] nenhum output por ${idle}s. Cancelando build para expor travamento."
+      Show-RelevantProcesses
       Show-BundleTree
       Stop-ProcessTree $proc.Id
       throw "Tauri build congelou sem saída por ${idle}s no target '$Target'. Verifique a última linha acima para candle/light/makensis/signer/updater/wix/nsis."
@@ -105,6 +120,7 @@ try {
   $proc.WaitForExit()
   $exitCode = $proc.ExitCode
   Log "[BUILD_END] target=$Target exit_code=$exitCode duração=$([int]((Get-Date) - $startedAt).TotalSeconds)s"
+  Show-RelevantProcesses
   Show-BundleTree
   if ($exitCode -ne 0) { throw "npx tauri build --verbose falhou com exit code $exitCode no target '$Target'." }
 } finally {
