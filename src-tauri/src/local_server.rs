@@ -2293,6 +2293,18 @@ async fn registrar_venda_local_handler(
         }
     }
 
+    // Realtime: venda commit OK → notifica vendas/estoque/caixa/financeiro.
+    let venda_id = result.local_uuid.clone();
+    let terminal = Some(terminal_log.clone());
+    event_bus::publish_many([
+        LocalEvent::new("vendas", "created")
+            .with_entity(&venda_id)
+            .with_terminal(terminal.clone()),
+        LocalEvent::new("estoque", "updated").with_terminal(terminal.clone()),
+        LocalEvent::new("caixa", "updated").with_terminal(terminal.clone()),
+        LocalEvent::new("financeiro", "updated").with_terminal(terminal),
+    ]);
+
     Ok(Json(RegistrarVendaLocalResponse {
         venda_id: result.local_uuid,
         idempotente: result.idempotente,
