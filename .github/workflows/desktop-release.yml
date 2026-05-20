@@ -112,7 +112,8 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "::group::tauri build verbose — target nsis"
-          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/run-tauri-build-watchdog.ps1 -Target nsis -NoOutputTimeoutSeconds 900 -DisableUpdaterArtifacts:([System.Convert]::ToBoolean($env:DISABLE_UPDATER_ARTIFACTS))
+          $disableUpdaterArtifacts = [System.Convert]::ToBoolean($env:DISABLE_UPDATER_ARTIFACTS)
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/run-tauri-build-watchdog.ps1 -Target nsis -NoOutputTimeoutSeconds 900 -DisableUpdaterArtifacts:$disableUpdaterArtifacts
           Write-Host "::endgroup::"
 
       - name: Build Tauri diagnóstico — MSI/WiX
@@ -125,7 +126,8 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "::group::tauri build verbose — target msi/wix"
-          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/run-tauri-build-watchdog.ps1 -Target msi -NoOutputTimeoutSeconds 900 -DisableUpdaterArtifacts:([System.Convert]::ToBoolean($env:DISABLE_UPDATER_ARTIFACTS))
+          $disableUpdaterArtifacts = [System.Convert]::ToBoolean($env:DISABLE_UPDATER_ARTIFACTS)
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/run-tauri-build-watchdog.ps1 -Target msi -NoOutputTimeoutSeconds 900 -DisableUpdaterArtifacts:$disableUpdaterArtifacts
           Write-Host "::endgroup::"
 
       - name: Build Tauri diagnóstico — all targets
@@ -138,7 +140,8 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "::group::tauri build verbose — all targets"
-          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/run-tauri-build-watchdog.ps1 -Target all -NoOutputTimeoutSeconds 900 -DisableUpdaterArtifacts:([System.Convert]::ToBoolean($env:DISABLE_UPDATER_ARTIFACTS))
+          $disableUpdaterArtifacts = [System.Convert]::ToBoolean($env:DISABLE_UPDATER_ARTIFACTS)
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/run-tauri-build-watchdog.ps1 -Target all -NoOutputTimeoutSeconds 900 -DisableUpdaterArtifacts:$disableUpdaterArtifacts
           Write-Host "::endgroup::"
 
       - name: Normalizar artefatos Tauri
