@@ -5932,6 +5932,9 @@ async fn fornecedor_excluir_handler(
     } else if r.idempotente {
         outbox_status = "skipped".to_string();
     }
+    event_bus::publish(
+        LocalEvent::new("fornecedores", "deleted").with_entity(&r.fornecedor_local_uuid),
+    );
     Ok(Json(FornecedorSimpleResponse {
         fornecedor_id: r.fornecedor_remote_id.clone().unwrap_or_else(|| r.fornecedor_local_uuid.clone()),
         fornecedor_local_uuid: r.fornecedor_local_uuid,
