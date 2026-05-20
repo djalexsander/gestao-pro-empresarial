@@ -164,6 +164,7 @@ function AppShell() {
             <AppMenubar activeModule={activeModule} onModuleSelect={setOverrideModule} />
           </div>
           <SyncStatusPill />
+          <div className="flex items-center px-2"><RealtimeStatusDot /></div>
           <DesktopRoleBadge />
           {modoAtual && (
             <button
