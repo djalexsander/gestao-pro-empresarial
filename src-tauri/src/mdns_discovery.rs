@@ -122,7 +122,8 @@ pub fn start_advertise(
 
 pub fn stop_advertise() {
     let Ok(mut st) = AD.lock() else { return };
-    if let (Some(daemon), Some(name)) = (st.daemon.as_ref(), st.full_name.take()) {
+    let name = st.full_name.take();
+    if let (Some(daemon), Some(name)) = (st.daemon.as_ref(), name) {
         let _ = daemon.unregister(&name);
     }
     if let Some(daemon) = st.daemon.take() {
