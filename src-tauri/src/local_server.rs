@@ -7175,6 +7175,11 @@ async fn produto_criar_local_handler(
         ("pending".into(), result.produto_remote_id.clone())
     };
 
+    event_bus::publish(
+        LocalEvent::new("produtos", "created").with_entity(&result.produto_local_uuid),
+    );
+    event_bus::publish(LocalEvent::new("estoque", "updated"));
+
     Ok(Json(ProdutoMutacaoResponse {
         produto_id: result.produto_local_uuid,
         idempotente: result.idempotente,
