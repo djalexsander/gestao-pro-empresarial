@@ -101,10 +101,12 @@ function RootComponent() {
                 <TerminalProvider>
                   <DesktopRoleProvider>
                     <CartProvider>
-                      <AppLayout />
-                      <UpdateBanner />
-                      <OfflineBanner />
-                      <Toaster richColors position="top-right" />
+                      <LocalRealtimeProvider>
+                        <AppLayout />
+                        <UpdateBanner />
+                        <OfflineBanner />
+                        <Toaster richColors position="top-right" />
+                      </LocalRealtimeProvider>
                     </CartProvider>
                   </DesktopRoleProvider>
                 </TerminalProvider>
