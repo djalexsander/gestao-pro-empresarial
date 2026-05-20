@@ -1,93 +1,194 @@
 ## Objetivo
 
-O app desktop (Tauri) deve abrir e renderizar **imediatamente com dados do SQLite local**, sem esperar Supabase. Sync cloud roda em background e nunca apaga cache local. Caixa aberto e vendas locais sobrevivem reinício offline. Terminais LAN continuam usando o servidor local.
+Criar uma camada **realtime local centralizada** que atualiza ERP/PDV/terminais/dashboards quando algo muda no SQLite local — **sem depender de Supabase Realtime** e **sem quebrar offline/PDV/caixa/financeiro/sync**.
 
-**Não vou:** trocar Tauri, trocar SQLite, migrar pra Electron, recriar adapters, mexer em endpoints de domínio que já funcionam.
+Stack alvo:
+- Backend: Rust + axum (já existe em `src-tauri/src/local_server.rs`).
+- Transporte: **SSE** (`text/event-stream`) — mais simples, atravessa proxy/firewall LAN, reconexão nativa do browser.
+- Frontend: cliente único `localRealtimeClient.ts` + integração com React Query.
 
-**Vou:** corrigir só o caminho de boot e as 5 regras que estão violadas hoje.
-
----
-
-## Diagnóstico que farei antes de codar (1 sessão)
-
-Ler em paralelo, sem alterar:
-- `src-tauri/src/lib.rs`, `local_server.rs`, `db.rs` — confirmar que o SQLite já abre antes do webview e que `local_server` sobe sem rede.
-- `src/integrations/data/adapters/local-server.ts` e `local-terminal.ts` — ver se hoje fazem fallback pro cloud quando endpoint local responde.
-- `src/integrations/data/mode.ts` — ver se `getDataMode()` no desktop já resolve `local-server`/`local-terminal` sem internet.
-- `src/components/auth/AuthProvider.tsx`, `OperadorProvider`, `TerminalProvider` — identificar se algum deles **bloqueia render** esperando `supabase.auth.getUser()` ou sessão online.
-- `src/components/providers/QueryProvider.tsx` — confirmar `staleTime`, `gcTime`, persistência (provavelmente sem persister; é por isso que parece "vazio" no boot).
-- `src/components/shared/OfflineBanner.tsx`, `useLocalServerWatchdog` — entender o status visual atual.
-- `src/routes/__root.tsx` + `AppLayout` — achar todos os `Suspense`/loaders bloqueantes.
-
-Saída do diagnóstico: lista exata dos pontos que bloqueiam, anotada em notas das tasks. **Não codifico nada antes disso.**
+Não vou:
+- trocar para WebSocket;
+- emitir eventos "tela por tela" espalhados;
+- mandar dados sensíveis (PIN/senha/token/payload completo);
+- depender de Supabase Realtime;
+- mexer em RLS, schema SQLite ou outbox;
+- refatorar adapters de domínio existentes.
 
 ---
 
-## Mudanças (escopo fechado)
+## Arquitetura
 
-### 1. AuthProvider não bloqueia em desktop offline
-- Se `isDesktop()` e não há internet, render imediatamente com sessão local cacheada (`localStorage`/secure storage). Supabase `getSession()` roda em background; quando voltar, atualiza.
-- Logs: `[BOOT_LOCAL_FIRST]`, `[LOCAL_STATE_RESTORED]`.
-
-### 2. Persistência do React Query (cache que sobrevive reload)
-- Adicionar `@tanstack/react-query-persist-client` + `createSyncStoragePersister` no `QueryProvider` **somente no shell desktop**.
-- Resultado: ao reabrir, listas (produtos/clientes/estoque/financeiro) aparecem instantaneamente do cache enquanto o adapter local refaz a query.
-
-### 3. Resolução de modo no boot prioriza local
-- Em `getDataMode()`: no desktop, se há `local.db` válido (checar via `invoke('local_db_status')` que vou adicionar no Rust), forçar `local-server`/`local-terminal` mesmo se houver internet. Cloud vira backup, não fonte.
-
-### 4. Adapter local nunca cai pra cloud silenciosamente em leitura
-- Revisar `local-server.ts`/`local-terminal.ts`: se endpoint local responde (mesmo vazio legítimo), **não** consultar cloud. Fallback cloud só quando local está fisicamente fora (timeout/erro de rede LAN), e mesmo assim sem sobrescrever cache local com vazio.
-
-### 5. Sync cloud → local NUNCA limpa local com resposta vazia
-- Adicionar guarda no caminho de sync (provavelmente em `local_server.rs` ou no orquestrador de sync TS): se payload remoto = `[]` ou erro, **manter snapshot local**. Só substituir quando vier payload com `count > 0` ou `last_sync` mais novo que o local.
-- Logs: `[LOCAL_CACHE_PRESERVED]`, `[CLOUD_SYNC_SKIPPED]`.
-
-### 6. Caixa aberto sobrevive reinício
-- Garantir comando Tauri `caixa_aberto_local()` que lê da tabela `caixas` local com `status='aberto'`.
-- No boot do `CaixaProvider` (ou rota `/caixa`/`/pdv`), consultar primeiro o local; se houver caixa aberto, restaurar operador/terminal sem chamar Supabase.
-- Logs: `[CAIXA_RESTORE]`.
-
-### 7. Status visual honesto
-- `OfflineBanner` passa a mostrar 3 estados separados: **Operando localmente / Sincronizando em segundo plano / Sem internet — dados locais**. Nunca "erro crítico" se `local.db` está OK.
-- Adicionar "Última sincronização: há X min" lendo de uma chave em `local_meta`.
-
-### 8. Diagnóstico estendido (`/diagnostico` ou tela existente)
-- Adicionar bloco "Estado local" com: banco existe, schema version, contagens (produtos/clientes/vendas/caixa aberto), última venda local, outbox pendente, terminais conectados, última sync cloud, status cloud separado.
-
-### 9. Sync em background
-- Garantir que o orquestrador de sync (já existe) roda via `setInterval` em web worker / task Rust, **nunca no caminho de render**. Cancela limpo no `beforeunload`.
+```text
+ ┌────────────────────────────────────────────────┐
+ │ Comandos de domínio no Rust                    │
+ │ (vendas, caixa, estoque, produtos, sync, ...)  │
+ └────────────┬───────────────────────────────────┘
+              │ após COMMIT SQLite OK
+              ▼
+ ┌────────────────────────────────────────────────┐
+ │ event_bus.rs  (tokio::sync::broadcast)         │
+ │ - publish(LocalEvent)                          │
+ │ - subscribe() -> Receiver                       │
+ └────────────┬───────────────────────────────────┘
+              ▼
+ ┌────────────────────────────────────────────────┐
+ │ GET /api/events  (SSE handler axum)            │
+ │ - heartbeat 15s                                │
+ │ - filtra por empresa_id (query param)          │
+ └────────────┬───────────────────────────────────┘
+              ▼
+ ┌────────────────────────────────────────────────┐
+ │ localRealtimeClient.ts                         │
+ │ - EventSource + reconnect/backoff              │
+ │ - debounce/coalesce por domain                 │
+ │ - dispara invalidate no QueryClient            │
+ └────────────────────────────────────────────────┘
+```
 
 ---
 
-## Fora de escopo (não toco agora)
+## Mudanças (escopo fechado — onda 1)
 
-- Reescrever protocolo LAN, schema SQLite, outbox, backup/restore.
-- Adicionar novos módulos de domínio.
-- Mudar fluxo de auth para login offline novo (uso o cache existente).
-- UI nova além dos status no banner e bloco diagnóstico.
+Onda 1 cobre: **vendas, caixa, estoque, produtos, sync/outbox, terminais**.
+Onda 2 (futura, não nesta PR): financeiro, contas a receber/pagar, clientes, fornecedores, funcionários, compras, dashboard.
+
+### Backend Rust
+
+1. **`src-tauri/src/event_bus.rs`** (novo)
+   - `tokio::sync::broadcast::channel::<LocalEvent>(1024)` armazenado em `AppState`.
+   - Struct `LocalEvent` serializável com os campos exatos do brief: `id`, `type`, `domain`, `action`, `entity_id`, `empresa_id`, `terminal_id`, `operator_id`, `timestamp` (ms), `source`, `version: 1`.
+   - Helper `publish_after_commit(bus, event)` — chamada **apenas após** o `tx.commit()? ` retornar `Ok`.
+   - Slow-consumer policy: `RecvError::Lagged` → cliente recebe um evento `{ type: "realtime.lagged" }` e re-sincroniza via invalidate global.
+
+2. **`src-tauri/src/local_server.rs`** — adicionar rota `GET /api/events`
+   - Handler SSE com `axum::response::sse`.
+   - Query param opcional `empresa_id` para filtrar.
+   - Keep-alive 15s (`KeepAlive::default().interval(Duration::from_secs(15))`).
+   - Header `Cache-Control: no-cache`, `X-Accel-Buffering: no`.
+   - Stream que faz `BroadcastStream` → `Event::default().id(uuid).event("message").json_data(evt)`.
+
+3. **Pontos de publicação (onda 1)** — inserir 1 `bus.publish(...)` logo após cada `commit`:
+   - venda finalizar → `vendas.created` + `estoque.updated` + `caixa.updated`
+   - venda cancelar/atualizar item → `vendas.updated` + `estoque.updated`
+   - caixa abrir → `caixa.opened`
+   - caixa fechar → `caixa.closed`
+   - movimento de caixa → `caixa.updated`
+   - produto upsert/delete → `produtos.updated`
+   - movimento de estoque → `estoque.updated`
+   - sync orquestrador ao terminar lote → `sync.updated`
+   - terminal heartbeat (já existe) → `terminais.updated` (com debounce 5s no lado do bus)
+
+### Frontend
+
+4. **`src/integrations/realtime/localRealtimeClient.ts`** (novo)
+   - Singleton com `connect(baseUrl, empresaId, queryClient)`.
+   - `new EventSource(\`${baseUrl}/api/events?empresa_id=...\`)`.
+   - `onmessage` → parse → coalescer (50ms) → `dispatchInvalidate(domain)`.
+   - Reconnect com backoff exponencial: 1s → 2s → 5s → 10s → 30s (cap).
+   - `onerror`: marca status `reconnecting`; após 3 falhas seguidas → `disconnected`.
+   - Cleanup em `disconnect()`.
+   - Logs: `[LOCAL_REALTIME]`, `[REALTIME_EVENT]`, `[REALTIME_SSE]`, `[REALTIME_RECONNECT]`, `[REALTIME_INVALIDATE]`.
+
+5. **`src/integrations/realtime/invalidationMap.ts`** (novo)
+   - Map estático `domain → queryKey[]`:
+     ```ts
+     vendas    → ["vendas","dashboard","caixa","financeiro"]
+     estoque   → ["estoque","produtos","dashboard"]
+     caixa     → ["caixa","dashboard","financeiro"]
+     produtos  → ["produtos","pdv-busca-local"]
+     sync      → ["sync"]
+     terminais → ["terminais"]
+     ```
+   - `invalidate(qc, domain)` itera e chama `qc.invalidateQueries({ queryKey: [k] })`.
+
+6. **`src/hooks/useLocalRealtime.ts`** (novo)
+   - Lê `serverConnection` (host/port atual) + `empresaId` do contexto.
+   - Em `useEffect`, conecta o singleton; desconecta no unmount.
+   - Expõe `{ status: 'connected'|'reconnecting'|'disconnected' }`.
+
+7. **Integração no `__root.tsx`** (1 linha)
+   - Renderiza `<LocalRealtimeProvider />` que apenas chama o hook acima e injeta o `QueryClient`.
+   - Sem UI invasiva.
+
+8. **`src/components/layout/RealtimeStatusDot.tsx`** (novo, discreto)
+   - Bolinha 6px ao lado do `SyncStatusPill` no header desktop:
+     - verde = `connected`, amarelo = `reconnecting`, cinza = `disconnected`.
+   - Tooltip: "Realtime local: conectado/reconectando/desconectado".
+
+### Segurança/Performance
+
+- Payload do evento NÃO inclui senha/PIN/token/colunas sensíveis — só metadados (`entity_id`, `domain`, `action`, IDs).
+- Coalescing de 50ms no front: múltiplos eventos do mesmo domínio em janela curta = 1 invalidate.
+- Debounce 5s no `terminais.heartbeat` no servidor para evitar flood.
+- `invalidateQueries` com `refetchType: 'active'` — só refetcha o que está na tela.
 
 ---
 
-## Tasks (ordem de execução)
+## Detalhes técnicos
 
-1. Diagnóstico de boot (leitura + notas).
-2. Persister do React Query no shell desktop.
-3. AuthProvider non-blocking em desktop offline.
-4. `getDataMode()` prioriza local quando `local.db` válido.
-5. Guarda anti-wipe no sync cloud→local.
-6. Restauração de caixa aberto no boot.
-7. OfflineBanner com 3 estados + "última sync".
-8. Bloco "Estado local" no diagnóstico.
-9. QA: roteiro dos 13 testes do seu spec (com internet off no DevTools / firewall).
+**Crates Rust já presentes** (verificar `Cargo.toml`): `axum`, `tokio`, `serde`, `uuid`. SSE precisa de feature `axum/sse` ou `axum::response::sse` (incluso por padrão no axum 0.7+). Se faltar `tokio-stream` para `BroadcastStream`, adicionar com feature `sync`.
 
-Cada task é um commit pequeno. Você pode parar entre qualquer uma.
+**LocalEvent (Rust)**:
+```rust
+#[derive(Clone, Serialize, Debug)]
+pub struct LocalEvent {
+  pub id: String,
+  #[serde(rename = "type")] pub kind: String,        // "entity.changed"
+  pub domain: String,                                // "vendas" | ...
+  pub action: String,                                // "created"|"updated"|"deleted"|...
+  pub entity_id: Option<String>,
+  pub empresa_id: Option<String>,
+  pub terminal_id: Option<String>,
+  pub operator_id: Option<String>,
+  pub timestamp: i64,                                // ms
+  pub source: String,                                // "local"|"lan"|"sync"|"cloud"
+  pub version: u32,                                  // 1
+}
+```
+
+**AppState**: adicionar campo `pub event_bus: broadcast::Sender<LocalEvent>`. Inicializar com `broadcast::channel(1024).0` no startup.
+
+**Ordem de commit**: nunca chamar `bus.send` dentro do escopo de uma transação. Padrão:
+```rust
+let result = {
+  let mut tx = conn.transaction()?;
+  // ... writes ...
+  tx.commit()?;
+  outcome
+};
+let _ = state.event_bus.send(LocalEvent { ... });
+Ok(result)
+```
+
+**Cliente SSE — reconnect**: o `EventSource` nativo já reconecta, mas com janela fixa. Para honrar o backoff exponencial pedido, fechamos manualmente em `onerror` e reagendamos via `setTimeout` com jitter.
+
+**Filtragem por empresa**: lado Rust descarta eventos cujo `empresa_id` ≠ ao filtro do cliente (Option compare; se cliente não passou, recebe tudo — útil pra debug).
+
+**Sem quebra**:
+- Tudo é aditivo. Se o servidor Rust falhar ao subir o broadcast, rotas existentes continuam funcionando.
+- Se `/api/events` não responder, o front continua usando refetch periódico (já existe via `staleTime` do React Query).
 
 ---
 
-## Tecnicalidades
+## Tarefas (ordem de execução)
 
-- Comandos Tauri novos a adicionar (mínimos): `local_db_status`, `caixa_aberto_local`, `local_meta_get`, `local_meta_set`. Implementação trivial em cima do `db.rs` existente.
-- Sem novas dependências npm além de `@tanstack/react-query-persist-client` e `@tanstack/query-sync-storage-persister`.
-- Sem migration SQL nova (uso tabela `local_meta` se existir, senão crio via comando Rust idempotente).
-- Tudo guardado por `isDesktop()` — web continua igual.
+1. Rust: `event_bus.rs` + integrar no `AppState`.
+2. Rust: rota `GET /api/events` (SSE).
+3. Rust: publicar nos 6 domínios da onda 1 após commit.
+4. Front: `localRealtimeClient.ts` + `invalidationMap.ts`.
+5. Front: `useLocalRealtime` + `LocalRealtimeProvider` no `__root.tsx`.
+6. Front: `RealtimeStatusDot` no header.
+7. Validação: smoke test manual (venda → estoque atualiza sem F5).
+
+---
+
+## Out of scope desta PR
+
+- WebSocket / fallback.
+- Onda 2 (financeiro, contas, clientes, fornecedores, funcionários, compras, dashboard agregado).
+- Push para terminais via mDNS/broadcast — terminais já se conectam ao servidor local via HTTP, então o mesmo `/api/events` resolve.
+- Persistência de eventos / replay histórico.
+- Testes automatizados (a verificação é manual nesta onda).
+
+Confirma que posso seguir com a onda 1 nesses termos?

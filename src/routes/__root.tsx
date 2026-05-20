@@ -13,6 +13,7 @@ import { OfflineBanner } from "@/components/shared/OfflineBanner";
 
 import { CartProvider } from "@/components/saas/CartContext";
 import { DesktopRoleProvider } from "@/components/desktop/DesktopRoleProvider";
+import { LocalRealtimeProvider } from "@/components/realtime/LocalRealtimeProvider";
 
 import appCss from "../styles.css?url";
 
@@ -100,10 +101,12 @@ function RootComponent() {
                 <TerminalProvider>
                   <DesktopRoleProvider>
                     <CartProvider>
-                      <AppLayout />
-                      <UpdateBanner />
-                      <OfflineBanner />
-                      <Toaster richColors position="top-right" />
+                      <LocalRealtimeProvider>
+                        <AppLayout />
+                        <UpdateBanner />
+                        <OfflineBanner />
+                        <Toaster richColors position="top-right" />
+                      </LocalRealtimeProvider>
                     </CartProvider>
                   </DesktopRoleProvider>
                 </TerminalProvider>

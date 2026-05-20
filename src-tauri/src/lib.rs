@@ -1,5 +1,6 @@
 mod db;
 mod backup;
+mod event_bus;
 mod local_server;
 mod printers;
 

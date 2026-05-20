@@ -21,20 +21,25 @@
 use axum::{
     extract::{ConnectInfo, Query, State},
     http::{HeaderMap, StatusCode},
-    response::IntoResponse,
+    response::{sse::{Event as SseEvent, KeepAlive, Sse}, IntoResponse},
     routing::{get, post},
     Json, Router,
 };
+use futures_util::stream::Stream;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Mutex;
+use std::time::Duration;
 use tokio::sync::oneshot;
+use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::backup;
 use crate::db;
+use crate::event_bus::{self, LocalEvent};
 
 // ---------- Estado global ----------
 
@@ -1189,6 +1194,88 @@ async fn events_handler(
     }))
 }
 
+// ---------- Realtime SSE (onda 1) ----------
+//
+// `GET /api/events/stream` — canal SSE para o front receber em tempo real
+// notificações de mudanças no banco local (vendas, caixa, estoque,
+// produtos, sync, terminais). Reconexão fica a cargo do `EventSource`
+// nativo do browser + backoff exponencial do cliente custom.
+//
+// Mantemos o `GET /events` antigo (lista persistida de eventos
+// históricos) inalterado para não quebrar nada que já consuma essa rota.
+
+async fn events_stream_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
+    let empresa_filter = q.get("empresa_id").cloned();
+    eprintln!(
+        "[REALTIME_SSE] cliente conectado empresa_filter={:?}",
+        empresa_filter
+    );
+
+    let rx = event_bus::subscribe();
+    let hello = LocalEvent {
+        id: format!("hello-{}", now_ms()),
+        kind: "realtime.hello".into(),
+        domain: "system".into(),
+        action: "connected".into(),
+        entity_id: None,
+        empresa_id: None,
+        terminal_id: None,
+        operator_id: None,
+        timestamp: now_ms(),
+        source: "local".into(),
+        version: 1,
+    };
+
+    let hello_stream = tokio_stream::iter(vec![Ok::<LocalEvent, Infallible>(hello)]);
+
+    let bus_stream = BroadcastStream::new(rx).filter_map(move |res| match res {
+        Ok(evt) => {
+            // Filtragem por empresa, quando o cliente passou o parâmetro.
+            if let (Some(filter), Some(evt_emp)) =
+                (empresa_filter.as_ref(), evt.empresa_id.as_ref())
+            {
+                if filter != evt_emp {
+                    return None;
+                }
+            }
+            Some(Ok::<LocalEvent, Infallible>(evt))
+        }
+        Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(n)) => {
+            eprintln!("[REALTIME_SSE] cliente atrasado, descartou {n} eventos");
+            Some(Ok(LocalEvent {
+                id: format!("lagged-{}", now_ms()),
+                kind: "realtime.lagged".into(),
+                domain: "system".into(),
+                action: "resync".into(),
+                entity_id: None,
+                empresa_id: None,
+                terminal_id: None,
+                operator_id: None,
+                timestamp: now_ms(),
+                source: "local".into(),
+                version: 1,
+            }))
+        }
+    });
+
+    let stream = hello_stream.chain(bus_stream).map(|res| {
+        res.map(|evt| {
+            let json = serde_json::to_string(&evt).unwrap_or_else(|_| "{}".into());
+            SseEvent::default().id(evt.id.clone()).event("message").data(json)
+        })
+    });
+
+    Sse::new(stream).keep_alive(
+        KeepAlive::new()
+            .interval(Duration::from_secs(15))
+            .text("ping"),
+    )
+}
+
+
+
 async fn db_info_handler() -> Result<Json<db::DbInfo>, (StatusCode, String)> {
     db::db_info()
         .map(Json)
@@ -1968,6 +2055,13 @@ async fn registrar_mov_local_handler(
         }
     }
 
+    // Realtime: movimento de estoque confirmado.
+    if !result.idempotente {
+        event_bus::publish(
+            LocalEvent::new("estoque", "updated").with_entity(&req.produto_id),
+        );
+    }
+
     Ok(Json(RegistrarMovLocalResponse {
         movimento_id: result.local_uuid,
         idempotente: result.idempotente,
@@ -2205,6 +2299,18 @@ async fn registrar_venda_local_handler(
             println!("[LOCAL_OUTBOX] venda push pendente local={}", result.local_uuid);
         }
     }
+
+    // Realtime: venda commit OK → notifica vendas/estoque/caixa/financeiro.
+    let venda_id = result.local_uuid.clone();
+    let terminal = Some(terminal_log.clone());
+    event_bus::publish_many([
+        LocalEvent::new("vendas", "created")
+            .with_entity(&venda_id)
+            .with_terminal(terminal.clone()),
+        LocalEvent::new("estoque", "updated").with_terminal(terminal.clone()),
+        LocalEvent::new("caixa", "updated").with_terminal(terminal.clone()),
+        LocalEvent::new("financeiro", "updated").with_terminal(terminal),
+    ]);
 
     Ok(Json(RegistrarVendaLocalResponse {
         venda_id: result.local_uuid,
@@ -2552,6 +2658,14 @@ async fn registrar_caixa_abrir_handler(
         }
     }
 
+    // Realtime: caixa aberto com sucesso.
+    if !result.idempotente {
+        event_bus::publish(
+            LocalEvent::new("caixa", "opened").with_entity(&result.local_uuid),
+        );
+        event_bus::publish(LocalEvent::new("financeiro", "updated"));
+    }
+
     Ok(Json(AbrirCaixaLocalResponse {
         caixa_id: result.local_uuid,
         idempotente: result.idempotente,
@@ -2616,6 +2730,14 @@ async fn registrar_caixa_movimento_handler(
             outbox_status = it.status.clone();
             remote_id = it.remote_id.clone();
         }
+    }
+
+    // Realtime: movimento de caixa.
+    if !result.idempotente {
+        event_bus::publish(
+            LocalEvent::new("caixa", "updated").with_entity(&result.caixa_local_uuid),
+        );
+        event_bus::publish(LocalEvent::new("financeiro", "updated"));
     }
 
     Ok(Json(MovimentoCaixaLocalResponse {
@@ -2685,6 +2807,14 @@ async fn registrar_caixa_fechar_handler(
             outbox_status = it.status.clone();
             remote_id = it.remote_id.clone();
         }
+    }
+
+    // Realtime: caixa fechado.
+    if !result.idempotente {
+        event_bus::publish(
+            LocalEvent::new("caixa", "closed").with_entity(&result.local_uuid),
+        );
+        event_bus::publish(LocalEvent::new("financeiro", "updated"));
     }
 
     Ok(Json(FecharCaixaLocalResponse {
@@ -4235,6 +4365,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/terminals", get(terminals_handler))
         .route("/terminals/known", get(known_terminals_handler))
         .route("/events", get(events_handler))
+        .route("/api/events/stream", get(events_stream_handler))
         .route("/db/info", get(db_info_handler))
         .route("/db/domains", get(db_domains_handler))
         .route("/db/sync", post(db_sync_handler))
@@ -4469,6 +4600,10 @@ pub async fn start(
         eprintln!("[LOCAL_SERVER_PORT] {msg}");
         return Err(msg);
     }
+
+    // Realtime bus: inicializa antes do router subir, para que qualquer
+    // handler possa publicar eventos sem checar se o canal existe.
+    let _ = event_bus::init();
 
     let ctx = AppCtx {
         upstream: upstream.clone(),
@@ -7039,6 +7174,11 @@ async fn produto_criar_local_handler(
     } else {
         ("pending".into(), result.produto_remote_id.clone())
     };
+
+    event_bus::publish(
+        LocalEvent::new("produtos", "created").with_entity(&result.produto_local_uuid),
+    );
+    event_bus::publish(LocalEvent::new("estoque", "updated"));
 
     Ok(Json(ProdutoMutacaoResponse {
         produto_id: result.produto_local_uuid,

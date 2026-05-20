@@ -23,6 +23,7 @@ import { DesktopRoleBadge } from "@/components/desktop/DesktopRoleBadge";
 import { useFlushConfigEmpresaPending } from "@/hooks/useConfigEmpresa";
 import { useAutoSync } from "@/hooks/useAutoSync";
 import { SyncStatusPill } from "./SyncStatusPill";
+import { RealtimeStatusDot } from "./RealtimeStatusDot";
 
 // Rotas que usam layout próprio (sem o shell do ERP)
 const STANDALONE_ROUTES = new Set(["/auth", "/hub", "/pos", "/pdv"]);
@@ -164,6 +165,7 @@ function AppShell() {
             <AppMenubar activeModule={activeModule} onModuleSelect={setOverrideModule} />
           </div>
           <SyncStatusPill />
+          <div className="flex items-center px-2"><RealtimeStatusDot /></div>
           <DesktopRoleBadge />
           {modoAtual && (
             <button
