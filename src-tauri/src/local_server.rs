@@ -4034,6 +4034,12 @@ async fn financeiro_receber_baixar_handler(
     );
     eprintln!("[LOCAL_FINANCE_AUDIT] recebimento titulo={} valor={}", r.receber_local_uuid, r.valor);
     eprintln!("[LOCAL_CASHFLOW] entrada realizada valor={} forma={:?}", r.valor, None::<String>);
+    if !r.idempotente {
+        event_bus::publish_many([
+            LocalEvent::new("financeiro", "receber_baixado").with_entity(&r.receber_local_uuid),
+            LocalEvent::new("caixa", "updated"),
+        ]);
+    }
     Ok(Json(r))
 }
 
