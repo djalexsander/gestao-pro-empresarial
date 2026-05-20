@@ -49,13 +49,16 @@ function normalizarForma(v: string | null | undefined): FormaPagamento {
   return FORMA_MAP[v.toLowerCase()] ?? "outro";
 }
 
-/** Estima percentual recebido a partir do status_pagamento. */
+/**
+ * Estima percentual recebido a partir do status_pagamento.
+ * Usado APENAS como fallback quando não há lançamento financeiro vinculado.
+ * Quando existem `financeiro_lancamentos` da venda, o valor_pago real é usado.
+ */
 function estimarValorPago(total: number, status: string | null | undefined): number {
   const s = (status ?? "").toLowerCase();
   if (s === "pago" || s === "recebido" || s === "quitado") return total;
   if (s === "cancelado") return 0;
-  if (s === "parcial") return total * 0.5; // heurística — refinada na Onda 4 com lancamento_pagamentos reais
-  // pendente, vencido, outros
+  if (s === "parcial") return total * 0.5;
   return 0;
 }
 
