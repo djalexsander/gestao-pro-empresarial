@@ -450,13 +450,40 @@ function FinanceContent() {
 
       {/* Bloco Resultado Real — motor financeiro Onda 3 */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Resultado real (recebido x previsto)
           </p>
-          <span className="hidden text-[11px] text-muted-foreground sm:inline">
-            Baseado em pagamentos efetivos · taxas e custos proporcionais
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="hidden text-[11px] text-muted-foreground sm:inline">
+              Pagamentos efetivos · taxas e custos proporcionais
+            </span>
+            <ExportTabelaButton
+              prefix="financeiro_resultado_real"
+              titulo="Resultado real"
+              rows={resultadoReal.porForma}
+              columns={[
+                { header: "Forma", accessor: (l) => l.forma, type: "text" },
+                { header: "Qtd vendas", accessor: (l) => l.qtd_vendas, type: "integer" },
+                { header: "Vendido (R$)", accessor: (l) => l.total_vendido, type: "currency" },
+                { header: "Recebido (R$)", accessor: (l) => l.total_recebido, type: "currency" },
+                { header: "Taxa (R$)", accessor: (l) => l.taxa, type: "currency" },
+                { header: "Líquido (R$)", accessor: (l) => l.total_recebido - l.taxa, type: "currency" },
+              ]}
+              resumo={[
+                { label: "Receita bruta", valor: formatBRL(resultadoReal.resultado.receita_bruta) },
+                { label: "Recebido", valor: formatBRL(resultadoReal.resultado.recebido) },
+                { label: "Previsto/pendente", valor: formatBRL(resultadoReal.resultado.pendente) },
+                { label: "Taxas", valor: formatBRL(resultadoReal.resultado.taxas) },
+                { label: "Custo realizado", valor: formatBRL(resultadoReal.resultado.custos_realizados) },
+                {
+                  label: "Resultado operacional",
+                  valor: formatBRL(resultadoReal.resultado.resultado_operacional_real),
+                  tone: resultadoReal.resultado.resultado_operacional_real >= 0 ? "success" : "danger",
+                },
+              ]}
+            />
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
           <StatCard
