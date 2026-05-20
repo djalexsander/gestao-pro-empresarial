@@ -2725,6 +2725,14 @@ async fn registrar_caixa_movimento_handler(
         }
     }
 
+    // Realtime: movimento de caixa.
+    if !result.idempotente {
+        event_bus::publish(
+            LocalEvent::new("caixa", "updated").with_entity(&result.caixa_local_uuid),
+        );
+        event_bus::publish(LocalEvent::new("financeiro", "updated"));
+    }
+
     Ok(Json(MovimentoCaixaLocalResponse {
         movimento_id: result.local_uuid,
         idempotente: result.idempotente,
