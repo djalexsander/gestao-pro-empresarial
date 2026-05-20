@@ -66,42 +66,11 @@ export interface FinanceiroResultadoReal {
 export function useFinanceiroResultadoReal(): FinanceiroResultadoReal {
   const ind = useFinanceiroIndicadores();
   const vendas = useVendas();
-  // Despesas pagas no mês — somatório de saídas do financeiro.
-  const despesasQ = useQuery({
-    queryKey: ["financeiro_despesas_mes"],
-    staleTime: 30_000,
-    queryFn: async () => {
-      try {
-        // O método pode não existir em todos os adapters — fallback para 0.
-        const list = await dataClient.financeiro.listar();
-        const hoje = new Date();
-        const ini = new Date(hoje.getFullYear(), hoje.getMonth(), 1)
-          .toISOString()
-          .slice(0, 10);
-        const fim = hoje.toISOString().slice(0, 10);
-        return list
-          .filter(
-            (l: any) =>
-              l.tipo === "pagar" &&
-              (l.status === "pago" || l.status === "quitado") &&
-              l.data_pagamento &&
-              l.data_pagamento >= ini &&
-              l.data_pagamento <= fim,
-          )
-          .reduce((s: number, l: any) => s + (Number(l.valor_pago) || 0), 0);
-      } catch {
-        return 0;
-      }
-    },
-  });
 
   return useMemo(() => {
     const data = ind.data;
     const vendasList = vendas.data ?? [];
 
-    // 1. Constrói entradas para o motor a partir das vendas da lista.
-    //    Custo por venda é estimado pela média do mês (custoTotal/totalVendido)
-    //    enquanto a Onda 4 não traz custo por venda diretamente do adapter.
     const totalVendido = data?.totalVendido ?? 0;
     const custoTotal = data?.custoTotal ?? 0;
     const custoMedio = totalVendido > 0 ? custoTotal / totalVendido : 0;
@@ -117,18 +86,15 @@ export function useFinanceiroResultadoReal(): FinanceiroResultadoReal {
           custo_total: valor_total * custoMedio,
           valor_pago,
           pagamentos: [
-            {
-              forma: normalizarForma(v.forma_pagamento),
-              valor: valor_pago,
-            },
+            { forma: normalizarForma(v.forma_pagamento), valor: valor_pago },
           ],
         };
       });
 
-    const resultado = calcularResultadoReal({
-      vendas: vendasFin,
-      despesas: despesasQ.data ?? 0,
-    });
+    // Despesas pagas no mês — preenchido na Onda 4 a partir de financeiro_lancamentos.
+    const despesas = 0;
+
+    const resultado = calcularResultadoReal({ vendas: vendasFin, despesas });
     const porForma = agregarPorForma(vendasFin);
 
     if (DEV) {
@@ -143,7 +109,8 @@ export function useFinanceiroResultadoReal(): FinanceiroResultadoReal {
     return {
       resultado,
       porForma,
-      loading: ind.isLoading || vendas.isLoading || despesasQ.isLoading,
+      loading: ind.isLoading || vendas.isLoading,
     };
-  }, [ind.data, ind.isLoading, vendas.data, vendas.isLoading, despesasQ.data, despesasQ.isLoading]);
+  }, [ind.data, ind.isLoading, vendas.data, vendas.isLoading]);
 }
+
