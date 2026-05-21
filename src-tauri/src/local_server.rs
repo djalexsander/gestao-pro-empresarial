@@ -2802,6 +2802,7 @@ async fn registrar_caixa_movimento_handler(
     headers: HeaderMap,
     Json(req): Json<MovimentoCaixaLocalRequest>,
 ) -> Result<Json<MovimentoCaixaLocalResponse>, (StatusCode, String)> {
+    remember_auth(&headers);
     let now = now_ms();
     let input: db::LocalMovimentoCaixaInput = serde_json::from_value(req.raw)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("payload inválido: {e}")))?;
