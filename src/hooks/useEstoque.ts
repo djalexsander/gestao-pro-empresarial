@@ -34,8 +34,10 @@ export type Movimentacao = {
  * típico de movimentações de cada usuário e evita N chamadas RPC.
  */
 export function useEstoqueSaldos() {
+  const { user } = useAuth();
   return useQuery({
-    queryKey: ["estoque-saldos"],
+    queryKey: ["estoque-saldos", user?.id],
+    enabled: !!user,
     queryFn: async () => {
       const linhas = await dataClient.estoque.saldosLinhas();
       const map = new Map<string, number>();
@@ -49,14 +51,21 @@ export function useEstoqueSaldos() {
               : 1; // ajuste pode vir negativo na quantidade
         map.set(key, (map.get(key) ?? 0) + sinal * Number(m.quantidade));
       }
+      if (import.meta.env.DEV) {
+        console.debug("[DASH_AUDIT] estoque.saldos", {
+          owner_id: user?.id, produtos: map.size,
+        });
+      }
       return map;
     },
   });
 }
 
 export function useMovimentacoes(produtoId?: string) {
+  const { user } = useAuth();
   return useQuery({
-    queryKey: ["movimentacoes", produtoId ?? "all"],
+    queryKey: ["movimentacoes", user?.id, produtoId ?? "all"],
+    enabled: !!user,
     queryFn: async () => {
       const data = await dataClient.estoque.movimentacoes({
         produto_id: produtoId ?? null,
