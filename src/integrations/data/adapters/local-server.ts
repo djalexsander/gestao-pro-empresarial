@@ -691,18 +691,19 @@ export const localServerAdapter: DataAdapter = {
       reportDataSource({ source: "cloud", domain: "funcionarios", method: "resetarPin", fallback: true });
     },
     list: (input) =>
-
       withCloudFallback(
         "funcionarios",
         "list",
         async () => {
           const somenteAtivos = input?.somente_ativos === true;
-          // Para a aba admin (somente_ativos != true) pedimos TODOS ao
-          // servidor local (inclui inativos). Para PDV (apenas ativos)
-          // mantemos o endpoint padrão.
           const query = somenteAtivos
             ? undefined
             : { incluir_inativos: "1" };
+          // baseUrl indica se o servidor local está ATIVO. Quando está,
+          // sua resposta é AUTORITATIVA (mesmo vazia) — não caímos para
+          // cloud, evitando hang offline e "Nenhum operador cadastrado"
+          // enganoso após uma falha de rede silenciosa.
+          const baseUrl = await resolveBaseUrl();
           const raw = await tryLocal<unknown>(
             "funcionarios",
             "list",
@@ -712,12 +713,10 @@ export const localServerAdapter: DataAdapter = {
           if (!Array.isArray(raw)) {
             if (import.meta.env.DEV) {
               // eslint-disable-next-line no-console
-              console.debug("[FUNCIONARIOS_LOCAL] sem cache local → cloud");
+              console.debug("[FUNCIONARIOS_LOCAL] sem resposta local → cloud");
             }
             return null;
           }
-          // Normaliza payload bruto vindo do PostgREST para o formato
-          // FuncionarioDomain consumido pela UI.
           const rows = raw
             .map((r) => {
               const row = r as Record<string, unknown>;
@@ -753,10 +752,12 @@ export const localServerAdapter: DataAdapter = {
               `[FUNCIONARIOS_LIST] origem=local-server total=${rows.length} somente_ativos=${somenteAtivos}`,
             );
           }
-          // Se o cache veio vazio, evita "Nenhum funcionário cadastrado"
-          // enganoso e cai para cloud (pode ser cache ainda não sincronizado).
-          if (rows.length === 0) return null;
-          return somenteAtivos ? rows.filter((f) => f.ativo) : rows;
+          const filtered = somenteAtivos ? rows.filter((f) => f.ativo) : rows;
+          // Se o servidor local respondeu (baseUrl != null), CONFIA na
+          // resposta — mesmo []. Só caímos pra cloud quando o servidor
+          // local está fora do ar (baseUrl null) E a lista veio vazia.
+          if (filtered.length === 0 && !baseUrl) return null;
+          return filtered;
         },
         async () => {
           const rows = await cloudAdapter.funcionarios.list(input);
@@ -1198,6 +1199,102 @@ export const localServerAdapter: DataAdapter = {
   // -----------------------------------------------------------------
   caixa: {
     ...cloudAdapter.caixa,
+    // Resumo do caixa lido direto do SQLite local. Essencial para o
+    // FecharCaixaDialog funcionar OFFLINE (totais, dinheiro esperado,
+    // diferença). Cai pra cloud só quando o servidor local não responde.
+    resumo: async (caixaId: string) => {
+      const baseUrl = await resolveBaseUrl();
+      if (baseUrl) {
+        type LocalResumo = {
+          caixa_local_uuid: string;
+          remote_id: string | null;
+          status: string;
+          data_abertura_ms: number;
+          data_fechamento_ms: number | null;
+          valor_inicial: number;
+          valor_informado: number | null;
+          valor_esperado_dinheiro: number;
+          diferenca: number | null;
+          total_vendido: number;
+          qtd_vendas: number;
+          total_suprimentos: number;
+          total_sangrias: number;
+          por_forma: Array<{ forma_pagamento: string; total: number; qtd_vendas: number }>;
+        };
+        const r = await tryLocal<LocalResumo | null>(
+          "caixa",
+          "resumo",
+          "/api/caixa/resumo",
+          { caixa_id: caixaId },
+        );
+        if (r) {
+          const byForma = (key: string): number =>
+            r.por_forma
+              .filter((f) => f.forma_pagamento.toLowerCase() === key)
+              .reduce((acc, f) => acc + (Number(f.total) || 0), 0);
+          const total_dinheiro = byForma("dinheiro");
+          const total_pix = byForma("pix");
+          const total_debito = byForma("debito") + byForma("cartao_debito");
+          const total_credito = byForma("credito") + byForma("cartao_credito");
+          const total_boleto = byForma("boleto");
+          const total_ifood = byForma("ifood");
+          const total_fiado = byForma("fiado");
+          const conhecidas = new Set([
+            "dinheiro", "pix", "debito", "cartao_debito",
+            "credito", "cartao_credito", "boleto", "ifood", "fiado",
+          ]);
+          const total_outros = r.por_forma
+            .filter((f) => !conhecidas.has(f.forma_pagamento.toLowerCase()))
+            .reduce((acc, f) => acc + (Number(f.total) || 0), 0);
+          const isoAb = new Date(r.data_abertura_ms).toISOString();
+          const isoFc = r.data_fechamento_ms
+            ? new Date(r.data_fechamento_ms).toISOString()
+            : null;
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.debug("[CAIXA_RESUMO] origem=local-server", {
+              caixaId,
+              total_vendido: r.total_vendido,
+              valor_esperado: r.valor_esperado_dinheiro,
+            });
+          }
+          return {
+            caixa_id: r.remote_id ?? r.caixa_local_uuid,
+            status: r.status as "aberto" | "fechado",
+            data_abertura: isoAb,
+            data_fechamento: isoFc,
+            valor_inicial: r.valor_inicial,
+            qtd_vendas: r.qtd_vendas,
+            total_vendas: r.total_vendido,
+            total_dinheiro,
+            total_pix,
+            total_debito,
+            total_credito,
+            total_boleto,
+            total_ifood,
+            total_fiado,
+            total_outros,
+            total_sangrias: r.total_sangrias,
+            total_suprimentos: r.total_suprimentos,
+            valor_esperado: r.valor_esperado_dinheiro,
+            valor_informado: r.valor_informado,
+            diferenca: r.diferenca,
+          } as Awaited<ReturnType<typeof cloudAdapter.caixa.resumo>>;
+        }
+        // Servidor local respondeu mas sem caixa OU sem resposta.
+        // Não temos como compor o resumo offline → cai pra cloud apenas
+        // quando temos rede.
+        const online = typeof navigator === "undefined" ? true : navigator.onLine;
+        if (!online) {
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.warn("[CAIXA_RESUMO] offline e sem resumo local — devolvendo vazio");
+          }
+          return null;
+        }
+      }
+      return cloudAdapter.caixa.resumo(caixaId);
+    },
     // ------------------------------------------------------------------
     // Etapa 2 — Estado do caixa local. Lê SQLite primeiro (caixa_local).
     // Se o servidor local estiver ativo, NUNCA consultamos cloud aqui —
