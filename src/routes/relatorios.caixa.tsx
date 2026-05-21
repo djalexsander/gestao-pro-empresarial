@@ -53,6 +53,10 @@ import { dataClient } from "@/integrations/data";
 import { formatBRL } from "@/lib/mock-data";
 import { exportRowsToCSV, type CsvColumn } from "@/lib/export-csv";
 import { cn } from "@/lib/utils";
+import { useEmpresaAtual } from "@/hooks/useEmpresa";
+import { fetchCaixasSessoesAudit } from "@/integrations/data/relatorios-audit";
+import { AuditoriaCard } from "@/components/relatorios/AuditoriaCard";
+import type { RelatorioAuditoria } from "@/lib/relatorios/audit";
 
 export const Route = createFileRoute("/relatorios/caixa")({
   head: () => ({
