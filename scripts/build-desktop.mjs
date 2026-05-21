@@ -172,7 +172,7 @@ function runStep(cmd, args, { onStdout, timeoutMs, shell } = {}) {
     const prepResult = await runStep(
       process.execPath,
       ["scripts/prepare-tauri-dist.mjs"],
-      { timeoutMs: PREPARE_TIMEOUT_MS },
+      { timeoutMs: PREPARE_TIMEOUT_MS, shell: false },
     );
     if (prepResult.code !== 0) {
       err(`prepare-tauri-dist falhou (code=${prepResult.code})`);
