@@ -39,6 +39,37 @@ export function useTerminalConexao(): ConexaoInfo {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const ping = useCallback(async (): Promise<boolean> => {
+    // Desktop em modo servidor local: pinga o backend local primeiro.
+    // Se o servidor local está OK, consideramos online — não importa
+    // se a nuvem está acessível, todas as operações de PDV são locais.
+    if (isDesktop()) {
+      try {
+        const st = await getLocalServerStatus();
+        if (st.running && st.port) {
+          const t0 = performance.now();
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 2000);
+          try {
+            const res = await fetch(`http://127.0.0.1:${st.port}/health`, {
+              signal: ctrl.signal,
+              cache: "no-store",
+            });
+            clearTimeout(timer);
+            if (res.ok) {
+              setLatenciaMs(Math.round(performance.now() - t0));
+              setUltimoSync(new Date());
+              setStatus("online");
+              setTentativas(0);
+              return true;
+            }
+          } catch {
+            clearTimeout(timer);
+          }
+        }
+      } catch {
+        /* sem bridge — segue cloud */
+      }
+    }
     if (typeof navigator !== "undefined" && !navigator.onLine) {
       setStatus("offline");
       return false;
