@@ -1358,11 +1358,8 @@ export const localServerAdapter: DataAdapter = {
           "Não foi possível abrir o caixa no servidor local. Verifique os logs do servidor e tente novamente.",
         );
       }
-      console.warn("[CAIXA_TIMEOUT] servidor local indisponível — tentando cloud");
-      const result = await cloudAdapter.caixa.abrir(input);
-      reportDataSource({ source: "cloud", domain: "caixa", method: "abrir", fallback: true });
-      try { sessionStorage.removeItem(ssKey); } catch { /* ignore */ }
-      return result;
+      console.error("[CAIXA_LOCAL] servidor local indisponível — cloud bloqueada no modo local", { duracao_ms: dt });
+      throw new Error("Servidor local indisponível. Não foi possível abrir o caixa no SQLite.");
     },
     registrarMovimento: async (input) => {
       console.info("[CAIXA_LOCAL] movimento local iniciado", { tipo: input.tipo });
