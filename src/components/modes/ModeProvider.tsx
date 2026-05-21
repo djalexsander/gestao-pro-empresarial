@@ -67,19 +67,13 @@ export function ModeProvider({ children }: { children: ReactNode }) {
   );
 
   const setModo = useCallback((chave: string) => {
-    setChaveAtual((atual) => {
-      if (atual === chave) return atual;
-      if (typeof window !== "undefined") window.localStorage.setItem(STORAGE_KEY, chave);
-      return chave;
-    });
+    if (typeof window !== "undefined") window.localStorage.setItem(STORAGE_KEY, chave);
+    setChaveAtual(chave);
   }, []);
 
   const clearModo = useCallback(() => {
-    setChaveAtual((atual) => {
-      if (atual === null) return atual;
-      if (typeof window !== "undefined") window.localStorage.removeItem(STORAGE_KEY);
-      return null;
-    });
+    if (typeof window !== "undefined") window.localStorage.removeItem(STORAGE_KEY);
+    setChaveAtual(null);
   }, []);
 
   const isRouteAllowed = useCallback((pathname: string) => {
