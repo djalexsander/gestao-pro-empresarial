@@ -2482,17 +2482,23 @@ async function postLocalAuthDetail<T>(
 
 
 
-async function postLocalAuth<T>(path: string, body: unknown): Promise<T | null> {
+async function postLocalAuth<T>(path: string, body: unknown, timeoutMs = HTTP_TIMEOUT_MS): Promise<T | null> {
   const baseUrl = await resolveBaseUrl();
   if (!baseUrl) return null;
   let token: string | null = null;
   try {
     const { supabase } = await import("@/integrations/supabase/client");
-    const { data } = await supabase.auth.getSession();
+    // getSession() pode pendurar quando offline tentando refresh do token.
+    // Damos no máximo 1s — se demorar, seguimos sem Authorization.
+    const sessionPromise = supabase.auth.getSession();
+    const timeoutPromise = new Promise<{ data: { session: null } }>((resolve) =>
+      setTimeout(() => resolve({ data: { session: null } }), 1000),
+    );
+    const { data } = await Promise.race([sessionPromise, timeoutPromise]);
     token = data.session?.access_token ?? null;
   } catch { /* sem token → segue só com body */ }
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), HTTP_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
