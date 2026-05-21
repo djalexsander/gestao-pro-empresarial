@@ -1,4 +1,8 @@
 import { dataClient } from "@/integrations/data";
+import { fetchContasReceberAudit } from "@/integrations/data/relatorios-audit";
+import { useEmpresaAtual } from "@/hooks/useEmpresa";
+import { AuditoriaCard } from "@/components/relatorios/AuditoriaCard";
+import type { RelatorioAuditoria } from "@/lib/relatorios/audit";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -146,6 +150,11 @@ function Conteudo() {
   const navigate = useNavigate();
 
   // Filtros
+  const { empresaAtual } = useEmpresaAtual();
+  const ownerId = empresaAtual?.owner_id ?? null;
+  const [audit, setAudit] = useState<RelatorioAuditoria | null>(null);
+
+  // Filtros
   const [preset, setPreset] = useState<PeriodoPreset>("mes");
   const [dataDe, setDataDe] = useState<string>(() => {
     const r = presetParaIntervalo("mes")!;
@@ -191,15 +200,18 @@ function Conteudo() {
   const lancamentosQ = useQuery({
     queryKey: [
       "relatorio_contas_receber",
+      ownerId,
       { dataDe, dataAte, campoData, statusFiltro, clienteId },
     ],
+    enabled: !!ownerId,
     queryFn: async (): Promise<Row[]> => {
-      const data = await dataClient.relatorios.lancamentosContasReceber({
+      const { rows: data, audit: a } = await fetchContasReceberAudit(ownerId, {
         inicio: dataDe,
         fim: dataAte,
         campoData,
         clienteId,
       });
+      setAudit(a);
       const rows: Row[] = data.map((l) => {
         const valor = l.valor;
         const pago = l.valor_pago;
@@ -749,6 +761,8 @@ function Conteudo() {
           )}
         </CardContent>
       </Card>
+
+      <AuditoriaCard audit={audit} />
 
       <LancamentoDetalheDialog
         open={!!detalhe}

@@ -1,4 +1,8 @@
 import { dataClient } from "@/integrations/data";
+import { fetchFinanceiroPeriodoAudit } from "@/integrations/data/relatorios-audit";
+import { useEmpresaAtual } from "@/hooks/useEmpresa";
+import { AuditoriaCard } from "@/components/relatorios/AuditoriaCard";
+import type { RelatorioAuditoria } from "@/lib/relatorios/audit";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -184,6 +188,10 @@ function Conteudo() {
   const [rows, setRows] = useState<Lancamento[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [saldoAcumulado, setSaldoAcumulado] = useState<number>(0);
+  const [audit, setAudit] = useState<RelatorioAuditoria | null>(null);
+
+  const { empresaAtual } = useEmpresaAtual();
+  const ownerId = empresaAtual?.owner_id ?? null;
 
   // Carrega categorias uma vez
   useEffect(() => {
@@ -209,13 +217,15 @@ function Conteudo() {
       );
 
       try {
-        const data = await dataClient.relatorios.lancamentosFinanceiroPeriodo({ inicio, fim });
+        const { rows: data, audit: a } = await fetchFinanceiroPeriodoAudit(ownerId, { inicio, fim });
         if (cancelled) return;
         setRows(data as Lancamento[]);
+        setAudit(a);
       } catch (e) {
         if (cancelled) return;
         toast.error(e instanceof Error ? e.message : "Falha ao carregar");
         setRows([]);
+        setAudit(null);
       }
 
       try {
@@ -230,7 +240,7 @@ function Conteudo() {
     return () => {
       cancelled = true;
     };
-  }, [aplicado]);
+  }, [aplicado, ownerId]);
 
   // Filtros aplicados client-side (tipo / categoria / status)
   const filteredRows = useMemo(() => {
@@ -786,6 +796,8 @@ function Conteudo() {
           </Tabs>
         </CardContent>
       </Card>
+
+      <AuditoriaCard audit={audit} />
     </div>
   );
 }
