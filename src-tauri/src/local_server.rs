@@ -2880,19 +2880,25 @@ async fn registrar_caixa_fechar_handler(
 
     let mut outbox_status = "pending".to_string();
     let mut remote_id: Option<String> = None;
-    if !result.idempotente && ctx.upstream.is_some() {
-        if let Ok(rid) = push_one_outbox_caixa(&ctx, &headers, &result.local_uuid).await {
-            outbox_status = "sent".into();
-            remote_id = Some(rid);
-            eprintln!("[LOCAL_CASH_OUTBOX] fechar sent fechamento={}", result.local_uuid);
-        } else {
-            eprintln!("[LOCAL_CASH_OUTBOX] fechar pending fechamento={}", result.local_uuid);
-        }
-    } else if result.idempotente {
+    if result.idempotente {
         if let Ok(Some(it)) = db::outbox_caixa_get(&result.local_uuid) {
             outbox_status = it.status.clone();
             remote_id = it.remote_id.clone();
         }
+    } else if ctx.upstream.is_some() {
+        let ctx_bg = ctx.clone();
+        let headers_bg = headers.clone();
+        let uuid_bg = result.local_uuid.clone();
+        tokio::spawn(async move {
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(3),
+                push_one_outbox_caixa(&ctx_bg, &headers_bg, &uuid_bg),
+            ).await {
+                Ok(Ok(_)) => eprintln!("[LOCAL_CASH_OUTBOX] fechar sent (bg) fechamento={uuid_bg}"),
+                Ok(Err(e)) => eprintln!("[LOCAL_CASH_OUTBOX] fechar pending (bg, err) fechamento={uuid_bg}: {e}"),
+                Err(_) => eprintln!("[LOCAL_CASH_OUTBOX] fechar pending (bg, timeout) fechamento={uuid_bg}"),
+            }
+        });
     }
 
     // Realtime: caixa fechado.
