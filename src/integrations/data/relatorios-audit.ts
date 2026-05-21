@@ -597,3 +597,186 @@ export async function fetchCaixasSessoesAudit(
   return result;
 }
 
+/* ============================================================================
+ * ONDA 3 — Inventário / Fiscal
+ * ========================================================================== */
+
+/* ============== Posição de Estoque ============== */
+
+export interface EstoqueProdutoAudit {
+  id: string;
+  sku: string;
+  nome: string;
+  unidade: string;
+  custo: number;
+  venda: number;
+  minimo: number;
+  saldo: number;
+}
+
+export async function fetchEstoquePosicaoAudit(
+  ownerId: string | null,
+): Promise<AuditedResult<EstoqueProdutoAudit>> {
+  const ctx = {
+    relatorio: "relatorio.estoque",
+    fonte: "produtos (ativos) + estoque_movimentacoes",
+    ownerId,
+    filtros: { somenteAtivos: true },
+  };
+  if (!ownerId) {
+    const audit = emptyAudit(ctx);
+    logAudit(audit);
+    return { rows: [], audit };
+  }
+
+  const [prodRes, movRes] = await Promise.all([
+    supabase
+      .from("produtos")
+      .select("id, sku, nome, unidade, preco_custo, preco_venda, estoque_minimo, status")
+      .eq("owner_id", ownerId)
+      .eq("status", "ativo")
+      .order("nome", { ascending: true })
+      .limit(20000),
+    supabase
+      .from("estoque_movimentacoes")
+      .select("produto_id, tipo, quantidade")
+      .eq("owner_id", ownerId)
+      .limit(200000),
+  ]);
+  if (prodRes.error) throw prodRes.error;
+  if (movRes.error) throw movRes.error;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const produtos = (prodRes.data ?? []) as any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const movs = (movRes.data ?? []) as any[];
+
+  const saldos = new Map<string, number>();
+  let movsOrfas = 0;
+  const produtosSet = new Set(produtos.map((p) => p.id));
+  for (const m of movs) {
+    if (!produtosSet.has(m.produto_id)) {
+      movsOrfas += 1;
+      continue;
+    }
+    const sinal =
+      m.tipo === "entrada" || m.tipo === "devolucao"
+        ? 1
+        : m.tipo === "saida" || m.tipo === "transferencia"
+          ? -1
+          : 1;
+    saldos.set(
+      m.produto_id,
+      (saldos.get(m.produto_id) ?? 0) + sinal * (Number(m.quantidade) || 0),
+    );
+  }
+
+  const rows: EstoqueProdutoAudit[] = produtos.map((p) => ({
+    id: p.id,
+    sku: p.sku ?? "",
+    nome: p.nome,
+    unidade: p.unidade ?? "",
+    custo: Number(p.preco_custo) || 0,
+    venda: Number(p.preco_venda) || 0,
+    minimo: Number(p.estoque_minimo) || 0,
+    saldo: saldos.get(p.id) ?? 0,
+  }));
+
+  const valorTotal = rows.reduce((a, r) => a + r.saldo * r.custo, 0);
+  const ignorados = [];
+  if (movsOrfas > 0) {
+    ignorados.push({
+      motivo: "fora_do_filtro" as const,
+      quantidade: movsOrfas,
+      detalhe: "movimentações de estoque sem produto ativo correspondente",
+    });
+  }
+
+  const audit: import("@/lib/relatorios/audit").RelatorioAuditoria = {
+    relatorio: ctx.relatorio,
+    fonte: ctx.fonte,
+    ownerId,
+    filtros: ctx.filtros,
+    totalRegistrosLidos: produtos.length + movs.length,
+    totalRegistros: rows.length,
+    totalCalculado: Number(valorTotal.toFixed(2)),
+    ignorados,
+    divergencias: [],
+    geradoEm: new Date().toISOString(),
+  };
+  logAudit(audit);
+  return { rows, audit };
+}
+
+/* ============== Notas Fiscais ============== */
+
+export interface NotaFiscalAudit {
+  id: string;
+  numero: string;
+  nf: string;
+  serie: string;
+  data: string;
+  total: number;
+  status: string;
+}
+
+export async function fetchNotasFiscaisAudit(
+  ownerId: string | null,
+  input: RelatorioRangeInput,
+): Promise<AuditedResult<NotaFiscalAudit>> {
+  const ctx = {
+    relatorio: "relatorio.fiscal",
+    fonte: "vendas com numero_nf preenchido",
+    ownerId,
+    filtros: { inicio: input.inicio, fim: input.fim, campoData: "data_emissao" },
+  };
+  if (!ownerId) {
+    const audit = emptyAudit(ctx);
+    logAudit(audit);
+    return { rows: [], audit };
+  }
+  const { data, error } = await supabase
+    .from("vendas")
+    .select("id, numero, numero_nf, serie_nf, data_emissao, total, status")
+    .eq("owner_id", ownerId)
+    .gte("data_emissao", input.inicio)
+    .lte("data_emissao", input.fim)
+    .not("numero_nf", "is", null)
+    .order("data_emissao", { ascending: false })
+    .limit(10000);
+  if (error) throw error;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const todas = (data ?? []) as any[];
+  // numero_nf string vazia não conta como nota emitida
+  const validas = todas.filter((v) => (v.numero_nf ?? "").toString().trim().length > 0);
+  const semNumero = todas.length - validas.length;
+
+  const rows: NotaFiscalAudit[] = validas.map((v) => ({
+    id: v.id,
+    numero: v.numero,
+    nf: v.numero_nf,
+    serie: v.serie_nf ?? "",
+    data: v.data_emissao,
+    total: Number(v.total) || 0,
+    status: v.status,
+  }));
+
+  const result = withAudit(
+    ctx,
+    rows,
+    (r) => classificarStatusPadrao(r.status),
+    (r) => r.total,
+  );
+  if (semNumero > 0) {
+    result.audit.ignorados.push({
+      motivo: "fora_do_filtro",
+      quantidade: semNumero,
+      detalhe: "registros sem número de NF preenchido",
+    });
+  }
+  logAudit(result.audit);
+  return result;
+}
+
+
