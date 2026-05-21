@@ -8755,6 +8755,20 @@ pub fn outbox_caixa_mark_sent(local_uuid: &str, remote_id: &str, now_ms: i64) ->
                   WHERE local_uuid=?3 AND (remote_id IS NULL OR remote_id='')",
                 params![remote_id, now_ms, local_uuid],
             )?;
+            // Causalidade: ao confirmar o `abrir`, todos os `fechar` e
+            // `movimento` do mesmo caixa que ficaram em `error` por falta
+            // de remote_id voltam a ser elegíveis (pending, attempts=0,
+            // elegível imediatamente). O scheduler vai retentá-los e
+            // agora o lookup `caixa_local_remote_id` retorna o uuid real.
+            tx.execute(
+                "UPDATE outbox_caixa
+                    SET status='pending', attempts=0, last_error=NULL,
+                        next_attempt_at_ms=NULL, updated_at_ms=?2
+                  WHERE caixa_local_uuid=?1
+                    AND action IN ('fechar','movimento')
+                    AND status IN ('error','pending')",
+                params![local_uuid, now_ms],
+            )?;
         } else if action.as_deref() == Some("movimento") {
             tx.execute(
                 "UPDATE caixa_movs_local SET remote_id=?1
