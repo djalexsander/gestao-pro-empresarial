@@ -45,12 +45,20 @@ const globalWatchdog = setTimeout(() => {
 }, GLOBAL_TIMEOUT_MS);
 globalWatchdog.unref?.();
 
-function runStep(cmd, args, { onStdout, timeoutMs } = {}) {
+function runStep(cmd, args, { onStdout, timeoutMs, shell } = {}) {
   return new Promise((resolvePromise) => {
-    log(`spawn: ${cmd} ${args.join(" ")}`);
+    // Default: only use shell on Windows for non-absolute commands (e.g. "npx"
+    // which resolves to npx.cmd). For absolute paths like process.execPath,
+    // shell:true would break on paths containing spaces ("C:\Program Files\...").
+    const useShell =
+      typeof shell === "boolean"
+        ? shell
+        : process.platform === "win32" && !/[\\/]/.test(cmd);
+    log(`spawn: ${cmd} ${args.join(" ")} (shell=${useShell})`);
     const child = spawn(cmd, args, {
       cwd: ROOT,
-      shell: process.platform === "win32",
+      shell: useShell,
+      windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env, CI: process.env.CI ?? "true" },
     });
@@ -164,7 +172,7 @@ function runStep(cmd, args, { onStdout, timeoutMs } = {}) {
     const prepResult = await runStep(
       process.execPath,
       ["scripts/prepare-tauri-dist.mjs"],
-      { timeoutMs: PREPARE_TIMEOUT_MS },
+      { timeoutMs: PREPARE_TIMEOUT_MS, shell: false },
     );
     if (prepResult.code !== 0) {
       err(`prepare-tauri-dist falhou (code=${prepResult.code})`);
