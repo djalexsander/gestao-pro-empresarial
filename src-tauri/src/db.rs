@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i64 = 24;
+const SCHEMA_VERSION: i64 = 25;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 static LAST_INIT_ERROR: Mutex<Option<String>> = Mutex::new(None);
@@ -573,6 +573,37 @@ fn init_inner() -> DbResult<()> {
             ON caixa_local(operador_id, status);
         CREATE UNIQUE INDEX IF NOT EXISTS uq_caixa_local_client_uuid
             ON caixa_local(client_uuid) WHERE client_uuid IS NOT NULL;
+        -- v25: recuperação defensiva antes do índice parcial por terminal.
+        -- Builds anteriores podiam deixar mais de um caixa `aberto` para o
+        -- mesmo terminal; nesse estado, o boot do SQLite falhava ao recriar o
+        -- índice com "UNIQUE constraint failed: caixa_local.terminal_id".
+        -- Mantemos aberto apenas o caixa mais recente por terminal e encerramos
+        -- os duplicados antigos localmente, preservando histórico/outbox.
+        UPDATE caixa_local AS c
+           SET status='fechado',
+               observacao_fechamento=COALESCE(
+                   observacao_fechamento,
+                   'Fechado automaticamente pelo reparo local v25: caixa aberto duplicado no mesmo terminal.'
+               ),
+               data_fechamento_ms=COALESCE(data_fechamento_ms, updated_at_ms, data_abertura_ms),
+               valor_informado=COALESCE(valor_informado, valor_esperado, valor_inicial, 0),
+               valor_esperado=COALESCE(valor_esperado, valor_inicial, 0),
+               diferenca=COALESCE(diferenca, 0),
+               updated_at_ms=MAX(updated_at_ms, data_abertura_ms)
+         WHERE c.status='aberto'
+           AND c.terminal_id IS NOT NULL
+           AND c.terminal_id <> ''
+           AND EXISTS (
+               SELECT 1
+                 FROM caixa_local AS n
+                WHERE n.status='aberto'
+                  AND n.terminal_id = c.terminal_id
+                  AND (
+                      n.data_abertura_ms > c.data_abertura_ms
+                      OR (n.data_abertura_ms = c.data_abertura_ms AND n.created_at_ms > c.created_at_ms)
+                      OR (n.data_abertura_ms = c.data_abertura_ms AND n.created_at_ms = c.created_at_ms AND n.local_uuid > c.local_uuid)
+                  )
+           );
         -- Etapa 6 (offline-first): no máximo 1 caixa aberto por terminal,
         -- protegendo contra reabertura paralela mesmo se o front falhar em
         -- detectar o caixa já aberto.
@@ -7313,9 +7344,23 @@ pub fn abrir_caixa_local(
         }
     }
 
-    // Já existe caixa aberto neste contexto? (mesmo operador / sem operador).
-    // Se sim, devolvemos como idempotente — o front vai reusar o mesmo caixa.
+    // Já existe caixa aberto neste contexto? Primeiro por terminal, porque a
+    // regra local/cloud é 1 caixa aberto por terminal. Depois caímos no legado
+    // por operador/sem operador. Se sim, devolvemos como idempotente — o front
+    // vai reusar o mesmo caixa em vez de bater no índice único.
     let existente = with_conn(|conn| {
+        if let Some(term) = input.terminal_id.as_deref().filter(|s| !s.trim().is_empty()) {
+            let row = conn.query_row(
+                "SELECT local_uuid, valor_inicial FROM caixa_local
+                  WHERE status='aberto' AND terminal_id = ?1
+               ORDER BY data_abertura_ms DESC LIMIT 1",
+                params![term],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?)),
+            ).optional()?;
+            if row.is_some() {
+                return Ok(row);
+            }
+        }
         let oper = input.operador_id.as_deref();
         let row = if let Some(op) = oper {
             conn.query_row(
