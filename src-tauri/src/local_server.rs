@@ -247,7 +247,9 @@ async fn server_info_handler() -> Json<ServerInfoResponse> {
         snap.unwrap_or((None, None, None, None, None, false, 0, false));
 
     let host = local_ip().or_else(|| hostname.clone());
-    let database_ready = db::db_info().is_ok();
+    let database_ready = db::is_ready();
+    let database_error = db::last_init_error();
+    let database_path = db::db_path_string();
 
     Json(ServerInfoResponse {
         app: APP_NAME,
@@ -265,8 +267,11 @@ async fn server_info_handler() -> Json<ServerInfoResponse> {
         terminals_conectados,
         backend_running: running,
         database_ready,
+        database_error,
+        database_path,
     })
 }
+
 
 /// Tenta descobrir o IP IPv4 não-loopback principal da máquina, para
 /// preencher o campo "Host" que os terminais devem usar na rede local.
