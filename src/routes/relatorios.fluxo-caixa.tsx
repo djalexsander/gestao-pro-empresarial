@@ -275,6 +275,8 @@ function Conteudo() {
           )}
         </CardContent>
       </Card>
+
+      <AuditoriaCard audit={audit} />
     </div>
   );
 }
