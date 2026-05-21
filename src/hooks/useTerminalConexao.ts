@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { dataClient } from "@/integrations/data/client";
+import { isDesktop } from "@/integrations/data/mode";
+import { getLocalServerStatus } from "@/integrations/desktop/tauriBridge";
 
 /**
  * Estado de conexão do terminal cliente com o servidor (Lovable Cloud).
