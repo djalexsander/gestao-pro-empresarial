@@ -2883,6 +2883,7 @@ async fn registrar_caixa_fechar_handler(
     headers: HeaderMap,
     Json(req): Json<FecharCaixaLocalRequest>,
 ) -> Result<Json<FecharCaixaLocalResponse>, (StatusCode, String)> {
+    remember_auth(&headers);
     let now = now_ms();
     let input: db::LocalFecharCaixaInput = serde_json::from_value(req.raw)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("payload inválido: {e}")))?;
