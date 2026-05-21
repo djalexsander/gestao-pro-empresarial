@@ -2503,8 +2503,8 @@ export const localTerminalAdapter: DataAdapter = {
     ...cloudAdapter.caixa,
     /**
      * WRITE LOCAL: abertura/sangria/suprimento/fechamento vão PRIMEIRO ao
-     * servidor local (SQLite + outbox). Se o servidor local não responde,
-     * caímos no cloudAdapter — comportamento legado preservado.
+     * servidor local (SQLite + outbox). Em modo terminal local, erro de cloud
+     * nunca entra no clique: falha local bloqueia; sync cloud fica na outbox.
      *
      * Idempotência:
      *  - `client_uuid` (1 por modal/operação) impede duplicar entre cliques.
@@ -2516,8 +2516,6 @@ export const localTerminalAdapter: DataAdapter = {
       const cfg = getDesktopConfig().terminal;
       if (getBaseUrl(cfg)) {
         console.info("[CAIXA_LOCAL] abertura local iniciada");
-        const { data } = await supabase.auth.getSession();
-        const token = data.session?.access_token ?? null;
         const local = await abrirCaixaLocal(
           cfg,
           {
@@ -2529,7 +2527,6 @@ export const localTerminalAdapter: DataAdapter = {
               (input as AbrirCaixaInput & { client_uuid?: string | null })
                 .client_uuid ?? null,
           },
-          token,
         );
         if (local) {
           console.info("[CAIXA_LOCAL] persistido SQLite", { caixa_id: local.caixa_id });
@@ -2547,13 +2544,9 @@ export const localTerminalAdapter: DataAdapter = {
           });
           return local.remote_id ?? local.caixa_id;
         }
-        console.warn("[CAIXA_TIMEOUT] fallback local acionado (abrir) — servidor local indisponível");
+        throw new Error("Não foi possível abrir o caixa no servidor local. Tente novamente.");
       }
-      const result = await cloudAdapter.caixa.abrir(input);
-      reportDataSource({
-        source: "cloud", domain: "caixa", method: "abrir", fallback: true,
-      });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível abrir o caixa no SQLite.");
     },
 
     registrarMovimento: async (
@@ -2561,8 +2554,6 @@ export const localTerminalAdapter: DataAdapter = {
     ): Promise<string> => {
       const cfg = getDesktopConfig().terminal;
       if (getBaseUrl(cfg)) {
-        const { data } = await supabase.auth.getSession();
-        const token = data.session?.access_token ?? null;
         const local = await registrarMovCaixaLocal(
           cfg,
           {
@@ -2572,7 +2563,6 @@ export const localTerminalAdapter: DataAdapter = {
             motivo: input.motivo ?? null,
             client_uuid: input.client_uuid ?? null,
           },
-          token,
         );
         if (local) {
           reportDataSource({
@@ -2583,12 +2573,9 @@ export const localTerminalAdapter: DataAdapter = {
           });
           return local.remote_id ?? local.movimento_id;
         }
+        throw new Error("Não foi possível gravar o movimento no caixa local. Tente novamente.");
       }
-      const result = await cloudAdapter.caixa.registrarMovimento(input);
-      reportDataSource({
-        source: "cloud", domain: "caixa", method: "registrarMovimento", fallback: true,
-      });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível gravar o movimento do caixa no SQLite.");
     },
 
     fechar: async (input: FecharCaixaInput): Promise<FecharCaixaResult> => {
@@ -2603,8 +2590,6 @@ export const localTerminalAdapter: DataAdapter = {
       }
       if (baseUrl) {
         if (import.meta.env.DEV) console.info("[CAIXA_FECHAR_LOCAL] gravando SQLite (LAN)");
-        const { data } = await supabase.auth.getSession();
-        const token = data.session?.access_token ?? null;
         const local = await fecharCaixaLocal(
           cfg,
           {
@@ -2615,7 +2600,6 @@ export const localTerminalAdapter: DataAdapter = {
               (input as FecharCaixaInput & { client_uuid?: string | null })
                 .client_uuid ?? null,
           },
-          token,
         );
         if (local) {
           if (import.meta.env.DEV) {
@@ -2631,14 +2615,6 @@ export const localTerminalAdapter: DataAdapter = {
             method: "fechar",
             fallback: false,
           });
-          // Só consulta cloud quando online + já sincronizado. Nunca trava o fechamento offline.
-          if (online && local.outbox_status === "sent" && local.remote_id) {
-            try {
-              return await cloudAdapter.caixa.fechar(input);
-            } catch {
-              /* fallback abaixo */
-            }
-          }
           return {
             caixa_id: local.remote_id ?? input.caixa_id,
             valor_esperado: input.valor_informado,
@@ -2647,20 +2623,12 @@ export const localTerminalAdapter: DataAdapter = {
             fechado_em: new Date().toISOString(),
           };
         }
-        if (!online) {
-          if (import.meta.env.DEV) console.warn("[CAIXA_FECHAR_ERRO] offline e servidor LAN indisponível");
-          throw new Error("Sem conexão com o servidor local. Verifique a rede LAN para fechar o caixa.");
-        }
-      } else if (!online) {
+        if (import.meta.env.DEV) console.warn("[CAIXA_FECHAR_ERRO] falha ao gravar fechamento local", { online });
+        throw new Error("Não foi possível gravar o fechamento no caixa local. Tente novamente.");
+      } else {
         if (import.meta.env.DEV) console.warn("[CAIXA_FECHAR_ERRO] offline sem servidor LAN configurado");
         throw new Error("Sem conexão com a internet e sem servidor local. Não foi possível fechar o caixa.");
       }
-      if (import.meta.env.DEV) console.info("[CAIXA_FECHAR] fallback cloud");
-      const result = await cloudAdapter.caixa.fechar(input);
-      reportDataSource({
-        source: "cloud", domain: "caixa", method: "fechar", fallback: true,
-      });
-      return result;
     },
   },
 };

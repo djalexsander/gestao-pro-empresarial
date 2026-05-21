@@ -2696,7 +2696,8 @@ async fn run_outbox_scheduler(
 //
 //   1. Os handlers gravam o estado local na transação SQLite (db.rs já fez)
 //      e enfileiram em `outbox_caixa` por action.
-//   2. Imediatamente tentam o push best-effort se houver upstream.
+//   2. Respondem imediatamente para a UI. Nenhum handler de clique chama a
+//      nuvem no caminho principal; sync é responsabilidade exclusiva da outbox.
 //   3. O scheduler de background (`run_outbox_caixa_scheduler`) varre os
 //      pendentes em ordem causal e despacha por action via
 //      `push_one_outbox_caixa`, com backoff e idempotência ponta-a-ponta.
@@ -2745,22 +2746,10 @@ async fn registrar_caixa_abrir_handler(
             remote_id = it.remote_id.clone();
         }
     } else if ctx.upstream.is_some() {
-        // Push best-effort em background — NUNCA bloqueia o handler.
-        // Se a nuvem estiver fora do ar, o item fica `pending` e o
-        // scheduler `run_outbox_caixa_scheduler` faz o retry depois.
-        let ctx_bg = ctx.clone();
-        let headers_bg = headers.clone();
-        let uuid_bg = result.local_uuid.clone();
-        tokio::spawn(async move {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(3),
-                push_one_outbox_caixa(&ctx_bg, &headers_bg, &uuid_bg),
-            ).await {
-                Ok(Ok(_)) => eprintln!("[LOCAL_CASH_OUTBOX] abrir sent (bg) caixa_local={uuid_bg}"),
-                Ok(Err(e)) => eprintln!("[LOCAL_CASH_OUTBOX] abrir pending (bg, err) caixa_local={uuid_bg}: {e}"),
-                Err(_) => eprintln!("[LOCAL_CASH_OUTBOX] abrir pending (bg, timeout) caixa_local={uuid_bg}"),
-            }
-        });
+        eprintln!(
+            "[LOCAL_CASH_OUTBOX] abrir pending caixa_local={} sync=background_only",
+            result.local_uuid
+        );
     }
 
     // Realtime: caixa aberto com sucesso.
@@ -2829,19 +2818,10 @@ async fn registrar_caixa_movimento_handler(
             remote_id = it.remote_id.clone();
         }
     } else if ctx.upstream.is_some() {
-        let ctx_bg = ctx.clone();
-        let headers_bg = headers.clone();
-        let uuid_bg = result.local_uuid.clone();
-        tokio::spawn(async move {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(3),
-                push_one_outbox_caixa(&ctx_bg, &headers_bg, &uuid_bg),
-            ).await {
-                Ok(Ok(_)) => eprintln!("[LOCAL_CASH_OUTBOX] movimento sent (bg) mov={uuid_bg}"),
-                Ok(Err(e)) => eprintln!("[LOCAL_CASH_OUTBOX] movimento pending (bg, err) mov={uuid_bg}: {e}"),
-                Err(_) => eprintln!("[LOCAL_CASH_OUTBOX] movimento pending (bg, timeout) mov={uuid_bg}"),
-            }
-        });
+        eprintln!(
+            "[LOCAL_CASH_OUTBOX] movimento pending mov={} sync=background_only",
+            result.local_uuid
+        );
     }
 
     // Realtime: movimento de caixa.
@@ -2913,19 +2893,10 @@ async fn registrar_caixa_fechar_handler(
             remote_id = it.remote_id.clone();
         }
     } else if ctx.upstream.is_some() {
-        let ctx_bg = ctx.clone();
-        let headers_bg = headers.clone();
-        let uuid_bg = result.local_uuid.clone();
-        tokio::spawn(async move {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(3),
-                push_one_outbox_caixa(&ctx_bg, &headers_bg, &uuid_bg),
-            ).await {
-                Ok(Ok(_)) => eprintln!("[LOCAL_CASH_OUTBOX] fechar sent (bg) fechamento={uuid_bg}"),
-                Ok(Err(e)) => eprintln!("[LOCAL_CASH_OUTBOX] fechar pending (bg, err) fechamento={uuid_bg}: {e}"),
-                Err(_) => eprintln!("[LOCAL_CASH_OUTBOX] fechar pending (bg, timeout) fechamento={uuid_bg}"),
-            }
-        });
+        eprintln!(
+            "[LOCAL_CASH_OUTBOX] fechar pending fechamento={} sync=background_only",
+            result.local_uuid
+        );
     }
 
     // Realtime: caixa fechado.

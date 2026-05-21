@@ -1333,7 +1333,7 @@ export const localServerAdapter: DataAdapter = {
         operador_id: input.operador_id ?? null,
         terminal_id: input.terminal_id ?? null,
         client_uuid: clientUuid,
-      }, 5000);
+      }, 5000, false);
       const dt = Math.round(performance.now() - t0);
       if (r) {
         console.info("[CAIXA_LOCAL] persistido SQLite", {
@@ -1358,14 +1358,15 @@ export const localServerAdapter: DataAdapter = {
           "Não foi possível abrir o caixa no servidor local. Verifique os logs do servidor e tente novamente.",
         );
       }
-      console.warn("[CAIXA_TIMEOUT] servidor local indisponível — tentando cloud");
-      const result = await cloudAdapter.caixa.abrir(input);
-      reportDataSource({ source: "cloud", domain: "caixa", method: "abrir", fallback: true });
-      try { sessionStorage.removeItem(ssKey); } catch { /* ignore */ }
-      return result;
+      console.error("[CAIXA_LOCAL] servidor local indisponível — cloud bloqueada no modo local", { duracao_ms: dt });
+      throw new Error("Servidor local indisponível. Não foi possível abrir o caixa no SQLite.");
     },
     registrarMovimento: async (input) => {
       console.info("[CAIXA_LOCAL] movimento local iniciado", { tipo: input.tipo });
+      const baseUrl = await resolveBaseUrl();
+      if (!baseUrl) {
+        throw new Error("Servidor local indisponível. Não foi possível gravar o movimento do caixa no SQLite.");
+      }
       const r = await postLocalAuth<{
         movimento_id: string;
         idempotente: boolean;
@@ -1377,7 +1378,7 @@ export const localServerAdapter: DataAdapter = {
         valor: input.valor,
         motivo: input.motivo ?? null,
         client_uuid: input.client_uuid ?? null,
-      });
+      }, HTTP_TIMEOUT_MS, false);
       if (r) {
         console.info("[CAIXA_LOCAL] persistido SQLite", { movimento_id: r.movimento_id });
         if (r.outbox_status === "pending" || r.outbox_status === "sending") {
@@ -1386,10 +1387,8 @@ export const localServerAdapter: DataAdapter = {
         reportDataSource({ source: "local-server", domain: "caixa", method: "registrarMovimento", fallback: false });
         return r.remote_id ?? r.movimento_id;
       }
-      console.warn("[CAIXA_TIMEOUT] fallback local acionado (movimento)");
-      const result = await cloudAdapter.caixa.registrarMovimento(input);
-      reportDataSource({ source: "cloud", domain: "caixa", method: "registrarMovimento", fallback: true });
-      return result;
+      console.error("[CAIXA_LOCAL] falha ao gravar movimento no SQLite local");
+      throw new Error("Não foi possível gravar o movimento no caixa local. Tente novamente.");
     },
     fechar: async (input) => {
       const online = typeof navigator === "undefined" ? true : navigator.onLine;
@@ -1415,7 +1414,7 @@ export const localServerAdapter: DataAdapter = {
           client_uuid:
             (input as typeof input & { client_uuid?: string | null })
               .client_uuid ?? null,
-        });
+        }, HTTP_TIMEOUT_MS, false);
         if (r) {
           if (import.meta.env.DEV) {
             console.info("[CAIXA_FECHAR_LOCAL] auditoria criada", { fechamento_id: r.fechamento_id });
@@ -1425,14 +1424,6 @@ export const localServerAdapter: DataAdapter = {
             console.info("[CAIXA_FECHAR_OK] fechado offline", { online });
           }
           reportDataSource({ source: "local-server", domain: "caixa", method: "fechar", fallback: false });
-          // Só consulta cloud quando online e já sincronizado — nunca trava o fechamento offline.
-          if (online && r.outbox_status === "sent" && r.remote_id) {
-            try {
-              return await cloudAdapter.caixa.fechar(input);
-            } catch {
-              /* cai no resumo mínimo abaixo */
-            }
-          }
           return {
             caixa_id: r.remote_id ?? input.caixa_id,
             valor_esperado: input.valor_informado,
@@ -1441,18 +1432,12 @@ export const localServerAdapter: DataAdapter = {
             fechado_em: new Date().toISOString(),
           };
         }
-        if (!online) {
-          if (import.meta.env.DEV) console.warn("[CAIXA_FECHAR_ERRO] offline e servidor local indisponível");
-          throw new Error("Sem conexão com o servidor local. Verifique se o servidor está em execução para fechar o caixa.");
-        }
-      } else if (!online) {
+        if (import.meta.env.DEV) console.warn("[CAIXA_FECHAR_ERRO] falha ao gravar fechamento local", { online });
+        throw new Error("Não foi possível gravar o fechamento no caixa local. Tente novamente.");
+      } else {
         if (import.meta.env.DEV) console.warn("[CAIXA_FECHAR_ERRO] offline sem servidor local");
-        throw new Error("Sem conexão com a internet e sem servidor local. Não foi possível fechar o caixa.");
+        throw new Error("Servidor local indisponível. Não foi possível fechar o caixa no SQLite.");
       }
-      if (import.meta.env.DEV) console.info("[CAIXA_FECHAR] fallback cloud");
-      const result = await cloudAdapter.caixa.fechar(input);
-      reportDataSource({ source: "cloud", domain: "caixa", method: "fechar", fallback: true });
-      return result;
     },
   },
 
@@ -2647,11 +2632,11 @@ async function postLocalAuthDetail<T>(
 
 
 
-async function postLocalAuth<T>(path: string, body: unknown, timeoutMs = HTTP_TIMEOUT_MS): Promise<T | null> {
+async function postLocalAuth<T>(path: string, body: unknown, timeoutMs = HTTP_TIMEOUT_MS, includeAuth = true): Promise<T | null> {
   const baseUrl = await resolveBaseUrl();
   if (!baseUrl) return null;
   let token: string | null = null;
-  try {
+  if (includeAuth) try {
     const { supabase } = await import("@/integrations/supabase/client");
     // getSession() pode pendurar quando offline tentando refresh do token.
     // Damos no máximo 1s — se demorar, seguimos sem Authorization.
