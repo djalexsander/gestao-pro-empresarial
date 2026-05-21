@@ -3979,7 +3979,8 @@ async fn caixa_resumo_handler(
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     } else {
         let op = q.get("operador_id").map(|s| s.as_str());
-        db::caixa_local_aberto(op)
+        let term = q.get("terminal_id").map(|s| s.as_str());
+        db::caixa_local_aberto(op, term)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
             .map(|r| r.local_uuid)
     };
