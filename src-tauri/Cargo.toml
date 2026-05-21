@@ -1,6 +1,6 @@
 [package]
 name = "gestao-pro"
-version = "1.1.18"
+version = "1.1.19"
 description = "Gestão Pro — sistema de gestão empresarial"
 authors = ["AlexPro Apps"]
 edition = "2021"
