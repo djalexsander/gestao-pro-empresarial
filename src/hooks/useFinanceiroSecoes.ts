@@ -83,8 +83,10 @@ export interface ReceberOrigemData extends ReceberOrigemDomain {
 export function useReceberOrigem(filtro: SecaoFiltroValue) {
   const periodo = toRange(filtro);
   const forma: FormaFiltro = filtro.forma ?? "todos";
+  const { user } = useAuth();
   return useQuery({
-    queryKey: ["fin_receber_origem", periodo.inicio, periodo.fim, forma],
+    queryKey: ["fin_receber_origem", user?.id, periodo.inicio, periodo.fim, forma],
+    enabled: !!user,
     staleTime: 30_000,
     queryFn: async (): Promise<ReceberOrigemData> => {
       const data = await dataClient.financeiro.receberOrigem({
@@ -96,6 +98,11 @@ export function useReceberOrigem(filtro: SecaoFiltroValue) {
         },
         forma,
       });
+      if (import.meta.env.DEV) {
+        console.debug("[DASH_AUDIT] fin.receberOrigem", {
+          owner_id: user?.id, periodo, forma, data,
+        });
+      }
       return { ...data, periodo, forma };
     },
   });
