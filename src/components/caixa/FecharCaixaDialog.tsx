@@ -107,12 +107,27 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
 
   async function executarFechamento(obsExtra?: string) {
     const obsFinal = [observacao.trim(), obsExtra].filter(Boolean).join(" — ");
-    await fechar.mutateAsync({
-      caixa_id: caixaId,
-      valor_informado: informadoNum,
-      observacao: obsFinal || null,
-    });
-    onOpenChange(false);
+    // Etapa 9 — hard timeout client-side: "Fechando..." nunca fica infinito.
+    const hardTimeout = new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error("Tempo esgotado fechando o caixa. Tente novamente.")),
+        15_000,
+      ),
+    );
+    try {
+      await Promise.race([
+        fechar.mutateAsync({
+          caixa_id: caixaId,
+          valor_informado: informadoNum,
+          observacao: obsFinal || null,
+        }),
+        hardTimeout,
+      ]);
+      onOpenChange(false);
+    } catch {
+      // onError da mutation dispara o toast; o dialog continua aberto
+      // com o botão habilitado para retry.
+    }
   }
 
   async function confirmar() {

@@ -1171,6 +1171,91 @@ export const localServerAdapter: DataAdapter = {
   // -----------------------------------------------------------------
   caixa: {
     ...cloudAdapter.caixa,
+    // ------------------------------------------------------------------
+    // Etapa 2 — Estado do caixa local. Lê SQLite primeiro (caixa_local).
+    // Se o servidor local estiver ativo, NUNCA consultamos cloud aqui —
+    // isso garante que o PDV, ao reabrir, restaura o caixa offline mesmo
+    // sem internet. Quando o servidor local responde "sem caixa aberto",
+    // cai para cloud somente se houver conexão.
+    // ------------------------------------------------------------------
+    aberto: async (filtro) => {
+      const baseUrl = await resolveBaseUrl();
+      if (baseUrl) {
+        const operadorId = filtro?.qualquer ? null : filtro?.operador_id ?? null;
+        type LocalRow = {
+          local_uuid: string;
+          remote_id: string | null;
+          client_uuid: string | null;
+          status: string;
+          valor_inicial: number;
+          valor_informado: number | null;
+          valor_esperado: number | null;
+          diferenca: number | null;
+          observacao_abertura: string | null;
+          observacao_fechamento: string | null;
+          operador_id: string | null;
+          terminal_id: string | null;
+          data_abertura_ms: number;
+          data_fechamento_ms: number | null;
+          qtd_movimentos: number;
+          total_suprimentos: number;
+          total_sangrias: number;
+        };
+        const row = await tryLocal<LocalRow | null>(
+          "caixa",
+          "aberto",
+          "/api/caixa/aberto",
+          { operador_id: operadorId ?? undefined },
+        );
+        if (row && row.status === "aberto") {
+          const isoAb = new Date(row.data_abertura_ms).toISOString();
+          const isoFc = row.data_fechamento_ms
+            ? new Date(row.data_fechamento_ms).toISOString()
+            : null;
+          // Mapeia para CaixaDomain. Totais por forma de pagamento ficam
+          // em 0 aqui — a UI carrega os números reais via `caixa.resumo`
+          // (que consulta vendas/movimentos do caixa). Esse é o mesmo
+          // contrato do cloud adapter quando o caixa acabou de abrir.
+          const mapped = {
+            id: row.remote_id ?? row.local_uuid,
+            owner_id: "",
+            usuario_id: "",
+            operador_id: row.operador_id,
+            data_abertura: isoAb,
+            data_fechamento: isoFc,
+            valor_inicial: row.valor_inicial,
+            total_vendas: 0,
+            qtd_vendas: 0,
+            total_dinheiro: 0,
+            total_pix: 0,
+            total_debito: 0,
+            total_credito: 0,
+            total_boleto: 0,
+            total_ifood: 0,
+            total_fiado: 0,
+            total_outros: 0,
+            total_sangrias: row.total_sangrias ?? 0,
+            total_suprimentos: row.total_suprimentos ?? 0,
+            valor_esperado: row.valor_esperado,
+            valor_informado: row.valor_informado,
+            diferenca: row.diferenca,
+            status: "aberto" as const,
+            observacao: row.observacao_abertura,
+            observacao_fechamento: row.observacao_fechamento,
+            created_at: isoAb,
+            updated_at: isoAb,
+          };
+          return mapped as unknown as Awaited<ReturnType<typeof cloudAdapter.caixa.aberto>>;
+        }
+        // Sem caixa local aberto. Se estamos offline, devolve null —
+        // a tela mostra "abrir caixa". Não tentamos cloud, evita
+        // hang em redes lentas.
+        const online = typeof navigator === "undefined" ? true : navigator.onLine;
+        if (!online) return null;
+      }
+      // Sem servidor local OU online sem caixa local → consulta cloud.
+      return cloudAdapter.caixa.aberto(filtro);
+    },
     abrir: async (input) => {
       const t0 = performance.now();
       // Idempotência: gera um client_uuid estável por (operador, terminal)
