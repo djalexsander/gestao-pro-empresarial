@@ -103,9 +103,5 @@ export function agregarPorForma(
     };
   });
 
-  if (DEV) {
-    // eslint-disable-next-line no-console
-    console.log("[FORMA_PAGAMENTO]", linhas);
-  }
   return linhas;
 }

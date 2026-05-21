@@ -138,17 +138,9 @@ export function useFinanceiroResultadoReal(): FinanceiroResultadoReal {
     const resultado = calcularResultadoReal({ vendas: vendasFin, despesas });
     const porForma = agregarPorForma(vendasFin);
 
-    if (DEV) {
-      // eslint-disable-next-line no-console
-      console.log("[RESULTADO_REAL][hook]", {
-        qtd_vendas: vendasFin.length,
-        com_pagamento_real: comReal,
-        com_fallback_status: comFallback,
-        despesas_administrativas: despesas,
-        custoMedio,
-        resultado,
-      });
-    }
+    // Logs DEV removidos: rodavam a cada render e poluíam o console quando
+    // a árvore re-renderizava em cascata. Cálculo permanece puro.
+
 
     return {
       resultado,
