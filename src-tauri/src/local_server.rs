@@ -4629,6 +4629,9 @@ pub fn current_status() -> LocalServerStatus {
         version: APP_VERSION,
         upstream_configured: s.upstream.is_some(),
         terminals_conectados: s.terminals.len(),
+        database_ready: db::is_ready(),
+        database_error: db::last_init_error(),
+        database_path: db::db_path_string(),
     }
 }
 
@@ -4674,14 +4677,35 @@ pub async fn start(
                 version: APP_VERSION,
                 upstream_configured: s.upstream.is_some(),
                 terminals_conectados: s.terminals.len(),
+                database_ready: db::is_ready(),
+                database_error: db::last_init_error(),
+                database_path: db::db_path_string(),
             });
         }
     }
 
-    // Garante que o banco local esteja inicializado antes de subir o HTTP.
+    // Boot transacional: o banco local PRECISA estar pronto antes de subir o
+    // HTTP. Sem banco, adapters locais falham, terminais recebem dados vazios
+    // e o frontend cai em "Failed to fetch". Falha aqui é hard-fail visível.
     if let Err(e) = db::init() {
-        eprintln!("[gestao-pro] db::init falhou no start: {e}");
+        let msg = format!(
+            "Banco local não inicializou ({}). Caminho: {}",
+            e,
+            db::db_path_string()
+        );
+        eprintln!("[gestao-pro][start] {msg}");
+        return Err(msg);
     }
+    if !db::is_ready() {
+        let msg = format!(
+            "Banco local não ficou pronto após init. Caminho: {}",
+            db::db_path_string()
+        );
+        eprintln!("[gestao-pro][start] {msg}");
+        return Err(msg);
+    }
+
+
 
     let addr: SocketAddr = format!("0.0.0.0:{port}")
         .parse()
