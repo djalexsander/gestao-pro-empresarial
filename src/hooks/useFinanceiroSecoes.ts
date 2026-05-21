@@ -21,8 +21,10 @@ export interface PosicaoFinanceiraData extends PosicaoFinanceiraDomain {
 
 export function usePosicaoFinanceira(filtro: SecaoFiltroValue) {
   const periodo = toRange(filtro);
+  const { user } = useAuth();
   return useQuery({
-    queryKey: ["fin_posicao", periodo.inicio, periodo.fim],
+    queryKey: ["fin_posicao", user?.id, periodo.inicio, periodo.fim],
+    enabled: !!user,
     staleTime: 30_000,
     queryFn: async (): Promise<PosicaoFinanceiraData> => {
       const data = await dataClient.financeiro.posicaoPeriodo({
@@ -31,6 +33,11 @@ export function usePosicaoFinanceira(filtro: SecaoFiltroValue) {
         inicioTs: periodo.inicioTs,
         fimTs: periodo.fimTs,
       });
+      if (import.meta.env.DEV) {
+        console.debug("[DASH_AUDIT] fin.posicaoPeriodo", {
+          owner_id: user?.id, periodo, data,
+        });
+      }
       return { ...data, periodo };
     },
   });
