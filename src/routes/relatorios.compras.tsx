@@ -275,6 +275,8 @@ function Conteudo() {
           )}
         </CardContent>
       </Card>
+
+      {audit && <AuditoriaCard audit={audit} />}
     </div>
   );
 }
