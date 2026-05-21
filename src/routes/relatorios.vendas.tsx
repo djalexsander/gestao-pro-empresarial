@@ -731,6 +731,8 @@ function Conteudo() {
         onOpenChange={(o) => !o && setDetalheId(null)}
         vendaId={detalheId}
       />
+
+      {audit && <AuditoriaCard audit={audit} />}
     </div>
   );
 }
