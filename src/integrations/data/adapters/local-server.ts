@@ -691,18 +691,19 @@ export const localServerAdapter: DataAdapter = {
       reportDataSource({ source: "cloud", domain: "funcionarios", method: "resetarPin", fallback: true });
     },
     list: (input) =>
-
       withCloudFallback(
         "funcionarios",
         "list",
         async () => {
           const somenteAtivos = input?.somente_ativos === true;
-          // Para a aba admin (somente_ativos != true) pedimos TODOS ao
-          // servidor local (inclui inativos). Para PDV (apenas ativos)
-          // mantemos o endpoint padrão.
           const query = somenteAtivos
             ? undefined
             : { incluir_inativos: "1" };
+          // baseUrl indica se o servidor local está ATIVO. Quando está,
+          // sua resposta é AUTORITATIVA (mesmo vazia) — não caímos para
+          // cloud, evitando hang offline e "Nenhum operador cadastrado"
+          // enganoso após uma falha de rede silenciosa.
+          const baseUrl = await resolveBaseUrl();
           const raw = await tryLocal<unknown>(
             "funcionarios",
             "list",
@@ -712,12 +713,10 @@ export const localServerAdapter: DataAdapter = {
           if (!Array.isArray(raw)) {
             if (import.meta.env.DEV) {
               // eslint-disable-next-line no-console
-              console.debug("[FUNCIONARIOS_LOCAL] sem cache local → cloud");
+              console.debug("[FUNCIONARIOS_LOCAL] sem resposta local → cloud");
             }
             return null;
           }
-          // Normaliza payload bruto vindo do PostgREST para o formato
-          // FuncionarioDomain consumido pela UI.
           const rows = raw
             .map((r) => {
               const row = r as Record<string, unknown>;
@@ -753,10 +752,12 @@ export const localServerAdapter: DataAdapter = {
               `[FUNCIONARIOS_LIST] origem=local-server total=${rows.length} somente_ativos=${somenteAtivos}`,
             );
           }
-          // Se o cache veio vazio, evita "Nenhum funcionário cadastrado"
-          // enganoso e cai para cloud (pode ser cache ainda não sincronizado).
-          if (rows.length === 0) return null;
-          return somenteAtivos ? rows.filter((f) => f.ativo) : rows;
+          const filtered = somenteAtivos ? rows.filter((f) => f.ativo) : rows;
+          // Se o servidor local respondeu (baseUrl != null), CONFIA na
+          // resposta — mesmo []. Só caímos pra cloud quando o servidor
+          // local está fora do ar (baseUrl null) E a lista veio vazia.
+          if (filtered.length === 0 && !baseUrl) return null;
+          return filtered;
         },
         async () => {
           const rows = await cloudAdapter.funcionarios.list(input);
