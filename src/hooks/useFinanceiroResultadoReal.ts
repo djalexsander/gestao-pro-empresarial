@@ -16,6 +16,7 @@
  */
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { dataClient } from "@/integrations/data/client";
 import type { LancamentoDetalhe } from "@/components/financeiro/LancamentoDetalheDialog";
 import { useFinanceiroIndicadores } from "./useFinanceiroIndicadores";
