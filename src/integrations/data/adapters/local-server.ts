@@ -2437,7 +2437,11 @@ async function postLocalAuthDetail<T>(
   let token: string | null = null;
   try {
     const { supabase } = await import("@/integrations/supabase/client");
-    const { data } = await supabase.auth.getSession();
+    const sessionPromise = supabase.auth.getSession();
+    const sessionTimeout = new Promise<{ data: { session: null } }>((resolve) =>
+      setTimeout(() => resolve({ data: { session: null } }), 1000),
+    );
+    const { data } = await Promise.race([sessionPromise, sessionTimeout]);
     token = data.session?.access_token ?? null;
   } catch { /* sem token → segue só com body */ }
   const ctrl = new AbortController();
