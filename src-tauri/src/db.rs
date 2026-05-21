@@ -29,6 +29,23 @@ use std::sync::Mutex;
 const SCHEMA_VERSION: i64 = 24;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
+static LAST_INIT_ERROR: Mutex<Option<String>> = Mutex::new(None);
+
+/// Indica se o banco local foi inicializado com sucesso.
+pub fn is_ready() -> bool {
+    DB.get().is_some()
+}
+
+/// Última mensagem de erro de inicialização do banco (se houver).
+pub fn last_init_error() -> Option<String> {
+    LAST_INIT_ERROR.lock().ok().and_then(|g| g.clone())
+}
+
+/// Caminho completo do arquivo SQLite, mesmo que o banco não tenha sido aberto.
+pub fn db_path_string() -> String {
+    db_file().to_string_lossy().to_string()
+}
+
 
 #[derive(Debug)]
 pub struct DbError(pub String);
