@@ -16,6 +16,7 @@
  */
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { dataClient } from "@/integrations/data/client";
 import type { LancamentoDetalhe } from "@/components/financeiro/LancamentoDetalheDialog";
 import { useFinanceiroIndicadores } from "./useFinanceiroIndicadores";
@@ -70,10 +71,12 @@ export interface FinanceiroResultadoReal {
 }
 
 export function useFinanceiroResultadoReal(): FinanceiroResultadoReal {
+  const { user } = useAuth();
   const ind = useFinanceiroIndicadores();
   const vendas = useVendas();
   const lancamentosQ = useQuery({
-    queryKey: ["financeiro_lancamentos"],
+    queryKey: ["financeiro_lancamentos", user?.id],
+    enabled: !!user,
     queryFn: async () =>
       (await dataClient.financeiro.listLancamentosCompleto()) as LancamentoDetalhe[],
     staleTime: 30_000,

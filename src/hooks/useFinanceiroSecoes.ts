@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { dataClient } from "@/integrations/data";
 import { computePeriodo, type PeriodoRange } from "@/lib/dateRange";
 import type { SecaoFiltroValue, FormaFiltro } from "@/components/financeiro/SecaoFiltro";
@@ -20,8 +21,10 @@ export interface PosicaoFinanceiraData extends PosicaoFinanceiraDomain {
 
 export function usePosicaoFinanceira(filtro: SecaoFiltroValue) {
   const periodo = toRange(filtro);
+  const { user } = useAuth();
   return useQuery({
-    queryKey: ["fin_posicao", periodo.inicio, periodo.fim],
+    queryKey: ["fin_posicao", user?.id, periodo.inicio, periodo.fim],
+    enabled: !!user,
     staleTime: 30_000,
     queryFn: async (): Promise<PosicaoFinanceiraData> => {
       const data = await dataClient.financeiro.posicaoPeriodo({
@@ -30,6 +33,11 @@ export function usePosicaoFinanceira(filtro: SecaoFiltroValue) {
         inicioTs: periodo.inicioTs,
         fimTs: periodo.fimTs,
       });
+      if (import.meta.env.DEV) {
+        console.debug("[DASH_AUDIT] fin.posicaoPeriodo", {
+          owner_id: user?.id, periodo, data,
+        });
+      }
       return { ...data, periodo };
     },
   });
@@ -43,8 +51,10 @@ export interface PerformanceData extends PerformancePeriodoDomain {
 
 export function usePerformancePeriodo(filtro: SecaoFiltroValue) {
   const periodo = toRange(filtro);
+  const { user } = useAuth();
   return useQuery({
-    queryKey: ["fin_performance", periodo.inicio, periodo.fim],
+    queryKey: ["fin_performance", user?.id, periodo.inicio, periodo.fim],
+    enabled: !!user,
     staleTime: 30_000,
     queryFn: async (): Promise<PerformanceData> => {
       const data = await dataClient.financeiro.performancePeriodo({
@@ -53,6 +63,11 @@ export function usePerformancePeriodo(filtro: SecaoFiltroValue) {
         inicioTs: periodo.inicioTs,
         fimTs: periodo.fimTs,
       });
+      if (import.meta.env.DEV) {
+        console.debug("[DASH_AUDIT] fin.performancePeriodo", {
+          owner_id: user?.id, periodo, data,
+        });
+      }
       return { ...data, periodo };
     },
   });
@@ -68,8 +83,10 @@ export interface ReceberOrigemData extends ReceberOrigemDomain {
 export function useReceberOrigem(filtro: SecaoFiltroValue) {
   const periodo = toRange(filtro);
   const forma: FormaFiltro = filtro.forma ?? "todos";
+  const { user } = useAuth();
   return useQuery({
-    queryKey: ["fin_receber_origem", periodo.inicio, periodo.fim, forma],
+    queryKey: ["fin_receber_origem", user?.id, periodo.inicio, periodo.fim, forma],
+    enabled: !!user,
     staleTime: 30_000,
     queryFn: async (): Promise<ReceberOrigemData> => {
       const data = await dataClient.financeiro.receberOrigem({
@@ -81,6 +98,11 @@ export function useReceberOrigem(filtro: SecaoFiltroValue) {
         },
         forma,
       });
+      if (import.meta.env.DEV) {
+        console.debug("[DASH_AUDIT] fin.receberOrigem", {
+          owner_id: user?.id, periodo, forma, data,
+        });
+      }
       return { ...data, periodo, forma };
     },
   });
