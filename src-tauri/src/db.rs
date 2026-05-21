@@ -8446,45 +8446,63 @@ pub struct CaixaLocalRow {
     pub total_sangrias: f64,
 }
 
-pub fn caixa_local_aberto(operador_id: Option<&str>) -> DbResult<Option<CaixaLocalRow>> {
+pub fn caixa_local_aberto(
+    operador_id: Option<&str>,
+    terminal_id: Option<&str>,
+) -> DbResult<Option<CaixaLocalRow>> {
     with_conn(|conn| {
-        let row_opt: Option<(String, Option<String>, Option<String>, String, f64,
+        // Regra local: 1 caixa aberto por terminal. Quando o caller informa o
+        // terminal (fluxo normal do PDV), priorizamos a busca por terminal —
+        // assim mantemos simetria com `abrir_caixa_local`, que também usa
+        // terminal_id como chave de unicidade. Sem isso, um caixa aberto por
+        // operador A e reusado idempotentemente por operador B nunca seria
+        // localizado por B, e o PDV ficaria preso em "Caixa fechado" mesmo
+        // depois do toast "Caixa aberto com sucesso".
+        let term_opt = terminal_id
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let op_opt = operador_id
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        type Row = (String, Option<String>, Option<String>, String, f64,
             Option<f64>, Option<f64>, Option<f64>, Option<String>, Option<String>,
-            Option<String>, Option<String>, i64, Option<i64>)> = if let Some(op) = operador_id {
-            conn.query_row(
-                "SELECT local_uuid, remote_id, client_uuid, status, valor_inicial,
+            Option<String>, Option<String>, i64, Option<i64>);
+        const SELECT: &str = "SELECT local_uuid, remote_id, client_uuid, status, valor_inicial,
                         valor_informado, valor_esperado, diferenca,
                         observacao_abertura, observacao_fechamento,
                         operador_id, terminal_id,
                         data_abertura_ms, data_fechamento_ms
-                   FROM caixa_local
-                  WHERE status='aberto' AND operador_id = ?1
-               ORDER BY data_abertura_ms DESC LIMIT 1",
-                params![op],
-                |r| Ok((
-                    r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
-                    r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?,
-                    r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?,
-                )),
-            ).optional()?
-        } else {
-            conn.query_row(
-                "SELECT local_uuid, remote_id, client_uuid, status, valor_inicial,
-                        valor_informado, valor_esperado, diferenca,
-                        observacao_abertura, observacao_fechamento,
-                        operador_id, terminal_id,
-                        data_abertura_ms, data_fechamento_ms
-                   FROM caixa_local
-                  WHERE status='aberto'
-               ORDER BY data_abertura_ms DESC LIMIT 1",
-                [],
-                |r| Ok((
-                    r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
-                    r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?,
-                    r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?,
-                )),
-            ).optional()?
-        };
+                   FROM caixa_local";
+        fn map_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Row> {
+            Ok((
+                r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
+                r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?,
+                r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?,
+            ))
+        }
+        let mut row_opt: Option<Row> = None;
+        if let Some(term) = term_opt {
+            let sql = format!(
+                "{SELECT} WHERE status='aberto' AND terminal_id = ?1 \
+                 ORDER BY data_abertura_ms DESC LIMIT 1"
+            );
+            row_opt = conn.query_row(&sql, params![term], map_row).optional()?;
+        }
+        if row_opt.is_none() {
+            row_opt = if let Some(op) = op_opt {
+                let sql = format!(
+                    "{SELECT} WHERE status='aberto' AND operador_id = ?1 \
+                     ORDER BY data_abertura_ms DESC LIMIT 1"
+                );
+                conn.query_row(&sql, params![op], map_row).optional()?
+            } else {
+                let sql = format!(
+                    "{SELECT} WHERE status='aberto' \
+                     ORDER BY data_abertura_ms DESC LIMIT 1"
+                );
+                conn.query_row(&sql, [], map_row).optional()?
+            };
+        }
         let Some(row) = row_opt else { return Ok(None) };
         let (local_uuid, remote_id, client_uuid, status, valor_inicial,
              valor_informado, valor_esperado, diferenca,
