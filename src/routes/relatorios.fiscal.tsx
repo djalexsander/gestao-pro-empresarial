@@ -71,8 +71,11 @@ function Conteudo() {
   const navigate = useNavigate();
   const [periodo, setPeriodo] = useState<Periodo>("mes");
   const [rows, setRows] = useState<NotaRow[]>([]);
+  const [audit, setAudit] = useState<RelatorioAuditoria | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const { empresaAtual } = useEmpresaAtual();
+  const ownerId = empresaAtual?.owner_id ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -80,20 +83,22 @@ function Conteudo() {
       setLoading(true);
       const { inicio, fim } = calcRange(periodo);
       try {
-        const data = await dataClient.relatorios.notasFiscais({ inicio, fim });
+        const result = await fetchNotasFiscaisAudit(ownerId, { inicio, fim });
         if (cancelled) return;
-        setRows(data);
+        setRows(result.rows);
+        setAudit(result.audit);
       } catch (e) {
         if (cancelled) return;
         toast.error(e instanceof Error ? e.message : "Falha ao carregar");
         setRows([]);
+        setAudit(null);
       }
       setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [periodo]);
+  }, [periodo, ownerId]);
 
   const total = useMemo(() => rows.reduce((a, r) => a + r.total, 0), [rows]);
 
