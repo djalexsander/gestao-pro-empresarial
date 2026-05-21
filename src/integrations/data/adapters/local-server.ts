@@ -1205,7 +1205,10 @@ export const localServerAdapter: DataAdapter = {
           "caixa",
           "aberto",
           "/api/caixa/aberto",
-          { operador_id: operadorId ?? undefined },
+          {
+            operador_id: operadorId ?? undefined,
+            terminal_id: readSelectedTerminalId() ?? undefined,
+          },
         );
         if (row && row.status === "aberto") {
           const isoAb = new Date(row.data_abertura_ms).toISOString();
