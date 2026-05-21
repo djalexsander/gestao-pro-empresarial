@@ -144,7 +144,14 @@ pub struct LocalServerStatus {
     pub version: &'static str,
     pub upstream_configured: bool,
     pub terminals_conectados: usize,
+    /// Banco local SQLite aberto e schema aplicado.
+    pub database_ready: bool,
+    /// Última mensagem de erro de inicialização do banco (se houver).
+    pub database_error: Option<String>,
+    /// Caminho físico do arquivo SQLite (mesmo se ainda não abriu).
+    pub database_path: String,
 }
+
 
 // ---------- Heartbeat ----------
 
