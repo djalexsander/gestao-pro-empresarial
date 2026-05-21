@@ -762,6 +762,8 @@ function Conteudo() {
         </CardContent>
       </Card>
 
+      <AuditoriaCard audit={audit} />
+
       <LancamentoDetalheDialog
         open={!!detalhe}
         onOpenChange={(o) => !o && setDetalhe(null)}
