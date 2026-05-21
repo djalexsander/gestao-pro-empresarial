@@ -61,6 +61,7 @@ async function resolveBaseUrl(): Promise<string | null> {
   } catch {
     cachedBaseUrl = null;
     return null;
+  }
 }
 
 /**
