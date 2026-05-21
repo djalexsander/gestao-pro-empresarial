@@ -69,8 +69,7 @@ export function ModeProvider({ children }: { children: ReactNode }) {
   const setModo = useCallback((chave: string) => {
     setChaveAtual((atual) => {
       if (atual === chave) return atual;
-      setChaveAtual(chave);
-      window.localStorage.setItem(STORAGE_KEY, chave);
+      if (typeof window !== "undefined") window.localStorage.setItem(STORAGE_KEY, chave);
       return chave;
     });
   }, []);
@@ -78,7 +77,7 @@ export function ModeProvider({ children }: { children: ReactNode }) {
   const clearModo = useCallback(() => {
     setChaveAtual((atual) => {
       if (atual === null) return atual;
-      window.localStorage.removeItem(STORAGE_KEY);
+      if (typeof window !== "undefined") window.localStorage.removeItem(STORAGE_KEY);
       return null;
     });
   }, []);
