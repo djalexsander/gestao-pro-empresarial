@@ -8713,6 +8713,24 @@ pub fn outbox_caixa_mark_sending(local_uuid: &str, now_ms: i64) -> DbResult<()> 
     })
 }
 
+/// Adia um item da outbox de caixa SEM consumir tentativa.
+/// Usado quando o item depende de outro (ex.: `fechar` esperando
+/// `abrir` propagar `remote_id`). Mantém status `pending` e agenda nova
+/// passagem do scheduler ~5s à frente.
+pub fn outbox_caixa_defer(local_uuid: &str, reason: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        let next = now_ms + 5_000;
+        conn.execute(
+            "UPDATE outbox_caixa
+                SET status='pending', last_error=?2, updated_at_ms=?3,
+                    next_attempt_at_ms=?4
+              WHERE local_uuid=?1",
+            params![local_uuid, reason, now_ms, next],
+        )?;
+        Ok(())
+    })
+}
+
 pub fn outbox_caixa_mark_sent(local_uuid: &str, remote_id: &str, now_ms: i64) -> DbResult<()> {
     with_conn(|conn| {
         let tx = conn.unchecked_transaction()?;
