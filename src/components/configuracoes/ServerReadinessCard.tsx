@@ -49,7 +49,17 @@ export function ServerReadinessCard({
   const probeOnline = conn.status === "online";
   const porta = daemon?.port ?? info?.port ?? null;
   const backendOk = !!daemon?.running || info?.backend_running === true || probeOnline;
-  const dbOk = !!dbInfo || info?.database_ready === true;
+  // Banco só conta como pronto se temos confirmação positiva — não basta
+  // o backend HTTP estar de pé. Erro de init (vindo do daemon ou do
+  // /server-info) tem prioridade sobre qualquer sinal otimista.
+  const dbError =
+    daemon?.database_error ?? info?.database_error ?? null;
+  const dbOk =
+    !dbError &&
+    (daemon?.database_ready === true ||
+      info?.database_ready === true ||
+      !!dbInfo);
+  const dbPath = daemon?.database_path ?? info?.database_path ?? null;
   const portaOk = typeof porta === "number" && porta > 0 && porta < 65536;
   const identidadeOk = !!serverId;
 
@@ -69,11 +79,13 @@ export function ServerReadinessCard({
     {
       ok: dbOk,
       label: "Banco local pronto",
-      detail: dbInfo
-        ? `Schema v${dbInfo.schema_version}`
-        : info?.database_ready
-          ? "Banco SQLite inicializado."
-          : "Banco ainda não inicializado.",
+      detail: dbError
+        ? `Falha ao abrir banco: ${dbError}${dbPath ? ` (${dbPath})` : ""}`
+        : dbInfo
+          ? `Schema v${dbInfo.schema_version}${dbPath ? ` · ${dbPath}` : ""}`
+          : dbOk
+            ? `Banco SQLite inicializado.${dbPath ? ` ${dbPath}` : ""}`
+            : "Banco ainda não inicializado.",
     },
     {
       ok: identidadeOk,
@@ -81,6 +93,7 @@ export function ServerReadinessCard({
       detail: identidadeOk ? (serverId ?? "—") : "Sem Server ID.",
     },
   ];
+
 
 
   const pronto = checagens.every((c) => c.ok);

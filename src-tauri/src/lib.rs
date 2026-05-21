@@ -159,18 +159,28 @@ pub fn run() {
                 Err(e) => eprintln!("[gestao-pro] falha ao aplicar restore pendente: {e}"),
             }
 
-            if let Err(e) = db::init() {
-                eprintln!("[gestao-pro] falha ao iniciar banco local: {e}");
-            } else {
-                // Agora que o banco está aberto, garante schema do log e fecha
-                // qualquer flag de restore pendente.
-                if let Err(e) = backup::ensure_schema() {
-                    eprintln!("[gestao-pro] falha ao garantir schema de backup: {e}");
+            match db::init() {
+                Ok(_) => {
+                    eprintln!("[gestao-pro] banco local pronto");
+                    if let Err(e) = backup::ensure_schema() {
+                        eprintln!("[gestao-pro] falha ao garantir schema de backup: {e}");
+                    }
+                    if let Err(e) = backup::mark_restore_completed_after_boot() {
+                        eprintln!("[gestao-pro] falha ao marcar restore concluído: {e}");
+                    }
                 }
-                if let Err(e) = backup::mark_restore_completed_after_boot() {
-                    eprintln!("[gestao-pro] falha ao marcar restore concluído: {e}");
+                Err(e) => {
+                    eprintln!(
+                        "[gestao-pro][BOOT] FALHA ao inicializar banco local em {}: {}",
+                        db::db_path_string(),
+                        e
+                    );
+                    // Não derruba o app — o usuário ainda precisa abrir as
+                    // Configurações para ver o erro. start_local_server vai
+                    // tentar novamente e devolver o erro para o frontend.
                 }
             }
+
             Ok(())
         })
         .run(tauri::generate_context!())
