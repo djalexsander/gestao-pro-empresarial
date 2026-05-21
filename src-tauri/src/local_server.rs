@@ -4291,6 +4291,7 @@ async fn push_one_outbox_caixa(
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string())
+        .or_else(last_auth)
         .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
 
     let (rpc, body) = match item.action.as_str() {
