@@ -1,4 +1,7 @@
-import { dataClient } from "@/integrations/data";
+import { fetchDreTotaisAudit } from "@/integrations/data/relatorios-audit";
+import { useEmpresaAtual } from "@/hooks/useEmpresa";
+import { AuditoriaCard } from "@/components/relatorios/AuditoriaCard";
+import type { RelatorioAuditoria } from "@/lib/relatorios/audit";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Download, Loader2, BarChart3, TrendingUp, TrendingDown } from "lucide-react";
