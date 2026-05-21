@@ -337,3 +337,263 @@ export async function fetchDreTotaisAudit(
     },
   };
 }
+
+/* ============================================================================
+ * ONDA 2 — Operacional: Vendas, Compras, Caixa
+ *
+ * Todas as fontes:
+ *  - filtram explicitamente por owner_id (não confiam só em RLS);
+ *  - separam canceladas/estornadas/rascunhos do total;
+ *  - empresa zerada -> rows=[], audit.totalCalculado=0.
+ * ========================================================================== */
+
+/* ============== Vendas ============== */
+
+export interface VendaResumoAudit {
+  id: string;
+  numero: string;
+  data_emissao: string;
+  cliente_id: string | null;
+  cliente_nome: string | null;
+  forma_pagamento: string | null;
+  operador_id: string | null;
+  caixa_id: string | null;
+  total: number;
+  status: string;
+  status_pagamento: string;
+}
+
+export async function fetchVendasPeriodoAudit(
+  ownerId: string | null,
+  input: RelatorioRangeInput,
+): Promise<AuditedResult<VendaResumoAudit>> {
+  const ctx = {
+    relatorio: "relatorio.vendas",
+    fonte: "vendas (+ clientes)",
+    ownerId,
+    filtros: { inicio: input.inicio, fim: input.fim, campoData: "data_emissao" },
+  };
+  if (!ownerId) {
+    const audit = emptyAudit(ctx);
+    logAudit(audit);
+    return { rows: [], audit };
+  }
+  const { data, error } = await supabase
+    .from("vendas")
+    .select(
+      `id, numero, data_emissao, cliente_id, forma_pagamento, operador_id,
+       caixa_id, total, status, status_pagamento,
+       cliente:clientes(id, nome)`,
+    )
+    .eq("owner_id", ownerId)
+    .gte("data_emissao", input.inicio)
+    .lte("data_emissao", input.fim)
+    .order("data_emissao", { ascending: false })
+    .limit(10000);
+  if (error) throw error;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const brutas: VendaResumoAudit[] = (data ?? []).map((v: any) => ({
+    id: v.id,
+    numero: v.numero,
+    data_emissao: v.data_emissao,
+    cliente_id: v.cliente_id,
+    cliente_nome: v.cliente?.nome ?? null,
+    forma_pagamento: v.forma_pagamento,
+    operador_id: v.operador_id,
+    caixa_id: v.caixa_id,
+    total: Number(v.total) || 0,
+    status: v.status,
+    status_pagamento: v.status_pagamento,
+  }));
+  const result = withAudit(
+    ctx,
+    brutas,
+    (r) => classificarStatusPadrao(r.status),
+    (r) => r.total,
+  );
+  logAudit(result.audit);
+  return result;
+}
+
+/* ============== Compras ============== */
+
+export interface CompraResumoAudit {
+  id: string;
+  numero: string;
+  data: string;
+  fornecedor_id: string | null;
+  fornecedor: string;
+  total: number;
+  status: string;
+}
+
+export async function fetchComprasPeriodoAudit(
+  ownerId: string | null,
+  input: RelatorioRangeInput,
+): Promise<AuditedResult<CompraResumoAudit>> {
+  const ctx = {
+    relatorio: "relatorio.compras",
+    fonte: "compras (+ fornecedores)",
+    ownerId,
+    filtros: { inicio: input.inicio, fim: input.fim, campoData: "data_emissao" },
+  };
+  if (!ownerId) {
+    const audit = emptyAudit(ctx);
+    logAudit(audit);
+    return { rows: [], audit };
+  }
+  const { data, error } = await supabase
+    .from("compras")
+    .select(
+      `id, numero, data_emissao, total, status, fornecedor_id,
+       fornecedor:fornecedores(id, razao_social, nome_fantasia)`,
+    )
+    .eq("owner_id", ownerId)
+    .gte("data_emissao", input.inicio)
+    .lte("data_emissao", input.fim)
+    .order("data_emissao", { ascending: false })
+    .limit(10000);
+  if (error) throw error;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const brutas: CompraResumoAudit[] = (data ?? []).map((c: any) => ({
+    id: c.id,
+    numero: c.numero,
+    data: c.data_emissao,
+    fornecedor_id: c.fornecedor_id,
+    fornecedor:
+      c.fornecedor?.nome_fantasia ?? c.fornecedor?.razao_social ?? "Sem fornecedor",
+    total: Number(c.total) || 0,
+    status: c.status,
+  }));
+  const result = withAudit(
+    ctx,
+    brutas,
+    (r) => classificarStatusPadrao(r.status),
+    (r) => r.total,
+  );
+  logAudit(result.audit);
+  return result;
+}
+
+/* ============== Caixa (sessões) ============== */
+
+export interface CaixaSessaoAudit {
+  id: string;
+  operador_id: string | null;
+  terminal_id: string | null;
+  data_abertura: string;
+  data_fechamento: string | null;
+  valor_inicial: number;
+  total_vendas: number;
+  total_sangrias: number;
+  total_suprimentos: number;
+  total_dinheiro: number;
+  total_pix: number;
+  total_debito: number;
+  total_credito: number;
+  total_boleto: number;
+  total_ifood: number;
+  total_fiado: number;
+  total_outros: number;
+  valor_esperado: number | null;
+  valor_informado: number | null;
+  diferenca: number | null;
+  status: "aberto" | "fechado";
+  observacao: string | null;
+  observacao_fechamento: string | null;
+  qtd_vendas: number;
+}
+
+export interface CaixaSessoesAuditFiltro {
+  iniIso: string;
+  fimIso: string;
+  operadorId?: string | null;
+  terminalId?: string | null;
+  status?: "aberto" | "fechado" | null;
+}
+
+export async function fetchCaixasSessoesAudit(
+  ownerId: string | null,
+  input: CaixaSessoesAuditFiltro,
+): Promise<AuditedResult<CaixaSessaoAudit>> {
+  const ctx = {
+    relatorio: "relatorio.caixa",
+    fonte: "caixas",
+    ownerId,
+    filtros: {
+      inicio: input.iniIso,
+      fim: input.fimIso,
+      operadorId: input.operadorId ?? "todos",
+      terminalId: input.terminalId ?? "todos",
+      status: input.status ?? "todos",
+    },
+  };
+  if (!ownerId) {
+    const audit = emptyAudit(ctx);
+    logAudit(audit);
+    return { rows: [], audit };
+  }
+  let q = supabase
+    .from("caixas")
+    .select(
+      `id, operador_id, terminal_id, data_abertura, data_fechamento,
+       valor_inicial, total_vendas, total_sangrias, total_suprimentos,
+       total_dinheiro, total_pix, total_debito, total_credito, total_boleto,
+       total_ifood, total_fiado, total_outros, valor_esperado, valor_informado,
+       diferenca, status, observacao, observacao_fechamento, qtd_vendas`,
+    )
+    .eq("owner_id", ownerId)
+    .gte("data_abertura", input.iniIso)
+    .lte("data_abertura", input.fimIso)
+    .order("data_abertura", { ascending: false })
+    .limit(5000);
+  if (input.operadorId && input.operadorId !== "todos") {
+    q = q.eq("operador_id", input.operadorId);
+  }
+  if (input.terminalId && input.terminalId !== "todos") {
+    q = q.eq("terminal_id", input.terminalId);
+  }
+  if (input.status === "aberto" || input.status === "fechado") {
+    q = q.eq("status", input.status);
+  }
+  const { data, error } = await q;
+  if (error) throw error;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const brutas: CaixaSessaoAudit[] = (data ?? []).map((c: any) => ({
+    id: c.id,
+    operador_id: c.operador_id,
+    terminal_id: c.terminal_id,
+    data_abertura: c.data_abertura,
+    data_fechamento: c.data_fechamento,
+    valor_inicial: Number(c.valor_inicial) || 0,
+    total_vendas: Number(c.total_vendas) || 0,
+    total_sangrias: Number(c.total_sangrias) || 0,
+    total_suprimentos: Number(c.total_suprimentos) || 0,
+    total_dinheiro: Number(c.total_dinheiro) || 0,
+    total_pix: Number(c.total_pix) || 0,
+    total_debito: Number(c.total_debito) || 0,
+    total_credito: Number(c.total_credito) || 0,
+    total_boleto: Number(c.total_boleto) || 0,
+    total_ifood: Number(c.total_ifood) || 0,
+    total_fiado: Number(c.total_fiado) || 0,
+    total_outros: Number(c.total_outros) || 0,
+    valor_esperado: c.valor_esperado != null ? Number(c.valor_esperado) : null,
+    valor_informado: c.valor_informado != null ? Number(c.valor_informado) : null,
+    diferenca: c.diferenca != null ? Number(c.diferenca) : null,
+    status: c.status,
+    observacao: c.observacao,
+    observacao_fechamento: c.observacao_fechamento,
+    qtd_vendas: Number(c.qtd_vendas) || 0,
+  }));
+  // Caixa não tem "cancelado" — só "aberto" / "fechado". Não há descartes
+  // por status, mas mantemos o withAudit para o totalCalculado (= soma de vendas).
+  const result = withAudit(
+    ctx,
+    brutas,
+    () => null,
+    (r) => r.total_vendas,
+  );
+  logAudit(result.audit);
+  return result;
+}
+
