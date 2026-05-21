@@ -4297,6 +4297,39 @@ async fn push_one_outbox_caixa(
         .or_else(last_auth)
         .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
 
+    // Para `fechar`/`movimento` o cloud só consegue resolver o caixa via
+    // remote_id (uuid real na nuvem). Resolvemos a partir de `caixa_local`
+    // que recebe o `remote_id` quando o `abrir` é confirmado em
+    // `outbox_caixa_mark_sent`. Se ainda não houver remote_id, marcamos
+    // este item como pending (sem incrementar erro fatal) para que o
+    // scheduler tente novamente depois que o `abrir` for sincronizado.
+    let caixa_remote_id_opt: Option<String> = if item.action == "fechar"
+        || item.action == "movimento"
+    {
+        match db::caixa_local_remote_id(&item.caixa_local_uuid) {
+            Ok(opt) => opt,
+            Err(e) => {
+                let msg = format!("lookup remote_id falhou: {e}");
+                let _ = db::outbox_caixa_mark_error(local_uuid, &msg, now);
+                return Err(msg);
+            }
+        }
+    } else {
+        None
+    };
+
+    if (item.action == "fechar" || item.action == "movimento")
+        && caixa_remote_id_opt.is_none()
+    {
+        let msg = "aguardando sync do `abrir` (remote_id ainda não disponível)".to_string();
+        eprintln!(
+            "[LOCAL_CASH_OUTBOX] {} adiado (sem remote_id) caixa_local={}",
+            item.action, item.caixa_local_uuid
+        );
+        let _ = db::outbox_caixa_mark_error(local_uuid, &msg, now);
+        return Err(msg);
+    }
+
     let (rpc, body) = match item.action.as_str() {
         "abrir" => (
             "abrir_caixa",
@@ -4310,13 +4343,7 @@ async fn push_one_outbox_caixa(
         "movimento" => (
             "caixa_registrar_movimento",
             serde_json::json!({
-                // Para resolver o caixa do lado da nuvem, preferimos o
-                // remote_id (quando a `abrir` já foi sincronizada) e caímos
-                // para o local_uuid quando ainda é a primeira sincronização.
-                "_caixa_id":    payload.get("caixa_remote_id")
-                                       .and_then(|v| v.as_str())
-                                       .or_else(|| payload.get("caixa_local_uuid").and_then(|v| v.as_str()))
-                                       .unwrap_or(""),
+                "_caixa_id":    caixa_remote_id_opt.as_deref().unwrap_or(""),
                 "_tipo":        payload.get("tipo"),
                 "_valor":       payload.get("valor"),
                 "_motivo":      payload.get("motivo"),
@@ -4326,10 +4353,7 @@ async fn push_one_outbox_caixa(
         "fechar" => (
             "fechar_caixa",
             serde_json::json!({
-                "_caixa_id":        payload.get("caixa_remote_id")
-                                            .and_then(|v| v.as_str())
-                                            .or_else(|| payload.get("caixa_local_uuid").and_then(|v| v.as_str()))
-                                            .unwrap_or(""),
+                "_caixa_id":        caixa_remote_id_opt.as_deref().unwrap_or(""),
                 "_valor_informado": payload.get("valor_informado"),
                 "_observacao":      payload.get("observacao"),
             }),
@@ -4340,6 +4364,7 @@ async fn push_one_outbox_caixa(
             return Err(msg);
         }
     };
+
 
     let url = format!(
         "{}/rest/v1/rpc/{}",
