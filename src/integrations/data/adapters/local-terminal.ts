@@ -2554,8 +2554,6 @@ export const localTerminalAdapter: DataAdapter = {
     ): Promise<string> => {
       const cfg = getDesktopConfig().terminal;
       if (getBaseUrl(cfg)) {
-        const { data } = await supabase.auth.getSession();
-        const token = data.session?.access_token ?? null;
         const local = await registrarMovCaixaLocal(
           cfg,
           {
@@ -2565,7 +2563,6 @@ export const localTerminalAdapter: DataAdapter = {
             motivo: input.motivo ?? null,
             client_uuid: input.client_uuid ?? null,
           },
-          token,
         );
         if (local) {
           reportDataSource({
@@ -2576,12 +2573,9 @@ export const localTerminalAdapter: DataAdapter = {
           });
           return local.remote_id ?? local.movimento_id;
         }
+        throw new Error("Não foi possível gravar o movimento no caixa local. Tente novamente.");
       }
-      const result = await cloudAdapter.caixa.registrarMovimento(input);
-      reportDataSource({
-        source: "cloud", domain: "caixa", method: "registrarMovimento", fallback: true,
-      });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível gravar o movimento do caixa no SQLite.");
     },
 
     fechar: async (input: FecharCaixaInput): Promise<FecharCaixaResult> => {
