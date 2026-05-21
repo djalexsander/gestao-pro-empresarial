@@ -44,7 +44,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useVendas, useVendaMetricasPeriodo } from "@/hooks/useVendas";
+import { useVendaMetricasPeriodo } from "@/hooks/useVendas";
 import { useClientesFull } from "@/hooks/useClientes";
 import { useFuncionariosAtivos } from "@/hooks/useFuncionarios";
 import { useCaixasHistorico } from "@/hooks/useCaixa";
@@ -53,6 +53,10 @@ import { ModuloGate } from "@/components/saas/ModuloGate";
 import { formatBRL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { exportRowsToCSV, type CsvColumn } from "@/lib/export-csv";
+import { useEmpresaAtual } from "@/hooks/useEmpresa";
+import { fetchVendasPeriodoAudit, type VendaResumoAudit } from "@/integrations/data/relatorios-audit";
+import { AuditoriaCard } from "@/components/relatorios/AuditoriaCard";
+import type { RelatorioAuditoria } from "@/lib/relatorios/audit";
 
 export const Route = createFileRoute("/relatorios/vendas")({
   head: () => ({
