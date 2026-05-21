@@ -30,7 +30,7 @@ import {
   type VendaFinanceiraInput,
 } from "@/lib/finance";
 
-const DEV = import.meta.env.DEV;
+// DEV log gating removido junto com os console.log abaixo.
 
 const FORMA_MAP: Record<string, FormaPagamento> = {
   dinheiro: "dinheiro",
@@ -103,9 +103,6 @@ export function useFinanceiroResultadoReal(): FinanceiroResultadoReal {
       pagoPorVenda.set(vid, (pagoPorVenda.get(vid) ?? 0) + (Number(l.valor_pago) || 0));
     }
 
-    let comReal = 0;
-    let comFallback = 0;
-
     const vendasFin: VendaFinanceiraInput[] = vendasList
       .filter((v) => v.status !== "cancelada")
       .map((v) => {
@@ -114,8 +111,6 @@ export function useFinanceiroResultadoReal(): FinanceiroResultadoReal {
         const valor_pago = temLanc
           ? Math.min(valor_total, pagoPorVenda.get(v.id) ?? 0)
           : estimarValorPago(valor_total, v.status_pagamento);
-        if (temLanc) comReal++;
-        else comFallback++;
         return {
           venda_id: v.id,
           valor_total,
