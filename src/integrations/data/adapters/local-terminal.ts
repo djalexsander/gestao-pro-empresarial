@@ -2503,8 +2503,8 @@ export const localTerminalAdapter: DataAdapter = {
     ...cloudAdapter.caixa,
     /**
      * WRITE LOCAL: abertura/sangria/suprimento/fechamento vão PRIMEIRO ao
-     * servidor local (SQLite + outbox). Se o servidor local não responde,
-     * caímos no cloudAdapter — comportamento legado preservado.
+     * servidor local (SQLite + outbox). Em modo terminal local, erro de cloud
+     * nunca entra no clique: falha local bloqueia; sync cloud fica na outbox.
      *
      * Idempotência:
      *  - `client_uuid` (1 por modal/operação) impede duplicar entre cliques.
@@ -2516,8 +2516,6 @@ export const localTerminalAdapter: DataAdapter = {
       const cfg = getDesktopConfig().terminal;
       if (getBaseUrl(cfg)) {
         console.info("[CAIXA_LOCAL] abertura local iniciada");
-        const { data } = await supabase.auth.getSession();
-        const token = data.session?.access_token ?? null;
         const local = await abrirCaixaLocal(
           cfg,
           {
@@ -2529,7 +2527,6 @@ export const localTerminalAdapter: DataAdapter = {
               (input as AbrirCaixaInput & { client_uuid?: string | null })
                 .client_uuid ?? null,
           },
-          token,
         );
         if (local) {
           console.info("[CAIXA_LOCAL] persistido SQLite", { caixa_id: local.caixa_id });
@@ -2547,13 +2544,9 @@ export const localTerminalAdapter: DataAdapter = {
           });
           return local.remote_id ?? local.caixa_id;
         }
-        console.warn("[CAIXA_TIMEOUT] fallback local acionado (abrir) — servidor local indisponível");
+        throw new Error("Não foi possível abrir o caixa no servidor local. Tente novamente.");
       }
-      const result = await cloudAdapter.caixa.abrir(input);
-      reportDataSource({
-        source: "cloud", domain: "caixa", method: "abrir", fallback: true,
-      });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível abrir o caixa no SQLite.");
     },
 
     registrarMovimento: async (
