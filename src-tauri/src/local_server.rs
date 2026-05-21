@@ -2714,19 +2714,28 @@ async fn registrar_caixa_abrir_handler(
 
     let mut outbox_status = "pending".to_string();
     let mut remote_id: Option<String> = None;
-    if !result.idempotente && ctx.upstream.is_some() {
-        if let Ok(rid) = push_one_outbox_caixa(&ctx, &headers, &result.local_uuid).await {
-            outbox_status = "sent".into();
-            remote_id = Some(rid);
-            eprintln!("[LOCAL_CASH_OUTBOX] abrir sent caixa_local={}", result.local_uuid);
-        } else {
-            eprintln!("[LOCAL_CASH_OUTBOX] abrir pending caixa_local={}", result.local_uuid);
-        }
-    } else if result.idempotente {
+    if result.idempotente {
         if let Ok(Some(it)) = db::outbox_caixa_get(&result.local_uuid) {
             outbox_status = it.status.clone();
             remote_id = it.remote_id.clone();
         }
+    } else if ctx.upstream.is_some() {
+        // Push best-effort em background — NUNCA bloqueia o handler.
+        // Se a nuvem estiver fora do ar, o item fica `pending` e o
+        // scheduler `run_outbox_caixa_scheduler` faz o retry depois.
+        let ctx_bg = ctx.clone();
+        let headers_bg = headers.clone();
+        let uuid_bg = result.local_uuid.clone();
+        tokio::spawn(async move {
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(3),
+                push_one_outbox_caixa(&ctx_bg, &headers_bg, &uuid_bg),
+            ).await {
+                Ok(Ok(_)) => eprintln!("[LOCAL_CASH_OUTBOX] abrir sent (bg) caixa_local={uuid_bg}"),
+                Ok(Err(e)) => eprintln!("[LOCAL_CASH_OUTBOX] abrir pending (bg, err) caixa_local={uuid_bg}: {e}"),
+                Err(_) => eprintln!("[LOCAL_CASH_OUTBOX] abrir pending (bg, timeout) caixa_local={uuid_bg}"),
+            }
+        });
     }
 
     // Realtime: caixa aberto com sucesso.
