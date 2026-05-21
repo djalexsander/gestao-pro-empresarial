@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { dataClient } from "@/integrations/data";
 import { computePeriodo, type PeriodoRange } from "@/lib/dateRange";
 import type { SecaoFiltroValue, FormaFiltro } from "@/components/financeiro/SecaoFiltro";
