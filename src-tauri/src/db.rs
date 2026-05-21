@@ -573,6 +573,12 @@ fn init_inner() -> DbResult<()> {
             ON caixa_local(operador_id, status);
         CREATE UNIQUE INDEX IF NOT EXISTS uq_caixa_local_client_uuid
             ON caixa_local(client_uuid) WHERE client_uuid IS NOT NULL;
+        -- Etapa 6 (offline-first): no máximo 1 caixa aberto por terminal,
+        -- protegendo contra reabertura paralela mesmo se o front falhar em
+        -- detectar o caixa já aberto.
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_caixa_local_terminal_aberto
+            ON caixa_local(terminal_id)
+            WHERE status = 'aberto' AND terminal_id IS NOT NULL;
 
         CREATE TABLE IF NOT EXISTS caixa_movs_local (
             local_uuid       TEXT PRIMARY KEY,

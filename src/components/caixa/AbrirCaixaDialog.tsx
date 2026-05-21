@@ -43,14 +43,32 @@ export function AbrirCaixaDialog({ open, onOpenChange, onAberto, operadorId, ter
     e.preventDefault();
     const valorNum = Number(valor.replace(",", "."));
     if (Number.isNaN(valorNum) || valorNum < 0) return;
-    const id = await abrir.mutateAsync({
-      valor_inicial: valorNum,
-      observacao: observacao.trim() || null,
-      operador_id: operadorId ?? null,
-      terminal_id: terminalEfetivo,
-    });
-    onAberto?.(id);
-    onOpenChange(false);
+    // Hard timeout client-side: garante que o botão nunca fica em
+    // "Abrindo..." infinito mesmo se algo abaixo travar uma promise.
+    // O backend local responde em <100ms; 10s é folga absurda.
+    const hardTimeout = new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error("Tempo esgotado abrindo o caixa. Tente novamente.")),
+        10_000,
+      ),
+    );
+    try {
+      const id = await Promise.race([
+        abrir.mutateAsync({
+          valor_inicial: valorNum,
+          observacao: observacao.trim() || null,
+          operador_id: operadorId ?? null,
+          terminal_id: terminalEfetivo,
+        }),
+        hardTimeout,
+      ]);
+      onAberto?.(id);
+      onOpenChange(false);
+    } catch {
+      // O toast de erro já é disparado pelo onError da mutation; aqui
+      // apenas garantimos que o dialog permanece aberto e o botão volta
+      // a ficar utilizável (estado pending zera ao rejeitar a mutation).
+    }
   }
 
   return (

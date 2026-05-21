@@ -1173,10 +1173,31 @@ export const localServerAdapter: DataAdapter = {
     ...cloudAdapter.caixa,
     abrir: async (input) => {
       const t0 = performance.now();
+      // Idempotência: gera um client_uuid estável por (operador, terminal)
+      // e mantém em sessionStorage até a abertura ser confirmada. Assim,
+      // se a UI re-tentar (clique duplo, retry após timeout de rede), o
+      // servidor local reconhece o mesmo pedido e NUNCA duplica o caixa.
+      const ssKey = `gp.caixa.abrir.cu:${input.operador_id ?? "admin"}:${input.terminal_id ?? "no-term"}`;
+      const inputCU = (input as typeof input & { client_uuid?: string | null }).client_uuid ?? null;
+      let clientUuid = inputCU;
+      if (!clientUuid) {
+        try {
+          clientUuid = sessionStorage.getItem(ssKey);
+        } catch { /* ignore */ }
+      }
+      if (!clientUuid) {
+        clientUuid =
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `cu-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        try { sessionStorage.setItem(ssKey, clientUuid); } catch { /* ignore */ }
+      }
+
       console.info("[CAIXA_LOCAL] abertura iniciada", {
         valor_inicial: input.valor_inicial,
         operador_id: input.operador_id ?? null,
         terminal_id: input.terminal_id ?? null,
+        client_uuid: clientUuid,
       });
       const baseUrl = await resolveBaseUrl();
       const localAvailable = !!baseUrl;
@@ -1184,6 +1205,8 @@ export const localServerAdapter: DataAdapter = {
         modo: localAvailable ? "local" : "cloud-fallback",
         baseUrl,
       });
+      // 5s é mais do que suficiente — a operação é puro SQLite local;
+      // o push para o cloud já roda em background no Rust.
       const r = await postLocalAuth<{
         caixa_id: string;
         idempotente: boolean;
@@ -1194,10 +1217,8 @@ export const localServerAdapter: DataAdapter = {
         observacao: input.observacao ?? null,
         operador_id: input.operador_id ?? null,
         terminal_id: input.terminal_id ?? null,
-        client_uuid:
-          (input as typeof input & { client_uuid?: string | null })
-            .client_uuid ?? null,
-      }, 8000);
+        client_uuid: clientUuid,
+      }, 5000);
       const dt = Math.round(performance.now() - t0);
       if (r) {
         console.info("[CAIXA_LOCAL] persistido SQLite", {
@@ -1207,11 +1228,15 @@ export const localServerAdapter: DataAdapter = {
           duracao_ms: dt,
         });
         reportDataSource({ source: "local-server", domain: "caixa", method: "abrir", fallback: false });
+        // Limpa a chave de idempotência — próxima abertura é um novo evento.
+        try { sessionStorage.removeItem(ssKey); } catch { /* ignore */ }
         return r.remote_id ?? r.caixa_id;
       }
       // Se o servidor local estava disponível mas a chamada falhou,
       // NÃO tentamos cloud — preserva o modo offline real e evita o
       // travamento "Abrindo..." enquanto a cloud também pendura.
+      // O client_uuid permanece em sessionStorage para que um retry
+      // manual seja idempotente (não cria caixa duplicado).
       if (localAvailable) {
         console.error("[CAIXA_LOCAL] servidor local respondeu erro/timeout", { duracao_ms: dt });
         throw new Error(
@@ -1221,6 +1246,7 @@ export const localServerAdapter: DataAdapter = {
       console.warn("[CAIXA_TIMEOUT] servidor local indisponível — tentando cloud");
       const result = await cloudAdapter.caixa.abrir(input);
       reportDataSource({ source: "cloud", domain: "caixa", method: "abrir", fallback: true });
+      try { sessionStorage.removeItem(ssKey); } catch { /* ignore */ }
       return result;
     },
     registrarMovimento: async (input) => {
