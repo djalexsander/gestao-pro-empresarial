@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useModosDisponiveis, type ModoDisponivel } from "@/hooks/useSaasAdmin";
 
 interface ModeContextValue {
@@ -66,19 +66,24 @@ export function ModeProvider({ children }: { children: ReactNode }) {
     [modos, chaveAtual],
   );
 
-  const value: ModeContextValue = {
-    modoAtual,
-    modos,
-    isLoading,
-    setModo: (chave) => {
+  const setModo = useCallback((chave: string) => {
+    setChaveAtual((atual) => {
+      if (atual === chave) return atual;
       setChaveAtual(chave);
       window.localStorage.setItem(STORAGE_KEY, chave);
-    },
-    clearModo: () => {
-      setChaveAtual(null);
+      return chave;
+    });
+  }, []);
+
+  const clearModo = useCallback(() => {
+    setChaveAtual((atual) => {
+      if (atual === null) return atual;
       window.localStorage.removeItem(STORAGE_KEY);
-    },
-    isRouteAllowed: (pathname) => {
+      return null;
+    });
+  }, []);
+
+  const isRouteAllowed = useCallback((pathname: string) => {
       if (ROTAS_GLOBAIS.some((p) => pathname === p || pathname.startsWith(p + "/"))) return true;
       if (!chaveAtual) return false;
       const permitidas = rotasDoModo(chaveAtual);
@@ -86,8 +91,16 @@ export function ModeProvider({ children }: { children: ReactNode }) {
         if (base === "/") return pathname === "/";
         return pathname === base || pathname.startsWith(base + "/");
       });
-    },
-  };
+  }, [chaveAtual]);
+
+  const value = useMemo<ModeContextValue>(() => ({
+    modoAtual,
+    modos,
+    isLoading,
+    setModo,
+    clearModo,
+    isRouteAllowed,
+  }), [modoAtual, modos, isLoading, setModo, clearModo, isRouteAllowed]);
 
   return <ModeContext.Provider value={value}>{children}</ModeContext.Provider>;
 }
