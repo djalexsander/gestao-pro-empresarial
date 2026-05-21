@@ -61,7 +61,33 @@ async function resolveBaseUrl(): Promise<string | null> {
   } catch {
     cachedBaseUrl = null;
     return null;
+}
+
+/**
+ * Lê o terminal selecionado deste dispositivo a partir do localStorage.
+ * O `TerminalProvider` persiste o terminal por usuário (`gp.terminal:<user_id>`);
+ * aqui varremos todas as chaves com esse prefixo e devolvemos o `id` da
+ * primeira válida. Em desktop só existe 1 conta logada por dispositivo, então
+ * o resultado é determinístico. Usado para casar `caixa.aberto` por terminal
+ * (mesma chave de unicidade que o backend usa em `abrir_caixa_local`).
+ */
+function readSelectedTerminalId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith("gp.terminal:")) continue;
+      const raw = localStorage.getItem(k);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw) as { id?: string } | null;
+      if (parsed && typeof parsed.id === "string" && parsed.id.trim()) {
+        return parsed.id;
+      }
+    }
+  } catch {
+    /* ignore */
   }
+  return null;
 }
 
 function logSource(domain: string, method: string, source: string) {
