@@ -6,7 +6,8 @@ import type {
 import { calcularRateio, ratearPorForma } from "./financeEngine";
 import { calcularTaxa, round2 } from "./taxas";
 
-const DEV = typeof import.meta !== "undefined" && (import.meta as any).env?.DEV;
+// Logs DEV removidos: rodavam a cada render e poluíam o console em loops
+// de re-render. Função permanece pura.
 
 interface AggOpts {
   /** Override de taxa percentual por forma (0..1). */
