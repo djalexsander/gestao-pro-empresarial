@@ -143,7 +143,8 @@ function RelatorioVendasPage() {
 
 function Conteudo() {
   const navigate = useNavigate();
-  const { data: vendas = [], isLoading } = useVendas();
+  const { empresaAtual } = useEmpresaAtual();
+  const ownerId = empresaAtual?.owner_id ?? null;
   const { data: clientes = [] } = useClientesFull();
   const { data: funcionarios = [] } = useFuncionariosAtivos();
   const { data: caixasHistorico = [] } = useCaixasHistorico(200);
@@ -160,6 +161,9 @@ function Conteudo() {
   const [page, setPage] = useState(1);
   const [detalheId, setDetalheId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [vendas, setVendas] = useState<VendaResumoAudit[]>([]);
+  const [audit, setAudit] = useState<RelatorioAuditoria | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   const PAGE_SIZE = 25;
 
@@ -174,6 +178,28 @@ function Conteudo() {
     () => previousRange(inicio, fim),
     [inicio, fim],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setIsLoading(true);
+      try {
+        const result = await fetchVendasPeriodoAudit(ownerId, { inicio, fim });
+        if (cancelled) return;
+        setVendas(result.rows);
+        setAudit(result.audit);
+      } catch (e) {
+        if (cancelled) return;
+        toast.error(e instanceof Error ? e.message : "Falha ao carregar vendas");
+        setVendas([]);
+        setAudit(null);
+      }
+      setIsLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ownerId, inicio, fim]);
 
   const { data: metricas } = useVendaMetricasPeriodo(inicio, fim);
   const { data: metricasPrev } = useVendaMetricasPeriodo(inicioPrev, fimPrev);
