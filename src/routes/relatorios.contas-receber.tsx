@@ -150,6 +150,11 @@ function Conteudo() {
   const navigate = useNavigate();
 
   // Filtros
+  const { empresaAtual } = useEmpresaAtual();
+  const ownerId = empresaAtual?.owner_id ?? null;
+  const [audit, setAudit] = useState<RelatorioAuditoria | null>(null);
+
+  // Filtros
   const [preset, setPreset] = useState<PeriodoPreset>("mes");
   const [dataDe, setDataDe] = useState<string>(() => {
     const r = presetParaIntervalo("mes")!;
