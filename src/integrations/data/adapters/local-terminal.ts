@@ -2590,8 +2590,6 @@ export const localTerminalAdapter: DataAdapter = {
       }
       if (baseUrl) {
         if (import.meta.env.DEV) console.info("[CAIXA_FECHAR_LOCAL] gravando SQLite (LAN)");
-        const { data } = await supabase.auth.getSession();
-        const token = data.session?.access_token ?? null;
         const local = await fecharCaixaLocal(
           cfg,
           {
@@ -2602,7 +2600,6 @@ export const localTerminalAdapter: DataAdapter = {
               (input as FecharCaixaInput & { client_uuid?: string | null })
                 .client_uuid ?? null,
           },
-          token,
         );
         if (local) {
           if (import.meta.env.DEV) {
@@ -2618,14 +2615,6 @@ export const localTerminalAdapter: DataAdapter = {
             method: "fechar",
             fallback: false,
           });
-          // Só consulta cloud quando online + já sincronizado. Nunca trava o fechamento offline.
-          if (online && local.outbox_status === "sent" && local.remote_id) {
-            try {
-              return await cloudAdapter.caixa.fechar(input);
-            } catch {
-              /* fallback abaixo */
-            }
-          }
           return {
             caixa_id: local.remote_id ?? input.caixa_id,
             valor_esperado: input.valor_informado,
@@ -2634,20 +2623,12 @@ export const localTerminalAdapter: DataAdapter = {
             fechado_em: new Date().toISOString(),
           };
         }
-        if (!online) {
-          if (import.meta.env.DEV) console.warn("[CAIXA_FECHAR_ERRO] offline e servidor LAN indisponível");
-          throw new Error("Sem conexão com o servidor local. Verifique a rede LAN para fechar o caixa.");
-        }
-      } else if (!online) {
+        if (import.meta.env.DEV) console.warn("[CAIXA_FECHAR_ERRO] falha ao gravar fechamento local", { online });
+        throw new Error("Não foi possível gravar o fechamento no caixa local. Tente novamente.");
+      } else {
         if (import.meta.env.DEV) console.warn("[CAIXA_FECHAR_ERRO] offline sem servidor LAN configurado");
         throw new Error("Sem conexão com a internet e sem servidor local. Não foi possível fechar o caixa.");
       }
-      if (import.meta.env.DEV) console.info("[CAIXA_FECHAR] fallback cloud");
-      const result = await cloudAdapter.caixa.fechar(input);
-      reportDataSource({
-        source: "cloud", domain: "caixa", method: "fechar", fallback: true,
-      });
-      return result;
     },
   },
 };
