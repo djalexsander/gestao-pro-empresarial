@@ -1172,7 +1172,18 @@ export const localServerAdapter: DataAdapter = {
   caixa: {
     ...cloudAdapter.caixa,
     abrir: async (input) => {
-      console.info("[CAIXA_LOCAL] abertura local iniciada");
+      const t0 = performance.now();
+      console.info("[CAIXA_LOCAL] abertura iniciada", {
+        valor_inicial: input.valor_inicial,
+        operador_id: input.operador_id ?? null,
+        terminal_id: input.terminal_id ?? null,
+      });
+      const baseUrl = await resolveBaseUrl();
+      const localAvailable = !!baseUrl;
+      console.info("[CAIXA_LOCAL] adapter resolvido", {
+        modo: localAvailable ? "local" : "cloud-fallback",
+        baseUrl,
+      });
       const r = await postLocalAuth<{
         caixa_id: string;
         idempotente: boolean;
@@ -1186,19 +1197,28 @@ export const localServerAdapter: DataAdapter = {
         client_uuid:
           (input as typeof input & { client_uuid?: string | null })
             .client_uuid ?? null,
-      });
+      }, 8000);
+      const dt = Math.round(performance.now() - t0);
       if (r) {
-        console.info("[CAIXA_LOCAL] persistido SQLite", { caixa_id: r.caixa_id, idempotente: r.idempotente });
-        if (r.outbox_status === "pending" || r.outbox_status === "sending") {
-          console.info("[CAIXA_OUTBOX] item criado", { caixa_id: r.caixa_id, status: r.outbox_status });
-          console.info("[CAIXA_SYNC] aguardando internet");
-        } else if (r.outbox_status === "sent") {
-          console.info("[CAIXA_SYNC] sincronizado");
-        }
+        console.info("[CAIXA_LOCAL] persistido SQLite", {
+          caixa_id: r.caixa_id,
+          idempotente: r.idempotente,
+          outbox_status: r.outbox_status,
+          duracao_ms: dt,
+        });
         reportDataSource({ source: "local-server", domain: "caixa", method: "abrir", fallback: false });
         return r.remote_id ?? r.caixa_id;
       }
-      console.warn("[CAIXA_TIMEOUT] fallback local acionado (abrir) — servidor local indisponível, tentando cloud");
+      // Se o servidor local estava disponível mas a chamada falhou,
+      // NÃO tentamos cloud — preserva o modo offline real e evita o
+      // travamento "Abrindo..." enquanto a cloud também pendura.
+      if (localAvailable) {
+        console.error("[CAIXA_LOCAL] servidor local respondeu erro/timeout", { duracao_ms: dt });
+        throw new Error(
+          "Não foi possível abrir o caixa no servidor local. Verifique os logs do servidor e tente novamente.",
+        );
+      }
+      console.warn("[CAIXA_TIMEOUT] servidor local indisponível — tentando cloud");
       const result = await cloudAdapter.caixa.abrir(input);
       reportDataSource({ source: "cloud", domain: "caixa", method: "abrir", fallback: true });
       return result;
