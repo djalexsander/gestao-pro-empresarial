@@ -65,14 +65,24 @@ async function doStart(opts: {
     });
     STATE.lastStatus = st;
     console.log("[boot] start_local_server resultado", st);
-    if (st.running) {
+    if (st.running && st.database_ready !== false && !st.database_error) {
       console.log("[AUTO_SYNC] servidor local iniciado — auto-sync agendado");
-      toast.success(`Backend local iniciado na porta ${st.port ?? opts.port}.`);
+      toast.success(
+        `Backend local + banco prontos na porta ${st.port ?? opts.port}.`,
+      );
+    } else if (st.running && (st.database_error || st.database_ready === false)) {
+      const msg = st.database_error
+        ? `Backend subiu, mas o banco local falhou: ${st.database_error}`
+        : "Backend subiu, mas o banco local ainda não está pronto.";
+      STATE.lastError = msg;
+      console.error("[boot] banco local não inicializou", st);
+      toast.error(msg);
     } else {
       STATE.lastError = "O backend não confirmou execução.";
       toast.error(STATE.lastError);
     }
     return st;
+
   } catch (err) {
     const msg = String(err);
     STATE.lastError = msg;
