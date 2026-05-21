@@ -186,11 +186,14 @@ function Conteudo() {
   });
 
   const [rows, setRows] = useState<CaixaRow[]>([]);
+  const [audit, setAudit] = useState<RelatorioAuditoria | null>(null);
   const [operadores, setOperadores] = useState<{ id: string; nome: string }[]>([]);
   const [terminais, setTerminais] = useState<{ id: string; nome: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [detalhe, setDetalhe] = useState<CaixaRow | null>(null);
+  const { empresaAtual } = useEmpresaAtual();
+  const ownerId = empresaAtual?.owner_id ?? null;
 
   // Carrega operadores e terminais (uma vez)
   useEffect(() => {
