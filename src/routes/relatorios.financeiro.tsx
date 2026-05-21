@@ -796,6 +796,8 @@ function Conteudo() {
           </Tabs>
         </CardContent>
       </Card>
+
+      <AuditoriaCard audit={audit} />
     </div>
   );
 }
