@@ -1435,10 +1435,8 @@ export const localServerAdapter: DataAdapter = {
             fechado_em: new Date().toISOString(),
           };
         }
-        if (!online) {
-          if (import.meta.env.DEV) console.warn("[CAIXA_FECHAR_ERRO] offline e servidor local indisponível");
-          throw new Error("Sem conexão com o servidor local. Verifique se o servidor está em execução para fechar o caixa.");
-        }
+        if (import.meta.env.DEV) console.warn("[CAIXA_FECHAR_ERRO] falha ao gravar fechamento local", { online });
+        throw new Error("Não foi possível gravar o fechamento no caixa local. Tente novamente.");
       } else {
         if (import.meta.env.DEV) console.warn("[CAIXA_FECHAR_ERRO] offline sem servidor local");
         throw new Error("Servidor local indisponível. Não foi possível fechar o caixa no SQLite.");
