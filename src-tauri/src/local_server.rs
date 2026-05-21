@@ -2721,6 +2721,7 @@ async fn registrar_caixa_abrir_handler(
     headers: HeaderMap,
     Json(req): Json<AbrirCaixaLocalRequest>,
 ) -> Result<Json<AbrirCaixaLocalResponse>, (StatusCode, String)> {
+    remember_auth(&headers);
     let now = now_ms();
     let input: db::LocalAbrirCaixaInput = serde_json::from_value(req.raw)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("payload inválido: {e}")))?;
