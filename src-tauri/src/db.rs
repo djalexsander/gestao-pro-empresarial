@@ -1714,9 +1714,11 @@ fn init_inner() -> DbResult<()> {
         params![chrono::Utc::now().timestamp_millis().to_string()],
     )?;
 
-    DB.set(Mutex::new(conn))
-        .map_err(|_| DbError("DB já inicializado".into()))?;
+    // Em race condition extrema, se outra thread já colocou um Connection,
+    // descartamos o nosso silenciosamente — o estado fica consistente.
+    let _ = DB.set(Mutex::new(conn));
     Ok(())
+
 }
 
 fn with_conn<T>(f: impl FnOnce(&Connection) -> DbResult<T>) -> DbResult<T> {
