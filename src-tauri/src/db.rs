@@ -8683,6 +8683,24 @@ pub fn outbox_caixa_get(local_uuid: &str) -> DbResult<Option<OutboxCaixaItem>> {
     })
 }
 
+/// Retorna o `remote_id` (id na nuvem) do caixa local, quando já houver sido
+/// resolvido pelo push da abertura. `None` significa que a abertura ainda
+/// não foi sincronizada — nesse caso o caller deve esperar o `abrir`
+/// confirmar antes do `fechar`/`movimento` ir para a cloud.
+pub fn caixa_local_remote_id(caixa_local_uuid: &str) -> DbResult<Option<String>> {
+    with_conn(|conn| {
+        let r = conn
+            .query_row(
+                "SELECT remote_id FROM caixa_local
+                  WHERE local_uuid=?1 AND remote_id IS NOT NULL AND remote_id<>''",
+                params![caixa_local_uuid],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?;
+        Ok(r)
+    })
+}
+
 pub fn outbox_caixa_mark_sending(local_uuid: &str, now_ms: i64) -> DbResult<()> {
     with_conn(|conn| {
         conn.execute(
@@ -8690,6 +8708,24 @@ pub fn outbox_caixa_mark_sending(local_uuid: &str, now_ms: i64) -> DbResult<()> 
                 SET status='sending', updated_at_ms=?2, attempts=attempts+1
               WHERE local_uuid=?1",
             params![local_uuid, now_ms],
+        )?;
+        Ok(())
+    })
+}
+
+/// Adia um item da outbox de caixa SEM consumir tentativa.
+/// Usado quando o item depende de outro (ex.: `fechar` esperando
+/// `abrir` propagar `remote_id`). Mantém status `pending` e agenda nova
+/// passagem do scheduler ~5s à frente.
+pub fn outbox_caixa_defer(local_uuid: &str, reason: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        let next = now_ms + 5_000;
+        conn.execute(
+            "UPDATE outbox_caixa
+                SET status='pending', last_error=?2, updated_at_ms=?3,
+                    next_attempt_at_ms=?4
+              WHERE local_uuid=?1",
+            params![local_uuid, reason, now_ms, next],
         )?;
         Ok(())
     })
