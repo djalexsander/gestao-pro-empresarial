@@ -80,10 +80,55 @@ pub fn db_file() -> PathBuf {
 }
 
 pub fn init() -> DbResult<()> {
-    let dir = db_path();
-    std::fs::create_dir_all(&dir)?;
+    // Idempotente: se já abrimos a conexão antes (ex.: setup do Tauri + start
+    // do servidor local), não tenta reabrir. Limpa o último erro registrado.
+    if DB.get().is_some() {
+        if let Ok(mut g) = LAST_INIT_ERROR.lock() {
+            *g = None;
+        }
+        return Ok(());
+    }
+
+    let t0 = std::time::Instant::now();
     let path = db_file();
-    let conn = Connection::open(&path)?;
+    eprintln!("[gestao-pro][db] init iniciando em {}", path.display());
+
+    let result = init_inner();
+    match &result {
+        Ok(_) => {
+            if let Ok(mut g) = LAST_INIT_ERROR.lock() {
+                *g = None;
+            }
+            eprintln!(
+                "[gestao-pro][db] init OK em {} ms (schema v{})",
+                t0.elapsed().as_millis(),
+                SCHEMA_VERSION
+            );
+        }
+        Err(e) => {
+            if let Ok(mut g) = LAST_INIT_ERROR.lock() {
+                *g = Some(e.0.clone());
+            }
+            eprintln!(
+                "[gestao-pro][db] init FALHOU em {} ms: {}",
+                t0.elapsed().as_millis(),
+                e.0
+            );
+        }
+    }
+    result
+}
+
+fn init_inner() -> DbResult<()> {
+    let dir = db_path();
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        DbError(format!("não foi possível criar diretório {}: {e}", dir.display()))
+    })?;
+    let path = db_file();
+    let conn = Connection::open(&path).map_err(|e| {
+        DbError(format!("falha ao abrir {}: {e}", path.display()))
+    })?;
+
 
     conn.execute_batch(
         r#"
