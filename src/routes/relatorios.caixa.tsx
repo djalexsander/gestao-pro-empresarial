@@ -748,6 +748,8 @@ function Conteudo() {
           setDetalhe(atual);
         }}
       />
+
+      {audit && <AuditoriaCard audit={audit} />}
     </div>
   );
 }
