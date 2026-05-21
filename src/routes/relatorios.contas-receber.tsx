@@ -1,4 +1,8 @@
 import { dataClient } from "@/integrations/data";
+import { fetchContasReceberAudit } from "@/integrations/data/relatorios-audit";
+import { useEmpresaAtual } from "@/hooks/useEmpresa";
+import { AuditoriaCard } from "@/components/relatorios/AuditoriaCard";
+import type { RelatorioAuditoria } from "@/lib/relatorios/audit";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
