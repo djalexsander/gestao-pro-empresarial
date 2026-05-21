@@ -1,4 +1,7 @@
-import { dataClient } from "@/integrations/data";
+import { fetchEstoquePosicaoAudit } from "@/integrations/data/relatorios-audit";
+import { useEmpresaAtual } from "@/hooks/useEmpresa";
+import { AuditoriaCard } from "@/components/relatorios/AuditoriaCard";
+import type { RelatorioAuditoria } from "@/lib/relatorios/audit";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Download, Loader2, Boxes, AlertTriangle, Package } from "lucide-react";
@@ -50,47 +53,34 @@ function Conteudo() {
   const navigate = useNavigate();
   const [busca, setBusca] = useState("");
   const [rows, setRows] = useState<ProdutoRow[]>([]);
+  const [audit, setAudit] = useState<RelatorioAuditoria | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const { empresaAtual } = useEmpresaAtual();
+  const ownerId = empresaAtual?.owner_id ?? null;
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
       try {
-        const { produtos, movimentos } = await dataClient.relatorios.estoqueBase();
+        const result = await fetchEstoquePosicaoAudit(ownerId);
         if (cancelled) return;
-        const saldos = new Map<string, number>();
-        for (const m of movimentos) {
-          const sinal =
-            m.tipo === "entrada" || m.tipo === "devolucao"
-              ? 1
-              : m.tipo === "saida" || m.tipo === "transferencia"
-                ? -1
-                : 1;
-          saldos.set(m.produto_id, (saldos.get(m.produto_id) ?? 0) + sinal * m.quantidade);
-        }
-        setRows(
-          produtos.map((p) => ({
-            id: p.id,
-            sku: p.sku ?? "",
-            nome: p.nome,
-            unidade: p.unidade ?? "",
-            custo: p.preco_custo,
-            venda: p.preco_venda,
-            minimo: p.estoque_minimo,
-            saldo: saldos.get(p.id) ?? 0,
-          })),
-        );
+        setRows(result.rows);
+        setAudit(result.audit);
       } catch (e) {
-        if (!cancelled) toast.error(e instanceof Error ? e.message : "Falha");
+        if (!cancelled) {
+          toast.error(e instanceof Error ? e.message : "Falha");
+          setRows([]);
+          setAudit(null);
+        }
       }
       setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [ownerId]);
 
   const filtered = useMemo(() => {
     const q = busca.trim().toLowerCase();
@@ -252,6 +242,8 @@ function Conteudo() {
           )}
         </CardContent>
       </Card>
+
+      {audit && <AuditoriaCard audit={audit} />}
     </div>
   );
 }

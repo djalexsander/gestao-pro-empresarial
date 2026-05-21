@@ -26,6 +26,7 @@ export type StatusIgnoradoMotivo =
 export interface RelatorioAuditoriaIgnorado {
   motivo: StatusIgnoradoMotivo;
   quantidade: number;
+  detalhe?: string;
 }
 
 export interface RelatorioAuditoriaDivergencia {
