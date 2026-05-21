@@ -74,7 +74,10 @@ function calcRange(p: Periodo): { inicio: string; fim: string } {
 function Conteudo() {
   const navigate = useNavigate();
   const [periodo, setPeriodo] = useState<Periodo>("30d");
+  const { empresaAtual } = useEmpresaAtual();
+  const ownerId = empresaAtual?.owner_id ?? null;
   const [rows, setRows] = useState<LancRow[]>([]);
+  const [audit, setAudit] = useState<RelatorioAuditoria | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
 
@@ -84,20 +87,22 @@ function Conteudo() {
       setLoading(true);
       const { inicio, fim } = calcRange(periodo);
       try {
-        const data = await dataClient.relatorios.fluxoCaixa({ inicio, fim });
+        const result = await fetchFluxoCaixaAudit(ownerId, { inicio, fim });
         if (cancelled) return;
-        setRows(data.map((d) => ({ ...d, descricao: d.descricao ?? "" })));
+        setRows(result.rows.map((d) => ({ ...d, descricao: d.descricao ?? "" })));
+        setAudit(result.audit);
       } catch (e) {
         if (cancelled) return;
         toast.error(e instanceof Error ? e.message : "Falha ao carregar");
         setRows([]);
+        setAudit(null);
       }
       setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [periodo]);
+  }, [periodo, ownerId]);
 
   const totais = useMemo(() => {
     let entradas = 0;
