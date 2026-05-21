@@ -7344,9 +7344,23 @@ pub fn abrir_caixa_local(
         }
     }
 
-    // Já existe caixa aberto neste contexto? (mesmo operador / sem operador).
-    // Se sim, devolvemos como idempotente — o front vai reusar o mesmo caixa.
+    // Já existe caixa aberto neste contexto? Primeiro por terminal, porque a
+    // regra local/cloud é 1 caixa aberto por terminal. Depois caímos no legado
+    // por operador/sem operador. Se sim, devolvemos como idempotente — o front
+    // vai reusar o mesmo caixa em vez de bater no índice único.
     let existente = with_conn(|conn| {
+        if let Some(term) = input.terminal_id.as_deref().filter(|s| !s.trim().is_empty()) {
+            let row = conn.query_row(
+                "SELECT local_uuid, valor_inicial FROM caixa_local
+                  WHERE status='aberto' AND terminal_id = ?1
+               ORDER BY data_abertura_ms DESC LIMIT 1",
+                params![term],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?)),
+            ).optional()?;
+            if row.is_some() {
+                return Ok(row);
+            }
+        }
         let oper = input.operador_id.as_deref();
         let row = if let Some(op) = oper {
             conn.query_row(
