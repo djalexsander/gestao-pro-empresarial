@@ -23,6 +23,12 @@ export interface LocalServerStatus {
   version: string;
   upstream_configured?: boolean;
   terminals_conectados?: number;
+  /** Banco SQLite aberto e schema aplicado. */
+  database_ready?: boolean;
+  /** Última mensagem de erro de inicialização do banco. */
+  database_error?: string | null;
+  /** Caminho físico do arquivo local.db. */
+  database_path?: string | null;
 }
 
 const STATUS_OFF: LocalServerStatus = {
@@ -36,7 +42,11 @@ const STATUS_OFF: LocalServerStatus = {
   version: "0",
   upstream_configured: false,
   terminals_conectados: 0,
+  database_ready: false,
+  database_error: null,
+  database_path: null,
 };
+
 
 type TauriInvoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 
