@@ -73,8 +73,11 @@ function Conteudo() {
   const [periodo, setPeriodo] = useState<Periodo>("30d");
   const [busca, setBusca] = useState("");
   const [rows, setRows] = useState<CompraRow[]>([]);
+  const [audit, setAudit] = useState<RelatorioAuditoria | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const { empresaAtual } = useEmpresaAtual();
+  const ownerId = empresaAtual?.owner_id ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -82,20 +85,31 @@ function Conteudo() {
       setLoading(true);
       const { inicio, fim } = calcRange(periodo);
       try {
-        const data = await dataClient.relatorios.compras({ inicio, fim });
+        const result = await fetchComprasPeriodoAudit(ownerId, { inicio, fim });
         if (cancelled) return;
-        setRows(data);
+        setRows(
+          result.rows.map((r) => ({
+            id: r.id,
+            numero: r.numero,
+            data: r.data,
+            fornecedor: r.fornecedor,
+            total: r.total,
+            status: r.status,
+          })),
+        );
+        setAudit(result.audit);
       } catch (e) {
         if (cancelled) return;
         toast.error(e instanceof Error ? e.message : "Falha ao carregar");
         setRows([]);
+        setAudit(null);
       }
       setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [periodo]);
+  }, [periodo, ownerId]);
 
   const filtered = useMemo(() => {
     const q = busca.trim().toLowerCase();
