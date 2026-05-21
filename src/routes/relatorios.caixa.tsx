@@ -53,6 +53,10 @@ import { dataClient } from "@/integrations/data";
 import { formatBRL } from "@/lib/mock-data";
 import { exportRowsToCSV, type CsvColumn } from "@/lib/export-csv";
 import { cn } from "@/lib/utils";
+import { useEmpresaAtual } from "@/hooks/useEmpresa";
+import { fetchCaixasSessoesAudit } from "@/integrations/data/relatorios-audit";
+import { AuditoriaCard } from "@/components/relatorios/AuditoriaCard";
+import type { RelatorioAuditoria } from "@/lib/relatorios/audit";
 
 export const Route = createFileRoute("/relatorios/caixa")({
   head: () => ({
@@ -182,11 +186,14 @@ function Conteudo() {
   });
 
   const [rows, setRows] = useState<CaixaRow[]>([]);
+  const [audit, setAudit] = useState<RelatorioAuditoria | null>(null);
   const [operadores, setOperadores] = useState<{ id: string; nome: string }[]>([]);
   const [terminais, setTerminais] = useState<{ id: string; nome: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [detalhe, setDetalhe] = useState<CaixaRow | null>(null);
+  const { empresaAtual } = useEmpresaAtual();
+  const ownerId = empresaAtual?.owner_id ?? null;
 
   // Carrega operadores e terminais (uma vez)
   useEffect(() => {
@@ -206,13 +213,14 @@ function Conteudo() {
   }, []);
 
   // Carrega caixas conforme filtros aplicados
+  // Carrega caixas conforme filtros aplicados — agora com owner_id explícito + auditoria
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
       const { ini, fim } = calcRange(filtros.periodo, filtros.customIni, filtros.customFim);
       try {
-        const data = await dataClient.relatorios.caixasSessoes({
+        const result = await fetchCaixasSessoesAudit(ownerId, {
           iniIso: ini.toISOString(),
           fimIso: fim.toISOString(),
           operadorId: filtros.operador,
@@ -229,7 +237,7 @@ function Conteudo() {
         const opMap = new Map(operadores.map((o) => [o.id, o.nome]));
         const tMap = new Map(terminais.map((t) => [t.id, t.nome]));
 
-        let mapped: CaixaRow[] = data.map((c) => ({
+        let mapped: CaixaRow[] = result.rows.map((c) => ({
           id: c.id,
           operador_id: c.operador_id,
           operador_nome: (c.operador_id && opMap.get(c.operador_id)) ?? "—",
@@ -265,17 +273,19 @@ function Conteudo() {
         }
 
         setRows(mapped);
+        setAudit(result.audit);
       } catch (e) {
         if (cancelled) return;
         toast.error(e instanceof Error ? e.message : "Falha ao carregar");
         setRows([]);
+        setAudit(null);
       }
       setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [filtros, operadores, terminais]);
+  }, [filtros, operadores, terminais, ownerId]);
 
   /* ---------- Métricas ---------- */
   const metricas = useMemo(() => {
@@ -738,6 +748,8 @@ function Conteudo() {
           setDetalhe(atual);
         }}
       />
+
+      {audit && <AuditoriaCard audit={audit} />}
     </div>
   );
 }
