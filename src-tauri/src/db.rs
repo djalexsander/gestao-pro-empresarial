@@ -8683,6 +8683,24 @@ pub fn outbox_caixa_get(local_uuid: &str) -> DbResult<Option<OutboxCaixaItem>> {
     })
 }
 
+/// Retorna o `remote_id` (id na nuvem) do caixa local, quando já houver sido
+/// resolvido pelo push da abertura. `None` significa que a abertura ainda
+/// não foi sincronizada — nesse caso o caller deve esperar o `abrir`
+/// confirmar antes do `fechar`/`movimento` ir para a cloud.
+pub fn caixa_local_remote_id(caixa_local_uuid: &str) -> DbResult<Option<String>> {
+    with_conn(|conn| {
+        let r = conn
+            .query_row(
+                "SELECT remote_id FROM caixa_local
+                  WHERE local_uuid=?1 AND remote_id IS NOT NULL AND remote_id<>''",
+                params![caixa_local_uuid],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?;
+        Ok(r)
+    })
+}
+
 pub fn outbox_caixa_mark_sending(local_uuid: &str, now_ms: i64) -> DbResult<()> {
     with_conn(|conn| {
         conn.execute(
