@@ -9,14 +9,6 @@ import type {
 } from "./types";
 import { round2 } from "./taxas";
 
-const DEV = typeof import.meta !== "undefined" && (import.meta as any).env?.DEV;
-
-function devLog(tag: string, payload: unknown) {
-  if (!DEV) return;
-  // eslint-disable-next-line no-console
-  console.log(tag, payload);
-}
-
 /**
  * Calcula o rateio proporcional de uma venda baseado no que JÁ foi recebido.
  *
@@ -51,22 +43,6 @@ export function calcularRateio(venda: VendaFinanceiraInput): RateioProporcional 
     lucro_pendente,
     saldo_restante,
   };
-
-  devLog("[FINANCE_ENGINE]", out);
-  devLog("[CUSTO_PROPORCIONAL]", {
-    venda_id: out.venda_id,
-    custo_total: out.custo_total,
-    custo_realizado,
-    custo_pendente,
-    percentual_recebido,
-  });
-  devLog("[LUCRO_PROPORCIONAL]", {
-    venda_id: out.venda_id,
-    lucro_total: out.lucro_total,
-    lucro_realizado,
-    lucro_pendente,
-    percentual_recebido,
-  });
 
   return out;
 }
