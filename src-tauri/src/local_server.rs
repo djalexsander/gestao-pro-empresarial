@@ -4288,6 +4288,35 @@ async fn push_one_outbox_caixa(
     let payload: serde_json::Value =
         serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
 
+    // Para `fechar`/`movimento` o cloud só consegue resolver o caixa via
+    // remote_id (uuid real na nuvem). Resolvemos a partir de `caixa_local`,
+    // que recebe o `remote_id` quando o `abrir` é confirmado em
+    // `outbox_caixa_mark_sent`. Fazemos esse lookup ANTES de marcar
+    // `sending` (não consome tentativa nem incrementa backoff) para que
+    // a ordem causal seja: abrir-cloud-OK → fechar/movimento elegíveis.
+    let caixa_remote_id_opt: Option<String> = if item.action == "fechar"
+        || item.action == "movimento"
+    {
+        db::caixa_local_remote_id(&item.caixa_local_uuid)
+            .map_err(|e| e.to_string())?
+    } else {
+        None
+    };
+
+    if (item.action == "fechar" || item.action == "movimento")
+        && caixa_remote_id_opt.is_none()
+    {
+        // Adia o item: mantém `pending`, sem consumir tentativa nem
+        // marcar `error`. Só agenda nova passagem do scheduler.
+        let msg = "aguardando sync do `abrir` (remote_id ainda não disponível)".to_string();
+        eprintln!(
+            "[LOCAL_CASH_OUTBOX] {} adiado (sem remote_id) caixa_local={}",
+            item.action, item.caixa_local_uuid
+        );
+        let _ = db::outbox_caixa_defer(local_uuid, &msg, now);
+        return Err(msg);
+    }
+
     db::outbox_caixa_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
 
     let auth = headers
@@ -4297,38 +4326,7 @@ async fn push_one_outbox_caixa(
         .or_else(last_auth)
         .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
 
-    // Para `fechar`/`movimento` o cloud só consegue resolver o caixa via
-    // remote_id (uuid real na nuvem). Resolvemos a partir de `caixa_local`
-    // que recebe o `remote_id` quando o `abrir` é confirmado em
-    // `outbox_caixa_mark_sent`. Se ainda não houver remote_id, marcamos
-    // este item como pending (sem incrementar erro fatal) para que o
-    // scheduler tente novamente depois que o `abrir` for sincronizado.
-    let caixa_remote_id_opt: Option<String> = if item.action == "fechar"
-        || item.action == "movimento"
-    {
-        match db::caixa_local_remote_id(&item.caixa_local_uuid) {
-            Ok(opt) => opt,
-            Err(e) => {
-                let msg = format!("lookup remote_id falhou: {e}");
-                let _ = db::outbox_caixa_mark_error(local_uuid, &msg, now);
-                return Err(msg);
-            }
-        }
-    } else {
-        None
-    };
 
-    if (item.action == "fechar" || item.action == "movimento")
-        && caixa_remote_id_opt.is_none()
-    {
-        let msg = "aguardando sync do `abrir` (remote_id ainda não disponível)".to_string();
-        eprintln!(
-            "[LOCAL_CASH_OUTBOX] {} adiado (sem remote_id) caixa_local={}",
-            item.action, item.caixa_local_uuid
-        );
-        let _ = db::outbox_caixa_mark_error(local_uuid, &msg, now);
-        return Err(msg);
-    }
 
     let (rpc, body) = match item.action.as_str() {
         "abrir" => (
