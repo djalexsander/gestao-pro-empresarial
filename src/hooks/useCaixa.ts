@@ -179,7 +179,7 @@ export function useAbrirCaixa() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["caixa"] });
       qc.invalidateQueries({ queryKey: ["terminais"] });
-      toast.success("Caixa aberto com sucesso.");
+      toast.success("Caixa aberto localmente. Sincronização pendente.");
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -224,7 +224,7 @@ export function useFecharCaixa() {
       qc.invalidateQueries({ queryKey: ["caixa"] });
       qc.invalidateQueries({ queryKey: ["vendas"] });
       qc.invalidateQueries({ queryKey: ["financeiro_lancamentos"] });
-      toast.success("Caixa fechado. Movimentos enviados ao Financeiro.");
+      toast.success("Caixa fechado localmente. Sincronização pendente.");
     },
     onError: (e: Error) => toast.error(e.message),
   });
