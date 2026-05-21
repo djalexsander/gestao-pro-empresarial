@@ -200,15 +200,18 @@ function Conteudo() {
   const lancamentosQ = useQuery({
     queryKey: [
       "relatorio_contas_receber",
+      ownerId,
       { dataDe, dataAte, campoData, statusFiltro, clienteId },
     ],
+    enabled: !!ownerId,
     queryFn: async (): Promise<Row[]> => {
-      const data = await dataClient.relatorios.lancamentosContasReceber({
+      const { rows: data, audit: a } = await fetchContasReceberAudit(ownerId, {
         inicio: dataDe,
         fim: dataAte,
         campoData,
         clienteId,
       });
+      setAudit(a);
       const rows: Row[] = data.map((l) => {
         const valor = l.valor;
         const pago = l.valor_pago;
