@@ -1333,7 +1333,7 @@ export const localServerAdapter: DataAdapter = {
         operador_id: input.operador_id ?? null,
         terminal_id: input.terminal_id ?? null,
         client_uuid: clientUuid,
-      }, 5000);
+      }, 5000, false);
       const dt = Math.round(performance.now() - t0);
       if (r) {
         console.info("[CAIXA_LOCAL] persistido SQLite", {
@@ -1381,7 +1381,7 @@ export const localServerAdapter: DataAdapter = {
         valor: input.valor,
         motivo: input.motivo ?? null,
         client_uuid: input.client_uuid ?? null,
-      });
+      }, HTTP_TIMEOUT_MS, false);
       if (r) {
         console.info("[CAIXA_LOCAL] persistido SQLite", { movimento_id: r.movimento_id });
         if (r.outbox_status === "pending" || r.outbox_status === "sending") {
@@ -1417,7 +1417,7 @@ export const localServerAdapter: DataAdapter = {
           client_uuid:
             (input as typeof input & { client_uuid?: string | null })
               .client_uuid ?? null,
-        });
+        }, HTTP_TIMEOUT_MS, false);
         if (r) {
           if (import.meta.env.DEV) {
             console.info("[CAIXA_FECHAR_LOCAL] auditoria criada", { fechamento_id: r.fechamento_id });
@@ -2635,11 +2635,11 @@ async function postLocalAuthDetail<T>(
 
 
 
-async function postLocalAuth<T>(path: string, body: unknown, timeoutMs = HTTP_TIMEOUT_MS): Promise<T | null> {
+async function postLocalAuth<T>(path: string, body: unknown, timeoutMs = HTTP_TIMEOUT_MS, includeAuth = true): Promise<T | null> {
   const baseUrl = await resolveBaseUrl();
   if (!baseUrl) return null;
   let token: string | null = null;
-  try {
+  if (includeAuth) try {
     const { supabase } = await import("@/integrations/supabase/client");
     // getSession() pode pendurar quando offline tentando refresh do token.
     // Damos no máximo 1s — se demorar, seguimos sem Authorization.
