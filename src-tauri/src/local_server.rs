@@ -130,7 +130,10 @@ struct ServerInfoResponse {
     terminals_conectados: usize,
     backend_running: bool,
     database_ready: bool,
+    database_error: Option<String>,
+    database_path: String,
 }
+
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct LocalServerStatus {
