@@ -89,6 +89,30 @@ struct UpstreamConfig {
 
 static STATE: Lazy<Mutex<ServerState>> = Lazy::new(|| Mutex::new(ServerState::default()));
 
+/// Cache do último `Authorization: Bearer <jwt>` visto em uma request HTTP
+/// vinda do frontend (PDV/terminal). É usado pelos schedulers de background
+/// (outbox) que NÃO têm acesso ao HeaderMap original — sem isso, o push
+/// upstream cai no fallback `Bearer <anon_key>` e a RPC do Supabase rejeita
+/// com `P0001: Não autenticado`.
+static LAST_AUTH: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
+
+fn remember_auth(headers: &HeaderMap) {
+    if let Some(v) = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+    {
+        if v.starts_with("Bearer ") && v.len() > 30 {
+            if let Ok(mut g) = LAST_AUTH.lock() {
+                *g = Some(v.to_string());
+            }
+        }
+    }
+}
+
+fn last_auth() -> Option<String> {
+    LAST_AUTH.lock().ok().and_then(|g| g.clone())
+}
+
 const APP_NAME: &str = "Gestao Pro";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const PROTOCOL_VERSION: u32 = 1;
@@ -2697,6 +2721,7 @@ async fn registrar_caixa_abrir_handler(
     headers: HeaderMap,
     Json(req): Json<AbrirCaixaLocalRequest>,
 ) -> Result<Json<AbrirCaixaLocalResponse>, (StatusCode, String)> {
+    remember_auth(&headers);
     let now = now_ms();
     let input: db::LocalAbrirCaixaInput = serde_json::from_value(req.raw)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("payload inválido: {e}")))?;
@@ -2777,6 +2802,7 @@ async fn registrar_caixa_movimento_handler(
     headers: HeaderMap,
     Json(req): Json<MovimentoCaixaLocalRequest>,
 ) -> Result<Json<MovimentoCaixaLocalResponse>, (StatusCode, String)> {
+    remember_auth(&headers);
     let now = now_ms();
     let input: db::LocalMovimentoCaixaInput = serde_json::from_value(req.raw)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("payload inválido: {e}")))?;
@@ -2857,6 +2883,7 @@ async fn registrar_caixa_fechar_handler(
     headers: HeaderMap,
     Json(req): Json<FecharCaixaLocalRequest>,
 ) -> Result<Json<FecharCaixaLocalResponse>, (StatusCode, String)> {
+    remember_auth(&headers);
     let now = now_ms();
     let input: db::LocalFecharCaixaInput = serde_json::from_value(req.raw)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("payload inválido: {e}")))?;
@@ -4267,6 +4294,7 @@ async fn push_one_outbox_caixa(
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string())
+        .or_else(last_auth)
         .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
 
     let (rpc, body) = match item.action.as_str() {
