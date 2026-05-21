@@ -51,8 +51,10 @@ export interface PerformanceData extends PerformancePeriodoDomain {
 
 export function usePerformancePeriodo(filtro: SecaoFiltroValue) {
   const periodo = toRange(filtro);
+  const { user } = useAuth();
   return useQuery({
-    queryKey: ["fin_performance", periodo.inicio, periodo.fim],
+    queryKey: ["fin_performance", user?.id, periodo.inicio, periodo.fim],
+    enabled: !!user,
     staleTime: 30_000,
     queryFn: async (): Promise<PerformanceData> => {
       const data = await dataClient.financeiro.performancePeriodo({
@@ -61,6 +63,11 @@ export function usePerformancePeriodo(filtro: SecaoFiltroValue) {
         inicioTs: periodo.inicioTs,
         fimTs: periodo.fimTs,
       });
+      if (import.meta.env.DEV) {
+        console.debug("[DASH_AUDIT] fin.performancePeriodo", {
+          owner_id: user?.id, periodo, data,
+        });
+      }
       return { ...data, periodo };
     },
   });
