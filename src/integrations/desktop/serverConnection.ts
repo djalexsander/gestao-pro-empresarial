@@ -157,7 +157,10 @@ export interface ServerInfoPayload {
   terminals_conectados?: number;
   backend_running?: boolean;
   database_ready?: boolean;
+  database_error?: string | null;
+  database_path?: string | null;
 }
+
 
 /** Consulta opcional ao /server-info para enriquecer o status. */
 export async function fetchServerInfo(
