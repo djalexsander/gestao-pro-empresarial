@@ -71,10 +71,12 @@ export interface FinanceiroResultadoReal {
 }
 
 export function useFinanceiroResultadoReal(): FinanceiroResultadoReal {
+  const { user } = useAuth();
   const ind = useFinanceiroIndicadores();
   const vendas = useVendas();
   const lancamentosQ = useQuery({
-    queryKey: ["financeiro_lancamentos"],
+    queryKey: ["financeiro_lancamentos", user?.id],
+    enabled: !!user,
     queryFn: async () =>
       (await dataClient.financeiro.listLancamentosCompleto()) as LancamentoDetalhe[],
     staleTime: 30_000,
