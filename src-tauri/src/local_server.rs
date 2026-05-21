@@ -2949,7 +2949,8 @@ async fn caixa_local_aberto_handler(
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<Option<db::CaixaLocalRow>>, (StatusCode, String)> {
     let op = q.get("operador_id").map(|s| s.as_str());
-    let row = db::caixa_local_aberto(op)
+    let term = q.get("terminal_id").map(|s| s.as_str());
+    let row = db::caixa_local_aberto(op, term)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(row))
 }
