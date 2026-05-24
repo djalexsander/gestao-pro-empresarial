@@ -10,6 +10,7 @@ import {
   getDesktopConfig,
   setDesktopConfig,
 } from "@/integrations/desktop/configStore";
+import type { PrintIntensity } from "@/integrations/desktop/types";
 
 export interface PrinterInfo {
   name: string;
@@ -94,4 +95,14 @@ export function getDefaultLabelPrinter(): string | null {
 export function setDefaultLabelPrinter(name: string | null): void {
   const cfg = getDesktopConfig();
   setDesktopConfig({ ...cfg, defaultLabelPrinter: name });
+}
+
+// Intensidade da impressão térmica (densidade)
+export function getPrintIntensity(): PrintIntensity {
+  return getDesktopConfig().printIntensity ?? "alta";
+}
+
+export function setPrintIntensity(intensity: PrintIntensity): void {
+  const cfg = getDesktopConfig();
+  setDesktopConfig({ ...cfg, printIntensity: intensity });
 }
