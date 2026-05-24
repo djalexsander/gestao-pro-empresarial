@@ -460,9 +460,7 @@ export const localServerAdapter: DataAdapter = {
         if (import.meta.env.DEV) console.debug(`[CAT_PROD_OUTBOX] excluir id=${r.categoria_id} outbox=${r.outbox_status}`);
         return { categoria_id: r.categoria_id, excluido: true };
       }
-      const result = await cloudAdapter.categoriasProduto.excluir(categoriaId);
-      reportDataSource({ source: "cloud", domain: "categoriasProduto", method: "excluir", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível excluir a categoria.");
     },
   },
 
