@@ -9,11 +9,21 @@ import {
   setDefaultPrinter,
   listPrinters,
   printPdfBytes,
+  getPrintIntensity,
+  setPrintIntensity,
   type PrinterInfo,
 } from "@/integrations/desktop/printers";
+import type { PrintIntensity } from "@/integrations/desktop/types";
 import { PrinterPickerDialog } from "@/components/desktop/PrinterPickerDialog";
 import { jsPDF } from "jspdf";
 import { subscribeDesktopConfig } from "@/integrations/desktop/configStore";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 function gerarTesteImpressaoPdf(): Uint8Array {
   const doc = new jsPDF({ unit: "mm", format: [80, 60], orientation: "portrait" });
@@ -43,9 +53,13 @@ export function ImpressoraConfigCard() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [testando, setTestando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [intensity, setIntensity] = useState<PrintIntensity>(getPrintIntensity());
 
   useEffect(() => {
-    return subscribeDesktopConfig((cfg) => setDefault(cfg.defaultPrinter ?? null));
+    return subscribeDesktopConfig((cfg) => {
+      setDefault(cfg.defaultPrinter ?? null);
+      setIntensity(cfg.printIntensity ?? "alta");
+    });
   }, []);
 
   const carregar = async () => {
@@ -182,6 +196,39 @@ export function ImpressoraConfigCard() {
               </Button>
             )}
           </div>
+
+          <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-2">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">
+              Intensidade da impressão
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Controla a densidade térmica do cupom. Use <strong>Alta</strong> ou{" "}
+              <strong>Muito Alta</strong> se os textos pequenos saírem apagados.
+            </p>
+            <Select
+              value={intensity}
+              onValueChange={(v) => {
+                const next = v as PrintIntensity;
+                setIntensity(next);
+                setPrintIntensity(next);
+                toast.success(`Intensidade definida como ${v.replace("_", " ")}.`);
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-64">
+                <SelectValue placeholder="Selecione" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="baixa">Baixa — economiza papel térmico</SelectItem>
+                <SelectItem value="normal">Normal — padrão de fábrica</SelectItem>
+                <SelectItem value="alta">Alta — recomendado (escuro)</SelectItem>
+                <SelectItem value="muito_alta">
+                  Muito Alta — máximo contraste
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+
 
           {printers.length > 0 && (
             <div className="space-y-1 rounded-md border border-border bg-card p-3">

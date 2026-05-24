@@ -1,11 +1,17 @@
 /**
  * Gera bytes ESC/POS para impressora térmica 80mm (POS-80 e similares).
  * Largura padrão: 48 colunas (Font A). Encoding CP850 (acentos PT-BR).
+ *
+ * Aplica comandos de DENSIDADE/INTENSIDADE no cabeçalho do job (ESC 7 —
+ * heating dots/time/interval, e ESC G — double-strike) para que textos
+ * pequenos não saiam apagados e o cupom fique escuro e legível.
  */
 
 import type { ConfigEmpresa } from "@/hooks/useConfigEmpresa";
 import type { CupomData } from "@/lib/cupom";
 import { formatBRL } from "@/lib/mock-data";
+import { getPrintIntensity } from "@/integrations/desktop/printers";
+import type { PrintIntensity } from "@/integrations/desktop/types";
 
 const ESC = 0x1b;
 const GS = 0x1d;
@@ -55,12 +61,48 @@ class EscBuilder {
   init() {
     return this.raw(ESC, 0x40); // ESC @
   }
+  /**
+   * Aplica perfil de densidade térmica:
+   *  - ESC 7 n1 n2 n3 → max heating dots / heating time / heating interval
+   *  - ESC G n        → double-strike (passa 2x na linha = textos pequenos
+   *                     ficam preenchidos, sem manchas claras)
+   *  - GS ( E pL pH fn .. → density mode em impressoras compatíveis
+   */
+  intensity(level: PrintIntensity) {
+    // Tabelas conservadoras compatíveis com a maioria dos POS-80.
+    // heating time: 80 (default) → 255 (máximo)
+    const tables: Record<PrintIntensity, [number, number, number, 0 | 1]> = {
+      baixa: [7, 60, 2, 0],
+      normal: [7, 120, 2, 0],
+      alta: [11, 200, 3, 1],
+      muito_alta: [15, 255, 4, 1],
+    };
+    const [dots, time, interval, doubleStrike] = tables[level];
+    // ESC 7
+    this.raw(ESC, 0x37, dots, time, interval);
+    // GS ( E pL pH fn=5 (set density) — alguns modelos. Inofensivo se ignorado.
+    // Densidade: 50% normal → 75%/100%/137% por nível.
+    const densMap: Record<PrintIntensity, number> = {
+      baixa: 0,
+      normal: 4,
+      alta: 8,
+      muito_alta: 15,
+    };
+    this.raw(GS, 0x28, 0x45, 0x02, 0x00, 0x05, densMap[level]);
+    // ESC G — double-strike
+    this.raw(ESC, 0x47, doubleStrike);
+    return this;
+  }
   align(a: "left" | "center" | "right") {
     const v = a === "center" ? 1 : a === "right" ? 2 : 0;
     return this.raw(ESC, 0x61, v);
   }
   bold(on: boolean) {
     return this.raw(ESC, 0x45, on ? 1 : 0);
+  }
+  /** Espaçamento de linha em pontos (default ~30). Aumenta legibilidade. */
+  lineSpacing(n: number) {
+    return this.raw(ESC, 0x33, Math.max(0, Math.min(255, n)));
   }
   // 0=normal,1=2x altura,16=2x largura,17=2x ambos
   size(mode: 0 | 1 | 16 | 17) {
@@ -118,7 +160,10 @@ export function gerarCupomEscPos(
   cupom: CupomData,
 ): Uint8Array {
   const b = new EscBuilder();
+  const intensity = getPrintIntensity();
   b.init();
+  b.intensity(intensity);
+  b.lineSpacing(36); // ~30 default → 36 melhora respiro entre linhas
 
   // Cabeçalho
   b.align("center").bold(true).size(17);
@@ -144,13 +189,13 @@ export function gerarCupomEscPos(
   b.sep();
 
   b.align("left");
-  b.line(row(`Cupom: ${cupom.numero ?? "-"}`, fmtDate(cupom.data)));
+  b.bold(true).line(row(`Cupom: ${cupom.numero ?? "-"}`, fmtDate(cupom.data))).bold(false);
   if (cupom.operador) b.line(`Operador: ${cupom.operador}`);
   if (cupom.cliente) {
-    b.line(`Cliente: ${cupom.cliente.nome}`);
+    b.bold(true).line(`CLIENTE: ${cupom.cliente.nome}`).bold(false);
     if (cupom.cliente.documento) b.line(`Doc: ${cupom.cliente.documento}`);
   } else {
-    b.line("Cliente: CONSUMIDOR");
+    b.bold(true).line("CLIENTE: CONSUMIDOR").bold(false);
   }
   b.sep();
 
@@ -172,25 +217,25 @@ export function gerarCupomEscPos(
   });
   b.sep();
 
-  b.line(
+  b.bold(true).line(
     row(
-      "Itens:",
+      "ITENS:",
       `${cupom.itens.length} (${cupom.totalItens.toLocaleString("pt-BR", {
         maximumFractionDigits: 3,
       })} un.)`,
     ),
-  );
+  ).bold(false);
   b.line(row("Subtotal:", formatBRL(cupom.subtotal)));
   if (cupom.desconto > 0)
     b.line(row("Descontos:", `- ${formatBRL(cupom.desconto)}`));
 
-  b.bold(true).size(1);
+  b.bold(true).size(17);
   b.line(row("TOTAL", formatBRL(cupom.total)));
   b.size(0).bold(false);
   b.sep();
 
-  b.line(row("Pagamento:", FORMA_LABEL[cupom.forma] ?? cupom.forma));
-  b.line(row("Status:", STATUS_LABEL[cupom.status] ?? cupom.status));
+  b.bold(true).line(row("PAGAMENTO:", FORMA_LABEL[cupom.forma] ?? cupom.forma)).bold(false);
+  b.bold(true).line(row("STATUS:", STATUS_LABEL[cupom.status] ?? cupom.status)).bold(false);
   if (cupom.troco > 0) {
     b.line(
       row(
@@ -214,7 +259,10 @@ export function gerarCupomEscPos(
 export function gerarTesteEscPos(printerName: string): Uint8Array {
   const b = new EscBuilder();
   const now = new Date().toLocaleString("pt-BR");
+  const intensity = getPrintIntensity();
   b.init()
+    .intensity(intensity)
+    .lineSpacing(36)
     .align("center")
     .bold(true)
     .size(17)
@@ -226,6 +274,7 @@ export function gerarTesteEscPos(printerName: string): Uint8Array {
     .align("left")
     .line(`Data/Hora: ${now}`)
     .line(`Impressora: ${printerName}`)
+    .line(`Intensidade: ${intensity.toUpperCase().replace("_", " ")}`)
     .feed(1)
     .align("center")
     .line("Se voce esta lendo isso,")
