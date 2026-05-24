@@ -123,12 +123,18 @@ export function VendaSucessoDialog({
       setNoPrinterOpen(true);
       return;
     }
+    // Picker só abre quando ainda NÃO há impressora padrão salva.
+    // Se já há padrão e a impressão falhou, apenas avisa — o usuário troca
+    // a impressora manualmente em Configurações > Impressora.
     if (res.needsPicker) {
       setPickerWarning(res.warning ?? null);
       setPickerOpen(true);
       return;
     }
-    toast.error(res.error ?? "Não foi possível imprimir o cupom.");
+    toast.error(
+      res.warning ?? res.error ?? "Não foi possível imprimir o cupom.",
+      { duration: 8000 },
+    );
   }
 
   async function handlePickerSelect(name: string) {
