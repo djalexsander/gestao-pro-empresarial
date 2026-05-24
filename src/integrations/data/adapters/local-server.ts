@@ -343,55 +343,66 @@ export const localServerAdapter: DataAdapter = {
       });
       return result;
     },
-    // -------- WRITES offline-first (Fase 1 v24) --------
+    // -------- WRITES local-first (sem fallback cloud direto) --------
+    // Em modo local-server (esta máquina É o backend), nunca caímos para
+    // cloud durante a escrita — o outbox sincroniza em background. Se o
+    // servidor local não responder, propaga erro claro para a UI.
     criar: async (input) => {
       const body = toUnderscoredBody(input as unknown as Record<string, unknown>);
-      const r = await postLocalAuth<ProdutoMutLocal>("/api/produtos/criar", body);
-      if (r) {
+      const r = await postLocalAuthDetail<ProdutoMutLocal>("/api/produtos/criar", body);
+      if (r.ok) {
         reportDataSource({ source: "local-server", domain: "produtos", method: "criar", fallback: false });
-        if (import.meta.env.DEV) console.debug(`[PRODUTOS_LOCAL_CREATE] id=${r.produto_id} idempotente=${r.idempotente} outbox=${r.outbox_status}`);
-        return { produto_id: r.produto_id, idempotente: r.idempotente };
+        if (import.meta.env.DEV) console.debug(`[PRODUTOS_LOCAL_CREATE] id=${r.data.produto_id} idempotente=${r.data.idempotente} outbox=${r.data.outbox_status}`);
+        return { produto_id: r.data.produto_id, idempotente: r.data.idempotente };
       }
-      const result = await cloudAdapter.produtos.criar(input);
-      reportDataSource({ source: "cloud", domain: "produtos", method: "criar", fallback: true });
-      return result;
+      throw new Error(
+        r.reason === "unreachable"
+          ? "Servidor local indisponível. Verifique se o aplicativo Servidor está iniciado."
+          : r.error || "Falha ao criar produto no servidor local",
+      );
     },
     editar: async (input) => {
       const { produto_id, ...rest } = input as unknown as Record<string, unknown> & { produto_id: string };
       const body = { produto_id, ...toUnderscoredBody(rest) };
-      const r = await postLocalAuth<ProdutoMutLocal>("/api/produtos/editar", body);
-      if (r) {
+      const r = await postLocalAuthDetail<ProdutoMutLocal>("/api/produtos/editar", body);
+      if (r.ok) {
         reportDataSource({ source: "local-server", domain: "produtos", method: "editar", fallback: false });
-        if (import.meta.env.DEV) console.debug(`[PRODUTOS_OUTBOX] editar id=${r.produto_id} outbox=${r.outbox_status}`);
-        return { produto_id: r.produto_id };
+        if (import.meta.env.DEV) console.debug(`[PRODUTOS_OUTBOX] editar id=${r.data.produto_id} outbox=${r.data.outbox_status}`);
+        return { produto_id: r.data.produto_id };
       }
-      const result = await cloudAdapter.produtos.editar(input);
-      reportDataSource({ source: "cloud", domain: "produtos", method: "editar", fallback: true });
-      return result;
+      throw new Error(
+        r.reason === "unreachable"
+          ? "Servidor local indisponível. Verifique se o aplicativo Servidor está iniciado."
+          : r.error || "Falha ao editar produto no servidor local",
+      );
     },
     alterarStatus: async (input) => {
-      const r = await postLocalAuth<ProdutoMutLocal>("/api/produtos/alterar-status", {
+      const r = await postLocalAuthDetail<ProdutoMutLocal>("/api/produtos/alterar-status", {
         produto_id: input.produto_id, status: input.status,
       });
-      if (r) {
+      if (r.ok) {
         reportDataSource({ source: "local-server", domain: "produtos", method: "alterarStatus", fallback: false });
-        if (import.meta.env.DEV) console.debug(`[PRODUTOS_OUTBOX] alterar_status id=${r.produto_id} status=${input.status} outbox=${r.outbox_status}`);
-        return { produto_id: r.produto_id, status: input.status };
+        if (import.meta.env.DEV) console.debug(`[PRODUTOS_OUTBOX] alterar_status id=${r.data.produto_id} status=${input.status} outbox=${r.data.outbox_status}`);
+        return { produto_id: r.data.produto_id, status: input.status };
       }
-      const result = await cloudAdapter.produtos.alterarStatus(input);
-      reportDataSource({ source: "cloud", domain: "produtos", method: "alterarStatus", fallback: true });
-      return result;
+      throw new Error(
+        r.reason === "unreachable"
+          ? "Servidor local indisponível. Verifique se o aplicativo Servidor está iniciado."
+          : r.error || "Falha ao alterar status do produto no servidor local",
+      );
     },
     excluir: async (produtoId) => {
-      const r = await postLocalAuth<ProdutoMutLocal>("/api/produtos/excluir", { produto_id: produtoId });
-      if (r) {
+      const r = await postLocalAuthDetail<ProdutoMutLocal>("/api/produtos/excluir", { produto_id: produtoId });
+      if (r.ok) {
         reportDataSource({ source: "local-server", domain: "produtos", method: "excluir", fallback: false });
-        if (import.meta.env.DEV) console.debug(`[PRODUTOS_OUTBOX] excluir id=${r.produto_id} outbox=${r.outbox_status}`);
-        return { produto_id: r.produto_id, excluido: true };
+        if (import.meta.env.DEV) console.debug(`[PRODUTOS_OUTBOX] excluir id=${r.data.produto_id} outbox=${r.data.outbox_status}`);
+        return { produto_id: r.data.produto_id, excluido: true };
       }
-      const result = await cloudAdapter.produtos.excluir(produtoId);
-      reportDataSource({ source: "cloud", domain: "produtos", method: "excluir", fallback: true });
-      return result;
+      throw new Error(
+        r.reason === "unreachable"
+          ? "Servidor local indisponível. Verifique se o aplicativo Servidor está iniciado."
+          : r.error || "Falha ao excluir produto no servidor local",
+      );
     },
     criarCategoria: async (input) => {
       const body = {
@@ -401,15 +412,17 @@ export const localServerAdapter: DataAdapter = {
         _categoria_id_in: input.categoria_id ?? null,
         _client_uuid: input.client_uuid ?? null,
       };
-      const r = await postLocalAuth<CategoriaMutLocal>("/api/categorias-produto/criar", body);
-      if (r) {
+      const r = await postLocalAuthDetail<CategoriaMutLocal>("/api/categorias-produto/criar", body);
+      if (r.ok) {
         reportDataSource({ source: "local-server", domain: "categoriasProduto", method: "criar", fallback: false });
-        if (import.meta.env.DEV) console.debug(`[CAT_PROD_LOCAL_CREATE] id=${r.categoria_id} idempotente=${r.idempotente} outbox=${r.outbox_status}`);
-        return { categoria_id: r.categoria_id, idempotente: r.idempotente };
+        if (import.meta.env.DEV) console.debug(`[CAT_PROD_LOCAL_CREATE] id=${r.data.categoria_id} idempotente=${r.data.idempotente} outbox=${r.data.outbox_status}`);
+        return { categoria_id: r.data.categoria_id, idempotente: r.data.idempotente };
       }
-      const result = await cloudAdapter.produtos.criarCategoria(input);
-      reportDataSource({ source: "cloud", domain: "categoriasProduto", method: "criar", fallback: true });
-      return result;
+      throw new Error(
+        r.reason === "unreachable"
+          ? "Servidor local indisponível. Verifique se o aplicativo Servidor está iniciado."
+          : r.error || "Falha ao criar categoria no servidor local",
+      );
     },
   },
 
