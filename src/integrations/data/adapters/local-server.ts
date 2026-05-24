@@ -623,7 +623,7 @@ export const localServerAdapter: DataAdapter = {
           }
         } catch { /* fallback cloud */ }
       }
-      return cloudAdapter.funcionarios.criar(input);
+      throw new Error("Servidor local indisponível. Não foi possível criar o funcionário.");
     },
     editar: async (input) => {
       const r = await postLocalAuth<{ funcionario_id: string }>(
