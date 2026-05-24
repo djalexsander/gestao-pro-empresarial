@@ -440,9 +440,7 @@ export const localServerAdapter: DataAdapter = {
         if (import.meta.env.DEV) console.debug(`[CAT_PROD_OUTBOX] editar id=${r.categoria_id} outbox=${r.outbox_status}`);
         return { categoria_id: r.categoria_id };
       }
-      const result = await cloudAdapter.categoriasProduto.editar(input);
-      reportDataSource({ source: "cloud", domain: "categoriasProduto", method: "editar", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível editar a categoria.");
     },
     alterarStatus: async (input) => {
       const r = await postLocalAuth<CategoriaMutLocal>("/api/categorias-produto/alterar-status", {
@@ -453,9 +451,7 @@ export const localServerAdapter: DataAdapter = {
         if (import.meta.env.DEV) console.debug(`[CAT_PROD_OUTBOX] alterar_status id=${r.categoria_id} ativo=${input.ativo} outbox=${r.outbox_status}`);
         return { categoria_id: r.categoria_id, ativo: input.ativo, idempotente: r.idempotente };
       }
-      const result = await cloudAdapter.categoriasProduto.alterarStatus(input);
-      reportDataSource({ source: "cloud", domain: "categoriasProduto", method: "alterarStatus", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível alterar o status da categoria.");
     },
     excluir: async (categoriaId) => {
       const r = await postLocalAuth<CategoriaMutLocal>("/api/categorias-produto/excluir", { categoria_id: categoriaId });
@@ -464,9 +460,7 @@ export const localServerAdapter: DataAdapter = {
         if (import.meta.env.DEV) console.debug(`[CAT_PROD_OUTBOX] excluir id=${r.categoria_id} outbox=${r.outbox_status}`);
         return { categoria_id: r.categoria_id, excluido: true };
       }
-      const result = await cloudAdapter.categoriasProduto.excluir(categoriaId);
-      reportDataSource({ source: "cloud", domain: "categoriasProduto", method: "excluir", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível excluir a categoria.");
     },
   },
 
@@ -481,9 +475,7 @@ export const localServerAdapter: DataAdapter = {
         reportDataSource({ source: "local-server", domain: "clientes", method: "criar", fallback: false });
         return { cliente_id: r.cliente_id, idempotente: r.idempotente };
       }
-      const result = await cloudAdapter.clientes.criar(input);
-      reportDataSource({ source: "cloud", domain: "clientes", method: "criar", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível criar o cliente.");
     },
     editar: async (input) => {
       const r = await postLocalAuth<{ cliente_id: string }>(
@@ -494,9 +486,7 @@ export const localServerAdapter: DataAdapter = {
         reportDataSource({ source: "local-server", domain: "clientes", method: "editar", fallback: false });
         return { cliente_id: r.cliente_id };
       }
-      const result = await cloudAdapter.clientes.editar(input);
-      reportDataSource({ source: "cloud", domain: "clientes", method: "editar", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível editar o cliente.");
     },
     alterarStatus: async (input) => {
       const r = await postLocalAuth<{ cliente_id: string }>(
@@ -507,9 +497,7 @@ export const localServerAdapter: DataAdapter = {
         reportDataSource({ source: "local-server", domain: "clientes", method: "alterarStatus", fallback: false });
         return { cliente_id: r.cliente_id, status: input.status };
       }
-      const result = await cloudAdapter.clientes.alterarStatus(input);
-      reportDataSource({ source: "cloud", domain: "clientes", method: "alterarStatus", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível alterar o status do cliente.");
     },
     excluir: async (clienteId) => {
       const r = await postLocalAuth<{ cliente_id: string }>(
@@ -520,9 +508,7 @@ export const localServerAdapter: DataAdapter = {
         reportDataSource({ source: "local-server", domain: "clientes", method: "excluir", fallback: false });
         return { cliente_id: r.cliente_id, excluido: true };
       }
-      const result = await cloudAdapter.clientes.excluir(clienteId);
-      reportDataSource({ source: "cloud", domain: "clientes", method: "excluir", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível excluir o cliente.");
     },
     listLite: (input) =>
       withCloudFallback(
@@ -555,9 +541,7 @@ export const localServerAdapter: DataAdapter = {
         reportDataSource({ source: "local-server", domain: "fornecedores", method: "criar", fallback: false });
         return { fornecedor_id: r.fornecedor_id, idempotente: r.idempotente };
       }
-      const result = await cloudAdapter.fornecedores.criar(input);
-      reportDataSource({ source: "cloud", domain: "fornecedores", method: "criar", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível criar o fornecedor.");
     },
     editar: async (input) => {
       const r = await postLocalAuth<{ fornecedor_id: string }>(
@@ -568,9 +552,7 @@ export const localServerAdapter: DataAdapter = {
         reportDataSource({ source: "local-server", domain: "fornecedores", method: "editar", fallback: false });
         return { fornecedor_id: r.fornecedor_id };
       }
-      const result = await cloudAdapter.fornecedores.editar(input);
-      reportDataSource({ source: "cloud", domain: "fornecedores", method: "editar", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível editar o fornecedor.");
     },
     alterarStatus: async (input) => {
       const r = await postLocalAuth<{ fornecedor_id: string }>(
@@ -581,9 +563,7 @@ export const localServerAdapter: DataAdapter = {
         reportDataSource({ source: "local-server", domain: "fornecedores", method: "alterarStatus", fallback: false });
         return { fornecedor_id: r.fornecedor_id, status: input.status };
       }
-      const result = await cloudAdapter.fornecedores.alterarStatus(input);
-      reportDataSource({ source: "cloud", domain: "fornecedores", method: "alterarStatus", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível alterar o status do fornecedor.");
     },
     excluir: async (fornecedorId) => {
       const r = await postLocalAuth<{ fornecedor_id: string }>(
@@ -594,9 +574,7 @@ export const localServerAdapter: DataAdapter = {
         reportDataSource({ source: "local-server", domain: "fornecedores", method: "excluir", fallback: false });
         return { fornecedor_id: r.fornecedor_id, excluido: true };
       }
-      const result = await cloudAdapter.fornecedores.excluir(fornecedorId);
-      reportDataSource({ source: "cloud", domain: "fornecedores", method: "excluir", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível excluir o fornecedor.");
     },
     list: (input) =>
       withCloudFallback(
@@ -645,7 +623,7 @@ export const localServerAdapter: DataAdapter = {
           }
         } catch { /* fallback cloud */ }
       }
-      return cloudAdapter.funcionarios.criar(input);
+      throw new Error("Servidor local indisponível. Não foi possível criar o funcionário.");
     },
     editar: async (input) => {
       const r = await postLocalAuth<{ funcionario_id: string }>(
@@ -661,9 +639,7 @@ export const localServerAdapter: DataAdapter = {
         reportDataSource({ source: "local-server", domain: "funcionarios", method: "editar", fallback: false });
         return { funcionario_id: r.funcionario_id };
       }
-      const result = await cloudAdapter.funcionarios.editar(input);
-      reportDataSource({ source: "cloud", domain: "funcionarios", method: "editar", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível editar o funcionário.");
     },
     alterarStatus: async (input) => {
       const r = await postLocalAuth<{ funcionario_id: string }>(
@@ -674,9 +650,7 @@ export const localServerAdapter: DataAdapter = {
         reportDataSource({ source: "local-server", domain: "funcionarios", method: "alterarStatus", fallback: false });
         return { funcionario_id: r.funcionario_id, ativo: input.ativo, idempotente: false };
       }
-      const result = await cloudAdapter.funcionarios.alterarStatus(input);
-      reportDataSource({ source: "cloud", domain: "funcionarios", method: "alterarStatus", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível alterar o status do funcionário.");
     },
     excluir: async (funcionarioId) => {
       const r = await postLocalAuth<{ funcionario_id: string }>(
@@ -687,9 +661,7 @@ export const localServerAdapter: DataAdapter = {
         reportDataSource({ source: "local-server", domain: "funcionarios", method: "excluir", fallback: false });
         return { funcionario_id: r.funcionario_id, excluido: true };
       }
-      const result = await cloudAdapter.funcionarios.excluir(funcionarioId);
-      reportDataSource({ source: "cloud", domain: "funcionarios", method: "excluir", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível excluir o funcionário.");
     },
     resetarPin: async (input) => {
       const r = await postLocalAuth<{ funcionario_id: string }>(
@@ -700,8 +672,7 @@ export const localServerAdapter: DataAdapter = {
         reportDataSource({ source: "local-server", domain: "funcionarios", method: "resetarPin", fallback: false });
         return;
       }
-      await cloudAdapter.funcionarios.resetarPin(input);
-      reportDataSource({ source: "cloud", domain: "funcionarios", method: "resetarPin", fallback: true });
+      throw new Error("Servidor local indisponível. Não foi possível resetar o PIN.");
     },
     list: (input) =>
       withCloudFallback(
@@ -893,9 +864,7 @@ export const localServerAdapter: DataAdapter = {
           saldo_posterior: r.saldo_posterior,
         };
       }
-      const result = await cloudAdapter.estoque.registrarMovimento(input);
-      reportDataSource({ source: "cloud", domain: "estoque", method: "registrarMovimento", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível registrar o movimento de estoque.");
     },
   },
 
@@ -944,9 +913,7 @@ export const localServerAdapter: DataAdapter = {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return { id: r.compra_id, local_uuid: r.compra_local_uuid } as any;
       }
-      const result = await cloudAdapter.compras.criar(input);
-      reportDataSource({ source: "cloud", domain: "compras", method: "criar", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível criar a compra.");
     },
     atualizarStatus: async (input) => {
       const r = await postLocalAuth<{ compra_id: string }>(
@@ -957,8 +924,7 @@ export const localServerAdapter: DataAdapter = {
         reportDataSource({ source: "local-server", domain: "compras", method: "atualizarStatus", fallback: false });
         return;
       }
-      await cloudAdapter.compras.atualizarStatus(input);
-      reportDataSource({ source: "cloud", domain: "compras", method: "atualizarStatus", fallback: true });
+      throw new Error("Servidor local indisponível. Não foi possível atualizar o status da compra.");
     },
     atualizarMetadados: async (input) => {
       const payload: Record<string, unknown> = { compra_id: input.id };
@@ -976,8 +942,7 @@ export const localServerAdapter: DataAdapter = {
         reportDataSource({ source: "local-server", domain: "compras", method: "atualizarMetadados", fallback: false });
         return;
       }
-      await cloudAdapter.compras.atualizarMetadados(input);
-      reportDataSource({ source: "cloud", domain: "compras", method: "atualizarMetadados", fallback: true });
+      throw new Error("Servidor local indisponível. Não foi possível atualizar a compra.");
     },
     receber: async (input) => {
       const r = await postLocalAuth<{ compra_id: string }>(
@@ -993,9 +958,7 @@ export const localServerAdapter: DataAdapter = {
         reportDataSource({ source: "local-server", domain: "compras", method: "receber", fallback: false });
         return { compra_id: r.compra_id, local: true };
       }
-      const result = await cloudAdapter.compras.receber(input);
-      reportDataSource({ source: "cloud", domain: "compras", method: "receber", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível receber a compra.");
     },
     receberItens: async (input) => {
       const r = await postLocalAuth<{ compra_id: string }>(
@@ -1013,9 +976,7 @@ export const localServerAdapter: DataAdapter = {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return { compra_id: r.compra_id, local: true } as any;
       }
-      const result = await cloudAdapter.compras.receberItens(input);
-      reportDataSource({ source: "cloud", domain: "compras", method: "receberItens", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível receber itens da compra.");
     },
     excluir: async (compraId) => {
       const r = await postLocalAuth<{ compra_id: string }>(
@@ -1026,8 +987,7 @@ export const localServerAdapter: DataAdapter = {
         reportDataSource({ source: "local-server", domain: "compras", method: "excluir", fallback: false });
         return;
       }
-      await cloudAdapter.compras.excluir(compraId);
-      reportDataSource({ source: "cloud", domain: "compras", method: "excluir", fallback: true });
+      throw new Error("Servidor local indisponível. Não foi possível excluir a compra.");
     },
     fornecedorMetricas: () =>
       withCloudFallback(
@@ -1200,9 +1160,7 @@ export const localServerAdapter: DataAdapter = {
           lancamentos_cancelados: [],
         };
       }
-      const result = await cloudAdapter.vendas.cancelar(input);
-      reportDataSource({ source: "cloud", domain: "vendas", method: "cancelar", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível cancelar a venda.");
     },
   },
 
@@ -1809,9 +1767,7 @@ export const localServerAdapter: DataAdapter = {
           };
         }
       }
-      const out = await cloudAdapter.financeiro.registrarPagamento(input);
-      reportDataSource({ source: "cloud", domain: "financeiro", method: "registrarPagamento", fallback: true });
-      return out;
+      throw new Error("Servidor local indisponível. Não foi possível registrar o pagamento.");
     },
 
     cancelarLancamento: async (input) => {
@@ -1855,9 +1811,7 @@ export const localServerAdapter: DataAdapter = {
           return { lancamento_id: rp.pagar_local_uuid, idempotente: rp.idempotente };
         }
       }
-      const out = await cloudAdapter.financeiro.cancelarLancamento(input);
-      reportDataSource({ source: "cloud", domain: "financeiro", method: "cancelarLancamento", fallback: true });
-      return out;
+      throw new Error("Servidor local indisponível. Não foi possível cancelar o lançamento financeiro.");
     },
   },
 
