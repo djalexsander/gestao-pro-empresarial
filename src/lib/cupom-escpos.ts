@@ -160,7 +160,10 @@ export function gerarCupomEscPos(
   cupom: CupomData,
 ): Uint8Array {
   const b = new EscBuilder();
+  const intensity = getPrintIntensity();
   b.init();
+  b.intensity(intensity);
+  b.lineSpacing(36); // ~30 default → 36 melhora respiro entre linhas
 
   // Cabeçalho
   b.align("center").bold(true).size(17);
