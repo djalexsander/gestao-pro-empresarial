@@ -1,11 +1,19 @@
 /**
  * Gera bytes ESC/POS para impressora térmica 80mm (POS-80 e similares).
  * Largura padrão: 48 colunas (Font A). Encoding CP850 (acentos PT-BR).
+ *
+ * Aplica comandos de DENSIDADE/INTENSIDADE no cabeçalho do job (ESC 7 —
+ * heating dots/time/interval, e ESC G — double-strike) para que textos
+ * pequenos não saiam apagados e o cupom fique escuro e legível.
  */
 
 import type { ConfigEmpresa } from "@/hooks/useConfigEmpresa";
 import type { CupomData } from "@/lib/cupom";
 import { formatBRL } from "@/lib/mock-data";
+import {
+  getPrintIntensity,
+  type PrintIntensity,
+} from "@/integrations/desktop/printers";
 
 const ESC = 0x1b;
 const GS = 0x1d;
