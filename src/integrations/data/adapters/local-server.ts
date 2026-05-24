@@ -475,9 +475,7 @@ export const localServerAdapter: DataAdapter = {
         reportDataSource({ source: "local-server", domain: "clientes", method: "criar", fallback: false });
         return { cliente_id: r.cliente_id, idempotente: r.idempotente };
       }
-      const result = await cloudAdapter.clientes.criar(input);
-      reportDataSource({ source: "cloud", domain: "clientes", method: "criar", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível criar o cliente.");
     },
     editar: async (input) => {
       const r = await postLocalAuth<{ cliente_id: string }>(
