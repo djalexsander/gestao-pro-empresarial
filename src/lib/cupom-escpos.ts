@@ -274,6 +274,7 @@ export function gerarTesteEscPos(printerName: string): Uint8Array {
     .align("left")
     .line(`Data/Hora: ${now}`)
     .line(`Impressora: ${printerName}`)
+    .line(`Intensidade: ${intensity.toUpperCase().replace("_", " ")}`)
     .feed(1)
     .align("center")
     .line("Se voce esta lendo isso,")
