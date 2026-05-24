@@ -92,21 +92,23 @@ export function PrinterPickerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-lg max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Printer className="h-5 w-5" /> Escolher impressora
+          <DialogTitle className="flex items-center gap-2 pr-6">
+            <Printer className="h-5 w-5 shrink-0" /> Escolher impressora
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="break-words">
             Esta impressora ficará salva como padrão deste terminal e será usada
-            automaticamente nas próximas vendas.
+            automaticamente nas próximas vendas. Você só precisa escolher uma vez.
           </DialogDescription>
         </DialogHeader>
 
         {warning && (
           <div className="flex items-start gap-2 rounded-md border border-amber-300/60 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{friendlyPrintError(warning)}</span>
+            <span className="min-w-0 break-words [overflow-wrap:anywhere]">
+              {friendlyPrintError(warning)}
+            </span>
           </div>
         )}
 

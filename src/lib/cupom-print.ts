@@ -188,10 +188,12 @@ export async function imprimirCupom(
         pdfErr instanceof Error ? pdfErr.message : String(pdfErr);
       console.error("[PRINT_ERROR_HANDLED] pdf também falhou", pdfMsg);
       const friendly = friendlyPrintError(pdfMsg);
+      // IMPORTANTE: já existe uma impressora padrão salva. NÃO reabrimos o
+      // seletor — apenas avisamos o erro. O usuário só troca a impressora
+      // manualmente em Configurações > Impressora.
       return {
         ok: false,
-        needsPicker: true,
-        warning: `Impressora "${printer}" indisponível. ${friendly} Você pode escolher outra impressora ou salvar o comprovante como PDF.`,
+        warning: `Falha ao imprimir em "${printer}". ${friendly}`,
         error: friendly,
         printerName: printer,
       };
