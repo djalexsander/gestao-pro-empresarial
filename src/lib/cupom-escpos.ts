@@ -10,10 +10,8 @@
 import type { ConfigEmpresa } from "@/hooks/useConfigEmpresa";
 import type { CupomData } from "@/lib/cupom";
 import { formatBRL } from "@/lib/mock-data";
-import {
-  getPrintIntensity,
-  type PrintIntensity,
-} from "@/integrations/desktop/printers";
+import { getPrintIntensity } from "@/integrations/desktop/printers";
+import type { PrintIntensity } from "@/integrations/desktop/types";
 
 const ESC = 0x1b;
 const GS = 0x1d;
