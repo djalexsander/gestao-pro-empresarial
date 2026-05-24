@@ -189,13 +189,13 @@ export function gerarCupomEscPos(
   b.sep();
 
   b.align("left");
-  b.line(row(`Cupom: ${cupom.numero ?? "-"}`, fmtDate(cupom.data)));
+  b.bold(true).line(row(`Cupom: ${cupom.numero ?? "-"}`, fmtDate(cupom.data))).bold(false);
   if (cupom.operador) b.line(`Operador: ${cupom.operador}`);
   if (cupom.cliente) {
-    b.line(`Cliente: ${cupom.cliente.nome}`);
+    b.bold(true).line(`CLIENTE: ${cupom.cliente.nome}`).bold(false);
     if (cupom.cliente.documento) b.line(`Doc: ${cupom.cliente.documento}`);
   } else {
-    b.line("Cliente: CONSUMIDOR");
+    b.bold(true).line("CLIENTE: CONSUMIDOR").bold(false);
   }
   b.sep();
 
