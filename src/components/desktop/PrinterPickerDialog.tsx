@@ -181,13 +181,27 @@ export function PrinterPickerDialog({
           </ul>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancelar
+        <DialogFooter className="gap-2 sm:justify-between">
+          <Button
+            variant="outline"
+            onClick={() => void testarImpressao()}
+            disabled={!selected || testing || loading}
+          >
+            {testing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <FileText className="mr-2 h-4 w-4" />
+            )}
+            Imprimir teste
           </Button>
-          <Button onClick={confirmar} disabled={!selected || loading}>
-            Salvar como padrão
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={confirmar} disabled={!selected || loading}>
+              Salvar como padrão
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
