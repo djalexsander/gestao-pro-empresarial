@@ -497,9 +497,7 @@ export const localServerAdapter: DataAdapter = {
         reportDataSource({ source: "local-server", domain: "clientes", method: "alterarStatus", fallback: false });
         return { cliente_id: r.cliente_id, status: input.status };
       }
-      const result = await cloudAdapter.clientes.alterarStatus(input);
-      reportDataSource({ source: "cloud", domain: "clientes", method: "alterarStatus", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível alterar o status do cliente.");
     },
     excluir: async (clienteId) => {
       const r = await postLocalAuth<{ cliente_id: string }>(
