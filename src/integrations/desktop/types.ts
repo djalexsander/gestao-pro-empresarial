@@ -18,6 +18,8 @@
 
 export type DesktopRole = "unset" | "server" | "terminal";
 
+export type PrintIntensity = "baixa" | "normal" | "alta" | "muito_alta";
+
 /** Configuração de conexão usada quando o papel é `terminal`. */
 export interface TerminalConexaoConfig {
   /** Host/IP do servidor local (ex.: 192.168.0.10 ou servidor.local) */
@@ -59,6 +61,11 @@ export interface DesktopConfig {
    * Permite ter uma POS-80 para cupom e uma térmica/zebra para etiqueta.
    */
   defaultLabelPrinter?: string | null;
+  /**
+   * Intensidade da impressão térmica (densidade/escurecimento do papel).
+   * Controla heating-time/double-strike no ESC/POS.
+   */
+  printIntensity?: PrintIntensity;
   /** Marca de tempo do último ajuste (ms). */
   atualizadoEm?: number;
   /** Versão do schema — útil para migrações futuras. */
