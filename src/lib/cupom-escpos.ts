@@ -259,7 +259,10 @@ export function gerarCupomEscPos(
 export function gerarTesteEscPos(printerName: string): Uint8Array {
   const b = new EscBuilder();
   const now = new Date().toLocaleString("pt-BR");
+  const intensity = getPrintIntensity();
   b.init()
+    .intensity(intensity)
+    .lineSpacing(36)
     .align("center")
     .bold(true)
     .size(17)
