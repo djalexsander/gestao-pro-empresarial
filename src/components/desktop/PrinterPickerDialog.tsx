@@ -9,9 +9,10 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Printer, RotateCcw, AlertTriangle } from "lucide-react";
+import { Loader2, Printer, RotateCcw, AlertTriangle, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { listPrinters, type PrinterInfo } from "@/integrations/desktop/printers";
+import { imprimirTeste, friendlyPrintError } from "@/lib/cupom-print";
 
 interface Props {
   open: boolean;
