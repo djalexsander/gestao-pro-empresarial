@@ -197,6 +197,39 @@ export function ImpressoraConfigCard() {
             )}
           </div>
 
+          <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-2">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">
+              Intensidade da impressão
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Controla a densidade térmica do cupom. Use <strong>Alta</strong> ou{" "}
+              <strong>Muito Alta</strong> se os textos pequenos saírem apagados.
+            </p>
+            <Select
+              value={intensity}
+              onValueChange={(v) => {
+                const next = v as PrintIntensity;
+                setIntensity(next);
+                setPrintIntensity(next);
+                toast.success(`Intensidade definida como ${v.replace("_", " ")}.`);
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-64">
+                <SelectValue placeholder="Selecione" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="baixa">Baixa — economiza papel térmico</SelectItem>
+                <SelectItem value="normal">Normal — padrão de fábrica</SelectItem>
+                <SelectItem value="alta">Alta — recomendado (escuro)</SelectItem>
+                <SelectItem value="muito_alta">
+                  Muito Alta — máximo contraste
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+
+
           {printers.length > 0 && (
             <div className="space-y-1 rounded-md border border-border bg-card p-3">
               <div className="text-xs uppercase tracking-wide text-muted-foreground">
