@@ -61,12 +61,48 @@ class EscBuilder {
   init() {
     return this.raw(ESC, 0x40); // ESC @
   }
+  /**
+   * Aplica perfil de densidade térmica:
+   *  - ESC 7 n1 n2 n3 → max heating dots / heating time / heating interval
+   *  - ESC G n        → double-strike (passa 2x na linha = textos pequenos
+   *                     ficam preenchidos, sem manchas claras)
+   *  - GS ( E pL pH fn .. → density mode em impressoras compatíveis
+   */
+  intensity(level: PrintIntensity) {
+    // Tabelas conservadoras compatíveis com a maioria dos POS-80.
+    // heating time: 80 (default) → 255 (máximo)
+    const tables: Record<PrintIntensity, [number, number, number, 0 | 1]> = {
+      baixa: [7, 60, 2, 0],
+      normal: [7, 120, 2, 0],
+      alta: [11, 200, 3, 1],
+      muito_alta: [15, 255, 4, 1],
+    };
+    const [dots, time, interval, doubleStrike] = tables[level];
+    // ESC 7
+    this.raw(ESC, 0x37, dots, time, interval);
+    // GS ( E pL pH fn=5 (set density) — alguns modelos. Inofensivo se ignorado.
+    // Densidade: 50% normal → 75%/100%/137% por nível.
+    const densMap: Record<PrintIntensity, number> = {
+      baixa: 0,
+      normal: 4,
+      alta: 8,
+      muito_alta: 15,
+    };
+    this.raw(GS, 0x28, 0x45, 0x02, 0x00, 0x05, densMap[level]);
+    // ESC G — double-strike
+    this.raw(ESC, 0x47, doubleStrike);
+    return this;
+  }
   align(a: "left" | "center" | "right") {
     const v = a === "center" ? 1 : a === "right" ? 2 : 0;
     return this.raw(ESC, 0x61, v);
   }
   bold(on: boolean) {
     return this.raw(ESC, 0x45, on ? 1 : 0);
+  }
+  /** Espaçamento de linha em pontos (default ~30). Aumenta legibilidade. */
+  lineSpacing(n: number) {
+    return this.raw(ESC, 0x33, Math.max(0, Math.min(255, n)));
   }
   // 0=normal,1=2x altura,16=2x largura,17=2x ambos
   size(mode: 0 | 1 | 16 | 17) {
