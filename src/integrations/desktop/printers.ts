@@ -41,19 +41,37 @@ export async function listPrinters(): Promise<PrinterInfo[]> {
   return invoke<PrinterInfo[]>("list_printers");
 }
 
-/** Imprime bytes de PDF na impressora informada. */
+/** Imprime bytes de PDF na impressora informada (via Start-Process PrintTo). */
 export async function printPdfBytes(
   bytes: Uint8Array,
   printerName: string,
 ): Promise<string> {
   const invoke = await getInvoke();
   if (!invoke) throw new Error("Impressão nativa só está disponível no desktop.");
-  // Tauri serializa Uint8Array como Vec<u8> automaticamente.
   return invoke<string>("print_pdf_bytes", {
     bytes: Array.from(bytes),
     printerName,
   });
 }
+
+/**
+ * Envia bytes RAW (ESC/POS) direto para o spooler da impressora.
+ * Recomendado para impressoras térmicas POS-80 — não depende de
+ * aplicativo associado a tipo de arquivo no Windows.
+ */
+export async function printRawBytes(
+  bytes: Uint8Array,
+  printerName: string,
+): Promise<string> {
+  const invoke = await getInvoke();
+  if (!invoke)
+    throw new Error("Impressão nativa só está disponível no desktop.");
+  return invoke<string>("print_raw_bytes", {
+    bytes: Array.from(bytes),
+    printerName,
+  });
+}
+
 
 // ---------------------------------------------------------------------------
 // Impressora padrão por máquina (persistida no DesktopConfig)
