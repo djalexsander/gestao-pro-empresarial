@@ -112,6 +112,11 @@ fn print_pdf_bytes(bytes: Vec<u8>, printer_name: String) -> Result<String, Strin
     printers::print_pdf(&path, &printer_name)
 }
 
+#[tauri::command]
+fn print_raw_bytes(bytes: Vec<u8>, printer_name: String) -> Result<String, String> {
+    printers::print_raw(&printer_name, &bytes)
+}
+
 // ---- Descoberta LAN (mDNS) ----
 
 #[tauri::command]
@@ -147,6 +152,7 @@ pub fn run() {
             backup_delete,
             list_printers,
             print_pdf_bytes,
+            print_raw_bytes,
             mdns_discover_servers,
         ])
         .setup(|_app| {

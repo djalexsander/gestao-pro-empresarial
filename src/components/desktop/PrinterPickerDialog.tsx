@@ -9,9 +9,10 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Printer, RotateCcw, AlertTriangle } from "lucide-react";
+import { Loader2, Printer, RotateCcw, AlertTriangle, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { listPrinters, type PrinterInfo } from "@/integrations/desktop/printers";
+import { imprimirTeste, friendlyPrintError } from "@/lib/cupom-print";
 
 interface Props {
   open: boolean;
@@ -38,6 +39,22 @@ export function PrinterPickerDialog({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(currentName ?? null);
+  const [testing, setTesting] = useState(false);
+
+  async function testarImpressao() {
+    if (!selected) {
+      toast.error("Selecione uma impressora para testar.");
+      return;
+    }
+    setTesting(true);
+    try {
+      const r = await imprimirTeste(selected);
+      if (r.ok) toast.success(`Teste enviado para "${selected}".`);
+      else toast.error(r.message);
+    } finally {
+      setTesting(false);
+    }
+  }
 
   const carregar = async () => {
     setLoading(true);
@@ -89,7 +106,7 @@ export function PrinterPickerDialog({
         {warning && (
           <div className="flex items-start gap-2 rounded-md border border-amber-300/60 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{warning}</span>
+            <span>{friendlyPrintError(warning)}</span>
           </div>
         )}
 
@@ -164,13 +181,27 @@ export function PrinterPickerDialog({
           </ul>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancelar
+        <DialogFooter className="gap-2 sm:justify-between">
+          <Button
+            variant="outline"
+            onClick={() => void testarImpressao()}
+            disabled={!selected || testing || loading}
+          >
+            {testing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <FileText className="mr-2 h-4 w-4" />
+            )}
+            Imprimir teste
           </Button>
-          <Button onClick={confirmar} disabled={!selected || loading}>
-            Salvar como padrão
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={confirmar} disabled={!selected || loading}>
+              Salvar como padrão
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
