@@ -217,25 +217,25 @@ export function gerarCupomEscPos(
   });
   b.sep();
 
-  b.line(
+  b.bold(true).line(
     row(
-      "Itens:",
+      "ITENS:",
       `${cupom.itens.length} (${cupom.totalItens.toLocaleString("pt-BR", {
         maximumFractionDigits: 3,
       })} un.)`,
     ),
-  );
+  ).bold(false);
   b.line(row("Subtotal:", formatBRL(cupom.subtotal)));
   if (cupom.desconto > 0)
     b.line(row("Descontos:", `- ${formatBRL(cupom.desconto)}`));
 
-  b.bold(true).size(1);
+  b.bold(true).size(17);
   b.line(row("TOTAL", formatBRL(cupom.total)));
   b.size(0).bold(false);
   b.sep();
 
-  b.line(row("Pagamento:", FORMA_LABEL[cupom.forma] ?? cupom.forma));
-  b.line(row("Status:", STATUS_LABEL[cupom.status] ?? cupom.status));
+  b.bold(true).line(row("PAGAMENTO:", FORMA_LABEL[cupom.forma] ?? cupom.forma)).bold(false);
+  b.bold(true).line(row("STATUS:", STATUS_LABEL[cupom.status] ?? cupom.status)).bold(false);
   if (cupom.troco > 0) {
     b.line(
       row(
