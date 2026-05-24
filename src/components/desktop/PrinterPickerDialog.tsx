@@ -39,6 +39,22 @@ export function PrinterPickerDialog({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(currentName ?? null);
+  const [testing, setTesting] = useState(false);
+
+  async function testarImpressao() {
+    if (!selected) {
+      toast.error("Selecione uma impressora para testar.");
+      return;
+    }
+    setTesting(true);
+    try {
+      const r = await imprimirTeste(selected);
+      if (r.ok) toast.success(`Teste enviado para "${selected}".`);
+      else toast.error(r.message);
+    } finally {
+      setTesting(false);
+    }
+  }
 
   const carregar = async () => {
     setLoading(true);
