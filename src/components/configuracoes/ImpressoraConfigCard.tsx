@@ -53,9 +53,13 @@ export function ImpressoraConfigCard() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [testando, setTestando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [intensity, setIntensity] = useState<PrintIntensity>(getPrintIntensity());
 
   useEffect(() => {
-    return subscribeDesktopConfig((cfg) => setDefault(cfg.defaultPrinter ?? null));
+    return subscribeDesktopConfig((cfg) => {
+      setDefault(cfg.defaultPrinter ?? null);
+      setIntensity(cfg.printIntensity ?? "alta");
+    });
   }, []);
 
   const carregar = async () => {
