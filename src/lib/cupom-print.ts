@@ -16,8 +16,10 @@ import { formatBRL } from "@/lib/mock-data";
 import {
   getDefaultPrinter,
   printPdfBytes,
+  printRawBytes,
   listPrinters,
 } from "@/integrations/desktop/printers";
+import { gerarCupomEscPos, gerarTesteEscPos } from "@/lib/cupom-escpos";
 
 const FORMA_LABEL: Record<string, string> = {
   dinheiro: "DINHEIRO",
