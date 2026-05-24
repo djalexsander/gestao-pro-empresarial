@@ -165,20 +165,87 @@ export async function imprimirCupom(
     };
   }
 
+  // Tenta primeiro impressão RAW ESC/POS (compatível com POS-80 térmica e
+  // não depende de aplicativo associado a tipo de arquivo no Windows).
   try {
-    const doc = gerarPdfCupom(empresa, cupom);
-    const buf = doc.output("arraybuffer");
-    const msg = await printPdfBytes(new Uint8Array(buf), printer);
+    const raw = gerarCupomEscPos(empresa, cupom);
+    console.info("[PRINT_PRINTER_SELECTED]", printer);
+    const msg = await printRawBytes(raw, printer);
+    console.info("[PRINT_RAW_ESC_POS] ok", msg);
     return { ok: true, printerName: printer, warning: msg };
-  } catch (e) {
-    const errMsg = e instanceof Error ? e.message : String(e);
+  } catch (rawErr) {
+    const rawMsg = rawErr instanceof Error ? rawErr.message : String(rawErr);
+    console.warn("[PRINT_ERROR_HANDLED] raw falhou, tentando PDF", rawMsg);
+    // Fallback: tenta como PDF (funciona p/ Microsoft Print to PDF, Edge etc.)
+    try {
+      const doc = gerarPdfCupom(empresa, cupom);
+      const buf = doc.output("arraybuffer");
+      const msg = await printPdfBytes(new Uint8Array(buf), printer);
+      console.info("[PRINT_PDF_FALLBACK] ok", msg);
+      return { ok: true, printerName: printer, warning: msg };
+    } catch (pdfErr) {
+      const pdfMsg =
+        pdfErr instanceof Error ? pdfErr.message : String(pdfErr);
+      console.error("[PRINT_ERROR_HANDLED] pdf também falhou", pdfMsg);
+      const friendly = friendlyPrintError(pdfMsg);
+      return {
+        ok: false,
+        needsPicker: true,
+        warning: `Impressora "${printer}" indisponível. ${friendly} Você pode escolher outra impressora ou salvar o comprovante como PDF.`,
+        error: friendly,
+        printerName: printer,
+      };
+    }
+  }
+}
+
+/**
+ * Remove ruído técnico (Start-Process / CategoryInfo / FullyQualified…) e
+ * devolve uma frase curta amigável ao usuário.
+ */
+export function friendlyPrintError(raw: string): string {
+  if (!raw) return "Verifique se a impressora está ligada e conectada.";
+  const noPs = raw
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(
+      (l) =>
+        l &&
+        !l.startsWith("+") &&
+        !l.startsWith("~") &&
+        !l.startsWith("At line") &&
+        !l.includes("CategoryInfo") &&
+        !l.includes("FullyQualifiedErrorId") &&
+        !l.includes("Start-Process") &&
+        !l.includes("Microsoft.PowerShell"),
+    )
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!noPs) return "Verifique se a impressora está ligada e conectada.";
+  if (noPs.length > 180) return noPs.slice(0, 180) + "…";
+  return noPs;
+}
+
+/** Imprime uma página de teste curta na impressora informada. */
+export async function imprimirTeste(
+  printerName: string,
+): Promise<{ ok: boolean; message: string }> {
+  if (!isDesktop()) {
     return {
       ok: false,
-      needsPicker: true,
-      warning: `Impressora "${printer}" indisponível: ${errMsg}. Escolha outra impressora.`,
-      error: errMsg,
-      printerName: printer,
+      message: "Teste de impressão só está disponível no desktop.",
     };
+  }
+  try {
+    const bytes = gerarTesteEscPos(printerName);
+    const msg = await printRawBytes(bytes, printerName);
+    console.info("[PRINT_RAW_ESC_POS] teste ok", msg);
+    return { ok: true, message: msg };
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    console.warn("[PRINT_ERROR_HANDLED] teste raw falhou", errMsg);
+    return { ok: false, message: friendlyPrintError(errMsg) };
   }
 }
 
