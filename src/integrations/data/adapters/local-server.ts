@@ -486,9 +486,7 @@ export const localServerAdapter: DataAdapter = {
         reportDataSource({ source: "local-server", domain: "clientes", method: "editar", fallback: false });
         return { cliente_id: r.cliente_id };
       }
-      const result = await cloudAdapter.clientes.editar(input);
-      reportDataSource({ source: "cloud", domain: "clientes", method: "editar", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível editar o cliente.");
     },
     alterarStatus: async (input) => {
       const r = await postLocalAuth<{ cliente_id: string }>(
