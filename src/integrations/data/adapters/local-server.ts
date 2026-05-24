@@ -451,9 +451,7 @@ export const localServerAdapter: DataAdapter = {
         if (import.meta.env.DEV) console.debug(`[CAT_PROD_OUTBOX] alterar_status id=${r.categoria_id} ativo=${input.ativo} outbox=${r.outbox_status}`);
         return { categoria_id: r.categoria_id, ativo: input.ativo, idempotente: r.idempotente };
       }
-      const result = await cloudAdapter.categoriasProduto.alterarStatus(input);
-      reportDataSource({ source: "cloud", domain: "categoriasProduto", method: "alterarStatus", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível alterar o status da categoria.");
     },
     excluir: async (categoriaId) => {
       const r = await postLocalAuth<CategoriaMutLocal>("/api/categorias-produto/excluir", { categoria_id: categoriaId });
