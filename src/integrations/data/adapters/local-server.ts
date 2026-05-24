@@ -508,9 +508,7 @@ export const localServerAdapter: DataAdapter = {
         reportDataSource({ source: "local-server", domain: "clientes", method: "excluir", fallback: false });
         return { cliente_id: r.cliente_id, excluido: true };
       }
-      const result = await cloudAdapter.clientes.excluir(clienteId);
-      reportDataSource({ source: "cloud", domain: "clientes", method: "excluir", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível excluir o cliente.");
     },
     listLite: (input) =>
       withCloudFallback(
