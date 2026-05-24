@@ -54,6 +54,11 @@ export interface DesktopConfig {
    * Nome exatamente como reportado pelo SO (Get-Printer / lpstat).
    */
   defaultPrinter?: string | null;
+  /**
+   * Impressora padrão de ETIQUETAS desta máquina (separada da de cupom).
+   * Permite ter uma POS-80 para cupom e uma térmica/zebra para etiqueta.
+   */
+  defaultLabelPrinter?: string | null;
   /** Marca de tempo do último ajuste (ms). */
   atualizadoEm?: number;
   /** Versão do schema — útil para migrações futuras. */
