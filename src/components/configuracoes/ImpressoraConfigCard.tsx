@@ -9,11 +9,21 @@ import {
   setDefaultPrinter,
   listPrinters,
   printPdfBytes,
+  getPrintIntensity,
+  setPrintIntensity,
   type PrinterInfo,
 } from "@/integrations/desktop/printers";
+import type { PrintIntensity } from "@/integrations/desktop/types";
 import { PrinterPickerDialog } from "@/components/desktop/PrinterPickerDialog";
 import { jsPDF } from "jspdf";
 import { subscribeDesktopConfig } from "@/integrations/desktop/configStore";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 function gerarTesteImpressaoPdf(): Uint8Array {
   const doc = new jsPDF({ unit: "mm", format: [80, 60], orientation: "portrait" });
