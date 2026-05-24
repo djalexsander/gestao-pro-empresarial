@@ -152,6 +152,7 @@ pub fn run() {
             backup_delete,
             list_printers,
             print_pdf_bytes,
+            print_raw_bytes,
             mdns_discover_servers,
         ])
         .setup(|_app| {
