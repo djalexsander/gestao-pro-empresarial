@@ -85,3 +85,13 @@ export function setDefaultPrinter(name: string | null): void {
   const cfg = getDesktopConfig();
   setDesktopConfig({ ...cfg, defaultPrinter: name });
 }
+
+// Impressora de etiqueta (separada da impressora de cupom)
+export function getDefaultLabelPrinter(): string | null {
+  return getDesktopConfig().defaultLabelPrinter ?? null;
+}
+
+export function setDefaultLabelPrinter(name: string | null): void {
+  const cfg = getDesktopConfig();
+  setDesktopConfig({ ...cfg, defaultLabelPrinter: name });
+}
