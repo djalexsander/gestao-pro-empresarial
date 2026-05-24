@@ -149,9 +149,11 @@ pub fn print_pdf(file_path: &str, printer_name: &str) -> Result<String, String> 
         .map_err(|e| format!("powershell falhou: {e}"))?;
 
     if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         return Err(format!(
-            "Falha ao imprimir: {}",
-            String::from_utf8_lossy(&output.stderr)
+            "Não foi possível imprimir o PDF em '{}'. {}",
+            printer_name,
+            sanitize_ps_error(&stderr)
         ));
     }
     Ok(format!("Enviado para '{}'", printer_name))
