@@ -541,9 +541,7 @@ export const localServerAdapter: DataAdapter = {
         reportDataSource({ source: "local-server", domain: "fornecedores", method: "criar", fallback: false });
         return { fornecedor_id: r.fornecedor_id, idempotente: r.idempotente };
       }
-      const result = await cloudAdapter.fornecedores.criar(input);
-      reportDataSource({ source: "cloud", domain: "fornecedores", method: "criar", fallback: true });
-      return result;
+      throw new Error("Servidor local indisponível. Não foi possível criar o fornecedor.");
     },
     editar: async (input) => {
       const r = await postLocalAuth<{ fornecedor_id: string }>(
