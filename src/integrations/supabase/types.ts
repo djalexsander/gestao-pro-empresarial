@@ -4508,6 +4508,10 @@ export type Database = {
         Args: { _terminal_id: string }
         Returns: undefined
       }
+      terminal_obter_pareamento_token: {
+        Args: { _terminal_id: string }
+        Returns: string
+      }
       terminal_ping: { Args: never; Returns: string }
       terminal_resolver: {
         Args: { _identificador?: string; _token?: string }
