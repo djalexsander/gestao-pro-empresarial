@@ -23,6 +23,7 @@ import { DesktopRoleBadge } from "@/components/desktop/DesktopRoleBadge";
 import { useFlushConfigEmpresaPending } from "@/hooks/useConfigEmpresa";
 import { useAutoSync } from "@/hooks/useAutoSync";
 import { useDesktopBootstrap } from "@/hooks/useDesktopBootstrap";
+import { useGlobalLocalServerWatchdog } from "@/hooks/useGlobalLocalServerWatchdog";
 import { SyncStatusPill } from "./SyncStatusPill";
 import { RealtimeStatusDot } from "./RealtimeStatusDot";
 
