@@ -42,6 +42,10 @@ export function AppLayout() {
   // Sincronização automática em background (no-op em web/cloud puro).
   useAutoSync();
 
+  // Wave 2 — bootstrap local-first do desktop (popula SQLite na 1ª vez).
+  useDesktopBootstrap();
+
+
   const pathname = location.pathname;
   const isStandalone = STANDALONE_ROUTES.has(pathname);
   const isAdminRoute = pathname === "/admin" || pathname.startsWith("/admin/");
