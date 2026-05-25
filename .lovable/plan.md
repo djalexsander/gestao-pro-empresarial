@@ -1,103 +1,111 @@
 
-# Plano: Caixa/PDV Offline-First (Tauri + SQLite)
+# Plano — Desktop Local-First (Autônomo)
 
-Objetivo: garantir que Caixa e PDV funcionem 100% no banco local SQLite quando o servidor local está ativo, com sincronização posterior idempotente para a nuvem. Sem reescrever o app, sem alterar layout, sem tocar em assinatura/módulos.
+## Diagnóstico do que você está vendo
 
----
+Já existe MUITA infraestrutura local-first no projeto:
 
-## Diagnóstico do travamento atual (ETAPA 1 — prioridade imediata)
+- SQLite embarcado no Rust (`src-tauri/src/db.rs`, ~15k linhas)
+- Servidor local HTTP (`local_server.rs`, ~8k linhas) com endpoints REST para vendas, caixa, estoque, funcionários, operadores offline, financeiro
+- Adapter `local-server.ts` que já tenta usar o local primeiro com fallback para cloud
+- Tabelas com outbox de sincronização (`outbox_funcionarios`, `outbox_vendas`, etc.)
+- Cache de operadores para PIN offline (`operadores_offline`)
+- Cache de funcionários remotos (`funcionarios_remote_cache`)
 
-O fluxo `caixa.abrir` no adapter `local-server.ts` ainda chama `postLocalAuthDetail("caixa/abrir", ...)`, que por sua vez tenta obter um JWT do Supabase (`supabase.auth.getSession()`). Quando está offline:
+**O sintoma que você vê NÃO é "o desktop depende do Supabase". É um problema mais específico:**
 
-1. `getSession()` pode pendurar enquanto tenta refresh sem rede (mitigado parcialmente pelo timeout de 1s já existente, mas a sessão pode estar expirada → retorna sem token).
-2. Sem JWT, o handler Rust `caixa/abrir` rejeita com 401 "Não autenticado" porque o RPC Supabase exige user JWT — e atualmente o handler **sempre** tenta dar push upstream antes de responder, mesmo após o spawn background.
-3. Mesmo com push em background, a abertura local **ainda exige** um `user_id` resolvido via JWT para gravar a linha SQLite (validação no início do handler `caixa::abrir`).
+1. **No instalador novo, o servidor local não está sendo iniciado ou cai logo após o boot** (badge "local-server" vermelho, "Servidor local indisponível").
+2. **Sem servidor local, o adapter cai para Supabase** — e quando a operação é uma escrita protegida (criar funcionário), o adapter local-server **exige** o servidor e mostra erro, em vez de degradar para cloud.
+3. **A sincronização inicial ("bootstrap") nunca rodou** porque o servidor local nunca subiu — então `funcionarios_remote_cache` está vazio e a lista fica em branco.
+4. **No PWA web não há servidor local** — por isso lê direto do Supabase e funciona.
 
-Resultado: o frontend fica em "Abrindo..." até o timeout de 8s, e quando sai dá erro — não é uma abertura local real.
-
-A correção é desacoplar **completamente** a abertura local da identidade Supabase: usar o `empresa_id` + `operador_id` + `terminal_id` já conhecidos pelo servidor local (vindos do `LOCAL_IDENTITY` cacheado) e do payload, gerar `client_uuid` no cliente, gravar no SQLite, e responder em <100ms.
-
----
-
-## Mudanças por etapa
-
-### Etapa 1 — Abrir caixa offline (foco do turno)
-
-**Rust (`src-tauri/src/local_server.rs` — handler `caixa::abrir`)**
-- Remover a exigência de JWT válido para gravar localmente. Resolver `usuario_id` por esta ordem: (1) JWT atual via `remember_auth`/`last_auth`, (2) último `usuario_id` cacheado em `LOCAL_IDENTITY`, (3) `null` (admin direto offline — registrado em coluna `usuario_id` permitindo null).
-- Aceitar `client_uuid` do payload; se ausente, gerar `uuid_v7()` no Rust.
-- Validar idempotência: `SELECT id FROM caixa WHERE client_uuid = ?` antes de inserir. Se existir, retornar o id existente (200 OK).
-- Validar regra: não permitir 2 caixas abertos no mesmo `terminal_id` (consulta `WHERE terminal_id=? AND status='aberto'`). Se já houver, retornar o existente com flag `reused=true`.
-- Gravar com `status='aberto'`, `synced=0`, `data_abertura=now()`.
-- Enfileirar outbox `caixa_abertura` com `client_uuid`, `payload` JSON.
-- Push upstream em `tokio::spawn` com timeout 3s — nunca bloquear a resposta.
-- Responder em <100ms com `{ caixa_id, client_uuid, reused, source: 'local' }`.
-
-**Frontend (`src/integrations/data/adapters/local-server.ts` — `caixa.abrir`)**
-- Gerar `client_uuid` (crypto.randomUUID) antes da chamada. Salvar em sessionStorage para retry idempotente.
-- Reduzir timeout local para 5s (operação puramente SQLite).
-- Em modo servidor local: **nunca** cair para cloud. Erro = erro.
-- Log estruturado: `[caixa.abrir] adapter=local payload=... t_ms=...`.
-
-**Frontend (`src/components/caixa/AbrirCaixaDialog.tsx`)**
-- Garantir que `onError` da mutation sai do estado pending (já é o comportamento do react-query, mas validar que `toast.error` aparece e o dialog não trava).
-- Adicionar fallback visual: se `mutateAsync` rejeitar, manter dialog aberto com a mensagem e botão habilitado.
-
-### Etapa 2 — Estado do caixa local
-- `caixa.aberto({ operador_id, terminal_id })` no adapter local-server: consulta SQLite direto, sem cloud. Filtro: `status='aberto' AND terminal_id=? AND (operador_id=? OR operador_id IS NULL)`.
-- `RequirePosSession` já usa `useCaixaAberto(operador.id)` — funcionará automaticamente quando o adapter retornar do SQLite.
-
-### Etapa 3 — Movimentações (sangria/suprimento)
-- Handler `caixa/movimento` já existe; aplicar mesma desacoplagem de JWT + idempotência por `client_uuid` (frontend já envia em `useRegistrarMovimentoCaixa`).
-- Enfileirar outbox `caixa_movimento`.
-
-### Etapa 4 — Venda offline vinculada ao caixa
-- Vendas já passam pelo handler local. Validar que `caixa_id` enviado é o local (uuid gerado em Etapa 1).
-- Outbox de venda deve enviar `caixa_client_uuid` em vez de id local, para o servidor resolver o id real após sync da abertura.
-- Atualização de estoque local e financeiro local já são feitas pelo handler atual; revisar idempotência.
-
-### Etapa 5 — Fechamento offline
-- Handler `caixa/fechar` aceita fechamento local com totais calculados de `caixa_movimentos` + `vendas` locais.
-- Enfileirar outbox `caixa_fechamento` — só roda upstream **depois** que abertura + vendas + movimentos do mesmo caixa estiverem sincronizados (ordering via dependência por `client_uuid`).
-
-### Etapa 6 — Prevenção de inconsistência
-- Constraint no SQLite: `CREATE UNIQUE INDEX caixa_terminal_aberto ON caixa(terminal_id) WHERE status='aberto'`.
-- Migration `v25` adiciona o índice + coluna `client_uuid` se não existir.
-- Recuperação ao reabrir app: handler `caixa/aberto` lê SQLite, sem dependência de cloud.
-
-### Etapa 7 — Sincronização posterior
-- Scheduler de outbox processa na ordem: `caixa_abertura` → `venda` / `caixa_movimento` → `caixa_fechamento`.
-- Mapeamento `client_uuid → cloud_id` armazenado em tabela `id_map` para resolver FKs.
-- Idempotência server-side via `client_uuid` único nas RPCs Supabase (já existe na maioria; validar `caixa_abrir`).
-
-### Etapa 8 — Auditoria
-- Log estruturado em SQLite (`audit_log`): `evento`, `caixa_id`, `terminal_id`, `operador_id`, `usuario_id`, `valor`, `timestamp`, `sync_status`.
-- Relatório de caixa já existe; adicionar coluna "origem" (local/sincronizado).
-
-### Etapa 9 — UI e erros
-- `AbrirCaixaDialog` / `FecharCaixaDialog`: timeout duro de 10s no botão. Se exceder, force reset do estado pending + toast erro técnico.
-- Banner contextual "Operando offline — será sincronizado depois" quando caixa aberto tem `synced=false`.
-
-### Etapa 10 — Critério final
-QA manual com Wi-Fi desligado: login PIN → abrir caixa → vender → sangria → fechar → reabrir app → religar internet → verificar sync.
+A arquitetura que você descreve já está parcialmente implementada. O que falta é (a) garantir que o servidor local **sempre** suba, (b) garantir que o bootstrap baixe os dados na primeira execução, (c) eliminar pontos onde o frontend ainda fala direto com Supabase em modo desktop.
 
 ---
 
-## Escopo deste turno
+## Onda 1 — Estabilizar o servidor local (sintoma imediato)
 
-Implementar **apenas a Etapa 1 + base da Etapa 6 (índice + client_uuid)** porque é o que destrava o usuário hoje. As etapas 2–10 são naturalmente habilitadas depois que a abertura local funciona, e cada uma merece seu próprio turno para QA isolado.
+Objetivo: nunca mais aparecer "Servidor local indisponível" em desktop saudável.
 
-### Arquivos que serão modificados neste turno
+- Auditar `useLocalServerBoot.ts` + `local_server.rs` para garantir start automático no boot do Tauri, com retry e log claro.
+- Detectar porta em uso e tentar portas alternativas, persistindo a escolhida em config.
+- Watchdog (`useLocalServerWatchdog.ts`) reinicia o servidor quando o `/api/health` falha 3x seguidas.
+- Mensagem de erro no header mudaria de "Servidor local indisponível" para "Reiniciando serviço local…" com auto-retry visível.
+- Botão "Diagnosticar" em Configurações → Desktop que mostra: porta, PID, último erro do servidor, caminho do SQLite.
 
-1. `src-tauri/migrations/` — nova migration v25 (índice único + coluna `client_uuid` em `caixa` e `caixa_movimentos`).
-2. `src-tauri/src/local_server.rs` — handler `caixa::abrir`: desacoplar JWT, idempotência por `client_uuid`, reuso de caixa aberto por terminal, resposta <100ms.
-3. `src/integrations/data/adapters/local-server.ts` — `caixa.abrir`: gerar `client_uuid`, timeout 5s, sem fallback cloud em modo local.
-4. `src/components/caixa/AbrirCaixaDialog.tsx` — proteção contra loading infinito (timeout client-side + reset garantido).
+## Onda 2 — Bootstrap inicial obrigatório
 
-### Detalhes técnicos
+Objetivo: ao fazer login pela primeira vez no desktop, baixar tudo que é leitura frequente e popular o SQLite.
 
-- `client_uuid` no payload: `crypto.randomUUID()` no cliente, persistido em `sessionStorage` durante o tempo de vida do dialog para suportar retry idempotente sem duplicar caixa.
-- Migration usa `IF NOT EXISTS` para ser segura em bancos já existentes (schema v24 → v25).
-- Push upstream permanece em background com `tokio::spawn` — já está implementado, só garantir que a abertura local não depende dele.
+- Tela "Preparando dados offline" bloqueante após login no desktop (skip no PWA).
+- Job que baixa do Supabase e grava no SQLite local: funcionários, produtos, categorias, clientes, fornecedores, formas de pagamento, configurações da empresa, módulos, permissões.
+- Progresso por domínio com retomada (se cair na metade, continua de onde parou).
+- Marca de bootstrap concluído por (owner_id + versão do schema). Não roda de novo até nova versão.
+- Após concluído, badge muda para "Offline pronto".
 
-Depois que o usuário confirmar que abrir caixa offline funciona, abrimos turnos separados para Etapas 2→10.
+## Onda 3 — Funcionários 100% locais (caso de teste do print)
+
+Objetivo: validar a arquitetura no domínio que você mostrou falhando.
+
+- `funcionarios.list`: sempre lê de `funcionarios_remote_cache` no SQLite. Cloud só roda no PWA ou se o cache estiver vazio e houver internet (apenas para popular).
+- `funcionarios.criar/editar/excluir/resetarPin`: grava primeiro no SQLite (status `pending_create/pending_update/pending_delete`), enfileira em `outbox_funcionarios`, sincroniza com Supabase em background. Mostra na UI com ícone de "aguardando sync".
+- PIN dos operadores criados offline já entra no cache `operadores_offline` para login no PDV sem internet.
+- Erro de cadastro nunca mais por "servidor local indisponível" — o servidor local é garantido pela Onda 1; se realmente cair, escreve em buffer no localStorage e tenta de novo quando voltar.
+
+## Onda 4 — Auth e PIN offline robustos
+
+- Login do administrador continua usando `verifyOfflineCredential` (já existe em `erpOfflineCache.ts`) quando offline.
+- PIN do operador valida 100% via `/api/auth/validar-pin` do servidor local (já existe).
+- "Aquecer PIN" automático para todos os operadores ativos depois do bootstrap, sem exigir que cada um logue online uma vez.
+- Sessão do desktop persiste localmente; refresh do JWT Supabase só roda quando há internet.
+
+## Onda 5 — Auditoria final de chamadas diretas ao Supabase
+
+Objetivo: garantir que no desktop o frontend nunca chame `supabase.from(...)` para dados de negócio.
+
+- Varredura via `rg "supabase\.from\("` no `src/` separando: (a) chamadas só de auth/realtime (OK), (b) chamadas de dados (precisam migrar).
+- Cada chamada de dados sobrevivente vira RPC do adapter (`dataClient.<dominio>.<acao>`) com implementação local-server + fallback cloud.
+- ESLint rule custom proibindo `supabase.from` fora de `src/integrations/`.
+
+## Onda 6 — Sync bidirecional robusto
+
+- Worker de outbox com backoff exponencial e dead-letter.
+- Pull periódico do Supabase (delta por `updated_at`) para refletir mudanças feitas em outros terminais/PWA no SQLite local.
+- Conflito → política "última escrita vence" com log auditável; campos críticos (estoque, financeiro) usam soma/append em vez de overwrite.
+- Tombstones (`deleted_at`) já existentes ganham respeito completo.
+
+## Onda 7 — Indicadores de sync na UI
+
+- Badge global no header: Sincronizado / Sincronizando / Pendente (N) / Offline / Conflito / Erro.
+- Por registro, em listas críticas (vendas, funcionários, produtos), ícone discreto indicando estado de sync.
+- Tela "Sincronização" em Configurações com fila de outbox, retry manual e log de conflitos.
+
+---
+
+## O que NÃO muda
+
+- PWA continua usando Supabase direto (não tem servidor local — é o comportamento certo).
+- Modo cloud puro (instalações sem Tauri) continua igual.
+- Updater, releases, assinatura, módulos, SaaS, billing — intocados.
+- Layouts, telas e fluxos visuais — só ganham badges de sync, sem redesenho.
+
+---
+
+## Como propor executar
+
+Quero rodar **uma onda por vez**, validando com você no fim de cada uma antes de seguir. Sugestão de ordem:
+
+1. **Onda 1 + 2 primeiro** (resolve o sintoma do print: servidor estável + bootstrap popula funcionários no SQLite).
+2. **Onda 3** (funcionários 100% offline, end-to-end).
+3. **Onda 4** (auth/PIN sólidos offline).
+4. **Onda 5** (auditoria final).
+5. **Ondas 6 e 7** (sync robusto + UI de status).
+
+Cada onda é entregável independente. Posso começar pela Onda 1 assim que você aprovar.
+
+### Detalhe técnico (para referência)
+
+- Servidor local: Axum sobre Tokio em `src-tauri/src/local_server.rs`, persistência via `rusqlite` em `db.rs`.
+- Identidade local: `LOCAL_IDENTITY` cache (já existe) com `empresa_id`, `owner_id`, `terminal_id`.
+- Outbox: tabelas `outbox_*` por domínio, processadas por loop assíncrono no Rust com push pra RPCs Supabase.
+- Adapter pattern: `src/integrations/data/adapters/local-server.ts` é wrapper sobre `cloudAdapter` — vamos inverter a relação (local é a fonte, cloud é o sync).
