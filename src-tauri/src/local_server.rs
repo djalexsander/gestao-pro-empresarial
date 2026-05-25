@@ -1757,6 +1757,30 @@ async fn offline_sync_inicial_handler(
                 )
                 .await
             }
+            "funcionarios_remote" => {
+                let params: Vec<(&str, String)> = vec![
+                    (
+                        "select",
+                        "id,nome,login,role,ativo,ultimo_acesso,created_at,updated_at".into(),
+                    ),
+                    ("order", "nome.asc".into()),
+                    ("__filter_incluir_inativos", "1".into()),
+                ];
+                proxy_with_incremental_sync(
+                    &ctx, &headers, "funcionarios_remote", "/rest/v1/funcionarios", &params, true,
+                )
+                .await
+            }
+            "terminais_remote" => {
+                let params: Vec<(&str, String)> = vec![
+                    ("select", "id,nome,ativo,updated_at".into()),
+                    ("order", "nome.asc".into()),
+                ];
+                proxy_with_incremental_sync(
+                    &ctx, &headers, "terminais_remote", "/rest/v1/terminais", &params, true,
+                )
+                .await
+            }
             _ => Err((StatusCode::BAD_REQUEST, "domínio desconhecido".into())),
         };
 
