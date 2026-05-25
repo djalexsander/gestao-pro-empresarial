@@ -1524,11 +1524,13 @@ const OFFLINE_TTL_MS: i64 = 1000 * 60 * 60 * 24 * 365 * 10; // ~10 anos
 /// Domínios considerados ESSENCIAIS para o app rodar offline.
 /// Cada item: (chave lógica usada na UI/sync, label amigável).
 const OFFLINE_ESSENTIAL_DOMAINS: &[(&str, &str)] = &[
+    ("funcionarios_remote", "Funcionários / Operadores"),
     ("produtos", "Produtos"),
     ("clientes_lite", "Clientes"),
     ("fornecedores", "Fornecedores"),
     ("estoque_movimentacoes", "Estoque (movimentações + saldos)"),
     ("financeiro_lancamentos_completo", "Financeiro"),
+    ("terminais_remote", "Terminais"),
 ];
 
 #[derive(Serialize)]
@@ -1752,6 +1754,30 @@ async fn offline_sync_inicial_handler(
                     "/rest/v1/financeiro_lancamentos",
                     &params,
                     true,
+                )
+                .await
+            }
+            "funcionarios_remote" => {
+                let params: Vec<(&str, String)> = vec![
+                    (
+                        "select",
+                        "id,nome,login,role,ativo,ultimo_acesso,created_at,updated_at".into(),
+                    ),
+                    ("order", "nome.asc".into()),
+                    ("__filter_incluir_inativos", "1".into()),
+                ];
+                proxy_with_incremental_sync(
+                    &ctx, &headers, "funcionarios_remote", "/rest/v1/funcionarios", &params, true,
+                )
+                .await
+            }
+            "terminais_remote" => {
+                let params: Vec<(&str, String)> = vec![
+                    ("select", "id,nome,ativo,updated_at".into()),
+                    ("order", "nome.asc".into()),
+                ];
+                proxy_with_incremental_sync(
+                    &ctx, &headers, "terminais_remote", "/rest/v1/terminais", &params, true,
                 )
                 .await
             }

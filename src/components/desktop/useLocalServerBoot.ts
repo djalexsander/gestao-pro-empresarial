@@ -104,7 +104,11 @@ export function useLocalServerBoot() {
     console.log("[boot] check", { isDesktop: desk, role, started: startedRef.current });
     if (!desk) return;
 
-    if (role === "server") {
+    // Wave 2 — desktop é LOCAL-FIRST: inicia o servidor local em TODOS os
+    // papéis exceto "terminal" (que se conecta a outro PC na LAN).
+    // Antes o boot só rodava quando role==="server", deixando o cache SQLite
+    // vazio nas máquinas em role "unset" → tela em branco no PDV/ERP.
+    if (role !== "terminal") {
       if (startedRef.current) return;
       startedRef.current = true;
       const port = config.terminal?.porta ?? DEFAULT_LOCAL_PORT;

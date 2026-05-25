@@ -22,6 +22,7 @@ import { DesktopSetupWizard } from "@/components/desktop/DesktopSetupWizard";
 import { DesktopRoleBadge } from "@/components/desktop/DesktopRoleBadge";
 import { useFlushConfigEmpresaPending } from "@/hooks/useConfigEmpresa";
 import { useAutoSync } from "@/hooks/useAutoSync";
+import { useDesktopBootstrap } from "@/hooks/useDesktopBootstrap";
 import { SyncStatusPill } from "./SyncStatusPill";
 import { RealtimeStatusDot } from "./RealtimeStatusDot";
 
@@ -40,6 +41,10 @@ export function AppLayout() {
 
   // Sincronização automática em background (no-op em web/cloud puro).
   useAutoSync();
+
+  // Wave 2 — bootstrap local-first do desktop (popula SQLite na 1ª vez).
+  useDesktopBootstrap();
+
 
   const pathname = location.pathname;
   const isStandalone = STANDALONE_ROUTES.has(pathname);
