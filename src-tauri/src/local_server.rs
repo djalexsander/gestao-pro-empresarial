@@ -1524,11 +1524,13 @@ const OFFLINE_TTL_MS: i64 = 1000 * 60 * 60 * 24 * 365 * 10; // ~10 anos
 /// Domínios considerados ESSENCIAIS para o app rodar offline.
 /// Cada item: (chave lógica usada na UI/sync, label amigável).
 const OFFLINE_ESSENTIAL_DOMAINS: &[(&str, &str)] = &[
+    ("funcionarios_remote", "Funcionários / Operadores"),
     ("produtos", "Produtos"),
     ("clientes_lite", "Clientes"),
     ("fornecedores", "Fornecedores"),
     ("estoque_movimentacoes", "Estoque (movimentações + saldos)"),
     ("financeiro_lancamentos_completo", "Financeiro"),
+    ("terminais_remote", "Terminais"),
 ];
 
 #[derive(Serialize)]
