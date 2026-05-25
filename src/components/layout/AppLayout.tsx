@@ -23,6 +23,7 @@ import { DesktopRoleBadge } from "@/components/desktop/DesktopRoleBadge";
 import { useFlushConfigEmpresaPending } from "@/hooks/useConfigEmpresa";
 import { useAutoSync } from "@/hooks/useAutoSync";
 import { useDesktopBootstrap } from "@/hooks/useDesktopBootstrap";
+import { useGlobalLocalServerWatchdog } from "@/hooks/useGlobalLocalServerWatchdog";
 import { SyncStatusPill } from "./SyncStatusPill";
 import { RealtimeStatusDot } from "./RealtimeStatusDot";
 
@@ -44,6 +45,11 @@ export function AppLayout() {
 
   // Wave 2 — bootstrap local-first do desktop (popula SQLite na 1ª vez).
   useDesktopBootstrap();
+
+  // Onda 1 (final) — watchdog global: detecta queda do servidor local e
+  // reinicia com backoff em qualquer tela. No-op em web e em terminais.
+  useGlobalLocalServerWatchdog();
+
 
 
   const pathname = location.pathname;
