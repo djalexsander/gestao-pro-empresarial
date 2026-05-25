@@ -22,6 +22,7 @@ import { DesktopSetupWizard } from "@/components/desktop/DesktopSetupWizard";
 import { DesktopRoleBadge } from "@/components/desktop/DesktopRoleBadge";
 import { useFlushConfigEmpresaPending } from "@/hooks/useConfigEmpresa";
 import { useAutoSync } from "@/hooks/useAutoSync";
+import { useDesktopBootstrap } from "@/hooks/useDesktopBootstrap";
 import { SyncStatusPill } from "./SyncStatusPill";
 import { RealtimeStatusDot } from "./RealtimeStatusDot";
 
