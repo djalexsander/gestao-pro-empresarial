@@ -58,13 +58,17 @@ function readDesktopMode(): DataMode | null {
     // Import lazy para evitar ciclo (configStore importa types puros).
     // Usamos a mesma chave do desktopConfigStore.
     const raw = window.localStorage.getItem("gp.desktop.config.v1");
-    if (!raw) return null;
+    if (!raw) {
+      // Desktop sem wizard ainda → local-first por padrão (Wave 2).
+      return "local-server";
+    }
     const parsed = JSON.parse(raw) as { role?: string };
     if (parsed.role === "server") return "local-server";
     if (parsed.role === "terminal") return "local-terminal";
-    return null;
+    // role "unset" ou ausente → local-first também.
+    return "local-server";
   } catch {
-    return null;
+    return "local-server";
   }
 }
 
