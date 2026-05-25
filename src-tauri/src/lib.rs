@@ -187,6 +187,50 @@ pub fn run() {
                 }
             }
 
+            // ONDA 1 — Auto-start do servidor local logo no boot do Tauri.
+            // Antes dependíamos do frontend (DesktopRoleProvider) chamar
+            // `start_local_server` quando o usuário estava no role "server".
+            // Em desktops onde o role não estava configurado o servidor nunca
+            // subia, mostrando "Servidor local indisponível" e quebrando
+            // qualquer escrita local-first (funcionários, vendas, etc.).
+            //
+            // Agora subimos o servidor incondicionalmente em localhost,
+            // tentando portas alternativas se a padrão (3333) estiver ocupada
+            // por outra instância. O frontend pode reconfigurar/parar depois.
+            //
+            // Upstream Supabase fica vazio aqui — quando o usuário logar, o
+            // frontend chama `start_local_server` de novo com upstream válido
+            // e a função reaproveita o servidor já em execução (ver
+            // local_server::start, branch s.running=true).
+            tauri::async_runtime::spawn(async move {
+                let candidate_ports: [u16; 5] = [3333, 3334, 3335, 3336, 3337];
+                for port in candidate_ports {
+                    if !local_server::is_port_available(port) {
+                        eprintln!(
+                            "[gestao-pro][BOOT] porta {port} ocupada, tentando próxima"
+                        );
+                        continue;
+                    }
+                    match local_server::start(port, None, None, None, None).await {
+                        Ok(st) => {
+                            eprintln!(
+                                "[gestao-pro][BOOT] servidor local autoiniciado port={:?} db_ready={}",
+                                st.port, st.database_ready
+                            );
+                            return;
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "[gestao-pro][BOOT] auto-start porta {port} falhou: {e}"
+                            );
+                        }
+                    }
+                }
+                eprintln!(
+                    "[gestao-pro][BOOT] auto-start do servidor local falhou em todas as portas candidatas"
+                );
+            });
+
             Ok(())
         })
         .run(tauri::generate_context!())
