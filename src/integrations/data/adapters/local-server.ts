@@ -113,6 +113,108 @@ function logSource(domain: string, method: string, source: string) {
   console.debug(`${tag} ${domain}.${method} (origem=${source})`);
 }
 
+type LocalP0ErrorCode =
+  | "LOCAL_SERVER_UNAVAILABLE"
+  | "LOCAL_CACHE_EMPTY"
+  | "LOCAL_SYNC_REQUIRED"
+  | "LOCAL_ENDPOINT_MISSING";
+
+type LocalP0Error = Error & {
+  code: LocalP0ErrorCode;
+  domain: string;
+  method: string;
+};
+
+function localP0Message(code: LocalP0ErrorCode): string {
+  switch (code) {
+    case "LOCAL_CACHE_EMPTY":
+      return "Cache local vazio. Sincronize este terminal antes de operar offline.";
+    case "LOCAL_SYNC_REQUIRED":
+      return "Sincronizacao local obrigatoria antes de continuar.";
+    case "LOCAL_ENDPOINT_MISSING":
+      return "Endpoint local ausente para esta operacao critica.";
+    case "LOCAL_SERVER_UNAVAILABLE":
+    default:
+      return "Servidor local indisponivel. Reconecte/reinicie o servidor local e tente novamente.";
+  }
+}
+
+function createLocalP0Error(
+  code: LocalP0ErrorCode,
+  domain: string,
+  method: string,
+  detail?: string,
+): LocalP0Error {
+  return Object.assign(new Error(`${code}: ${detail ?? localP0Message(code)}`), {
+    code,
+    domain,
+    method,
+  });
+}
+
+function throwLocalP0(
+  code: LocalP0ErrorCode,
+  domain: string,
+  method: string,
+  detail?: string,
+): never {
+  const err = createLocalP0Error(code, domain, method, detail);
+  // eslint-disable-next-line no-console
+  console.error("[LOCAL_P0_BLOCKED]", { domain, method, code, detail: detail ?? localP0Message(code) });
+  throw err;
+}
+
+function statusToLocalP0Code(status: number): LocalP0ErrorCode {
+  if (status === 404) return "LOCAL_ENDPOINT_MISSING";
+  if (status === 503) return "LOCAL_CACHE_EMPTY";
+  if (status === 409 || status === 412 || status === 428) return "LOCAL_SYNC_REQUIRED";
+  return "LOCAL_SERVER_UNAVAILABLE";
+}
+
+async function getLocalP0<T>(
+  domain: string,
+  method: string,
+  path: string,
+  query?: Record<string, string | undefined>,
+): Promise<{ kind: "ok"; data: T } | { kind: "unavailable"; code: LocalP0ErrorCode }> {
+  const baseUrl = await resolveBaseUrl();
+  if (!baseUrl) return { kind: "unavailable", code: "LOCAL_SERVER_UNAVAILABLE" };
+
+  const url = new URL(`${baseUrl}${path}`);
+  if (query) {
+    for (const [k, v] of Object.entries(query)) {
+      if (v != null && v !== "") url.searchParams.set(k, v);
+    }
+  }
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), HTTP_TIMEOUT_MS);
+  try {
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+    if (!res.ok) {
+      cachedBaseUrl = null;
+      return { kind: "unavailable", code: statusToLocalP0Code(res.status) };
+    }
+    const json = (await res.json()) as unknown;
+    const data = (json && typeof json === "object" && "data" in (json as Record<string, unknown>)
+      ? (json as Record<string, unknown>).data
+      : json) as T;
+    logSource(domain, method, res.headers.get("x-gp-source") ?? "local-db");
+    reportDataSource({ source: "local-server", domain, method, fallback: false });
+    return { kind: "ok", data };
+  } catch {
+    clearTimeout(timer);
+    cachedBaseUrl = null;
+    return { kind: "unavailable", code: "LOCAL_SERVER_UNAVAILABLE" };
+  }
+}
+
 /**
  * Tenta consumir um endpoint do servidor local (mesma máquina). Retorna
  * `null` quando o servidor não está rodando ou a chamada falha — o caller
@@ -211,9 +313,9 @@ async function tryLocalSearch<T>(
   method: string,
   path: string,
   query: Record<string, string | undefined>,
-): Promise<{ kind: "ok"; result: T | null } | { kind: "unavailable" }> {
+): Promise<{ kind: "ok"; result: T | null } | { kind: "unavailable"; code: LocalP0ErrorCode }> {
   const baseUrl = await resolveBaseUrl();
-  if (!baseUrl) return { kind: "unavailable" };
+  if (!baseUrl) return { kind: "unavailable", code: "LOCAL_SERVER_UNAVAILABLE" };
   const url = new URL(`${baseUrl}${path}`);
   for (const [k, v] of Object.entries(query)) {
     if (v != null && v !== "") url.searchParams.set(k, v);
@@ -228,10 +330,10 @@ async function tryLocalSearch<T>(
       cache: "no-store",
     });
     clearTimeout(timer);
-    if (res.status === 503) return { kind: "unavailable" };
+    if (res.status === 503) return { kind: "unavailable", code: "LOCAL_CACHE_EMPTY" };
     if (!res.ok) {
       cachedBaseUrl = null;
-      return { kind: "unavailable" };
+      return { kind: "unavailable", code: statusToLocalP0Code(res.status) };
     }
     const json = (await res.json()) as { result: T | null };
     logSource(domain, method, res.headers.get("x-gp-source") ?? "local-table");
@@ -240,7 +342,7 @@ async function tryLocalSearch<T>(
   } catch {
     clearTimeout(timer);
     cachedBaseUrl = null;
-    return { kind: "unavailable" };
+    return { kind: "unavailable", code: "LOCAL_SERVER_UNAVAILABLE" };
   }
 }
 
@@ -318,30 +420,14 @@ export const localServerAdapter: DataAdapter = {
         Awaited<ReturnType<DataAdapter["produtos"]["buscarPorCodigo"]>>
       >("produtos", "buscarPorCodigo", "/api/produtos/buscar-codigo", { codigo });
       if (r.kind === "ok") return r.result;
-      const result = await cloudAdapter.produtos.buscarPorCodigo(codigo);
-      logSource("produtos", "buscarPorCodigo", "cloud-fallback");
-      reportDataSource({
-        source: "cloud",
-        domain: "produtos",
-        method: "buscarPorCodigo",
-        fallback: true,
-      });
-      return result;
+      throwLocalP0(r.code, "produtos", "buscarPorCodigo");
     },
     buscarPorPlu: async (plu) => {
       const r = await tryLocalSearch<
         Awaited<ReturnType<DataAdapter["produtos"]["buscarPorPlu"]>>
       >("produtos", "buscarPorPlu", "/api/produtos/buscar-plu", { plu });
       if (r.kind === "ok") return r.result;
-      const result = await cloudAdapter.produtos.buscarPorPlu(plu);
-      logSource("produtos", "buscarPorPlu", "cloud-fallback");
-      reportDataSource({
-        source: "cloud",
-        domain: "produtos",
-        method: "buscarPorPlu",
-        fallback: true,
-      });
-      return result;
+      throwLocalP0(r.code, "produtos", "buscarPorPlu");
     },
     // -------- WRITES local-first (sem fallback cloud direto) --------
     // Em modo local-server (esta máquina É o backend), nunca caímos para
@@ -510,24 +596,21 @@ export const localServerAdapter: DataAdapter = {
       }
       throw new Error("Servidor local indisponível. Não foi possível excluir o cliente.");
     },
-    listLite: (input) =>
-      withCloudFallback(
+    listLite: async (input) => {
+      const r = await getLocalP0<Awaited<ReturnType<DataAdapter["clientes"]["listLite"]>>>(
         "clientes",
         "listLite",
-        () =>
-          tryLocal<Awaited<ReturnType<DataAdapter["clientes"]["listLite"]>>>(
-            "clientes",
-            "listLite",
-            "/api/clientes/lite",
-            {
-              status:
-                input && "status" in input
-                  ? (input.status ?? undefined)
-                  : "ativo",
-            },
-          ),
-        () => cloudAdapter.clientes.listLite(input),
-      ),
+        "/api/clientes/lite",
+        {
+          status:
+            input && "status" in input
+              ? (input.status ?? undefined)
+              : "ativo",
+        },
+      );
+      if (r.kind === "ok") return r.data;
+      throwLocalP0(r.code, "clientes", "listLite");
+    },
   },
 
   fornecedores: {
@@ -763,6 +846,7 @@ export const localServerAdapter: DataAdapter = {
      */
     validarPin: async (input) => {
       const baseUrl = await resolveBaseUrl();
+      if (!baseUrl) throwLocalP0("LOCAL_SERVER_UNAVAILABLE", "funcionarios", "validarPin");
       if (baseUrl) {
         try {
           const ctrl = new AbortController();
@@ -793,24 +877,29 @@ export const localServerAdapter: DataAdapter = {
             console.warn("[OFFLINE_AUTH] PIN recusado no servidor local");
             throw new Error(data.motivo ?? "PIN inválido.");
           }
+          throwLocalP0(statusToLocalP0Code(res.status), "funcionarios", "validarPin");
           if (res.status !== 404) {
             // eslint-disable-next-line no-console
-            console.debug("[OFFLINE_AUTH] fallback cloud online — servidor local indisponível");
+            console.debug("[OFFLINE_AUTH] servidor local indisponível; cloud bloqueada para P0");
           }
           // 404 = operador ainda não preparado → cai pra cloud silenciosamente.
         } catch (err) {
+          if (err instanceof Error && "code" in err) throw err;
           if (err instanceof Error && /PIN/i.test(err.message)) throw err;
-          // network/abort → cloud fallback
+          // network/abort → erro local estruturado, sem cloud fallback
           // eslint-disable-next-line no-console
-          console.debug("[OFFLINE_AUTH] fallback cloud online — erro local:", (err as Error)?.message);
+          console.debug("[OFFLINE_AUTH] erro local; cloud bloqueada para P0:", (err as Error)?.message);
         }
       }
-      return cloudAdapter.funcionarios.validarPin(input);
+      throwLocalP0("LOCAL_SERVER_UNAVAILABLE", "funcionarios", "validarPin");
     },
   },
 
   estoque: {
     ...cloudAdapter.estoque,
+    saldosLote: async () => {
+      throwLocalP0("LOCAL_ENDPOINT_MISSING", "estoque", "saldosLote");
+    },
     saldosLinhas: () =>
       withCloudFallback(
         "estoque",
@@ -1033,6 +1122,9 @@ export const localServerAdapter: DataAdapter = {
   // -----------------------------------------------------------------
   vendas: {
     ...cloudAdapter.vendas,
+    detalhe: async () => {
+      throwLocalP0("LOCAL_ENDPOINT_MISSING", "vendas", "detalhe");
+    },
     list: (input) =>
       withCloudFallback(
         "vendas",
@@ -1296,7 +1388,7 @@ export const localServerAdapter: DataAdapter = {
           total_suprimentos: number;
           total_sangrias: number;
         };
-        const row = await tryLocal<LocalRow | null>(
+        const local = await getLocalP0<LocalRow | null>(
           "caixa",
           "aberto",
           "/api/caixa/aberto",
@@ -1305,6 +1397,8 @@ export const localServerAdapter: DataAdapter = {
             terminal_id: readSelectedTerminalId() ?? undefined,
           },
         );
+        if (local.kind !== "ok") throwLocalP0(local.code, "caixa", "aberto");
+        const row = local.data;
         if (row && row.status === "aberto") {
           const isoAb = new Date(row.data_abertura_ms).toISOString();
           const isoFc = row.data_fechamento_ms
@@ -1348,11 +1442,10 @@ export const localServerAdapter: DataAdapter = {
         // Sem caixa local aberto. Se estamos offline, devolve null —
         // a tela mostra "abrir caixa". Não tentamos cloud, evita
         // hang em redes lentas.
-        const online = typeof navigator === "undefined" ? true : navigator.onLine;
-        if (!online) return null;
+        return null;
       }
       // Sem servidor local OU online sem caixa local → consulta cloud.
-      return cloudAdapter.caixa.aberto(filtro);
+      throwLocalP0("LOCAL_SERVER_UNAVAILABLE", "caixa", "aberto");
     },
     abrir: async (input) => {
       const t0 = performance.now();
@@ -1422,18 +1515,19 @@ export const localServerAdapter: DataAdapter = {
       // manual seja idempotente (não cria caixa duplicado).
       if (localAvailable) {
         console.error("[CAIXA_LOCAL] servidor local respondeu erro/timeout", { duracao_ms: dt });
+        throwLocalP0("LOCAL_SERVER_UNAVAILABLE", "caixa", "abrir");
         throw new Error(
           "Não foi possível abrir o caixa no servidor local. Verifique os logs do servidor e tente novamente.",
         );
       }
       console.error("[CAIXA_LOCAL] servidor local indisponível — cloud bloqueada no modo local", { duracao_ms: dt });
-      throw new Error("Servidor local indisponível. Não foi possível abrir o caixa no SQLite.");
+      throwLocalP0("LOCAL_SERVER_UNAVAILABLE", "caixa", "abrir");
     },
     registrarMovimento: async (input) => {
       console.info("[CAIXA_LOCAL] movimento local iniciado", { tipo: input.tipo });
       const baseUrl = await resolveBaseUrl();
       if (!baseUrl) {
-        throw new Error("Servidor local indisponível. Não foi possível gravar o movimento do caixa no SQLite.");
+        throwLocalP0("LOCAL_SERVER_UNAVAILABLE", "caixa", "registrarMovimento");
       }
       const r = await postLocalAuth<{
         movimento_id: string;
@@ -1456,7 +1550,7 @@ export const localServerAdapter: DataAdapter = {
         return r.remote_id ?? r.movimento_id;
       }
       console.error("[CAIXA_LOCAL] falha ao gravar movimento no SQLite local");
-      throw new Error("Não foi possível gravar o movimento no caixa local. Tente novamente.");
+      throwLocalP0("LOCAL_SERVER_UNAVAILABLE", "caixa", "registrarMovimento");
     },
     fechar: async (input) => {
       const online = typeof navigator === "undefined" ? true : navigator.onLine;
@@ -1501,10 +1595,10 @@ export const localServerAdapter: DataAdapter = {
           };
         }
         if (import.meta.env.DEV) console.warn("[CAIXA_FECHAR_ERRO] falha ao gravar fechamento local", { online });
-        throw new Error("Não foi possível gravar o fechamento no caixa local. Tente novamente.");
+        throwLocalP0("LOCAL_SERVER_UNAVAILABLE", "caixa", "fechar");
       } else {
         if (import.meta.env.DEV) console.warn("[CAIXA_FECHAR_ERRO] offline sem servidor local");
-        throw new Error("Servidor local indisponível. Não foi possível fechar o caixa no SQLite.");
+        throwLocalP0("LOCAL_SERVER_UNAVAILABLE", "caixa", "fechar");
       }
     },
   },
@@ -2485,6 +2579,20 @@ export const localServerAdapter: DataAdapter = {
         },
         () => cloudAdapter.dashboard.carregar(),
       ),
+  },
+
+  produtoCodigos: {
+    ...cloudAdapter.produtoCodigos,
+    list: async () => {
+      throwLocalP0("LOCAL_ENDPOINT_MISSING", "produtoCodigos", "list");
+    },
+  },
+
+  autorizacoes: {
+    ...cloudAdapter.autorizacoes,
+    validar: async () => {
+      throwLocalP0("LOCAL_ENDPOINT_MISSING", "autorizacoes", "validar");
+    },
   },
 };
 
