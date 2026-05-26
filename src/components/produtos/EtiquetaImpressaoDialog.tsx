@@ -488,16 +488,18 @@ async function gerarEtiquetaPng(args: GerarPngArgs): Promise<Uint8Array> {
   const nomeFontPx = showNome
     ? Math.max(mm(2.2), Math.min(mm(3.6), innerH * 0.13))
     : 0;
+  // Preço com mais destaque que antes (~28% da altura útil, teto mm(7.5)).
   const precoFontPx = showPreco
-    ? Math.max(mm(3.2), Math.min(mm(6.0), innerH * 0.22))
+    ? Math.max(mm(3.6), Math.min(mm(7.5), innerH * 0.28))
     : 0;
 
-  const nomeAreaH = showNome ? nomeFontPx * 2.1 : 0;
+  // Nome em 1 linha apenas (auto-fit reduz fonte se necessário).
+  const nomeAreaH = showNome ? nomeFontPx * 1.2 : 0;
   const precoAreaH = showPreco ? precoFontPx * 1.25 : 0;
 
-  // Pequenos gaps para aproximar o nome do código.
-  const gapNomeBarcode = showNome ? mm(0.4) : 0;
-  const gapBarcodePreco = showPreco ? mm(0.6) : 0;
+  // Nome bem próximo do barcode; preço com respiro um pouco maior.
+  const gapNomeBarcode = showNome ? mm(0.3) : 0;
+  const gapBarcodePreco = showPreco ? mm(0.8) : 0;
 
   const barcodeAreaY = padY + nomeAreaH + gapNomeBarcode;
   const barcodeAreaH =
