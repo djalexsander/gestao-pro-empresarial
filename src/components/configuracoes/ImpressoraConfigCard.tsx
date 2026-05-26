@@ -249,8 +249,30 @@ export function ImpressoraConfigCard() {
     if (!receipt) return;
     setTestandoCupom(true);
     try {
-      await printPdfBytes(gerarTesteCupomPdf(), receipt);
-      toast.success(`Teste enviado para "${receipt}".`);
+      const info = printers.find((p) => p.name === receipt);
+      if (info?.is_thermal) {
+        // Térmica → ESC/POS RAW (sem Start-Process).
+        const texto = [
+          "       GESTAO PRO",
+          "    TESTE DE IMPRESSAO",
+          "",
+          new Date().toLocaleString("pt-BR"),
+          "",
+          "Cupom OK. Se voce esta",
+          "lendo isso, a impressora",
+          "esta funcionando.",
+          "",
+          "------- FIM -------",
+        ].join("\n");
+        const msg = await printReceiptText(texto, receipt, {
+          widthMm: receiptWidth,
+          cut: true,
+        });
+        toast.success(msg);
+      } else {
+        await printPdfBytes(gerarTesteCupomPdf(), receipt);
+        toast.success(`Teste enviado para "${receipt}".`);
+      }
     } catch (e) {
       toast.error(`Falha no teste: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
