@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Download, Loader2, Boxes, AlertTriangle, Package } from "lucide-react";
+import { ArrowLeft, Download, Loader2, Boxes, AlertTriangle, Package, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
@@ -8,6 +8,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -44,12 +51,20 @@ interface ProdutoRow {
   venda: number;
   minimo: number;
   saldo: number;
+  categoria_id: string | null;
+  categoria_nome: string;
 }
+
+type StatusFiltro = "todos" | "baixo" | "zerado" | "normal" | "negativo";
 
 function Conteudo() {
   const navigate = useNavigate();
   const [busca, setBusca] = useState("");
+  const [categoriaFiltro, setCategoriaFiltro] = useState<string>("todas");
+  const [statusFiltro, setStatusFiltro] = useState<StatusFiltro>("todos");
+  const [ordenacao, setOrdenacao] = useState<"nome" | "saldo_desc" | "valor_desc" | "minimo">("nome");
   const [rows, setRows] = useState<ProdutoRow[]>([]);
+  const [categorias, setCategorias] = useState<{ id: string; nome: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
 
@@ -57,16 +72,21 @@ function Conteudo() {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const [prodRes, movRes] = await Promise.all([
+      const [prodRes, movRes, catRes] = await Promise.all([
         supabase
           .from("produtos")
-          .select("id, sku, nome, unidade, preco_custo, preco_venda, estoque_minimo")
+          .select("id, sku, nome, unidade, preco_custo, preco_venda, estoque_minimo, categoria_id, categoria:categorias_produto(nome)")
           .eq("status", "ativo")
           .order("nome", { ascending: true })
           .limit(2000),
         supabase
           .from("estoque_movimentacoes")
           .select("produto_id, tipo, quantidade"),
+        supabase
+          .from("categorias_produto")
+          .select("id, nome")
+          .eq("ativo", true)
+          .order("nome", { ascending: true }),
       ]);
       if (cancelled) return;
       if (prodRes.error) {
@@ -94,8 +114,11 @@ function Conteudo() {
           venda: Number(p.preco_venda) || 0,
           minimo: Number(p.estoque_minimo) || 0,
           saldo: saldos.get(p.id) ?? 0,
+          categoria_id: p.categoria_id ?? null,
+          categoria_nome: p.categoria?.nome ?? "Sem categoria",
         })),
       );
+      setCategorias(catRes.data ?? []);
       setLoading(false);
     })();
     return () => {
@@ -105,14 +128,49 @@ function Conteudo() {
 
   const filtered = useMemo(() => {
     const q = busca.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(
-      (r) => r.sku.toLowerCase().includes(q) || r.nome.toLowerCase().includes(q),
-    );
-  }, [rows, busca]);
+    let out = rows;
+    if (q) {
+      out = out.filter(
+        (r) => r.sku.toLowerCase().includes(q) || r.nome.toLowerCase().includes(q),
+      );
+    }
+    if (categoriaFiltro !== "todas") {
+      if (categoriaFiltro === "_sem") {
+        out = out.filter((r) => !r.categoria_id);
+      } else {
+        out = out.filter((r) => r.categoria_id === categoriaFiltro);
+      }
+    }
+    if (statusFiltro !== "todos") {
+      out = out.filter((r) => {
+        if (statusFiltro === "zerado") return r.saldo === 0;
+        if (statusFiltro === "negativo") return r.saldo < 0;
+        if (statusFiltro === "baixo") return r.minimo > 0 && r.saldo > 0 && r.saldo < r.minimo;
+        if (statusFiltro === "normal") return r.minimo === 0 || r.saldo >= r.minimo;
+        return true;
+      });
+    }
+    const sorted = [...out];
+    if (ordenacao === "nome") sorted.sort((a, b) => a.nome.localeCompare(b.nome));
+    else if (ordenacao === "saldo_desc") sorted.sort((a, b) => b.saldo - a.saldo);
+    else if (ordenacao === "valor_desc")
+      sorted.sort((a, b) => b.saldo * b.custo - a.saldo * a.custo);
+    else if (ordenacao === "minimo")
+      sorted.sort((a, b) => (a.saldo - a.minimo) - (b.saldo - b.minimo));
+    return sorted;
+  }, [rows, busca, categoriaFiltro, statusFiltro, ordenacao]);
 
   const valorTotal = filtered.reduce((a, r) => a + r.saldo * r.custo, 0);
+  const valorVenda = filtered.reduce((a, r) => a + r.saldo * r.venda, 0);
   const abaixoMin = filtered.filter((r) => r.minimo > 0 && r.saldo < r.minimo).length;
+  const zerados = filtered.filter((r) => r.saldo === 0).length;
+
+  function limparFiltros() {
+    setBusca("");
+    setCategoriaFiltro("todas");
+    setStatusFiltro("todos");
+    setOrdenacao("nome");
+  }
 
   async function handleExport() {
     if (filtered.length === 0) {
@@ -125,12 +183,14 @@ function Conteudo() {
       const columns: CsvColumn<ProdutoRow>[] = [
         { header: "SKU", accessor: (r) => r.sku, type: "text" },
         { header: "Produto", accessor: (r) => r.nome, type: "text" },
+        { header: "Categoria", accessor: (r) => r.categoria_nome, type: "text" },
         { header: "Unidade", accessor: (r) => r.unidade, type: "text" },
         { header: "Saldo", accessor: (r) => r.saldo, type: "number" },
         { header: "Minimo", accessor: (r) => r.minimo, type: "number" },
         { header: "Custo", accessor: (r) => r.custo, type: "currency" },
         { header: "Venda", accessor: (r) => r.venda, type: "currency" },
-        { header: "Valor estoque", accessor: (r) => r.saldo * r.custo, type: "currency" },
+        { header: "Valor estoque (custo)", accessor: (r) => r.saldo * r.custo, type: "currency" },
+        { header: "Valor estoque (venda)", accessor: (r) => r.saldo * r.venda, type: "currency" },
       ];
       exportRowsToCSV("estoque", filtered, columns);
       toast.success("Download iniciado", { id: "export-estoque" });
@@ -145,7 +205,7 @@ function Conteudo() {
     <div className="space-y-6">
       <PageHeader
         title="Posição de Estoque"
-        description="Saldo atual de produtos ativos."
+        description="Saldo atual de produtos ativos, com filtro por categoria e status."
         actions={
           <div className="flex gap-2">
             <Button
@@ -169,9 +229,9 @@ function Conteudo() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          label="Itens cadastrados"
+          label="Itens listados"
           value={filtered.length.toString()}
           icon={Package}
           iconTone="primary"
@@ -181,6 +241,7 @@ function Conteudo() {
           value={formatBRL(valorTotal)}
           icon={Boxes}
           iconTone="success"
+          hint={`A preço de venda: ${formatBRL(valorVenda)}`}
         />
         <StatCard
           label="Abaixo do mínimo"
@@ -188,15 +249,78 @@ function Conteudo() {
           icon={AlertTriangle}
           iconTone="warning"
         />
+        <StatCard
+          label="Zerados"
+          value={zerados.toString()}
+          icon={AlertTriangle}
+          iconTone="danger"
+        />
       </div>
 
       <Card>
-        <CardContent className="p-4">
-          <Input
-            placeholder="Buscar por SKU ou nome..."
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-          />
+        <CardContent className="space-y-3 p-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Buscar</label>
+              <Input
+                placeholder="SKU ou nome..."
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Categoria</label>
+              <Select value={categoriaFiltro} onValueChange={setCategoriaFiltro}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todas">Todas</SelectItem>
+                  <SelectItem value="_sem">Sem categoria</SelectItem>
+                  {categorias.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Status</label>
+              <Select value={statusFiltro} onValueChange={(v) => setStatusFiltro(v as StatusFiltro)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos</SelectItem>
+                  <SelectItem value="normal">Normal</SelectItem>
+                  <SelectItem value="baixo">Abaixo do mínimo</SelectItem>
+                  <SelectItem value="zerado">Zerado</SelectItem>
+                  <SelectItem value="negativo">Saldo negativo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Ordenar por</label>
+              <Select value={ordenacao} onValueChange={(v) => setOrdenacao(v as typeof ordenacao)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="nome">Nome (A-Z)</SelectItem>
+                  <SelectItem value="saldo_desc">Maior saldo</SelectItem>
+                  <SelectItem value="valor_desc">Maior valor em estoque</SelectItem>
+                  <SelectItem value="minimo">Mais críticos (saldo - mínimo)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Button variant="ghost" size="sm" onClick={limparFiltros} className="gap-1.5">
+              <RotateCcw className="h-3.5 w-3.5" />
+              Limpar filtros
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -217,6 +341,7 @@ function Conteudo() {
                 <TableRow>
                   <TableHead>SKU</TableHead>
                   <TableHead>Produto</TableHead>
+                  <TableHead>Categoria</TableHead>
                   <TableHead className="text-right">Saldo</TableHead>
                   <TableHead className="text-right">Mínimo</TableHead>
                   <TableHead className="text-right">Custo</TableHead>
@@ -226,14 +351,23 @@ function Conteudo() {
               <TableBody>
                 {filtered.slice(0, 500).map((r) => {
                   const baixo = r.minimo > 0 && r.saldo < r.minimo;
+                  const zero = r.saldo === 0;
                   return (
                     <TableRow key={r.id}>
                       <TableCell className="font-mono text-xs text-muted-foreground">
                         {r.sku}
                       </TableCell>
                       <TableCell className="font-medium">{r.nome}</TableCell>
+                      <TableCell className="text-muted-foreground">{r.categoria_nome}</TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {baixo ? (
+                        {zero ? (
+                          <Badge
+                            variant="outline"
+                            className="bg-destructive/15 text-destructive border-destructive/30"
+                          >
+                            0 {r.unidade}
+                          </Badge>
+                        ) : baixo ? (
                           <Badge
                             variant="outline"
                             className="bg-warning/15 text-warning border-warning/30"
@@ -260,6 +394,11 @@ function Conteudo() {
                 })}
               </TableBody>
             </Table>
+          )}
+          {filtered.length > 500 && (
+            <div className="border-t p-3 text-center text-xs text-muted-foreground">
+              Mostrando 500 de {filtered.length} itens. Refine os filtros ou exporte CSV.
+            </div>
           )}
         </CardContent>
       </Card>
