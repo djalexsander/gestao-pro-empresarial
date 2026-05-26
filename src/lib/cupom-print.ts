@@ -141,6 +141,21 @@ export async function imprimirCupom(
 
   const printer = getReceiptPrinter();
   if (!printer) {
+    // Antes de pedir picker, verifica se existe alguma impressora no SO.
+    let available: Awaited<ReturnType<typeof listPrinters>> = [];
+    try {
+      available = await listPrinters();
+    } catch (e) {
+      console.warn("[cupom-print] falha ao listar impressoras", e);
+    }
+    if (!available || available.length === 0) {
+      return {
+        ok: false,
+        noPrinters: true,
+        warning:
+          "Nenhuma impressora encontrada neste computador. Você pode salvar o comprovante como PDF.",
+      };
+    }
     return {
       ok: false,
       needsPicker: true,
