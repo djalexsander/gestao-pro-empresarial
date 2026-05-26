@@ -86,7 +86,9 @@ export function EtiquetaImpressaoDialog({
   const [imprimindo, setImprimindo] = useState(false);
   const [labelPrinter, setLP] = useState<string | null>(getLabelPrinter());
   const [pickerOpen, setPickerOpen] = useState(false);
-  const previewRef = useRef<SVGSVGElement>(null);
+  const barcodeRef = useRef<SVGSVGElement | null>(null);
+  const qrRef = useRef<HTMLCanvasElement | null>(null);
+  const [previewErro, setPreviewErro] = useState<string | null>(null);
 
   useEffect(() => {
     return subscribeDesktopConfig((cfg) => setLP(cfg.labelPrinter ?? null));
@@ -97,23 +99,52 @@ export function EtiquetaImpressaoDialog({
     if (formato !== "a4-grade") setLabelFormat(formato);
   }, [formato]);
 
+  // Render do preview (barcode e/ou QR). Roda sempre que muda código,
+  // toggles ou formato, garantindo que o preview nunca fique em branco.
   useEffect(() => {
-    if (!open || !produto?.codigo || !previewRef.current) return;
-    const fmt = validarEan13(produto.codigo) ? "EAN13" : "CODE128";
-    try {
-      JsBarcode(previewRef.current, produto.codigo, {
-        format: fmt,
-        width: 2,
-        height: 50,
-        displayValue: true,
-        margin: 2,
-        fontSize: 12,
-        background: "#ffffff",
-      });
-    } catch {
-      /* ignora */
+    if (!open) return;
+    setPreviewErro(null);
+    const codigo = produto?.codigo?.trim() ?? "";
+    if (!codigo) {
+      setPreviewErro("Produto sem código de barras. Gere ou informe um código primeiro.");
+      return;
     }
-  }, [open, produto?.codigo]);
+    // Barcode (sempre que houver SVG montado)
+    if (barcodeRef.current) {
+      const fmt = validarEan13(codigo) ? "EAN13" : "CODE128";
+      try {
+        // Limpa render anterior
+        while (barcodeRef.current.firstChild) {
+          barcodeRef.current.removeChild(barcodeRef.current.firstChild);
+        }
+        JsBarcode(barcodeRef.current, codigo, {
+          format: fmt,
+          width: 2,
+          height: 48,
+          displayValue: true,
+          margin: 2,
+          fontSize: 12,
+          background: "#ffffff",
+          lineColor: "#000000",
+        });
+      } catch (e) {
+        console.warn("[etiqueta] falha ao renderizar barcode", e);
+        setPreviewErro(
+          "Código inválido para barras. Verifique o código do produto.",
+        );
+      }
+    }
+    // QR (quando ativado)
+    if (incluirQr && qrRef.current) {
+      QRCode.toCanvas(qrRef.current, codigo, {
+        margin: 0,
+        width: 96,
+        color: { dark: "#000000", light: "#ffffff" },
+      }).catch((e) => {
+        console.warn("[etiqueta] falha ao renderizar QR", e);
+      });
+    }
+  }, [open, produto?.codigo, incluirQr, mostrarNome, mostrarPreco, formato]);
 
   async function handlePrint() {
     if (!produto?.codigo) return;
