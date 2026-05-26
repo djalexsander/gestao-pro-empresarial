@@ -89,6 +89,12 @@ export const MODULES: ModuleDef[] = [
         description: "Recebíveis de clientes",
       },
       {
+        to: "/financeiro?tab=fiados",
+        label: "Clientes a receber",
+        icon: HandCoins,
+        description: "Fiados e crediário",
+      },
+      {
         to: "/financeiro?tab=fluxo",
         label: "Fluxo de caixa",
         icon: TrendingUp,
