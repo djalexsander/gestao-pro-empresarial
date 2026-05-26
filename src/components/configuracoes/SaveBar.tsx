@@ -1,29 +1,22 @@
 import { Button } from "@/components/ui/button";
-import { Save } from "lucide-react";
 import { toast } from "sonner";
 
 /**
- * Barra visual de "Salvar alterações" para abas de Configurações que ainda
- * não possuem um botão de salvar de nível superior. Sem lógica real — apenas
- * UI consistente. As mutações reais acontecem em diálogos/linhas internas.
+ * Botão "Salvar" padrão das abas de Configurações — mesmo estilo do botão
+ * da aba Balança: alinhado à direita no fim da página, sem barra sticky.
+ * Apenas visual (toast de sucesso). `hint` é aceito mas não renderizado,
+ * para manter compatibilidade com os call sites existentes.
  */
 export function SaveBar({
   label = "Salvar alterações",
-  hint,
+  hint: _hint,
 }: {
   label?: string;
   hint?: string;
 }) {
   return (
-    <div className="sticky bottom-0 z-10 -mx-1 mt-6 flex items-center justify-between gap-3 rounded-lg border border-border bg-card/95 px-4 py-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/80">
-      <p className="text-xs text-muted-foreground">
-        {hint ?? "As alterações são aplicadas imediatamente nesta seção."}
-      </p>
-      <Button
-        onClick={() => toast.success("Alterações salvas")}
-        className="gap-2"
-      >
-        <Save className="h-4 w-4" />
+    <div className="flex justify-end pt-2">
+      <Button onClick={() => toast.success("Alterações salvas")}>
         {label}
       </Button>
     </div>
