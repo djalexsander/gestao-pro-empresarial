@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { SaveBar } from "@/components/configuracoes/SaveBar";
 
 
 import { useTheme } from "@/components/theme/ThemeProvider";
