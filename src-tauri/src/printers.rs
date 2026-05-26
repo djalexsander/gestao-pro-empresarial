@@ -639,4 +639,130 @@ mod win_raw {
         }
         Ok(())
     }
+
+    /// Imprime um bitmap BGRA (top-down) via GDI no DC da impressora informada.
+    /// Caminho compatível com drivers Windows normais (PT260, Argox, Zebra-GK
+    /// modo Windows, jato de tinta, laser…). Faz fit proporcional na área
+    /// imprimível e respeita as margens físicas reportadas pelo driver.
+    pub fn gdi_print_bitmap(
+        printer: &str,
+        doc_name: &str,
+        bgra: &[u8],
+        width: i32,
+        height: i32,
+        copies: u32,
+    ) -> Result<(), String> {
+        if width <= 0 || height <= 0 {
+            return Err("bitmap inválido (dimensão zero)".into());
+        }
+        if bgra.len() != (width as usize) * (height as usize) * 4 {
+            return Err(format!(
+                "bitmap inconsistente: {} bytes para {}x{}",
+                bgra.len(),
+                width,
+                height
+            ));
+        }
+        unsafe {
+            let driver = to_wide("WINSPOOL");
+            let printer_w = to_wide(printer);
+            let hdc: HDC = CreateDCW(
+                driver.as_ptr(),
+                printer_w.as_ptr(),
+                ptr::null(),
+                ptr::null(),
+            );
+            if hdc.is_null() {
+                let e = std::io::Error::last_os_error();
+                return Err(format!("CreateDC('{printer}') falhou: {e}"));
+            }
+
+            let page_w = GetDeviceCaps(hdc, HORZRES);
+            let page_h = GetDeviceCaps(hdc, VERTRES);
+            let phys_w = GetDeviceCaps(hdc, PHYSICALWIDTH);
+            let phys_h = GetDeviceCaps(hdc, PHYSICALHEIGHT);
+            let off_x = GetDeviceCaps(hdc, PHYSICALOFFSETX);
+            let off_y = GetDeviceCaps(hdc, PHYSICALOFFSETY);
+            // Área imprimível em coordenadas do DC (já descontadas as margens):
+            // o GDI desenha relativo a (0,0) da área imprimível, então usamos
+            // page_w/page_h direto. Os PHYSICAL* servem só para log.
+            eprintln!(
+                "[printers] GDI page={}x{} phys={}x{} off={},{}",
+                page_w, page_h, phys_w, phys_h, off_x, off_y
+            );
+
+            // Fit proporcional centralizado.
+            let scale = f64::min(
+                page_w as f64 / width as f64,
+                page_h as f64 / height as f64,
+            );
+            let draw_w = ((width as f64) * scale).round() as i32;
+            let draw_h = ((height as f64) * scale).round() as i32;
+            let draw_x = ((page_w - draw_w) / 2).max(0);
+            let draw_y = ((page_h - draw_h) / 2).max(0);
+
+            let doc_name_w = to_wide(doc_name);
+            let mut di: DOCINFOW = std::mem::zeroed();
+            di.cbSize = std::mem::size_of::<DOCINFOW>() as i32;
+            di.lpszDocName = doc_name_w.as_ptr();
+
+            if StartDocW(hdc, &di) <= 0 {
+                let e = std::io::Error::last_os_error();
+                DeleteDC(hdc);
+                return Err(format!("StartDoc falhou: {e}"));
+            }
+
+            let mut bmi: BITMAPINFO = std::mem::zeroed();
+            bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+            bmi.bmiHeader.biWidth = width;
+            // Negativo = top-down (mesma ordem dos nossos bytes BGRA).
+            bmi.bmiHeader.biHeight = -height;
+            bmi.bmiHeader.biPlanes = 1;
+            bmi.bmiHeader.biBitCount = 32;
+            bmi.bmiHeader.biCompression = BI_RGB;
+
+            let mut err: Option<String> = None;
+            for n in 0..copies.max(1) {
+                if StartPage(hdc) <= 0 {
+                    let e = std::io::Error::last_os_error();
+                    err = Some(format!("StartPage cópia {n} falhou: {e}"));
+                    break;
+                }
+                let r = StretchDIBits(
+                    hdc,
+                    draw_x,
+                    draw_y,
+                    draw_w,
+                    draw_h,
+                    0,
+                    0,
+                    width,
+                    height,
+                    bgra.as_ptr() as *const _,
+                    &bmi,
+                    DIB_RGB_COLORS,
+                    SRCCOPY,
+                );
+                if r == 0 {
+                    let e = std::io::Error::last_os_error();
+                    EndPage(hdc);
+                    err = Some(format!("StretchDIBits cópia {n} falhou: {e}"));
+                    break;
+                }
+                if EndPage(hdc) <= 0 {
+                    let e = std::io::Error::last_os_error();
+                    err = Some(format!("EndPage cópia {n} falhou: {e}"));
+                    break;
+                }
+            }
+
+            EndDoc(hdc);
+            DeleteDC(hdc);
+
+            if let Some(e) = err {
+                return Err(e);
+            }
+        }
+        Ok(())
+    }
 }
