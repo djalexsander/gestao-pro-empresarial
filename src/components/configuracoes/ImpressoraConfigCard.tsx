@@ -331,12 +331,17 @@ export function ImpressoraConfigCard() {
           <PrinterSection
             icon={<Receipt className="h-4 w-4" />}
             titulo="Impressora de cupom (PDV)"
-            descricao="Usada para imprimir o cupom da venda finalizada no PDV."
+            descricao="Térmica detectada → impressão ESC/POS direta (RAW). Outras → PDF."
             printerAtual={receipt}
             printersInstaladas={printers}
             onSelecionar={(name) => {
               setReceiptPrinter(name);
-              toast.success(`Cupom: "${name}" salva como padrão.`);
+              const info = printers.find((p) => p.name === name);
+              toast.success(
+                info?.is_thermal
+                  ? `Cupom (térmica): "${name}" salva.`
+                  : `Cupom: "${name}" salva como padrão.`,
+              );
             }}
             onLimpar={() => {
               setReceiptPrinter(null);
@@ -344,6 +349,38 @@ export function ImpressoraConfigCard() {
             }}
             onTestar={testarCupom}
             testando={testandoCupom}
+            extra={
+              <div className="space-y-1.5">
+                <Label className="text-xs">Largura da bobina térmica</Label>
+                <Select
+                  value={String(receiptWidth)}
+                  onValueChange={(v) => {
+                    const w = v === "58" ? 58 : 80;
+                    setReceiptWidth(w);
+                    setReceiptWidthMm(w);
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="58">58 mm (32 colunas)</SelectItem>
+                    <SelectItem value="80">80 mm (48 colunas)</SelectItem>
+                  </SelectContent>
+                </Select>
+                {receipt && (
+                  <div className="pt-1">
+                    {printers.find((p) => p.name === receipt)?.is_thermal ? (
+                      <Badge className="text-[10px]">térmica detectada</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px]">
+                        impressão via PDF
+                      </Badge>
+                    )}
+                  </div>
+                )}
+              </div>
+            }
           />
 
           <PrinterSection
