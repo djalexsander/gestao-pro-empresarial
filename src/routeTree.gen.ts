@@ -19,6 +19,7 @@ import { Route as ModulosRouteImport } from './routes/modulos'
 import { Route as HubRouteImport } from './routes/hub'
 import { Route as FornecedoresRouteImport } from './routes/fornecedores'
 import { Route as FinanceiroRouteImport } from './routes/financeiro'
+import { Route as EtiquetasRouteImport } from './routes/etiquetas'
 import { Route as EstoqueRouteImport } from './routes/estoque'
 import { Route as ConfiguracoesRouteImport } from './routes/configuracoes'
 import { Route as ComprasRouteImport } from './routes/compras'
@@ -99,6 +100,11 @@ const FornecedoresRoute = FornecedoresRouteImport.update({
 const FinanceiroRoute = FinanceiroRouteImport.update({
   id: '/financeiro',
   path: '/financeiro',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EtiquetasRoute = EtiquetasRouteImport.update({
+  id: '/etiquetas',
+  path: '/etiquetas',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EstoqueRoute = EstoqueRouteImport.update({
@@ -267,6 +273,7 @@ export interface FileRoutesByFullPath {
   '/compras': typeof ComprasRoute
   '/configuracoes': typeof ConfiguracoesRoute
   '/estoque': typeof EstoqueRoute
+  '/etiquetas': typeof EtiquetasRoute
   '/financeiro': typeof FinanceiroRoute
   '/fornecedores': typeof FornecedoresRoute
   '/hub': typeof HubRoute
@@ -309,6 +316,7 @@ export interface FileRoutesByTo {
   '/compras': typeof ComprasRoute
   '/configuracoes': typeof ConfiguracoesRoute
   '/estoque': typeof EstoqueRoute
+  '/etiquetas': typeof EtiquetasRoute
   '/financeiro': typeof FinanceiroRoute
   '/fornecedores': typeof FornecedoresRoute
   '/hub': typeof HubRoute
@@ -353,6 +361,7 @@ export interface FileRoutesById {
   '/compras': typeof ComprasRoute
   '/configuracoes': typeof ConfiguracoesRoute
   '/estoque': typeof EstoqueRoute
+  '/etiquetas': typeof EtiquetasRoute
   '/financeiro': typeof FinanceiroRoute
   '/fornecedores': typeof FornecedoresRoute
   '/hub': typeof HubRoute
@@ -398,6 +407,7 @@ export interface FileRouteTypes {
     | '/compras'
     | '/configuracoes'
     | '/estoque'
+    | '/etiquetas'
     | '/financeiro'
     | '/fornecedores'
     | '/hub'
@@ -440,6 +450,7 @@ export interface FileRouteTypes {
     | '/compras'
     | '/configuracoes'
     | '/estoque'
+    | '/etiquetas'
     | '/financeiro'
     | '/fornecedores'
     | '/hub'
@@ -483,6 +494,7 @@ export interface FileRouteTypes {
     | '/compras'
     | '/configuracoes'
     | '/estoque'
+    | '/etiquetas'
     | '/financeiro'
     | '/fornecedores'
     | '/hub'
@@ -527,6 +539,7 @@ export interface RootRouteChildren {
   ComprasRoute: typeof ComprasRoute
   ConfiguracoesRoute: typeof ConfiguracoesRoute
   EstoqueRoute: typeof EstoqueRoute
+  EtiquetasRoute: typeof EtiquetasRoute
   FinanceiroRoute: typeof FinanceiroRoute
   FornecedoresRoute: typeof FornecedoresRoute
   HubRoute: typeof HubRoute
@@ -610,6 +623,13 @@ declare module '@tanstack/react-router' {
       path: '/financeiro'
       fullPath: '/financeiro'
       preLoaderRoute: typeof FinanceiroRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/etiquetas': {
+      id: '/etiquetas'
+      path: '/etiquetas'
+      fullPath: '/etiquetas'
+      preLoaderRoute: typeof EtiquetasRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/estoque': {
@@ -902,6 +922,7 @@ const rootRouteChildren: RootRouteChildren = {
   ComprasRoute: ComprasRoute,
   ConfiguracoesRoute: ConfiguracoesRoute,
   EstoqueRoute: EstoqueRoute,
+  EtiquetasRoute: EtiquetasRoute,
   FinanceiroRoute: FinanceiroRoute,
   FornecedoresRoute: FornecedoresRoute,
   HubRoute: HubRoute,
