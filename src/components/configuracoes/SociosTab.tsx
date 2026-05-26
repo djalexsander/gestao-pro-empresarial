@@ -350,6 +350,7 @@ export function SociosTab() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <SaveBar hint="Sócios e permissões são salvos individualmente em cada ação." />
     </div>
   );
 }
