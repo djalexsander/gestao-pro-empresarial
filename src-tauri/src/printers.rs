@@ -350,21 +350,120 @@ pub fn write_temp_pdf(bytes: &[u8]) -> Result<String, String> {
 
 #[cfg(target_os = "windows")]
 mod win_raw {
+    use super::{detect_thermal, PrinterInfo};
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
-    use std::ptr;
+    use std::{ptr, slice};
 
     use winapi::shared::minwindef::DWORD;
     use winapi::um::shellapi::ShellExecuteW;
     use winapi::um::winnt::HANDLE;
     use winapi::um::winspool::{
-        ClosePrinter, EndDocPrinter, EndPagePrinter, OpenPrinterW, StartDocPrinterW,
-        StartPagePrinter, WritePrinter, DOC_INFO_1W,
+        ClosePrinter, EndDocPrinter, EndPagePrinter, EnumPrintersW, GetDefaultPrinterW,
+        OpenPrinterW, StartDocPrinterW, StartPagePrinter, WritePrinter, DOC_INFO_1W,
+        PRINTER_ENUM_CONNECTIONS, PRINTER_ENUM_LOCAL, PRINTER_INFO_2W,
     };
     use winapi::um::winuser::SW_HIDE;
 
     fn to_wide(s: &str) -> Vec<u16> {
         OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+    }
+
+    unsafe fn from_wide_ptr(p: *const u16) -> Option<String> {
+        if p.is_null() {
+            return None;
+        }
+        let mut len = 0usize;
+        while *p.add(len) != 0 {
+            len += 1;
+        }
+        if len == 0 {
+            return None;
+        }
+        Some(String::from_utf16_lossy(slice::from_raw_parts(p, len)))
+    }
+
+    fn default_printer_name() -> Option<String> {
+        unsafe {
+            let mut needed: DWORD = 0;
+            GetDefaultPrinterW(ptr::null_mut(), &mut needed);
+            if needed == 0 {
+                return None;
+            }
+            let mut buf = vec![0u16; needed as usize];
+            if GetDefaultPrinterW(buf.as_mut_ptr(), &mut needed) == 0 {
+                return None;
+            }
+            from_wide_ptr(buf.as_ptr())
+        }
+    }
+
+    fn status_text(status: DWORD, jobs: DWORD) -> Option<String> {
+        if jobs > 0 {
+            return Some(format!("{} trabalho(s) na fila", jobs));
+        }
+        if status == 0 {
+            Some("Pronta".to_string())
+        } else {
+            Some(format!("Status {}", status))
+        }
+    }
+
+    pub fn list_printers_native() -> Result<Vec<PrinterInfo>, String> {
+        unsafe {
+            let flags = PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS;
+            let mut needed: DWORD = 0;
+            let mut returned: DWORD = 0;
+            EnumPrintersW(
+                flags,
+                ptr::null_mut(),
+                2,
+                ptr::null_mut(),
+                0,
+                &mut needed,
+                &mut returned,
+            );
+            if needed == 0 {
+                return Ok(Vec::new());
+            }
+
+            let mut buffer = vec![0u8; needed as usize];
+            let ok = EnumPrintersW(
+                flags,
+                ptr::null_mut(),
+                2,
+                buffer.as_mut_ptr(),
+                needed,
+                &mut needed,
+                &mut returned,
+            );
+            if ok == 0 {
+                return Err(format!("Falha ao consultar impressoras do Windows: {}", std::io::Error::last_os_error()));
+            }
+
+            let default_name = default_printer_name();
+            let infos = slice::from_raw_parts(
+                buffer.as_ptr() as *const PRINTER_INFO_2W,
+                returned as usize,
+            );
+            let mut printers = Vec::with_capacity(returned as usize);
+            for info in infos {
+                let Some(name) = from_wide_ptr(info.pPrinterName) else {
+                    continue;
+                };
+                let is_default = default_name
+                    .as_deref()
+                    .map(|d| d.eq_ignore_ascii_case(&name))
+                    .unwrap_or(false);
+                printers.push(PrinterInfo {
+                    is_thermal: detect_thermal(&name),
+                    status: status_text(info.Status, info.cJobs),
+                    name,
+                    is_default,
+                });
+            }
+            Ok(printers)
+        }
     }
 
     pub fn write_raw(printer: &str, doc_name: &str, data: &[u8]) -> Result<(), String> {
