@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
  * - "Depois" silencia por 10 minutos; depois reaparece se ainda houver atualização.
  */
 export function UpdateBanner() {
-  const { updateAvailable, isApplying, applyUpdate, snooze, dismiss } = useAppUpdate();
+  const { updateAvailable, isApplying, newVersion, applyUpdate, snooze, dismiss } = useAppUpdate();
 
   if (!updateAvailable) return null;
 
