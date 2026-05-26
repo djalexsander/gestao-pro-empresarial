@@ -53,53 +53,8 @@ pub fn detect_thermal(name: &str) -> bool {
 
 #[cfg(target_os = "windows")]
 pub fn list_printers() -> Result<Vec<PrinterInfo>, String> {
-    eprintln!("[printers] list_printers (windows)");
-    let output = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "Get-Printer | ForEach-Object { \"$($_.Name)|$($_.PrinterStatus)|$($_.Default)\" }",
-        ])
-        .output()
-        .map_err(|e| format!("powershell falhou: {e}"))?;
-
-    if !output.status.success() {
-        return Err(format!(
-            "Get-Printer status {}: {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let printers: Vec<PrinterInfo> = stdout
-        .lines()
-        .filter_map(|line| {
-            let line = line.trim();
-            if line.is_empty() {
-                return None;
-            }
-            let parts: Vec<&str> = line.split('|').collect();
-            let name = parts.first()?.trim().to_string();
-            if name.is_empty() {
-                return None;
-            }
-            let status = parts.get(1).map(|s| s.trim().to_string());
-            let is_default = parts
-                .get(2)
-                .map(|s| s.trim().eq_ignore_ascii_case("True"))
-                .unwrap_or(false);
-            let is_thermal = detect_thermal(&name);
-            Some(PrinterInfo {
-                name,
-                status,
-                is_default,
-                is_thermal,
-            })
-        })
-        .collect();
-
+    eprintln!("[printers] list_printers (windows/native)");
+    let printers = win_raw::list_printers_native()?;
     eprintln!("[printers] {} impressoras detectadas", printers.len());
     Ok(printers)
 }
