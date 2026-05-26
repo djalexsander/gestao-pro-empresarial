@@ -47,8 +47,12 @@ import {
   useModulosDisponiveisCliente,
   usePlanosDisponiveis,
   useSolicitarModulo,
+  useSolicitarMensalidade,
   type ModuloDisponivelCliente,
 } from "@/hooks/useSaasCliente";
+import { useState } from "react";
+import { CobrancaPixDialog, type CobrancaResult } from "@/components/saas/CobrancaPixDialog";
+import { Wallet } from "lucide-react";
 
 /* =========================================================
  * Helpers
@@ -154,6 +158,22 @@ export function PlanosModulosTab() {
     empresaAtual?.id,
   );
 
+  const pagarMensalidade = useSolicitarMensalidade();
+  const [cobrancaAberta, setCobrancaAberta] = useState<CobrancaResult | null>(
+    null,
+  );
+
+  async function handlePagarMensalidade() {
+    const res = await pagarMensalidade.mutateAsync();
+    if (res.cobranca) {
+      setCobrancaAberta({
+        ...res.cobranca,
+        pagamento_id: res.pagamentoId,
+      });
+    }
+  }
+
+
   /* ---- Plano atual ---- */
   const planoAtual = useMemo(
     () => planos.find((p) => p.atual) ?? null,
@@ -200,6 +220,7 @@ export function PlanosModulosTab() {
   const statusLabel = statusAssinaturaLabel[status] ?? status;
 
   return (
+    <>
     <div className="space-y-6">
       {/* Banner de status crítico */}
       {assinatura?.readonly && (
@@ -327,9 +348,26 @@ export function PlanosModulosTab() {
               <span>Total</span>
               <span>{fmtBRL(composicao.total)}</span>
             </div>
+            <Button
+              className="mt-3 w-full"
+              onClick={handlePagarMensalidade}
+              disabled={pagarMensalidade.isPending || composicao.total <= 0}
+            >
+              {pagarMensalidade.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Wallet className="mr-2 h-4 w-4" />
+              )}
+              Pagar mensalidade
+            </Button>
+            <p className="text-center text-[11px] text-muted-foreground">
+              Gera Pix com QR Code e copia-e-cola. Confirmação automática via
+              Asaas.
+            </p>
           </CardContent>
         </Card>
       </div>
+
 
       {/* ============================================================
           MÓDULOS ATIVOS / DISPONÍVEIS
@@ -530,8 +568,16 @@ export function PlanosModulosTab() {
         </CardContent>
       </Card>
     </div>
+
+    <CobrancaPixDialog
+      open={!!cobrancaAberta}
+      onOpenChange={(v) => !v && setCobrancaAberta(null)}
+      cobranca={cobrancaAberta}
+    />
+    </>
   );
 }
+
 
 /* =========================================================
  * Helpers visuais

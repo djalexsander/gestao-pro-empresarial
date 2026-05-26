@@ -171,6 +171,31 @@ export function useSolicitarModulo() {
   });
 }
 
+/**
+ * Gera (ou reaproveita) a cobrança Pix consolidada da mensalidade
+ * (plano atual + módulos contratados).
+ */
+export function useSolicitarMensalidade() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { data: pagamentoId, error } = await (supabase.rpc as any)(
+        "solicitar_mensalidade",
+      );
+      if (error) throw error;
+      const cobranca = await criarCobrancaAsaas(pagamentoId as string);
+      return { pagamentoId: pagamentoId as string, cobranca };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["meus-pagamentos"] });
+      qc.invalidateQueries({ queryKey: ["cobranca-pendente"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+
+
 /* =========================================================
  * RESET DE DADOS
  * =======================================================*/
