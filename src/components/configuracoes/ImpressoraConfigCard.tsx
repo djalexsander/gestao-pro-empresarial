@@ -223,6 +223,7 @@ export function ImpressoraConfigCard() {
   useEffect(() => {
     return subscribeDesktopConfig((cfg) => {
       setReceipt(cfg.receiptPrinter ?? cfg.defaultPrinter ?? null);
+      setReceiptWidth(cfg.receiptWidthMm === 58 ? 58 : 80);
       setLabelP(cfg.labelPrinter ?? null);
       setLabelFmt(cfg.labelFormat ?? "50x30");
     });
