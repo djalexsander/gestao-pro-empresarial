@@ -4,9 +4,16 @@ import { toast } from "sonner";
 /**
  * Botão "Salvar" padrão das abas de Configurações — mesmo estilo do botão
  * da aba Balança: alinhado à direita no fim da página, sem barra sticky.
- * Apenas visual (toast de sucesso).
+ * Apenas visual (toast de sucesso). `hint` é aceito mas não renderizado,
+ * para manter compatibilidade com os call sites existentes.
  */
-export function SaveBar({ label = "Salvar alterações" }: { label?: string }) {
+export function SaveBar({
+  label = "Salvar alterações",
+  hint: _hint,
+}: {
+  label?: string;
+  hint?: string;
+}) {
   return (
     <div className="flex justify-end pt-2">
       <Button onClick={() => toast.success("Alterações salvas")}>
