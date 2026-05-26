@@ -482,7 +482,7 @@ function Conteudo() {
       {/* ---- Filtros ---- */}
       <Card>
         <CardContent className="space-y-4 p-4">
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <div>
               <Label className="text-xs">Período</Label>
               <Select
