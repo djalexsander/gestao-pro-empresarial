@@ -11,6 +11,8 @@ import {
   Filter,
   RotateCcw,
   TrendingUp,
+  AlertTriangle,
+  Percent,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -171,6 +173,7 @@ function Conteudo() {
   const [tipoFiltro, setTipoFiltro] = useState<TipoFiltro>("todos");
   const [categoriaFiltro, setCategoriaFiltro] = useState<string>("todas");
   const [statusFiltro, setStatusFiltro] = useState<StatusFiltro>("todos");
+  const [formaFiltro, setFormaFiltro] = useState<string>("todas");
 
   // Filtros aplicados (separados para botão "Aplicar")
   const [aplicado, setAplicado] = useState({
@@ -293,20 +296,45 @@ function Conteudo() {
         const sv = statusVisual(r);
         if (sv !== statusFiltro) return false;
       }
+      if (formaFiltro !== "todas" && (r.forma_pagamento ?? "") !== formaFiltro)
+        return false;
       return true;
     });
-  }, [rows, tipoFiltro, categoriaFiltro, statusFiltro]);
+  }, [rows, tipoFiltro, categoriaFiltro, statusFiltro, formaFiltro]);
+
+  // Formas de pagamento presentes no período (para popular o select)
+  const formasDisponiveis = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rows) {
+      if (r.forma_pagamento) set.add(r.forma_pagamento);
+    }
+    return Array.from(set).sort();
+  }, [rows]);
 
   // ---- Cards principais ----
   const totais = useMemo(() => {
     let entradas = 0;
     let saidas = 0;
+    let receberTotal = 0;
+    let receberVencido = 0;
     for (const r of filteredRows) {
       const valor = r.valor_pago || r.valor;
       if (r.tipo === "receita") entradas += valor;
       else if (r.tipo === "despesa") saidas += valor;
+      // Inadimplência: receitas em aberto (vencidas ou pendentes)
+      if (r.tipo === "receita") {
+        const sv = statusVisual(r);
+        if (sv !== "pago" && sv !== "cancelado") {
+          const restante = Math.max(0, r.valor - r.valor_pago);
+          receberTotal += restante;
+          if (sv === "vencido") receberVencido += restante;
+        }
+      }
     }
-    return { entradas, saidas, lucro: entradas - saidas };
+    const lucro = entradas - saidas;
+    const margem = entradas > 0 ? (lucro / entradas) * 100 : 0;
+    const inadimplencia = receberTotal > 0 ? (receberVencido / receberTotal) * 100 : 0;
+    return { entradas, saidas, lucro, margem, inadimplencia, receberVencido, receberTotal };
   }, [filteredRows]);
 
   // ---- Gráfico barras: entradas vs saídas por dia/mês ----
@@ -379,6 +407,7 @@ function Conteudo() {
     setTipoFiltro("todos");
     setCategoriaFiltro("todas");
     setStatusFiltro("todos");
+    setFormaFiltro("todas");
     setAplicado({ periodo: "mes", customIni: "", customFim: "" });
   }
 
@@ -453,7 +482,7 @@ function Conteudo() {
       {/* ---- Filtros ---- */}
       <Card>
         <CardContent className="space-y-4 p-4">
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <div>
               <Label className="text-xs">Período</Label>
               <Select
@@ -550,6 +579,23 @@ function Conteudo() {
                 </SelectContent>
               </Select>
             </div>
+
+            <div>
+              <Label className="text-xs">Forma de pagamento</Label>
+              <Select value={formaFiltro} onValueChange={setFormaFiltro}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todas">Todas</SelectItem>
+                  {formasDisponiveis.map((f) => (
+                    <SelectItem key={f} value={f} className="capitalize">
+                      {f}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -597,6 +643,24 @@ function Conteudo() {
           icon={PiggyBank}
           iconTone={saldoAcumulado >= 0 ? "primary" : "danger"}
           hint="Histórico total"
+        />
+      </div>
+
+      {/* ---- Cards complementares: margem + inadimplência ---- */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <StatCard
+          label="Margem líquida"
+          value={`${totais.margem.toFixed(1)}%`}
+          icon={Percent}
+          iconTone={totais.margem >= 0 ? "success" : "danger"}
+          hint={`Lucro / Entradas no período`}
+        />
+        <StatCard
+          label="Inadimplência"
+          value={`${totais.inadimplencia.toFixed(1)}%`}
+          icon={AlertTriangle}
+          iconTone={totais.inadimplencia > 10 ? "danger" : totais.inadimplencia > 0 ? "warning" : "success"}
+          hint={`${formatBRL(totais.receberVencido)} vencidos / ${formatBRL(totais.receberTotal)} em aberto`}
         />
       </div>
 
