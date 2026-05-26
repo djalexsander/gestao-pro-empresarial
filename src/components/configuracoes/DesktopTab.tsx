@@ -1625,7 +1625,9 @@ export function DesktopTab() {
             </p>
           </CardContent>
         </Card>
+        <SaveBar hint="Configuração local desta máquina (papel, conexões e dispositivos)." />
       </div>
+
 
       {editando && (
         <DesktopSetupWizard
