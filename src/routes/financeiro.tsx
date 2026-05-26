@@ -56,6 +56,7 @@ import {
   type LancamentoDetalhe,
 } from "@/components/financeiro/LancamentoDetalheDialog";
 import { ConciliarIfoodDialog } from "@/components/financeiro/ConciliarIfoodDialog";
+import { FiadosClientesPanel } from "@/components/financeiro/FiadosClientesPanel";
 import { LancamentoFormDialog } from "@/components/financeiro/LancamentoFormDialog";
 import {
   BlocoDetalheDialog,
@@ -76,12 +77,14 @@ import { ExportFormatDialog } from "@/components/shared/ExportFormatDialog";
 import { exportarRelatorioCard, type ExportFormato } from "@/lib/export-relatorio-card";
 import { toast } from "sonner";
 
-type FinTab = "receber" | "pagar" | "fluxo";
+type FinTab = "receber" | "pagar" | "fluxo" | "fiados";
 
 export const Route = createFileRoute("/financeiro")({
   validateSearch: (search: Record<string, unknown>): { tab?: FinTab } => {
     const t = search.tab;
-    return t === "pagar" || t === "receber" || t === "fluxo" ? { tab: t } : {};
+    return t === "pagar" || t === "receber" || t === "fluxo" || t === "fiados"
+      ? { tab: t }
+      : {};
   },
   head: () => ({
     meta: [
@@ -342,6 +345,8 @@ function FinanceContent() {
             ? "Contas a receber"
             : activeTab === "fluxo"
             ? "Fluxo de caixa"
+            : activeTab === "fiados"
+            ? "Clientes a receber"
             : "Financeiro"
         }
         description={
@@ -351,6 +356,8 @@ function FinanceContent() {
             ? "Listagem de títulos a receber."
             : activeTab === "fluxo"
             ? "Entradas e saídas previstas e realizadas."
+            : activeTab === "fiados"
+            ? "Fiados e crediário — pesquise, abra o cliente e registre pagamento."
             : "Acompanhe entradas, saídas, lucro e fluxo de caixa."
         }
         actions={
@@ -367,7 +374,7 @@ function FinanceContent() {
                 Exportar resumo
               </Button>
             )}
-            {activeTab !== "fluxo" && (
+            {activeTab !== "fluxo" && activeTab !== "fiados" && (
               <Button size="sm" className="gap-1.5" onClick={() => setNovoOpen(true)}>
                 <Plus className="h-4 w-4" />
                 Novo lançamento
@@ -648,6 +655,10 @@ function FinanceContent() {
       )}
 
       {activeTab === "fluxo" && <FluxoCaixaPanel />}
+
+      {activeTab === "fiados" && (
+        <FiadosClientesPanel receber={receber} loading={isLoading} />
+      )}
 
       <LancamentoDetalheDialog
         open={!!selected}

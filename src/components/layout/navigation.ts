@@ -14,6 +14,7 @@ import {
   CircleDollarSign,
   TrendingUp,
   CreditCard,
+  HandCoins,
   type LucideIcon,
 } from "lucide-react";
 
@@ -87,6 +88,12 @@ export const MODULES: ModuleDef[] = [
         label: "Contas a receber",
         icon: ArrowDownToLine,
         description: "Recebíveis de clientes",
+      },
+      {
+        to: "/financeiro?tab=fiados",
+        label: "Clientes a receber",
+        icon: HandCoins,
+        description: "Fiados e crediário",
       },
       {
         to: "/financeiro?tab=fluxo",
