@@ -344,6 +344,8 @@ function FinanceContent() {
             ? "Contas a receber"
             : activeTab === "fluxo"
             ? "Fluxo de caixa"
+            : activeTab === "fiados"
+            ? "Clientes a receber"
             : "Financeiro"
         }
         description={
@@ -353,6 +355,8 @@ function FinanceContent() {
             ? "Listagem de títulos a receber."
             : activeTab === "fluxo"
             ? "Entradas e saídas previstas e realizadas."
+            : activeTab === "fiados"
+            ? "Fiados e crediário — pesquise, abra o cliente e registre pagamento."
             : "Acompanhe entradas, saídas, lucro e fluxo de caixa."
         }
         actions={
