@@ -539,5 +539,7 @@ export function ImpressoraConfigCard() {
         )}
       </CardContent>
     </Card>
+    <SaveBar hint="Impressoras configuradas neste terminal." />
+    </div>
   );
 }
