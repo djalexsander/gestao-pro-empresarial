@@ -80,6 +80,31 @@ export async function printRawEscpos(
 }
 
 /**
+ * Imprime uma ETIQUETA como imagem PNG via GDI/spooler normal do Windows.
+ * Caminho separado do cupom ESC/POS — compatível com PT260, Argox,
+ * Zebra-GK em modo Windows e qualquer driver GDI. Não passa por handler
+ * PDF nem por RAW.
+ */
+export async function printLabelImage(
+  pngBytes: Uint8Array,
+  printerName: string,
+  copies = 1,
+): Promise<string> {
+  const invoke = await getInvoke();
+  if (!invoke) throw new Error("Impressão de etiqueta só está disponível no desktop.");
+  console.info("[printers] printLabelImage", {
+    printerName,
+    bytes: pngBytes.byteLength,
+    copies,
+  });
+  return invoke<string>("print_label_image", {
+    bytes: Array.from(pngBytes),
+    printerName,
+    copies,
+  });
+}
+
+/**
  * Imprime um texto plano como cupom ESC/POS. O Rust gera os bytes
  * (init, code page, wrap em colunas, GS V 1 no fim).
  */
