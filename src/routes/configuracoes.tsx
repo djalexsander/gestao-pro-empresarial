@@ -12,6 +12,7 @@ import { PlanosModulosTab } from "@/components/configuracoes/PlanosModulosTab";
 import { BalancaTab } from "@/components/configuracoes/BalancaTab";
 import { DesktopTab } from "@/components/configuracoes/DesktopTab";
 import { IntegracoesTab } from "@/components/configuracoes/IntegracoesTab";
+import { ImpressoraConfigCard } from "@/components/configuracoes/ImpressoraConfigCard";
 
 export const Route = createFileRoute("/configuracoes")({
   head: () => ({
@@ -40,6 +41,7 @@ function SettingsPage() {
           <TabsTrigger value="terminais">Terminais</TabsTrigger>
           <TabsTrigger value="balanca">Balança</TabsTrigger>
           <TabsTrigger value="desktop">Desktop</TabsTrigger>
+          <TabsTrigger value="impressoras">Impressoras</TabsTrigger>
           <TabsTrigger value="prefs">Preferências</TabsTrigger>
           <TabsTrigger value="integracoes">Integrações</TabsTrigger>
         </TabsList>
@@ -70,6 +72,10 @@ function SettingsPage() {
 
         <TabsContent value="desktop" className="mt-4">
           <DesktopTab />
+        </TabsContent>
+
+        <TabsContent value="impressoras" className="mt-4">
+          <ImpressoraConfigCard />
         </TabsContent>
 
 

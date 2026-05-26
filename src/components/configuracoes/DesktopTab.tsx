@@ -60,7 +60,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { BackupSeguranca } from "./BackupSeguranca";
 import { AtualizacoesTab } from "./AtualizacoesTab";
-import { ImpressoraConfigCard } from "./ImpressoraConfigCard";
+// ImpressoraConfigCard agora vive na aba "Impressoras" (configuracoes.tsx).
 import { ServerReadinessCard } from "./ServerReadinessCard";
 import { PilotoChecklist } from "./PilotoChecklist";
 import { SuporteDiagnosticoCard } from "./SuporteDiagnosticoCard";
@@ -1562,7 +1562,8 @@ export function DesktopTab() {
 
         {localCfg && <BackupSeguranca cfg={localCfg} />}
 
-        <ImpressoraConfigCard />
+        {/* ImpressoraConfigCard movido para a aba "Impressoras" em
+            Configurações — não pertence mais à aba Desktop. */}
 
         <AtualizacoesTab />
 
