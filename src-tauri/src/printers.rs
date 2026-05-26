@@ -10,8 +10,8 @@
  *       * Implementa ESC/POS RAW via WinAPI (OpenPrinterW / WritePrinter),
  *         100% offline, sem spawn de processo.
  *       * Substitui Start-Process por ShellExecuteW("printto") direto.
- *       * Listagem continua usando PowerShell apenas para enumerar o que o
- *         SO conhece (Get-Printer não imprime — apenas lê).
+ *       * Lista impressoras pela API nativa do Windows (EnumPrintersW), sem
+ *         depender de PowerShell para aparecerem no seletor.
  *       * Linux/macOS: CUPS (`lpstat`, `lp`, `lp -o raw`).
  *       * Logs detalhados com prefixo `[printers]`.
  */
