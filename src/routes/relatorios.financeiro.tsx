@@ -579,6 +579,23 @@ function Conteudo() {
                 </SelectContent>
               </Select>
             </div>
+
+            <div>
+              <Label className="text-xs">Forma de pagamento</Label>
+              <Select value={formaFiltro} onValueChange={setFormaFiltro}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todas">Todas</SelectItem>
+                  {formasDisponiveis.map((f) => (
+                    <SelectItem key={f} value={f} className="capitalize">
+                      {f}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-2">
