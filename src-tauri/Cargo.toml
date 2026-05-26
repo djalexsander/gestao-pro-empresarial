@@ -38,6 +38,19 @@ hostname = "0.4"
 rusqlite = { version = "0.31", features = ["bundled"] }
 dirs = "5"
 
+# Windows: WinAPI usada para impressão RAW (ESC/POS) e fallback ShellExecute
+# "printto" — substitui a dependência de PowerShell/Start-Process.
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = { version = "0.3", features = [
+    "winspool",
+    "shellapi",
+    "winuser",
+    "minwindef",
+    "winnt",
+    "handleapi",
+    "errhandlingapi",
+] }
+
 [profile.release]
 # LTO completo + codegen-units=1 estavam causando STATUS_ACCESS_VIOLATION
 # (crash do rustc/link) no Windows MSVC. "thin" mantém binário pequeno

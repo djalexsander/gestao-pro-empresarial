@@ -22,12 +22,15 @@ import { toast } from "sonner";
 import {
   getReceiptPrinter,
   setReceiptPrinter,
+  getReceiptWidthMm,
+  setReceiptWidthMm,
   getLabelPrinter,
   setLabelPrinter,
   getLabelFormat,
   setLabelFormat,
   listPrinters,
   printPdfBytes,
+  printReceiptText,
   type PrinterInfo,
 } from "@/integrations/desktop/printers";
 import { PrinterPickerDialog } from "@/components/desktop/PrinterPickerDialog";
@@ -208,6 +211,7 @@ function PrinterSection(props: PrinterSectionProps) {
 
 export function ImpressoraConfigCard() {
   const [receipt, setReceipt] = useState<string | null>(getReceiptPrinter());
+  const [receiptWidth, setReceiptWidth] = useState<58 | 80>(getReceiptWidthMm());
   const [labelP, setLabelP] = useState<string | null>(getLabelPrinter());
   const [labelFmt, setLabelFmt] = useState<string>(getLabelFormat() ?? "50x30");
   const [printers, setPrinters] = useState<PrinterInfo[]>([]);
@@ -219,6 +223,7 @@ export function ImpressoraConfigCard() {
   useEffect(() => {
     return subscribeDesktopConfig((cfg) => {
       setReceipt(cfg.receiptPrinter ?? cfg.defaultPrinter ?? null);
+      setReceiptWidth(cfg.receiptWidthMm === 58 ? 58 : 80);
       setLabelP(cfg.labelPrinter ?? null);
       setLabelFmt(cfg.labelFormat ?? "50x30");
     });
@@ -244,8 +249,30 @@ export function ImpressoraConfigCard() {
     if (!receipt) return;
     setTestandoCupom(true);
     try {
-      await printPdfBytes(gerarTesteCupomPdf(), receipt);
-      toast.success(`Teste enviado para "${receipt}".`);
+      const info = printers.find((p) => p.name === receipt);
+      if (info?.is_thermal) {
+        // Térmica → ESC/POS RAW (sem Start-Process).
+        const texto = [
+          "       GESTAO PRO",
+          "    TESTE DE IMPRESSAO",
+          "",
+          new Date().toLocaleString("pt-BR"),
+          "",
+          "Cupom OK. Se voce esta",
+          "lendo isso, a impressora",
+          "esta funcionando.",
+          "",
+          "------- FIM -------",
+        ].join("\n");
+        const msg = await printReceiptText(texto, receipt, {
+          widthMm: receiptWidth,
+          cut: true,
+        });
+        toast.success(msg);
+      } else {
+        await printPdfBytes(gerarTesteCupomPdf(), receipt);
+        toast.success(`Teste enviado para "${receipt}".`);
+      }
     } catch (e) {
       toast.error(`Falha no teste: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -304,12 +331,17 @@ export function ImpressoraConfigCard() {
           <PrinterSection
             icon={<Receipt className="h-4 w-4" />}
             titulo="Impressora de cupom (PDV)"
-            descricao="Usada para imprimir o cupom da venda finalizada no PDV."
+            descricao="Térmica detectada → impressão ESC/POS direta (RAW). Outras → PDF."
             printerAtual={receipt}
             printersInstaladas={printers}
             onSelecionar={(name) => {
               setReceiptPrinter(name);
-              toast.success(`Cupom: "${name}" salva como padrão.`);
+              const info = printers.find((p) => p.name === name);
+              toast.success(
+                info?.is_thermal
+                  ? `Cupom (térmica): "${name}" salva.`
+                  : `Cupom: "${name}" salva como padrão.`,
+              );
             }}
             onLimpar={() => {
               setReceiptPrinter(null);
@@ -317,6 +349,38 @@ export function ImpressoraConfigCard() {
             }}
             onTestar={testarCupom}
             testando={testandoCupom}
+            extra={
+              <div className="space-y-1.5">
+                <Label className="text-xs">Largura da bobina térmica</Label>
+                <Select
+                  value={String(receiptWidth)}
+                  onValueChange={(v) => {
+                    const w = v === "58" ? 58 : 80;
+                    setReceiptWidth(w);
+                    setReceiptWidthMm(w);
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="58">58 mm (32 colunas)</SelectItem>
+                    <SelectItem value="80">80 mm (48 colunas)</SelectItem>
+                  </SelectContent>
+                </Select>
+                {receipt && (
+                  <div className="pt-1">
+                    {printers.find((p) => p.name === receipt)?.is_thermal ? (
+                      <Badge className="text-[10px]">térmica detectada</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px]">
+                        impressão via PDF
+                      </Badge>
+                    )}
+                  </div>
+                )}
+              </div>
+            }
           />
 
           <PrinterSection

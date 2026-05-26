@@ -60,6 +60,8 @@ export interface DesktopConfig {
   defaultPrinter?: string | null;
   /** Impressora padrão para CUPOM/PDV deste terminal. */
   receiptPrinter?: string | null;
+  /** Largura da bobina térmica do cupom (mm). Default 80. */
+  receiptWidthMm?: 58 | 80;
   /** Impressora padrão para ETIQUETAS de produto deste terminal. */
   labelPrinter?: string | null;
   /** Formato padrão de etiqueta deste terminal (ex.: "50x30"). */

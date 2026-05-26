@@ -85,6 +85,30 @@ fn print_pdf_bytes(bytes: Vec<u8>, printer_name: String) -> Result<String, Strin
     printers::print_pdf(&path, &printer_name)
 }
 
+/// Imprime bytes ESC/POS RAW em uma impressora térmica (Windows: WinAPI
+/// OpenPrinter+WritePrinter; Unix: `lp -o raw`). Não usa Start-Process.
+#[tauri::command]
+fn print_raw_escpos(bytes: Vec<u8>, printer_name: String) -> Result<String, String> {
+    printers::print_raw(&printer_name, "Gestao Pro Cupom", &bytes)
+}
+
+/// Constrói cupom ESC/POS a partir de um texto plano e imprime na térmica.
+/// `width_mm` deve ser 58 ou 80. `cut` = true envia GS V 1 no final.
+#[tauri::command]
+fn print_receipt_text(
+    text: String,
+    printer_name: String,
+    width_mm: Option<u32>,
+    cut: Option<bool>,
+) -> Result<String, String> {
+    let bytes = printers::build_escpos_receipt(
+        &text,
+        width_mm.unwrap_or(80),
+        cut.unwrap_or(true),
+    );
+    printers::print_raw(&printer_name, "Gestao Pro Cupom", &bytes)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -107,6 +131,8 @@ pub fn run() {
             backup_cancel_restore,
             list_printers,
             print_pdf_bytes,
+            print_raw_escpos,
+            print_receipt_text,
         ])
         .setup(|_app| {
             // Aplica restauração pendente ANTES de abrir o banco. Se houver
