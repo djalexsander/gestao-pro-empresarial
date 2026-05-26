@@ -118,6 +118,14 @@ export function VendaSucessoDialog({
       }
       return;
     }
+    if (res.noPrinters) {
+      setNoPrinterMsg(
+        res.warning ??
+          "Nenhuma impressora encontrada neste computador. Você pode salvar o comprovante como PDF.",
+      );
+      setNoPrinterOpen(true);
+      return;
+    }
     if (res.needsPicker) {
       setPickerWarning(res.warning ?? null);
       setPickerOpen(true);
