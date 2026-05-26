@@ -169,7 +169,7 @@ function buildConsolidado(args: {
 
 function FinanceContent() {
   const { tab } = Route.useSearch();
-  const navigate = useNavigate({ from: Route.fullPath });
+  
   const activeTab: FinTab | null = tab ?? null;
   const [selected, setSelected] = useState<Lancamento | null>(null);
   const [blocoAberto, setBlocoAberto] = useState<BlocoChave | null>(null);
