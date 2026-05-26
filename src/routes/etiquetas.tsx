@@ -887,6 +887,31 @@ async function renderEtiqueta(cfg: EtiquetaConfig): Promise<Uint8Array> {
   }
 
   // ---------- modo produto / personalizada ----------
+
+  // Caso especial: só o nome está visível -> centraliza ocupando todo o espaço
+  // útil da etiqueta (horizontal + vertical), com várias linhas e fonte maior.
+  if (showNome && !showPreco && !showBarcode && !showQr && !showObs && !showUnid) {
+    const baseFont = Math.max(mm(3), Math.min(mm(12), innerH * 0.45)) *
+      (cfg.fontNomePct / 100);
+    const quebra = quebrarTexto(
+      ctx,
+      cfg.nome,
+      innerW,
+      `bold ${Math.round(baseFont)}px Arial, sans-serif`,
+      4,
+    );
+    ctx.font = `bold ${quebra.fontPx}px Arial, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const lineH = quebra.fontPx * 1.1;
+    const totalH = lineH * quebra.lines.length;
+    const startY = padY + (innerH - totalH) / 2 + lineH / 2;
+    quebra.lines.forEach((ln, i) => {
+      ctx.fillText(ln, W / 2, startY + i * lineH, innerW);
+    });
+    return await toPng(canvas);
+  }
+
   const nomeAreaH = showNome ? innerH * 0.18 : 0;
   const precoAreaH = showPreco ? innerH * 0.22 : 0;
   const obsAreaH = showObs ? innerH * 0.1 : 0;
