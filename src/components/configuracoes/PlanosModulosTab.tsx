@@ -575,6 +575,7 @@ export function PlanosModulosTab() {
       onOpenChange={(v) => !v && setCobrancaAberta(null)}
       cobranca={cobrancaAberta}
     />
+    <SaveBar hint="Plano e módulos são contratados individualmente acima." />
     </>
   );
 }
