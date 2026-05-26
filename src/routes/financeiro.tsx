@@ -335,24 +335,44 @@ function FinanceContent() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Financeiro"
-        description="Acompanhe entradas, saídas, lucro e fluxo de caixa."
+        title={
+          activeTab === "pagar"
+            ? "Contas a pagar"
+            : activeTab === "receber"
+            ? "Contas a receber"
+            : activeTab === "fluxo"
+            ? "Fluxo de caixa"
+            : "Financeiro"
+        }
+        description={
+          activeTab === "pagar"
+            ? "Listagem de títulos a pagar."
+            : activeTab === "receber"
+            ? "Listagem de títulos a receber."
+            : activeTab === "fluxo"
+            ? "Entradas e saídas previstas e realizadas."
+            : "Acompanhe entradas, saídas, lucro e fluxo de caixa."
+        }
         actions={
           <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1.5"
-              onClick={() => setExportOpen(true)}
-              disabled={exporting}
-            >
-              <Download className="h-4 w-4" />
-              Exportar resumo
-            </Button>
-            <Button size="sm" className="gap-1.5" onClick={() => setNovoOpen(true)}>
-              <Plus className="h-4 w-4" />
-              Novo lançamento
-            </Button>
+            {!activeTab && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                onClick={() => setExportOpen(true)}
+                disabled={exporting}
+              >
+                <Download className="h-4 w-4" />
+                Exportar resumo
+              </Button>
+            )}
+            {activeTab !== "fluxo" && (
+              <Button size="sm" className="gap-1.5" onClick={() => setNovoOpen(true)}>
+                <Plus className="h-4 w-4" />
+                Novo lançamento
+              </Button>
+            )}
           </div>
         }
       />
