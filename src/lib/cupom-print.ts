@@ -14,8 +14,11 @@ import type { ConfigEmpresa } from "@/hooks/useConfigEmpresa";
 import { gerarCupomHtml, type CupomData } from "@/lib/cupom";
 import { formatBRL } from "@/lib/mock-data";
 import {
-  getDefaultPrinter,
+  getReceiptPrinter,
+  getReceiptWidthMm,
+  listPrinters,
   printPdfBytes,
+  printReceiptText,
 } from "@/integrations/desktop/printers";
 
 const FORMA_LABEL: Record<string, string> = {
