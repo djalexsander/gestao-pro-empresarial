@@ -187,21 +187,20 @@ export function EtiquetaImpressaoDialog({
           setPickerOpen(true);
           return;
         }
-        const pdf = await gerarEtiquetaPdf({
+        const png = await gerarEtiquetaPng({
           produto,
           formato,
-          copias,
           mostrarNome,
           mostrarPreco,
           incluirQr,
         });
-        console.info("[etiqueta-print] enviando", {
+        console.info("[etiqueta-print] enviando PNG/GDI", {
           impressora: labelPrinter,
           formato,
           copias,
-          bytes: pdf.byteLength,
+          bytes: png.byteLength,
         });
-        await printPdfBytes(pdf, labelPrinter);
+        await printLabelImage(png, labelPrinter, copias);
         toast.success(
           `Etiqueta enviada para "${labelPrinter}" (${copias} cópia${copias > 1 ? "s" : ""}).`,
         );
