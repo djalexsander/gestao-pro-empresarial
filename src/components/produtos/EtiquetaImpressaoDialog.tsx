@@ -215,38 +215,45 @@ export function EtiquetaImpressaoDialog({
             </p>
           ) : (
             <div className="space-y-4">
-              <div className="rounded-md border border-border bg-white p-3 text-black">
-                {previewErro ? (
-                  <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
-                    <span>⚠️</span>
-                    <span>{previewErro}</span>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center gap-1">
-                    {mostrarNome && (
-                      <div className="line-clamp-2 max-w-full text-center text-[11px] font-semibold leading-tight">
-                        {produto.nome}
-                      </div>
-                    )}
-                    <div className="flex w-full items-center justify-center gap-3">
-                      <svg
-                        ref={barcodeRef}
-                        className="block max-h-[64px] w-auto"
-                      />
-                      {incluirQr && (
-                        <canvas
-                          ref={qrRef}
-                          className="block h-[64px] w-[64px]"
-                        />
-                      )}
+              <div
+                className="rounded-md border border-border bg-white p-3 text-black"
+                style={{ minHeight: 120 }}
+              >
+                <div className="flex flex-col items-center gap-1.5">
+                  {mostrarNome && produto.nome && (
+                    <div className="line-clamp-2 max-w-full text-center text-[11px] font-semibold leading-tight">
+                      {produto.nome}
                     </div>
-                    {mostrarPreco && produto.preco != null && (
-                      <div className="text-sm font-bold">
-                        R$ {Number(produto.preco).toFixed(2).replace(".", ",")}
-                      </div>
+                  )}
+                  <div
+                    className="flex w-full items-center justify-center gap-3"
+                    style={{ minHeight: 72 }}
+                  >
+                    {/* SVG sempre montado (mesmo com erro) — JsBarcode escreve
+                        dentro dele no useEffect. */}
+                    <svg
+                      ref={barcodeRef}
+                      className="block max-h-[68px] w-auto"
+                      style={{ minWidth: 120, minHeight: 56 }}
+                    />
+                    {incluirQr && (
+                      <canvas
+                        ref={qrRef}
+                        className="block h-[64px] w-[64px]"
+                      />
                     )}
                   </div>
-                )}
+                  {mostrarPreco && produto.preco != null && (
+                    <div className="text-sm font-bold">
+                      R$ {Number(produto.preco).toFixed(2).replace(".", ",")}
+                    </div>
+                  )}
+                  {previewErro && (
+                    <div className="mt-1 w-full rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-center text-[11px] text-amber-800">
+                      {previewErro}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {desktop && (

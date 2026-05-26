@@ -268,18 +268,21 @@ export function gerarCupomHtml(
 </html>`;
 }
 
-/** Abre uma nova janela e dispara a impressão do cupom (chama window.print()). */
+/**
+ * @deprecated NÃO USAR. Esta função abria popup com window.open, o que era
+ * bloqueado por navegadores e gerava o erro "Verifique o bloqueador de
+ * pop-ups". Use `imprimirCupom` de `@/lib/cupom-print` (iframe oculto +
+ * impressão nativa no desktop). Mantida apenas como stub para evitar
+ * importações antigas em código de terceiros.
+ */
 export function imprimirCupom(
-  empresa: ConfigEmpresa | null,
-  cupom: CupomData,
+  _empresa: ConfigEmpresa | null,
+  _cupom: CupomData,
 ): boolean {
-  const html = gerarCupomHtml(empresa, cupom, { autoPrint: true });
-  const win = window.open("", "_blank", "width=420,height=720");
-  if (!win) return false;
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-  return true;
+  console.warn(
+    "[cupom] imprimirCupom (legacy/window.open) foi removido. Use @/lib/cupom-print.",
+  );
+  return false;
 }
 
 /**
