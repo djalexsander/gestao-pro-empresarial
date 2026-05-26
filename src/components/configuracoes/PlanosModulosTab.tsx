@@ -158,6 +158,22 @@ export function PlanosModulosTab() {
     empresaAtual?.id,
   );
 
+  const pagarMensalidade = useSolicitarMensalidade();
+  const [cobrancaAberta, setCobrancaAberta] = useState<CobrancaResult | null>(
+    null,
+  );
+
+  async function handlePagarMensalidade() {
+    const res = await pagarMensalidade.mutateAsync();
+    if (res.cobranca) {
+      setCobrancaAberta({
+        ...res.cobranca,
+        pagamento_id: res.pagamentoId,
+      });
+    }
+  }
+
+
   /* ---- Plano atual ---- */
   const planoAtual = useMemo(
     () => planos.find((p) => p.atual) ?? null,
