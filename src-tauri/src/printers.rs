@@ -433,7 +433,14 @@ mod win_raw {
     use std::{ptr, slice};
 
     use winapi::shared::minwindef::DWORD;
+    use winapi::shared::windef::HDC;
     use winapi::um::shellapi::ShellExecuteW;
+    use winapi::um::wingdi::{
+        CreateDCW, DeleteDC, EndDoc, EndPage, GetDeviceCaps, StartDocW, StartPage,
+        StretchDIBits, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, DOCINFOW,
+        HORZRES, PHYSICALHEIGHT, PHYSICALOFFSETX, PHYSICALOFFSETY, PHYSICALWIDTH, SRCCOPY,
+        VERTRES,
+    };
     use winapi::um::winnt::HANDLE;
     use winapi::um::winspool::{
         ClosePrinter, EndDocPrinter, EndPagePrinter, EnumPrintersW, GetDefaultPrinterW,
