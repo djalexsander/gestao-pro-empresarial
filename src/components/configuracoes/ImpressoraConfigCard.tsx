@@ -455,13 +455,40 @@ export function ImpressoraConfigCard() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {FORMATOS_ETIQUETA.map((f) => (
+                    {labelFormats.map((f) => (
                       <SelectItem key={f.value} value={f.value}>
                         {f.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2 pt-2">
+                  <div className="space-y-1">
+                    <Label className="text-[10px]">Largura</Label>
+                    <Input
+                      className="h-8 text-xs"
+                      type="number"
+                      min={20}
+                      max={120}
+                      value={novoFormatoW}
+                      onChange={(e) => setNovoFormatoW(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px]">Altura</Label>
+                    <Input
+                      className="h-8 text-xs"
+                      type="number"
+                      min={15}
+                      max={120}
+                      value={novoFormatoH}
+                      onChange={(e) => setNovoFormatoH(e.target.value)}
+                    />
+                  </div>
+                  <Button size="sm" variant="outline" onClick={criarFormatoEtiqueta}>
+                    Criar
+                  </Button>
+                </div>
               </div>
             }
           />
