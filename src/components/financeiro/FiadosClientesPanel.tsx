@@ -52,7 +52,7 @@ function statusLabel(l: Lanc): "Pago" | "Parcial" | "Vencido" | "Pendente" | "Ca
   return "Pendente";
 }
 
-function formatDateBR(d: string | null): string {
+function formatDateBR(d: string | null | undefined): string {
   if (!d) return "—";
   const [y, m, day] = d.split("-");
   return `${day}/${m}/${y}`;
