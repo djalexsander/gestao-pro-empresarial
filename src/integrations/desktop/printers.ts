@@ -15,6 +15,8 @@ export interface PrinterInfo {
   name: string;
   status: string | null;
   is_default: boolean;
+  /** Heurística do Rust: nome sugere térmica (POS-58/POS-80/PT260/TM-T/…). */
+  is_thermal: boolean;
 }
 
 type TauriInvoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -38,20 +40,69 @@ async function getInvoke(): Promise<TauriInvoke | null> {
 export async function listPrinters(): Promise<PrinterInfo[]> {
   const invoke = await getInvoke();
   if (!invoke) return [];
-  return invoke<PrinterInfo[]>("list_printers");
+  const list = await invoke<PrinterInfo[]>("list_printers");
+  // Garantia defensiva: backend antigo pode não devolver is_thermal.
+  return list.map((p) => ({ ...p, is_thermal: Boolean(p.is_thermal) }));
 }
 
-/** Imprime bytes de PDF na impressora informada. */
+/** Imprime bytes de PDF na impressora informada (Windows: SumatraPDF → ShellExecute printto; Unix: lp). */
 export async function printPdfBytes(
   bytes: Uint8Array,
   printerName: string,
 ): Promise<string> {
   const invoke = await getInvoke();
   if (!invoke) throw new Error("Impressão nativa só está disponível no desktop.");
-  // Tauri serializa Uint8Array como Vec<u8> automaticamente.
+  console.info("[printers] printPdfBytes", { printerName, bytes: bytes.byteLength });
   return invoke<string>("print_pdf_bytes", {
     bytes: Array.from(bytes),
     printerName,
+  });
+}
+
+/**
+ * Imprime bytes ESC/POS RAW direto em uma impressora térmica. Não passa
+ * por driver de PDF, não usa Start-Process, funciona offline.
+ */
+export async function printRawEscpos(
+  bytes: Uint8Array,
+  printerName: string,
+): Promise<string> {
+  const invoke = await getInvoke();
+  if (!invoke) throw new Error("Impressão RAW só está disponível no desktop.");
+  console.info("[printers] printRawEscpos", {
+    printerName,
+    bytes: bytes.byteLength,
+  });
+  return invoke<string>("print_raw_escpos", {
+    bytes: Array.from(bytes),
+    printerName,
+  });
+}
+
+/**
+ * Imprime um texto plano como cupom ESC/POS. O Rust gera os bytes
+ * (init, code page, wrap em colunas, GS V 1 no fim).
+ */
+export async function printReceiptText(
+  text: string,
+  printerName: string,
+  opts: { widthMm?: 58 | 80; cut?: boolean } = {},
+): Promise<string> {
+  const invoke = await getInvoke();
+  if (!invoke) throw new Error("Impressão RAW só está disponível no desktop.");
+  const widthMm = opts.widthMm ?? 80;
+  const cut = opts.cut ?? true;
+  console.info("[printers] printReceiptText", {
+    printerName,
+    widthMm,
+    cut,
+    chars: text.length,
+  });
+  return invoke<string>("print_receipt_text", {
+    text,
+    printerName,
+    widthMm,
+    cut,
   });
 }
 
