@@ -33,6 +33,7 @@ import {
   addLabelCustomFormat,
   listPrinters,
   printPdfBytes,
+  printLabelImage,
   printReceiptText,
   type PrinterInfo,
 } from "@/integrations/desktop/printers";
