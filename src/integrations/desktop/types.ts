@@ -52,8 +52,18 @@ export interface DesktopConfig {
    * Impressora padrão DESTA MÁQUINA (server ou terminal). Cada máquina tem
    * a sua, então um caixa nunca imprime na impressora de outro caixa.
    * Nome exatamente como reportado pelo SO (Get-Printer / lpstat).
+   *
+   * @deprecated Mantido por retrocompat — use `receiptPrinter` para cupons
+   * e `labelPrinter` para etiquetas. Funciona como alias do `receiptPrinter`
+   * via getters em `integrations/desktop/printers.ts`.
    */
   defaultPrinter?: string | null;
+  /** Impressora padrão para CUPOM/PDV deste terminal. */
+  receiptPrinter?: string | null;
+  /** Impressora padrão para ETIQUETAS de produto deste terminal. */
+  labelPrinter?: string | null;
+  /** Formato padrão de etiqueta deste terminal (ex.: "50x30"). */
+  labelFormat?: string | null;
   /** Marca de tempo do último ajuste (ms). */
   atualizadoEm?: number;
   /** Versão do schema — útil para migrações futuras. */

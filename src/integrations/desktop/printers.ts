@@ -56,14 +56,55 @@ export async function printPdfBytes(
 }
 
 // ---------------------------------------------------------------------------
-// Impressora padrão por máquina (persistida no DesktopConfig)
+// Impressoras padrão por máquina (persistidas no DesktopConfig)
+//
+// Separação por finalidade:
+//   - receiptPrinter → cupom/PDV (térmica 58/80mm normalmente).
+//   - labelPrinter   → etiquetas de produto (50x30, 60x40, 80x40).
+//
+// `defaultPrinter` (legado) é mantido como alias do receiptPrinter para
+// não quebrar instalações existentes.
 // ---------------------------------------------------------------------------
 
-export function getDefaultPrinter(): string | null {
-  return getDesktopConfig().defaultPrinter ?? null;
+export function getReceiptPrinter(): string | null {
+  const cfg = getDesktopConfig();
+  return cfg.receiptPrinter ?? cfg.defaultPrinter ?? null;
 }
 
-export function setDefaultPrinter(name: string | null): void {
+export function setReceiptPrinter(name: string | null): void {
   const cfg = getDesktopConfig();
-  setDesktopConfig({ ...cfg, defaultPrinter: name });
+  setDesktopConfig({
+    ...cfg,
+    receiptPrinter: name,
+    // Mantém o legado em sincronia para retrocompat.
+    defaultPrinter: name,
+  });
+}
+
+export function getLabelPrinter(): string | null {
+  return getDesktopConfig().labelPrinter ?? null;
+}
+
+export function setLabelPrinter(name: string | null): void {
+  const cfg = getDesktopConfig();
+  setDesktopConfig({ ...cfg, labelPrinter: name });
+}
+
+export function getLabelFormat(): string | null {
+  return getDesktopConfig().labelFormat ?? null;
+}
+
+export function setLabelFormat(format: string | null): void {
+  const cfg = getDesktopConfig();
+  setDesktopConfig({ ...cfg, labelFormat: format });
+}
+
+/** @deprecated use `getReceiptPrinter`. */
+export function getDefaultPrinter(): string | null {
+  return getReceiptPrinter();
+}
+
+/** @deprecated use `setReceiptPrinter`. */
+export function setDefaultPrinter(name: string | null): void {
+  setReceiptPrinter(name);
 }
