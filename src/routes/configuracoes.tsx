@@ -1,8 +1,10 @@
 import { createFileRoute, useSearch } from "@tanstack/react-router";
+import { useEffect, useRef, type ReactNode } from "react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
+
 
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { EmpresaTab } from "@/components/configuracoes/EmpresaTab";
