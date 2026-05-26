@@ -66,6 +66,8 @@ export interface DesktopConfig {
   labelPrinter?: string | null;
   /** Formato padrão de etiqueta deste terminal (ex.: "50x30"). */
   labelFormat?: string | null;
+  /** Formatos de etiqueta criados neste terminal (ex.: "50x50"). */
+  labelCustomFormats?: string[];
   /** Marca de tempo do último ajuste (ms). */
   atualizadoEm?: number;
   /** Versão do schema — útil para migrações futuras. */

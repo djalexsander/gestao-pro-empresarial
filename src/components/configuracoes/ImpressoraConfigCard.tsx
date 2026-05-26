@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -28,6 +29,8 @@ import {
   setLabelPrinter,
   getLabelFormat,
   setLabelFormat,
+  getLabelCustomFormats,
+  addLabelCustomFormat,
   listPrinters,
   printPdfBytes,
   printReceiptText,
@@ -83,10 +86,25 @@ function parseFormato(f: string): [number, number] {
 
 const FORMATOS_ETIQUETA = [
   { value: "50x30", label: "50 × 30 mm" },
+  { value: "40x30", label: "40 × 30 mm" },
+  { value: "50x50", label: "50 × 50 mm" },
   { value: "60x40", label: "60 × 40 mm" },
   { value: "80x40", label: "80 × 40 mm" },
   { value: "80mm", label: "80 mm (cupom)" },
 ];
+
+function formatLabel(value: string): string {
+  const [w, h] = parseFormato(value);
+  return `${w} × ${h} mm`;
+}
+
+function normalizarFormatoEtiqueta(width: string, height: string): string | null {
+  const w = Number(width);
+  const h = Number(height);
+  if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
+  if (w < 20 || w > 120 || h < 15 || h > 120) return null;
+  return `${Math.round(w)}x${Math.round(h)}`;
+}
 
 /* -------------------------------------------------------------------------- */
 /* Seção genérica reutilizável                                                 */
@@ -214,6 +232,9 @@ export function ImpressoraConfigCard() {
   const [receiptWidth, setReceiptWidth] = useState<58 | 80>(getReceiptWidthMm());
   const [labelP, setLabelP] = useState<string | null>(getLabelPrinter());
   const [labelFmt, setLabelFmt] = useState<string>(getLabelFormat() ?? "50x30");
+  const [customFormats, setCustomFormats] = useState<string[]>(getLabelCustomFormats());
+  const [novoFormatoW, setNovoFormatoW] = useState("50");
+  const [novoFormatoH, setNovoFormatoH] = useState("50");
   const [printers, setPrinters] = useState<PrinterInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [testandoCupom, setTestandoCupom] = useState(false);
@@ -226,6 +247,7 @@ export function ImpressoraConfigCard() {
       setReceiptWidth(cfg.receiptWidthMm === 58 ? 58 : 80);
       setLabelP(cfg.labelPrinter ?? null);
       setLabelFmt(cfg.labelFormat ?? "50x30");
+      setCustomFormats(cfg.labelCustomFormats ?? []);
     });
   }, []);
 
@@ -291,6 +313,26 @@ export function ImpressoraConfigCard() {
     } finally {
       setTestandoEtiqueta(false);
     }
+  }
+
+  const labelFormats = [
+    ...FORMATOS_ETIQUETA,
+    ...customFormats
+      .filter((value) => !FORMATOS_ETIQUETA.some((f) => f.value === value))
+      .map((value) => ({ value, label: formatLabel(value) })),
+  ];
+
+  function criarFormatoEtiqueta() {
+    const value = normalizarFormatoEtiqueta(novoFormatoW, novoFormatoH);
+    if (!value) {
+      toast.error("Informe largura e altura entre 20×15 mm e 120×120 mm.");
+      return;
+    }
+    addLabelCustomFormat(value);
+    setLabelFmt(value);
+    setLabelFormat(value);
+    setCustomFormats(getLabelCustomFormats());
+    toast.success(`Formato ${formatLabel(value)} salvo.`);
   }
 
   return (
@@ -413,13 +455,40 @@ export function ImpressoraConfigCard() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {FORMATOS_ETIQUETA.map((f) => (
+                    {labelFormats.map((f) => (
                       <SelectItem key={f.value} value={f.value}>
                         {f.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2 pt-2">
+                  <div className="space-y-1">
+                    <Label className="text-[10px]">Largura</Label>
+                    <Input
+                      className="h-8 text-xs"
+                      type="number"
+                      min={20}
+                      max={120}
+                      value={novoFormatoW}
+                      onChange={(e) => setNovoFormatoW(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px]">Altura</Label>
+                    <Input
+                      className="h-8 text-xs"
+                      type="number"
+                      min={15}
+                      max={120}
+                      value={novoFormatoH}
+                      onChange={(e) => setNovoFormatoH(e.target.value)}
+                    />
+                  </div>
+                  <Button size="sm" variant="outline" onClick={criarFormatoEtiqueta}>
+                    Criar
+                  </Button>
+                </div>
               </div>
             }
           />
