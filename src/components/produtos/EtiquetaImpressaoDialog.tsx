@@ -429,7 +429,7 @@ export function EtiquetaImpressaoDialog({
 
 interface GerarPdfArgs {
   produto: { nome: string; codigo: string; preco?: number | null };
-  formato: Exclude<FormatoEtiqueta, "a4-grade">;
+  formato: string;
   copias: number;
   mostrarNome: boolean;
   mostrarPreco: boolean;
@@ -439,7 +439,7 @@ interface GerarPdfArgs {
 async function gerarEtiquetaPdf(args: GerarPdfArgs): Promise<Uint8Array> {
   const { produto, formato, copias, mostrarNome, mostrarPreco, incluirQr } =
     args;
-  const fmt = FORMATOS[formato];
+  const fmt = getFormatoInfo(formato);
   const w = fmt.w;
   const h = fmt.h;
 
@@ -571,7 +571,7 @@ function printViaBrowser(args: {
   mostrarPreco: boolean;
 }) {
   const { produto, formato, copias, mostrarNome, mostrarPreco } = args;
-  const fmt = FORMATOS[formato];
+  const fmt = getFormatoInfo(formato);
   const wMm = `${fmt.w}mm`;
   const hMm = `${fmt.h}mm`;
 
