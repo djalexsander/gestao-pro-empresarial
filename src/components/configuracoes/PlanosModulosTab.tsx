@@ -568,8 +568,16 @@ export function PlanosModulosTab() {
         </CardContent>
       </Card>
     </div>
+
+    <CobrancaPixDialog
+      open={!!cobrancaAberta}
+      onOpenChange={(v) => !v && setCobrancaAberta(null)}
+      cobranca={cobrancaAberta}
+    />
+    </>
   );
 }
+
 
 /* =========================================================
  * Helpers visuais
