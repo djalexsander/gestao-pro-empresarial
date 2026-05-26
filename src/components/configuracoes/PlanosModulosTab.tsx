@@ -47,8 +47,12 @@ import {
   useModulosDisponiveisCliente,
   usePlanosDisponiveis,
   useSolicitarModulo,
+  useSolicitarMensalidade,
   type ModuloDisponivelCliente,
 } from "@/hooks/useSaasCliente";
+import { useState } from "react";
+import { CobrancaPixDialog, type CobrancaResult } from "@/components/saas/CobrancaPixDialog";
+import { Wallet } from "lucide-react";
 
 /* =========================================================
  * Helpers
