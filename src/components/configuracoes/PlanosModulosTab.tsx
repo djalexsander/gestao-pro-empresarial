@@ -220,6 +220,7 @@ export function PlanosModulosTab() {
   const statusLabel = statusAssinaturaLabel[status] ?? status;
 
   return (
+    <>
     <div className="space-y-6">
       {/* Banner de status crítico */}
       {assinatura?.readonly && (
