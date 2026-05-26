@@ -67,6 +67,8 @@ function calcRange(p: Periodo): { inicio: string; fim: string } {
 function Conteudo() {
   const navigate = useNavigate();
   const [periodo, setPeriodo] = useState<Periodo>("mes");
+  const [statusFiltro, setStatusFiltro] = useState<string>("todos");
+  const [serieFiltro, setSerieFiltro] = useState<string>("todas");
   const [rows, setRows] = useState<NotaRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -108,10 +110,37 @@ function Conteudo() {
     };
   }, [periodo]);
 
-  const total = useMemo(() => rows.reduce((a, r) => a + r.total, 0), [rows]);
+  const seriesDisponiveis = useMemo(() => {
+    const set = new Set<string>();
+    rows.forEach((r) => r.serie && set.add(r.serie));
+    return Array.from(set).sort();
+  }, [rows]);
+
+  const filtered = useMemo(
+    () =>
+      rows.filter((r) => {
+        if (statusFiltro !== "todos" && r.status !== statusFiltro) return false;
+        if (serieFiltro !== "todas" && (r.serie || "") !== serieFiltro) return false;
+        return true;
+      }),
+    [rows, statusFiltro, serieFiltro],
+  );
+
+  const total = useMemo(
+    () => filtered.filter((r) => r.status !== "cancelada").reduce((a, r) => a + r.total, 0),
+    [filtered],
+  );
+  const canceladas = useMemo(
+    () => filtered.filter((r) => r.status === "cancelada").length,
+    [filtered],
+  );
+  const totalCanceladas = useMemo(
+    () => filtered.filter((r) => r.status === "cancelada").reduce((a, r) => a + r.total, 0),
+    [filtered],
+  );
 
   async function handleExport() {
-    if (rows.length === 0) {
+    if (filtered.length === 0) {
       toast.warning("Sem dados para exportar.");
       return;
     }
@@ -126,7 +155,7 @@ function Conteudo() {
         { header: "Total", accessor: (r) => r.total, type: "currency" },
         { header: "Status", accessor: (r) => r.status, type: "text" },
       ];
-      exportRowsToCSV("fiscal", rows, columns);
+      exportRowsToCSV("fiscal", filtered, columns);
       toast.success("Download iniciado", { id: "export-fiscal" });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Falha", { id: "export-fiscal" });
@@ -165,37 +194,80 @@ function Conteudo() {
 
       <Card>
         <CardContent className="p-4">
-          <div className="max-w-xs">
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">
-              Período
-            </label>
-            <Select value={periodo} onValueChange={(v) => setPeriodo(v as Periodo)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="30d">Últimos 30 dias</SelectItem>
-                <SelectItem value="mes">Este mês</SelectItem>
-                <SelectItem value="ano">Este ano</SelectItem>
-                <SelectItem value="todos">Todo período</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                Período
+              </label>
+              <Select value={periodo} onValueChange={(v) => setPeriodo(v as Periodo)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="30d">Últimos 30 dias</SelectItem>
+                  <SelectItem value="mes">Este mês</SelectItem>
+                  <SelectItem value="ano">Este ano</SelectItem>
+                  <SelectItem value="todos">Todo período</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                Status
+              </label>
+              <Select value={statusFiltro} onValueChange={setStatusFiltro}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos</SelectItem>
+                  <SelectItem value="finalizada">Finalizada</SelectItem>
+                  <SelectItem value="cancelada">Cancelada</SelectItem>
+                  <SelectItem value="pendente">Pendente</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                Série
+              </label>
+              <Select value={serieFiltro} onValueChange={setSerieFiltro}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todas">Todas</SelectItem>
+                  {seriesDisponiveis.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <StatCard
           label="Notas emitidas"
-          value={rows.length.toString()}
+          value={filtered.length.toString()}
           icon={FileText}
           iconTone="primary"
         />
         <StatCard
           label="Total faturado"
           value={formatBRL(total)}
+          hint="Excluindo canceladas"
           icon={FileText}
           iconTone="success"
+        />
+        <StatCard
+          label="Canceladas"
+          value={`${canceladas} • ${formatBRL(totalCanceladas)}`}
+          icon={FileText}
+          iconTone="warning"
         />
       </div>
 
