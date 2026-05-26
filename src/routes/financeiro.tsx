@@ -373,7 +373,7 @@ function FinanceContent() {
                 Exportar resumo
               </Button>
             )}
-            {activeTab !== "fluxo" && (
+            {activeTab !== "fluxo" && activeTab !== "fiados" && (
               <Button size="sm" className="gap-1.5" onClick={() => setNovoOpen(true)}>
                 <Plus className="h-4 w-4" />
                 Novo lançamento
