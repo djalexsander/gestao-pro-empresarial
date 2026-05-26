@@ -150,6 +150,7 @@ pub fn run() {
             print_pdf_bytes,
             print_raw_escpos,
             print_receipt_text,
+            print_label_image,
         ])
         .setup(|_app| {
             // Aplica restauração pendente ANTES de abrir o banco. Se houver
