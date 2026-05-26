@@ -94,7 +94,13 @@ const TABLE_TO_DOMAIN: Record<string, DataDomain[]> = {
   categorias_produto: ["categorias_produto", "produtos"],
   categorias_financeiras: ["categorias_financeiras"],
   lotes_produto: ["lotes", "estoque"],
+  empresa_membros: ["socios"],
+  configuracoes_empresa: ["empresa"],
+  empresa_modulos: ["modulos"],
+  modulos: ["modulos"],
+  planos: ["modulos"],
 };
+
 
 /** Tabelas que algum adapter precisa saber escutar. */
 export function realtimeTables(): string[] {

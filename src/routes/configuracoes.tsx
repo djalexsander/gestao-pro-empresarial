@@ -1,8 +1,10 @@
 import { createFileRoute, useSearch } from "@tanstack/react-router";
+import { useEffect, useRef, type ReactNode } from "react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
+
 
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { EmpresaTab } from "@/components/configuracoes/EmpresaTab";
@@ -42,40 +44,15 @@ function SettingsPage() {
 
       <Tabs value={tab} className="space-y-4">
         <div className="min-w-0 flex-1">
-
-          <TabsContent value="empresa" className="mt-0">
-            <EmpresaTab />
-          </TabsContent>
-
-          <TabsContent value="planos" className="mt-0">
-            <PlanosModulosTab />
-          </TabsContent>
-
-          <TabsContent value="socios" className="mt-0">
-            <SociosTab />
-          </TabsContent>
-
-          <TabsContent value="funcionarios" className="mt-0">
-            <FuncionariosTab />
-          </TabsContent>
-
-          <TabsContent value="terminais" className="mt-0">
-            <TerminaisTab />
-          </TabsContent>
-
-          <TabsContent value="balanca" className="mt-0">
-            <BalancaTab />
-          </TabsContent>
-
-          <TabsContent value="desktop" className="mt-0">
-            <DesktopTab />
-          </TabsContent>
-
-          <TabsContent value="impressoras" className="mt-0">
-            <ImpressoraConfigCard />
-          </TabsContent>
-
-          <TabsContent value="prefs" className="mt-0">
+          <KeepMountedTab value="empresa" active={tab}><EmpresaTab /></KeepMountedTab>
+          <KeepMountedTab value="planos" active={tab}><PlanosModulosTab /></KeepMountedTab>
+          <KeepMountedTab value="socios" active={tab}><SociosTab /></KeepMountedTab>
+          <KeepMountedTab value="funcionarios" active={tab}><FuncionariosTab /></KeepMountedTab>
+          <KeepMountedTab value="terminais" active={tab}><TerminaisTab /></KeepMountedTab>
+          <KeepMountedTab value="balanca" active={tab}><BalancaTab /></KeepMountedTab>
+          <KeepMountedTab value="desktop" active={tab}><DesktopTab /></KeepMountedTab>
+          <KeepMountedTab value="impressoras" active={tab}><ImpressoraConfigCard /></KeepMountedTab>
+          <KeepMountedTab value="prefs" active={tab}>
             <Card>
               <CardHeader>
                 <CardTitle>Preferências</CardTitle>
@@ -98,16 +75,42 @@ function SettingsPage() {
                 <DarkModeSwitchRow />
               </CardContent>
             </Card>
-          </TabsContent>
-
-          <TabsContent value="integracoes" className="mt-0">
-            <IntegracoesTab />
-          </TabsContent>
+          </KeepMountedTab>
+          <KeepMountedTab value="integracoes" active={tab}><IntegracoesTab /></KeepMountedTab>
         </div>
       </Tabs>
     </div>
   );
 }
+
+/**
+ * Mantém o conteúdo da aba montado depois da primeira visita, escondendo via
+ * CSS quando não está ativa. Evita refetch / remount toda vez que o usuário
+ * troca de aba — a segunda visita é instantânea.
+ */
+function KeepMountedTab({
+  value,
+  active,
+  children,
+}: {
+  value: string;
+  active: string;
+  children: ReactNode;
+}) {
+  const visited = useRef(false);
+  if (active === value) visited.current = true;
+  useEffect(() => {
+    if (active === value) visited.current = true;
+  }, [active, value]);
+
+  if (!visited.current) return null;
+  return (
+    <TabsContent value={value} forceMount className="mt-0 data-[state=inactive]:hidden">
+      {children}
+    </TabsContent>
+  );
+}
+
 
 function DarkModeSwitchRow() {
   const { resolvedTheme, setTheme } = useTheme();
