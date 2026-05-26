@@ -72,6 +72,7 @@ export const MODULES: ModuleDef[] = [
       { to: "/compras", label: "Compras", icon: ShoppingCart, description: "Pedidos a fornecedores" },
       { to: "/vendas", label: "Vendas", icon: Receipt, description: "Pedidos e faturamento" },
       { to: "/caixa", label: "Caixa", icon: CircleDollarSign, description: "Abertura, operação e fechamento" },
+      { to: "/relatorios/produtos-vendidos", label: "Produtos Vendidos", icon: BarChart3, description: "Análise de produtos vendidos" },
     ],
   },
   {
