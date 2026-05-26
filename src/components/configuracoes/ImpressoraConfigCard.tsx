@@ -86,10 +86,25 @@ function parseFormato(f: string): [number, number] {
 
 const FORMATOS_ETIQUETA = [
   { value: "50x30", label: "50 × 30 mm" },
+  { value: "40x30", label: "40 × 30 mm" },
+  { value: "50x50", label: "50 × 50 mm" },
   { value: "60x40", label: "60 × 40 mm" },
   { value: "80x40", label: "80 × 40 mm" },
   { value: "80mm", label: "80 mm (cupom)" },
 ];
+
+function formatLabel(value: string): string {
+  const [w, h] = parseFormato(value);
+  return `${w} × ${h} mm`;
+}
+
+function normalizarFormatoEtiqueta(width: string, height: string): string | null {
+  const w = Number(width);
+  const h = Number(height);
+  if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
+  if (w < 20 || w > 120 || h < 15 || h > 120) return null;
+  return `${Math.round(w)}x${Math.round(h)}`;
+}
 
 /* -------------------------------------------------------------------------- */
 /* Seção genérica reutilizável                                                 */
