@@ -326,7 +326,8 @@ export function ImpressoraConfigCard() {
     if (!labelP) return;
     setTestandoEtiqueta(true);
     try {
-      await printPdfBytes(gerarTesteEtiquetaPdf(labelFmt), labelP);
+      const png = await gerarTesteEtiquetaPng(labelFmt);
+      await printLabelImage(png, labelP, 1);
       toast.success(`Teste enviado para "${labelP}".`);
     } catch (e) {
       toast.error(`Falha no teste: ${e instanceof Error ? e.message : String(e)}`);
