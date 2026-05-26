@@ -106,45 +106,52 @@ export function EtiquetaImpressaoDialog({
     setPreviewErro(null);
     const codigo = produto?.codigo?.trim() ?? "";
     if (!codigo) {
-      setPreviewErro("Produto sem código de barras. Gere ou informe um código primeiro.");
+      setPreviewErro("Produto sem código para imprimir.");
       return;
     }
-    // Barcode (sempre que houver SVG montado)
-    if (barcodeRef.current) {
-      const fmt = validarEan13(codigo) ? "EAN13" : "CODE128";
-      try {
-        // Limpa render anterior
-        while (barcodeRef.current.firstChild) {
-          barcodeRef.current.removeChild(barcodeRef.current.firstChild);
+
+    // Pequeno delay para garantir que o SVG/canvas estejam montados no DOM
+    // logo após o dialog abrir (alguns ciclos de render do Radix Dialog
+    // podem trocar o ref imediatamente após o open).
+    const t = window.setTimeout(() => {
+      // Barcode
+      if (barcodeRef.current) {
+        const fmt = validarEan13(codigo) ? "EAN13" : "CODE128";
+        try {
+          while (barcodeRef.current.firstChild) {
+            barcodeRef.current.removeChild(barcodeRef.current.firstChild);
+          }
+          JsBarcode(barcodeRef.current, codigo, {
+            format: fmt,
+            width: 2,
+            height: 52,
+            displayValue: true,
+            margin: 2,
+            fontSize: 12,
+            background: "#ffffff",
+            lineColor: "#000000",
+          });
+        } catch (e) {
+          console.warn("[etiqueta] falha ao renderizar barcode", e);
+          setPreviewErro(
+            "Código inválido para gerar barras. Verifique o código do produto.",
+          );
         }
-        JsBarcode(barcodeRef.current, codigo, {
-          format: fmt,
-          width: 2,
-          height: 48,
-          displayValue: true,
-          margin: 2,
-          fontSize: 12,
-          background: "#ffffff",
-          lineColor: "#000000",
-        });
-      } catch (e) {
-        console.warn("[etiqueta] falha ao renderizar barcode", e);
-        setPreviewErro(
-          "Código inválido para barras. Verifique o código do produto.",
-        );
       }
-    }
-    // QR (quando ativado)
-    if (incluirQr && qrRef.current) {
-      QRCode.toCanvas(qrRef.current, codigo, {
-        margin: 0,
-        width: 96,
-        color: { dark: "#000000", light: "#ffffff" },
-      }).catch((e) => {
-        console.warn("[etiqueta] falha ao renderizar QR", e);
-      });
-    }
+      // QR (quando ativado)
+      if (incluirQr && qrRef.current) {
+        QRCode.toCanvas(qrRef.current, codigo, {
+          margin: 0,
+          width: 96,
+          color: { dark: "#000000", light: "#ffffff" },
+        }).catch((e) => {
+          console.warn("[etiqueta] falha ao renderizar QR", e);
+        });
+      }
+    }, 30);
+    return () => window.clearTimeout(t);
   }, [open, produto?.codigo, incluirQr, mostrarNome, mostrarPreco, formato]);
+
 
   async function handlePrint() {
     if (!produto?.codigo) return;
@@ -215,38 +222,45 @@ export function EtiquetaImpressaoDialog({
             </p>
           ) : (
             <div className="space-y-4">
-              <div className="rounded-md border border-border bg-white p-3 text-black">
-                {previewErro ? (
-                  <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
-                    <span>⚠️</span>
-                    <span>{previewErro}</span>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center gap-1">
-                    {mostrarNome && (
-                      <div className="line-clamp-2 max-w-full text-center text-[11px] font-semibold leading-tight">
-                        {produto.nome}
-                      </div>
-                    )}
-                    <div className="flex w-full items-center justify-center gap-3">
-                      <svg
-                        ref={barcodeRef}
-                        className="block max-h-[64px] w-auto"
-                      />
-                      {incluirQr && (
-                        <canvas
-                          ref={qrRef}
-                          className="block h-[64px] w-[64px]"
-                        />
-                      )}
+              <div
+                className="rounded-md border border-border bg-white p-3 text-black"
+                style={{ minHeight: 120 }}
+              >
+                <div className="flex flex-col items-center gap-1.5">
+                  {mostrarNome && produto.nome && (
+                    <div className="line-clamp-2 max-w-full text-center text-[11px] font-semibold leading-tight">
+                      {produto.nome}
                     </div>
-                    {mostrarPreco && produto.preco != null && (
-                      <div className="text-sm font-bold">
-                        R$ {Number(produto.preco).toFixed(2).replace(".", ",")}
-                      </div>
+                  )}
+                  <div
+                    className="flex w-full items-center justify-center gap-3"
+                    style={{ minHeight: 72 }}
+                  >
+                    {/* SVG sempre montado (mesmo com erro) — JsBarcode escreve
+                        dentro dele no useEffect. */}
+                    <svg
+                      ref={barcodeRef}
+                      className="block max-h-[68px] w-auto"
+                      style={{ minWidth: 120, minHeight: 56 }}
+                    />
+                    {incluirQr && (
+                      <canvas
+                        ref={qrRef}
+                        className="block h-[64px] w-[64px]"
+                      />
                     )}
                   </div>
-                )}
+                  {mostrarPreco && produto.preco != null && (
+                    <div className="text-sm font-bold">
+                      R$ {Number(produto.preco).toFixed(2).replace(".", ",")}
+                    </div>
+                  )}
+                  {previewErro && (
+                    <div className="mt-1 w-full rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-center text-[11px] text-amber-800">
+                      {previewErro}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {desktop && (
@@ -635,7 +649,7 @@ function printViaBrowser(args: {
   } catch (e) {
     console.error("[etiqueta] falha ao montar iframe", e);
     toast.error(
-      "Não foi possível abrir a impressão. Tente novamente ou gere um PDF.",
+      "Não foi possível iniciar a impressão. Tente novamente ou gere um PDF.",
     );
   }
 }
