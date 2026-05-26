@@ -25,7 +25,14 @@ export const Route = createFileRoute("/configuracoes")({
   component: SettingsPage,
 });
 
+const TAB_VALUES = ["empresa","planos","socios","funcionarios","terminais","balanca","desktop","impressoras","prefs","integracoes"] as const;
+
 function SettingsPage() {
+  const search = useSearch({ strict: false }) as { tab?: string };
+  const tab = TAB_VALUES.includes(search.tab as typeof TAB_VALUES[number])
+    ? (search.tab as string)
+    : "empresa";
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -33,21 +40,9 @@ function SettingsPage() {
         description="Personalize o sistema de acordo com sua operação."
       />
 
-      <Tabs defaultValue="empresa" orientation="vertical" className="flex flex-col gap-6 lg:flex-row lg:items-start">
-        <TabsList className="flex h-auto w-full flex-row flex-wrap justify-start gap-1 bg-muted/40 p-1 lg:w-56 lg:shrink-0 lg:flex-col lg:flex-nowrap">
-          <TabsTrigger value="empresa" className="w-full justify-start">Empresa</TabsTrigger>
-          <TabsTrigger value="planos" className="w-full justify-start">Planos e módulos</TabsTrigger>
-          <TabsTrigger value="socios" className="w-full justify-start">Sócios e Admins</TabsTrigger>
-          <TabsTrigger value="funcionarios" className="w-full justify-start">Funcionários</TabsTrigger>
-          <TabsTrigger value="terminais" className="w-full justify-start">Terminais</TabsTrigger>
-          <TabsTrigger value="balanca" className="w-full justify-start">Balança</TabsTrigger>
-          <TabsTrigger value="desktop" className="w-full justify-start">Desktop</TabsTrigger>
-          <TabsTrigger value="impressoras" className="w-full justify-start">Impressoras</TabsTrigger>
-          <TabsTrigger value="prefs" className="w-full justify-start">Preferências</TabsTrigger>
-          <TabsTrigger value="integracoes" className="w-full justify-start">Integrações</TabsTrigger>
-        </TabsList>
-
+      <Tabs value={tab} className="space-y-4">
         <div className="min-w-0 flex-1">
+
           <TabsContent value="empresa" className="mt-0">
             <EmpresaTab />
           </TabsContent>
