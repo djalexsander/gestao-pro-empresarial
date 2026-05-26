@@ -488,16 +488,18 @@ async function gerarEtiquetaPng(args: GerarPngArgs): Promise<Uint8Array> {
   const nomeFontPx = showNome
     ? Math.max(mm(2.2), Math.min(mm(3.6), innerH * 0.13))
     : 0;
+  // Preço com mais destaque que antes (~28% da altura útil, teto mm(7.5)).
   const precoFontPx = showPreco
-    ? Math.max(mm(3.2), Math.min(mm(6.0), innerH * 0.22))
+    ? Math.max(mm(3.6), Math.min(mm(7.5), innerH * 0.28))
     : 0;
 
-  const nomeAreaH = showNome ? nomeFontPx * 2.1 : 0;
+  // Nome em 1 linha apenas (auto-fit reduz fonte se necessário).
+  const nomeAreaH = showNome ? nomeFontPx * 1.2 : 0;
   const precoAreaH = showPreco ? precoFontPx * 1.25 : 0;
 
-  // Pequenos gaps para aproximar o nome do código.
-  const gapNomeBarcode = showNome ? mm(0.4) : 0;
-  const gapBarcodePreco = showPreco ? mm(0.6) : 0;
+  // Nome bem próximo do barcode; preço com respiro um pouco maior.
+  const gapNomeBarcode = showNome ? mm(0.3) : 0;
+  const gapBarcodePreco = showPreco ? mm(0.8) : 0;
 
   const barcodeAreaY = padY + nomeAreaH + gapNomeBarcode;
   const barcodeAreaH =
@@ -510,7 +512,7 @@ async function gerarEtiquetaPng(args: GerarPngArgs): Promise<Uint8Array> {
       produto.nome,
       innerW,
       `bold ${Math.round(nomeFontPx)}px Arial, sans-serif`,
-      2,
+      1,
     );
     const fontFinal = quebra.fontPx;
     ctx.font = `bold ${fontFinal}px Arial, sans-serif`;
@@ -554,10 +556,12 @@ async function gerarEtiquetaPng(args: GerarPngArgs): Promise<Uint8Array> {
   // Largura da barra fina em px (módulo). EAN13 ≈ 113 módulos com texto.
   const targetModules = barcodeFmt === "EAN13" ? 113 : 140;
   const barWidth = Math.max(1, Math.floor(bcAreaW / targetModules));
-  const bcHeightPx = Math.max(mm(6), Math.min(barcodeAreaH * 0.78, mm(22)));
+  // Barcode mais baixo: ocupa ~50% da área central, com teto menor.
+  // Reduz ~35% em relação ao layout anterior, preservando legibilidade.
+  const bcHeightPx = Math.max(mm(4), Math.min(barcodeAreaH * 0.5, mm(14)));
   const bcFontSize = Math.max(
-    10,
-    Math.min(Math.round(mm(2.2)), Math.round(precoFontPx * 0.55) || 999),
+    9,
+    Math.min(Math.round(mm(2.0)), Math.round(precoFontPx * 0.45) || 999),
   );
 
   try {
