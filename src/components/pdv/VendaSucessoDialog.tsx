@@ -304,6 +304,36 @@ export function VendaSucessoDialog({
       warning={pickerWarning}
       onSelect={(name) => void handlePickerSelect(name)}
     />
+    <Dialog
+      open={noPrinterOpen}
+      onOpenChange={(v) => {
+        setNoPrinterOpen(v);
+        if (!v) setNoPrinterMsg(null);
+      }}
+    >
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Nenhuma impressora encontrada</DialogTitle>
+          <DialogDescription>
+            {noPrinterMsg ??
+              "Nenhuma impressora encontrada neste computador. Você pode salvar o comprovante como PDF."}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <Button variant="outline" onClick={() => setNoPrinterOpen(false)}>
+            Cancelar
+          </Button>
+          <Button
+            onClick={() => {
+              setNoPrinterOpen(false);
+              void handleBaixarPdf();
+            }}
+          >
+            <Download className="h-4 w-4" /> Salvar comprovante
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
     </>
   );
 }
