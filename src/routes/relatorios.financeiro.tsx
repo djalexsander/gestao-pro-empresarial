@@ -11,6 +11,8 @@ import {
   Filter,
   RotateCcw,
   TrendingUp,
+  AlertTriangle,
+  Percent,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -171,6 +173,7 @@ function Conteudo() {
   const [tipoFiltro, setTipoFiltro] = useState<TipoFiltro>("todos");
   const [categoriaFiltro, setCategoriaFiltro] = useState<string>("todas");
   const [statusFiltro, setStatusFiltro] = useState<StatusFiltro>("todos");
+  const [formaFiltro, setFormaFiltro] = useState<string>("todas");
 
   // Filtros aplicados (separados para botão "Aplicar")
   const [aplicado, setAplicado] = useState({
@@ -293,9 +296,20 @@ function Conteudo() {
         const sv = statusVisual(r);
         if (sv !== statusFiltro) return false;
       }
+      if (formaFiltro !== "todas" && (r.forma_pagamento ?? "") !== formaFiltro)
+        return false;
       return true;
     });
-  }, [rows, tipoFiltro, categoriaFiltro, statusFiltro]);
+  }, [rows, tipoFiltro, categoriaFiltro, statusFiltro, formaFiltro]);
+
+  // Formas de pagamento presentes no período (para popular o select)
+  const formasDisponiveis = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rows) {
+      if (r.forma_pagamento) set.add(r.forma_pagamento);
+    }
+    return Array.from(set).sort();
+  }, [rows]);
 
   // ---- Cards principais ----
   const totais = useMemo(() => {
