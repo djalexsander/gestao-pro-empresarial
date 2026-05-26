@@ -130,6 +130,15 @@ export function setReceiptPrinter(name: string | null): void {
     // Mantém o legado em sincronia para retrocompat.
     defaultPrinter: name,
   });
+
+export function getReceiptWidthMm(): 58 | 80 {
+  const v = getDesktopConfig().receiptWidthMm;
+  return v === 58 ? 58 : 80;
+}
+
+export function setReceiptWidthMm(width: 58 | 80): void {
+  const cfg = getDesktopConfig();
+  setDesktopConfig({ ...cfg, receiptWidthMm: width });
 }
 
 export function getLabelPrinter(): string | null {
