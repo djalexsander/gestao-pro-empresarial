@@ -4458,6 +4458,7 @@ export type Database = {
         Args: { _plano_id: string }
         Returns: string
       }
+      solicitar_mensalidade: { Args: never; Returns: string }
       terminais_listar: {
         Args: never
         Returns: {
