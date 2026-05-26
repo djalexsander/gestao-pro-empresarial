@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import JsBarcode from "jsbarcode";
 import QRCode from "qrcode";
 import {
-  Tags,
   Printer,
   Loader2,
   Search,
