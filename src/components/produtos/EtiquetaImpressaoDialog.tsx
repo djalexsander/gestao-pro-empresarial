@@ -31,6 +31,7 @@ import {
   setLabelPrinter,
   getLabelFormat,
   setLabelFormat,
+  getLabelCustomFormats,
   printPdfBytes,
 } from "@/integrations/desktop/printers";
 import { PrinterPickerDialog } from "@/components/desktop/PrinterPickerDialog";
@@ -47,17 +48,31 @@ interface EtiquetaImpressaoDialogProps {
   } | null;
 }
 
-type FormatoEtiqueta = "50x30" | "60x40" | "80x40" | "a4-grade";
+type FormatoEtiqueta = string;
 
 const FORMATOS: Record<
   FormatoEtiqueta,
   { label: string; w: number; h: number }
 > = {
   "50x30": { label: "Etiqueta 50×30 mm", w: 50, h: 30 },
+  "40x30": { label: "Etiqueta 40×30 mm", w: 40, h: 30 },
+  "50x50": { label: "Etiqueta 50×50 mm", w: 50, h: 50 },
   "60x40": { label: "Etiqueta 60×40 mm", w: 60, h: 40 },
   "80x40": { label: "Etiqueta 80×40 mm", w: 80, h: 40 },
   "a4-grade": { label: "Folha A4 (grade)", w: 210, h: 297 },
 };
+
+function getFormatoInfo(formato: string): { label: string; w: number; h: number } {
+  const fixed = FORMATOS[formato];
+  if (fixed) return fixed;
+  const match = /^(\d{2,3})x(\d{2,3})$/i.exec(formato.trim());
+  if (match) {
+    const w = Number(match[1]);
+    const h = Number(match[2]);
+    return { label: `Etiqueta ${w}×${h} mm`, w, h };
+  }
+  return FORMATOS["50x30"];
+}
 
 /**
  * Dialog para configurar e imprimir etiqueta de código de barras.
