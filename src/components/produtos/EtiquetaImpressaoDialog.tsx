@@ -106,45 +106,52 @@ export function EtiquetaImpressaoDialog({
     setPreviewErro(null);
     const codigo = produto?.codigo?.trim() ?? "";
     if (!codigo) {
-      setPreviewErro("Produto sem código de barras. Gere ou informe um código primeiro.");
+      setPreviewErro("Produto sem código para imprimir.");
       return;
     }
-    // Barcode (sempre que houver SVG montado)
-    if (barcodeRef.current) {
-      const fmt = validarEan13(codigo) ? "EAN13" : "CODE128";
-      try {
-        // Limpa render anterior
-        while (barcodeRef.current.firstChild) {
-          barcodeRef.current.removeChild(barcodeRef.current.firstChild);
+
+    // Pequeno delay para garantir que o SVG/canvas estejam montados no DOM
+    // logo após o dialog abrir (alguns ciclos de render do Radix Dialog
+    // podem trocar o ref imediatamente após o open).
+    const t = window.setTimeout(() => {
+      // Barcode
+      if (barcodeRef.current) {
+        const fmt = validarEan13(codigo) ? "EAN13" : "CODE128";
+        try {
+          while (barcodeRef.current.firstChild) {
+            barcodeRef.current.removeChild(barcodeRef.current.firstChild);
+          }
+          JsBarcode(barcodeRef.current, codigo, {
+            format: fmt,
+            width: 2,
+            height: 52,
+            displayValue: true,
+            margin: 2,
+            fontSize: 12,
+            background: "#ffffff",
+            lineColor: "#000000",
+          });
+        } catch (e) {
+          console.warn("[etiqueta] falha ao renderizar barcode", e);
+          setPreviewErro(
+            "Código inválido para gerar barras. Verifique o código do produto.",
+          );
         }
-        JsBarcode(barcodeRef.current, codigo, {
-          format: fmt,
-          width: 2,
-          height: 48,
-          displayValue: true,
-          margin: 2,
-          fontSize: 12,
-          background: "#ffffff",
-          lineColor: "#000000",
-        });
-      } catch (e) {
-        console.warn("[etiqueta] falha ao renderizar barcode", e);
-        setPreviewErro(
-          "Código inválido para barras. Verifique o código do produto.",
-        );
       }
-    }
-    // QR (quando ativado)
-    if (incluirQr && qrRef.current) {
-      QRCode.toCanvas(qrRef.current, codigo, {
-        margin: 0,
-        width: 96,
-        color: { dark: "#000000", light: "#ffffff" },
-      }).catch((e) => {
-        console.warn("[etiqueta] falha ao renderizar QR", e);
-      });
-    }
+      // QR (quando ativado)
+      if (incluirQr && qrRef.current) {
+        QRCode.toCanvas(qrRef.current, codigo, {
+          margin: 0,
+          width: 96,
+          color: { dark: "#000000", light: "#ffffff" },
+        }).catch((e) => {
+          console.warn("[etiqueta] falha ao renderizar QR", e);
+        });
+      }
+    }, 30);
+    return () => window.clearTimeout(t);
   }, [open, produto?.codigo, incluirQr, mostrarNome, mostrarPreco, formato]);
+
 
   async function handlePrint() {
     if (!produto?.codigo) return;
@@ -642,7 +649,7 @@ function printViaBrowser(args: {
   } catch (e) {
     console.error("[etiqueta] falha ao montar iframe", e);
     toast.error(
-      "Não foi possível abrir a impressão. Tente novamente ou gere um PDF.",
+      "Não foi possível iniciar a impressão. Tente novamente ou gere um PDF.",
     );
   }
 }
