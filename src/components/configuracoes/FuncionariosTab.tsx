@@ -213,6 +213,8 @@ export function FuncionariosTab() {
         </AlertDialogContent>
       </AlertDialog>
     </Card>
+    <SaveBar />
+    </div>
   );
 }
 
