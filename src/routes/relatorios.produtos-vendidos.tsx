@@ -696,22 +696,24 @@ function Conteudo() {
       {/* Métricas */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          title="Qtd vendida"
+          label="Qtd vendida"
           value={metricas.qtd.toLocaleString("pt-BR")}
           icon={Hash}
         />
         <StatCard
-          title="Faturamento"
+          label="Faturamento"
           value={formatBRL(metricas.receita)}
           icon={DollarSign}
+          iconTone="success"
         />
         <StatCard
-          title="Lucro bruto"
+          label="Lucro bruto"
           value={formatBRL(metricas.lucro)}
           icon={TrendingUp}
+          iconTone="success"
         />
         <StatCard
-          title="Margem média"
+          label="Margem média"
           value={`${metricas.margem.toFixed(2)}%`}
           icon={Package}
         />
