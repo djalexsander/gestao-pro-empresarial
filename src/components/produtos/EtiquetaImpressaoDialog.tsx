@@ -254,9 +254,9 @@ export function EtiquetaImpressaoDialog({
                 className="rounded-md border border-border bg-white p-3 text-black"
                 style={{ minHeight: 120 }}
               >
-                <div className="flex flex-col items-center gap-1.5">
+                <div className="flex flex-col items-center gap-0.5">
                   {mostrarNome && produto.nome && (
-                    <div className="line-clamp-2 max-w-full text-center text-[11px] font-semibold leading-tight">
+                    <div className="line-clamp-2 max-w-full text-center text-[12px] font-semibold leading-tight">
                       {produto.nome}
                     </div>
                   )}
@@ -264,12 +264,10 @@ export function EtiquetaImpressaoDialog({
                     className="flex w-full items-center justify-center gap-3"
                     style={{ minHeight: 72 }}
                   >
-                    {/* SVG sempre montado (mesmo com erro) — JsBarcode escreve
-                        dentro dele no useEffect. */}
                     <svg
                       ref={barcodeRef}
-                      className="block max-h-[68px] w-auto"
-                      style={{ minWidth: 120, minHeight: 56 }}
+                      className="block max-h-[70px] w-auto"
+                      style={{ maxWidth: "80%", minHeight: 56 }}
                     />
                     {incluirQr && (
                       <canvas
@@ -279,7 +277,7 @@ export function EtiquetaImpressaoDialog({
                     )}
                   </div>
                   {mostrarPreco && produto.preco != null && (
-                    <div className="text-sm font-bold">
+                    <div className="text-lg font-extrabold leading-none">
                       R$ {Number(produto.preco).toFixed(2).replace(".", ",")}
                     </div>
                   )}
