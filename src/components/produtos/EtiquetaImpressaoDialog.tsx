@@ -423,7 +423,143 @@ export function EtiquetaImpressaoDialog({
 }
 
 /* -------------------------------------------------------------------------- */
-/* Geração de PDF (desktop)                                                    */
+/* Geração de PNG (desktop — GDI/Windows)                                      */
+/* -------------------------------------------------------------------------- */
+
+interface GerarPngArgs {
+  produto: { nome: string; codigo: string; preco?: number | null };
+  formato: string;
+  mostrarNome: boolean;
+  mostrarPreco: boolean;
+  incluirQr: boolean;
+}
+
+/**
+ * Renderiza a etiqueta em um canvas off-screen e devolve PNG (Uint8Array).
+ * O Rust desenha esse PNG via GDI no driver Windows da impressora (PT260,
+ * Argox, Zebra-GK Windows, etc.). Resolução fixa em ~12 px/mm para texto
+ * e barras nítidas em qualquer DPI do driver (o GDI faz fit proporcional).
+ */
+async function gerarEtiquetaPng(args: GerarPngArgs): Promise<Uint8Array> {
+  const { produto, formato, mostrarNome, mostrarPreco, incluirQr } = args;
+  const fmt = getFormatoInfo(formato);
+  const PX_PER_MM = 12; // ~305 DPI — suficiente para 50x30 mm.
+  const W = Math.round(fmt.w * PX_PER_MM);
+  const H = Math.round(fmt.h * PX_PER_MM);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D indisponível");
+
+  // Fundo branco (drivers GDI assumem fundo do papel).
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#000000";
+
+  const padX = Math.round(1.5 * PX_PER_MM);
+  const padY = Math.round(1.2 * PX_PER_MM);
+  let y = padY;
+
+  // Nome do produto (top)
+  if (mostrarNome && produto.nome) {
+    const nome = truncar(produto.nome, 30);
+    const fontPx = Math.max(10, Math.round(2.4 * PX_PER_MM));
+    ctx.font = `bold ${fontPx}px Arial, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText(nome, W / 2, y, W - padX * 2);
+    y += fontPx + Math.round(0.5 * PX_PER_MM);
+  }
+
+  // Preço (reserva bottom)
+  const showPreco = mostrarPreco && produto.preco != null;
+  const precoH = showPreco ? Math.round(4.5 * PX_PER_MM) : 0;
+
+  // QR opcional à direita
+  let qrCanvas: HTMLCanvasElement | null = null;
+  let qrSize = 0;
+  if (incluirQr) {
+    const targetMm = Math.min(fmt.h - 4, 16);
+    qrSize = Math.round(targetMm * PX_PER_MM);
+    qrCanvas = document.createElement("canvas");
+    try {
+      await QRCode.toCanvas(qrCanvas, produto.codigo, {
+        margin: 0,
+        width: qrSize,
+        color: { dark: "#000000", light: "#ffffff" },
+      });
+    } catch {
+      qrCanvas = null;
+      qrSize = 0;
+    }
+  }
+
+  // Barcode
+  const barcodeFmt = validarEan13(produto.codigo) ? "EAN13" : "CODE128";
+  const bcCanvas = document.createElement("canvas");
+  try {
+    JsBarcode(bcCanvas, produto.codigo, {
+      format: barcodeFmt,
+      width: 2,
+      height: 80,
+      displayValue: true,
+      margin: 0,
+      fontSize: 16,
+      background: "#ffffff",
+      lineColor: "#000000",
+    });
+  } catch {
+    // Mesmo com falha, deixa o canvas em branco para não quebrar layout.
+  }
+
+  // Área para o barcode (entre y atual e topo do preço)
+  const areaY = y;
+  const areaH = H - areaY - precoH - padY;
+  const bcAreaW = qrCanvas ? W - qrSize - padX * 3 : W - padX * 2;
+
+  if (bcCanvas.width > 0 && bcCanvas.height > 0 && areaH > 0 && bcAreaW > 0) {
+    const scale = Math.min(bcAreaW / bcCanvas.width, areaH / bcCanvas.height);
+    const dw = bcCanvas.width * scale;
+    const dh = bcCanvas.height * scale;
+    const dx = padX + (bcAreaW - dw) / 2;
+    const dy = areaY + (areaH - dh) / 2;
+    ctx.drawImage(bcCanvas, dx, dy, dw, dh);
+  }
+
+  if (qrCanvas) {
+    const qx = W - qrSize - padX;
+    const qy = areaY + Math.max(0, (areaH - qrSize) / 2);
+    ctx.drawImage(qrCanvas, qx, qy, qrSize, qrSize);
+  }
+
+  // Preço (bottom)
+  if (showPreco) {
+    const fontPx = Math.max(14, Math.round(3.5 * PX_PER_MM));
+    ctx.font = `bold ${fontPx}px Arial, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.fillText(
+      `R$ ${Number(produto.preco).toFixed(2).replace(".", ",")}`,
+      W / 2,
+      H - padY,
+      W - padX * 2,
+    );
+  }
+
+  const blob: Blob = await new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("toBlob retornou null"))),
+      "image/png",
+    );
+  });
+  const buf = await blob.arrayBuffer();
+  return new Uint8Array(buf);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Geração de PDF (mantido para fallback A4-grade via navegador)               */
 /* -------------------------------------------------------------------------- */
 
 interface GerarPdfArgs {
@@ -435,6 +571,9 @@ interface GerarPdfArgs {
   incluirQr: boolean;
 }
 
+// Mantido apenas para referência / casos futuros. Não é mais chamado pelo
+// fluxo desktop de etiquetas (substituído pelo PNG/GDI).
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function gerarEtiquetaPdf(args: GerarPdfArgs): Promise<Uint8Array> {
   const { produto, formato, copias, mostrarNome, mostrarPreco, incluirQr } =
     args;
