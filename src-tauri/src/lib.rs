@@ -109,6 +109,23 @@ fn print_receipt_text(
     printers::print_raw(&printer_name, "Gestao Pro Cupom", &bytes)
 }
 
+/// Imprime uma etiqueta como imagem PNG via GDI (Windows) ou `lp` (Unix).
+/// Caminho separado do cupom: usa o spooler normal do Windows, compatível
+/// com PT260 e qualquer driver GDI (não usa RAW/ESC-POS).
+#[tauri::command]
+fn print_label_image(
+    bytes: Vec<u8>,
+    printer_name: String,
+    copies: Option<u32>,
+) -> Result<String, String> {
+    printers::print_image_png(
+        &printer_name,
+        "Gestao Pro Etiqueta",
+        &bytes,
+        copies.unwrap_or(1),
+    )
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -133,6 +150,7 @@ pub fn run() {
             print_pdf_bytes,
             print_raw_escpos,
             print_receipt_text,
+            print_label_image,
         ])
         .setup(|_app| {
             // Aplica restauração pendente ANTES de abrir o banco. Se houver

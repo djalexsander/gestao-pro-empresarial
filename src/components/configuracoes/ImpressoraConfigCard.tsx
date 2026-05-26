@@ -33,6 +33,7 @@ import {
   addLabelCustomFormat,
   listPrinters,
   printPdfBytes,
+  printLabelImage,
   printReceiptText,
   type PrinterInfo,
 } from "@/integrations/desktop/printers";
@@ -60,21 +61,40 @@ function gerarTesteCupomPdf(): Uint8Array {
   return new Uint8Array(doc.output("arraybuffer"));
 }
 
-function gerarTesteEtiquetaPdf(formato: string): Uint8Array {
+function gerarTesteEtiquetaPng(formato: string): Promise<Uint8Array> {
   const [w, h] = parseFormato(formato);
-  const doc = new jsPDF({
-    unit: "mm",
-    format: [w, h],
-    orientation: w >= h ? "landscape" : "portrait",
-  });
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
-  doc.text("TESTE ETIQUETA", w / 2, 4, { align: "center" });
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(6);
-  doc.text(`${w} x ${h} mm`, w / 2, h - 3, { align: "center" });
-  doc.text(new Date().toLocaleTimeString("pt-BR"), w / 2, h / 2, { align: "center" });
-  return new Uint8Array(doc.output("arraybuffer"));
+  const PX_PER_MM = 12;
+  const W = Math.round(w * PX_PER_MM);
+  const H = Math.round(h * PX_PER_MM);
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return Promise.reject(new Error("Canvas 2D indisponível"));
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#000000";
+  ctx.font = `bold ${Math.round(2.6 * PX_PER_MM)}px Arial, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillText("TESTE ETIQUETA", W / 2, Math.round(1.5 * PX_PER_MM));
+  ctx.font = `${Math.round(1.8 * PX_PER_MM)}px Arial, sans-serif`;
+  ctx.fillText(`${w} x ${h} mm`, W / 2, Math.round(5 * PX_PER_MM));
+  ctx.textBaseline = "middle";
+  ctx.font = `${Math.round(2 * PX_PER_MM)}px Arial, sans-serif`;
+  ctx.fillText(new Date().toLocaleString("pt-BR"), W / 2, H / 2);
+  ctx.strokeStyle = "#000000";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(2, 2, W - 4, H - 4);
+  return new Promise((resolve, reject) =>
+    canvas.toBlob(
+      (b) =>
+        b
+          ? b.arrayBuffer().then((buf) => resolve(new Uint8Array(buf)))
+          : reject(new Error("toBlob null")),
+      "image/png",
+    ),
+  );
 }
 
 function parseFormato(f: string): [number, number] {
@@ -306,7 +326,8 @@ export function ImpressoraConfigCard() {
     if (!labelP) return;
     setTestandoEtiqueta(true);
     try {
-      await printPdfBytes(gerarTesteEtiquetaPdf(labelFmt), labelP);
+      const png = await gerarTesteEtiquetaPng(labelFmt);
+      await printLabelImage(png, labelP, 1);
       toast.success(`Teste enviado para "${labelP}".`);
     } catch (e) {
       toast.error(`Falha no teste: ${e instanceof Error ? e.message : String(e)}`);

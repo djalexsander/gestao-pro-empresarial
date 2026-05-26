@@ -38,6 +38,10 @@ hostname = "0.4"
 rusqlite = { version = "0.31", features = ["bundled"] }
 dirs = "5"
 
+# Decodificação de PNG para impressão GDI de etiquetas (PT260 e drivers Windows
+# genéricos que não aceitam RAW/ESC-POS). Apenas PNG para manter binário enxuto.
+image = { version = "0.25", default-features = false, features = ["png"] }
+
 # Windows: WinAPI usada para impressão RAW (ESC/POS) e fallback ShellExecute
 # "printto" — substitui a dependência de PowerShell/Start-Process.
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -45,6 +49,7 @@ winapi = { version = "0.3", features = [
     "winspool",
     "shellapi",
     "winuser",
+    "wingdi",
     "minwindef",
     "winnt",
     "handleapi",
