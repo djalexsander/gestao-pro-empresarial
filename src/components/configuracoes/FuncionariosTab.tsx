@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { SaveBar } from "./SaveBar";
 import {
   Card,
   CardContent,
@@ -74,6 +75,7 @@ export function FuncionariosTab() {
   const excluirMut = useExcluirFuncionario();
 
   return (
+    <div className="space-y-4">
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <div>
@@ -211,6 +213,8 @@ export function FuncionariosTab() {
         </AlertDialogContent>
       </AlertDialog>
     </Card>
+    <SaveBar />
+    </div>
   );
 }
 

@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { SaveBar } from "./SaveBar";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
@@ -574,6 +575,7 @@ export function PlanosModulosTab() {
       onOpenChange={(v) => !v && setCobrancaAberta(null)}
       cobranca={cobrancaAberta}
     />
+    <SaveBar hint="Plano e módulos são contratados individualmente acima." />
     </>
   );
 }

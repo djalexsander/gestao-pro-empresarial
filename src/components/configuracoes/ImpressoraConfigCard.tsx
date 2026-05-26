@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { SaveBar } from "./SaveBar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -357,6 +358,7 @@ export function ImpressoraConfigCard() {
   }
 
   return (
+    <div className="space-y-4">
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-4">
         <CardTitle className="flex items-center gap-2">
@@ -537,5 +539,7 @@ export function ImpressoraConfigCard() {
         )}
       </CardContent>
     </Card>
+    <SaveBar hint="Impressoras configuradas neste terminal." />
+    </div>
   );
 }

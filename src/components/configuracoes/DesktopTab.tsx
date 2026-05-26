@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { SaveBar } from "./SaveBar";
 import {
   Server,
   Monitor,
@@ -1624,7 +1625,9 @@ export function DesktopTab() {
             </p>
           </CardContent>
         </Card>
+        <SaveBar hint="Configuração local desta máquina (papel, conexões e dispositivos)." />
       </div>
+
 
       {editando && (
         <DesktopSetupWizard

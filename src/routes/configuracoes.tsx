@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { SaveBar } from "@/components/configuracoes/SaveBar";
 
 
 import { useTheme } from "@/components/theme/ThemeProvider";
@@ -53,6 +54,7 @@ function SettingsPage() {
           <KeepMountedTab value="desktop" active={tab}><DesktopTab /></KeepMountedTab>
           <KeepMountedTab value="impressoras" active={tab}><ImpressoraConfigCard /></KeepMountedTab>
           <KeepMountedTab value="prefs" active={tab}>
+            <div className="space-y-4">
             <Card>
               <CardHeader>
                 <CardTitle>Preferências</CardTitle>
@@ -75,6 +77,8 @@ function SettingsPage() {
                 <DarkModeSwitchRow />
               </CardContent>
             </Card>
+            <SaveBar />
+            </div>
           </KeepMountedTab>
           <KeepMountedTab value="integracoes" active={tab}><IntegracoesTab /></KeepMountedTab>
         </div>
