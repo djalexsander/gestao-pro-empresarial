@@ -35,7 +35,11 @@ export type DataDomain =
   | "caixa"
   | "vendas"
   | "financeiro"
-  | "terminais";
+  | "terminais"
+  | "socios"
+  | "empresa"
+  | "modulos";
+
 
 /**
  * Detalhe opcional do evento. Quem produz o evento pode passar o que tem;
