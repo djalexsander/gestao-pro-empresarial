@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import {
   ArrowDownToLine,
@@ -37,7 +37,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
 import { cn } from "@/lib/utils";
 import {
   Table,
@@ -169,8 +169,8 @@ function buildConsolidado(args: {
 
 function FinanceContent() {
   const { tab } = Route.useSearch();
-  const navigate = useNavigate({ from: Route.fullPath });
-  const activeTab: FinTab = tab ?? "receber";
+  
+  const activeTab: FinTab | null = tab ?? null;
   const [selected, setSelected] = useState<Lancamento | null>(null);
   const [blocoAberto, setBlocoAberto] = useState<BlocoChave | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
@@ -335,28 +335,50 @@ function FinanceContent() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Financeiro"
-        description="Acompanhe entradas, saídas, lucro e fluxo de caixa."
+        title={
+          activeTab === "pagar"
+            ? "Contas a pagar"
+            : activeTab === "receber"
+            ? "Contas a receber"
+            : activeTab === "fluxo"
+            ? "Fluxo de caixa"
+            : "Financeiro"
+        }
+        description={
+          activeTab === "pagar"
+            ? "Listagem de títulos a pagar."
+            : activeTab === "receber"
+            ? "Listagem de títulos a receber."
+            : activeTab === "fluxo"
+            ? "Entradas e saídas previstas e realizadas."
+            : "Acompanhe entradas, saídas, lucro e fluxo de caixa."
+        }
         actions={
           <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1.5"
-              onClick={() => setExportOpen(true)}
-              disabled={exporting}
-            >
-              <Download className="h-4 w-4" />
-              Exportar resumo
-            </Button>
-            <Button size="sm" className="gap-1.5" onClick={() => setNovoOpen(true)}>
-              <Plus className="h-4 w-4" />
-              Novo lançamento
-            </Button>
+            {!activeTab && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                onClick={() => setExportOpen(true)}
+                disabled={exporting}
+              >
+                <Download className="h-4 w-4" />
+                Exportar resumo
+              </Button>
+            )}
+            {activeTab !== "fluxo" && (
+              <Button size="sm" className="gap-1.5" onClick={() => setNovoOpen(true)}>
+                <Plus className="h-4 w-4" />
+                Novo lançamento
+              </Button>
+            )}
           </div>
         }
       />
 
+      {!activeTab && (
+      <>
       {/* Bloco 1: Posição financeira */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
@@ -604,41 +626,28 @@ function FinanceContent() {
           />
         </div>
       </div>
+      </>
+      )}
 
-      <Tabs
-        value={activeTab}
-        onValueChange={(v) =>
-          navigate({ search: { tab: v === "receber" ? undefined : (v as FinTab) }, replace: true })
-        }
-      >
-        <TabsList>
-          <TabsTrigger value="receber">Contas a receber</TabsTrigger>
-          <TabsTrigger value="pagar">Contas a pagar</TabsTrigger>
-          <TabsTrigger value="fluxo">Fluxo de caixa</TabsTrigger>
-        </TabsList>
+      {activeTab === "receber" && (
+        <LancamentosTable
+          items={receber}
+          loading={isLoading}
+          emptyMsg="Nenhuma conta a receber."
+          onSelect={setSelected}
+        />
+      )}
 
-        <TabsContent value="receber" className="mt-4">
-          <LancamentosTable
-            items={receber}
-            loading={isLoading}
-            emptyMsg="Nenhuma conta a receber."
-            onSelect={setSelected}
-          />
-        </TabsContent>
+      {activeTab === "pagar" && (
+        <LancamentosTable
+          items={pagar}
+          loading={isLoading}
+          emptyMsg="Nenhuma conta a pagar."
+          onSelect={setSelected}
+        />
+      )}
 
-        <TabsContent value="pagar" className="mt-4">
-          <LancamentosTable
-            items={pagar}
-            loading={isLoading}
-            emptyMsg="Nenhuma conta a pagar."
-            onSelect={setSelected}
-          />
-        </TabsContent>
-
-        <TabsContent value="fluxo" className="mt-4">
-          <FluxoCaixaPanel />
-        </TabsContent>
-      </Tabs>
+      {activeTab === "fluxo" && <FluxoCaixaPanel />}
 
       <LancamentoDetalheDialog
         open={!!selected}
