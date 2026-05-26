@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Download, Loader2, BarChart3, TrendingUp, TrendingDown } from "lucide-react";
+import { ArrowLeft, Download, Loader2, BarChart3, TrendingUp, TrendingDown, Percent } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
@@ -193,7 +193,7 @@ function Conteudo() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Receita total"
           value={formatBRL(receitaVendas + outrasReceitas)}
@@ -211,6 +211,16 @@ function Conteudo() {
           value={formatBRL(resultado)}
           icon={BarChart3}
           iconTone={resultado >= 0 ? "primary" : "warning"}
+        />
+        <StatCard
+          label="Margem líquida"
+          value={
+            receitaVendas + outrasReceitas > 0
+              ? `${((resultado / (receitaVendas + outrasReceitas)) * 100).toFixed(1)}%`
+              : "—"
+          }
+          icon={Percent}
+          iconTone={resultado >= 0 ? "success" : "warning"}
         />
       </div>
 
