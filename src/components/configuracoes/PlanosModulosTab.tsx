@@ -347,9 +347,26 @@ export function PlanosModulosTab() {
               <span>Total</span>
               <span>{fmtBRL(composicao.total)}</span>
             </div>
+            <Button
+              className="mt-3 w-full"
+              onClick={handlePagarMensalidade}
+              disabled={pagarMensalidade.isPending || composicao.total <= 0}
+            >
+              {pagarMensalidade.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Wallet className="mr-2 h-4 w-4" />
+              )}
+              Pagar mensalidade
+            </Button>
+            <p className="text-center text-[11px] text-muted-foreground">
+              Gera Pix com QR Code e copia-e-cola. Confirmação automática via
+              Asaas.
+            </p>
           </CardContent>
         </Card>
       </div>
+
 
       {/* ============================================================
           MÓDULOS ATIVOS / DISPONÍVEIS
