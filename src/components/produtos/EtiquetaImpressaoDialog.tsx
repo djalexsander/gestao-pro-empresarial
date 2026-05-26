@@ -215,8 +215,38 @@ export function EtiquetaImpressaoDialog({
             </p>
           ) : (
             <div className="space-y-4">
-              <div className="flex justify-center rounded-md border border-border bg-white p-3">
-                <svg ref={previewRef} />
+              <div className="rounded-md border border-border bg-white p-3 text-black">
+                {previewErro ? (
+                  <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+                    <span>⚠️</span>
+                    <span>{previewErro}</span>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-1">
+                    {mostrarNome && (
+                      <div className="line-clamp-2 max-w-full text-center text-[11px] font-semibold leading-tight">
+                        {produto.nome}
+                      </div>
+                    )}
+                    <div className="flex w-full items-center justify-center gap-3">
+                      <svg
+                        ref={barcodeRef}
+                        className="block max-h-[64px] w-auto"
+                      />
+                      {incluirQr && (
+                        <canvas
+                          ref={qrRef}
+                          className="block h-[64px] w-[64px]"
+                        />
+                      )}
+                    </div>
+                    {mostrarPreco && produto.preco != null && (
+                      <div className="text-sm font-bold">
+                        R$ {Number(produto.preco).toFixed(2).replace(".", ",")}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {desktop && (
