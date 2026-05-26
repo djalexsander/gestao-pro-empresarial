@@ -89,6 +89,61 @@ const reports: Report[] = [
     },
   },
   {
+    key: "produtos-vendidos",
+    title: "Produtos Vendidos",
+    description: "Quais produtos foram vendidos, qtd, faturamento, lucro e margem.",
+    icon: Package,
+    tone: "bg-chart-3/15 text-chart-3",
+    route: "/relatorios/produtos-vendidos",
+    filenamePrefix: "produtos-vendidos",
+    exporter: async () => {
+      const { data, error } = await supabase
+        .from("venda_itens")
+        .select(
+          "quantidade, preco_unitario, total, descricao, produto:produtos(nome, sku, codigo_barras, preco_custo), venda:vendas!inner(numero, data_emissao, status)",
+        )
+        .order("created_at", { ascending: false })
+        .limit(2000);
+      if (error) throw error;
+      const rows = (data ?? [])
+        .filter((it: any) => it.venda?.status !== "cancelada")
+        .map((it: any) => {
+          const qtd = Number(it.quantidade) || 0;
+          const total = Number(it.total) || 0;
+          const custoUnit = Number(it.produto?.preco_custo) || 0;
+          const custoTotal = custoUnit * qtd;
+          const lucro = total - custoTotal;
+          return {
+            data: it.venda?.data_emissao ?? "",
+            venda: it.venda?.numero ?? "",
+            produto: it.produto?.nome ?? it.descricao ?? "",
+            sku: it.produto?.sku ?? "",
+            codigo: it.produto?.codigo_barras ?? "",
+            qtd,
+            unit: Number(it.preco_unitario) || 0,
+            total,
+            custo: custoTotal,
+            lucro,
+            margem: total > 0 ? Number(((lucro / total) * 100).toFixed(2)) : 0,
+          };
+        });
+      const columns: CsvColumn<(typeof rows)[number]>[] = [
+        { header: "Data", accessor: (r) => r.data, type: "date" },
+        { header: "Venda", accessor: (r) => r.venda, type: "text" },
+        { header: "Produto", accessor: (r) => r.produto, type: "text" },
+        { header: "SKU", accessor: (r) => r.sku, type: "text" },
+        { header: "Cod. barras", accessor: (r) => r.codigo, type: "text" },
+        { header: "Qtd", accessor: (r) => r.qtd, type: "number" },
+        { header: "Preço unit.", accessor: (r) => r.unit, type: "currency" },
+        { header: "Total", accessor: (r) => r.total, type: "currency" },
+        { header: "Custo total", accessor: (r) => r.custo, type: "currency" },
+        { header: "Lucro", accessor: (r) => r.lucro, type: "currency" },
+        { header: "Margem %", accessor: (r) => r.margem, type: "number" },
+      ];
+      return { rows, columns };
+    },
+  },
+  {
     key: "compras",
     title: "Relatório de compras",
     description: "Compras por fornecedor e categoria.",
