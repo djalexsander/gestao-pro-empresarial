@@ -160,6 +160,20 @@ export function setLabelFormat(format: string | null): void {
   setDesktopConfig({ ...cfg, labelFormat: format });
 }
 
+export function getLabelCustomFormats(): string[] {
+  const values = getDesktopConfig().labelCustomFormats ?? [];
+  return values.filter((v) => /^\d{2,3}x\d{2,3}$/i.test(v));
+}
+
+export function addLabelCustomFormat(format: string): void {
+  const normalized = format.trim().toLowerCase();
+  if (!/^\d{2,3}x\d{2,3}$/.test(normalized)) return;
+  const cfg = getDesktopConfig();
+  const current = cfg.labelCustomFormats ?? [];
+  if (current.includes(normalized)) return;
+  setDesktopConfig({ ...cfg, labelCustomFormats: [...current, normalized] });
+}
+
 /** @deprecated use `getReceiptPrinter`. */
 export function getDefaultPrinter(): string | null {
   return getReceiptPrinter();
