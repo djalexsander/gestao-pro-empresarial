@@ -305,6 +305,9 @@ pub fn print_image_png(
     Ok(format!("Etiqueta enviada para '{}'", printer_name))
 }
 
+// ---------------------------------------------------------------------------
+// ESC/POS — construtor de cupom de texto
+// ---------------------------------------------------------------------------
 
 
 /// Constrói um buffer ESC/POS para o texto informado.
