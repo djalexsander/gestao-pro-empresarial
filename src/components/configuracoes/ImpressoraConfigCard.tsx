@@ -232,6 +232,9 @@ export function ImpressoraConfigCard() {
   const [receiptWidth, setReceiptWidth] = useState<58 | 80>(getReceiptWidthMm());
   const [labelP, setLabelP] = useState<string | null>(getLabelPrinter());
   const [labelFmt, setLabelFmt] = useState<string>(getLabelFormat() ?? "50x30");
+  const [customFormats, setCustomFormats] = useState<string[]>(getLabelCustomFormats());
+  const [novoFormatoW, setNovoFormatoW] = useState("50");
+  const [novoFormatoH, setNovoFormatoH] = useState("50");
   const [printers, setPrinters] = useState<PrinterInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [testandoCupom, setTestandoCupom] = useState(false);
@@ -244,6 +247,7 @@ export function ImpressoraConfigCard() {
       setReceiptWidth(cfg.receiptWidthMm === 58 ? 58 : 80);
       setLabelP(cfg.labelPrinter ?? null);
       setLabelFmt(cfg.labelFormat ?? "50x30");
+      setCustomFormats(cfg.labelCustomFormats ?? []);
     });
   }, []);
 
@@ -309,6 +313,26 @@ export function ImpressoraConfigCard() {
     } finally {
       setTestandoEtiqueta(false);
     }
+  }
+
+  const labelFormats = [
+    ...FORMATOS_ETIQUETA,
+    ...customFormats
+      .filter((value) => !FORMATOS_ETIQUETA.some((f) => f.value === value))
+      .map((value) => ({ value, label: formatLabel(value) })),
+  ];
+
+  function criarFormatoEtiqueta() {
+    const value = normalizarFormatoEtiqueta(novoFormatoW, novoFormatoH);
+    if (!value) {
+      toast.error("Informe largura e altura entre 20×15 mm e 120×120 mm.");
+      return;
+    }
+    addLabelCustomFormat(value);
+    setLabelFmt(value);
+    setLabelFormat(value);
+    setCustomFormats(getLabelCustomFormats());
+    toast.success(`Formato ${formatLabel(value)} salvo.`);
   }
 
   return (
