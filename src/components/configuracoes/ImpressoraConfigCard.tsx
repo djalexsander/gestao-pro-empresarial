@@ -211,6 +211,7 @@ function PrinterSection(props: PrinterSectionProps) {
 
 export function ImpressoraConfigCard() {
   const [receipt, setReceipt] = useState<string | null>(getReceiptPrinter());
+  const [receiptWidth, setReceiptWidth] = useState<58 | 80>(getReceiptWidthMm());
   const [labelP, setLabelP] = useState<string | null>(getLabelPrinter());
   const [labelFmt, setLabelFmt] = useState<string>(getLabelFormat() ?? "50x30");
   const [printers, setPrinters] = useState<PrinterInfo[]>([]);
