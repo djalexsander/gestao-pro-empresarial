@@ -655,6 +655,10 @@ function FinanceContent() {
 
       {activeTab === "fluxo" && <FluxoCaixaPanel />}
 
+      {activeTab === "fiados" && (
+        <FiadosClientesPanel receber={receber} loading={isLoading} />
+      )}
+
       <LancamentoDetalheDialog
         open={!!selected}
         onOpenChange={(o) => !o && setSelected(null)}
