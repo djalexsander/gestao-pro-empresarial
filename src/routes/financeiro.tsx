@@ -76,12 +76,14 @@ import { ExportFormatDialog } from "@/components/shared/ExportFormatDialog";
 import { exportarRelatorioCard, type ExportFormato } from "@/lib/export-relatorio-card";
 import { toast } from "sonner";
 
-type FinTab = "receber" | "pagar" | "fluxo";
+type FinTab = "receber" | "pagar" | "fluxo" | "fiados";
 
 export const Route = createFileRoute("/financeiro")({
   validateSearch: (search: Record<string, unknown>): { tab?: FinTab } => {
     const t = search.tab;
-    return t === "pagar" || t === "receber" || t === "fluxo" ? { tab: t } : {};
+    return t === "pagar" || t === "receber" || t === "fluxo" || t === "fiados"
+      ? { tab: t }
+      : {};
   },
   head: () => ({
     meta: [
