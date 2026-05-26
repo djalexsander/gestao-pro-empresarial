@@ -407,6 +407,7 @@ function Conteudo() {
     setTipoFiltro("todos");
     setCategoriaFiltro("todas");
     setStatusFiltro("todos");
+    setFormaFiltro("todas");
     setAplicado({ periodo: "mes", customIni: "", customFim: "" });
   }
 
