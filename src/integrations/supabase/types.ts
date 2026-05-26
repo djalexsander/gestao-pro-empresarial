@@ -86,6 +86,209 @@ export type Database = {
         }
         Relationships: []
       }
+      autorizacao_cartoes: {
+        Row: {
+          ativo: boolean
+          codigo_hash: string
+          created_at: string
+          criado_por: string | null
+          funcao: string | null
+          funcionario_id: string | null
+          id: string
+          observacoes: string | null
+          owner_id: string
+          revogado_em: string | null
+          revogado_por: string | null
+          rotulo: string
+          updated_at: string
+          usado_em: string | null
+          user_id: string | null
+        }
+        Insert: {
+          ativo?: boolean
+          codigo_hash: string
+          created_at?: string
+          criado_por?: string | null
+          funcao?: string | null
+          funcionario_id?: string | null
+          id?: string
+          observacoes?: string | null
+          owner_id: string
+          revogado_em?: string | null
+          revogado_por?: string | null
+          rotulo: string
+          updated_at?: string
+          usado_em?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          ativo?: boolean
+          codigo_hash?: string
+          created_at?: string
+          criado_por?: string | null
+          funcao?: string | null
+          funcionario_id?: string | null
+          id?: string
+          observacoes?: string | null
+          owner_id?: string
+          revogado_em?: string | null
+          revogado_por?: string | null
+          rotulo?: string
+          updated_at?: string
+          usado_em?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "autorizacao_cartoes_funcionario_id_fkey"
+            columns: ["funcionario_id"]
+            isOneToOne: false
+            referencedRelation: "funcionarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      autorizacoes_config: {
+        Row: {
+          codigo_qr_hash: string | null
+          codigo_qr_label: string | null
+          created_at: string
+          exigir_alterar_valor_confirmado: boolean
+          exigir_cancelar_compra: boolean
+          exigir_cancelar_venda: boolean
+          exigir_excluir_lancamento_financeiro: boolean
+          exigir_fechar_caixa_divergencia: boolean
+          exigir_fechar_caixa_qualquer: boolean
+          exigir_reabrir_caixa: boolean
+          exigir_remover_item_venda: boolean
+          exigir_sangria_caixa: boolean
+          exigir_suprimento_caixa: boolean
+          metodo_codigo_qr_habilitado: boolean
+          metodo_pin_habilitado: boolean
+          metodo_senha_master_habilitado: boolean
+          owner_id: string
+          papeis_autorizadores: Database["public"]["Enums"]["app_role"][]
+          senha_master_hash: string | null
+          updated_at: string
+        }
+        Insert: {
+          codigo_qr_hash?: string | null
+          codigo_qr_label?: string | null
+          created_at?: string
+          exigir_alterar_valor_confirmado?: boolean
+          exigir_cancelar_compra?: boolean
+          exigir_cancelar_venda?: boolean
+          exigir_excluir_lancamento_financeiro?: boolean
+          exigir_fechar_caixa_divergencia?: boolean
+          exigir_fechar_caixa_qualquer?: boolean
+          exigir_reabrir_caixa?: boolean
+          exigir_remover_item_venda?: boolean
+          exigir_sangria_caixa?: boolean
+          exigir_suprimento_caixa?: boolean
+          metodo_codigo_qr_habilitado?: boolean
+          metodo_pin_habilitado?: boolean
+          metodo_senha_master_habilitado?: boolean
+          owner_id: string
+          papeis_autorizadores?: Database["public"]["Enums"]["app_role"][]
+          senha_master_hash?: string | null
+          updated_at?: string
+        }
+        Update: {
+          codigo_qr_hash?: string | null
+          codigo_qr_label?: string | null
+          created_at?: string
+          exigir_alterar_valor_confirmado?: boolean
+          exigir_cancelar_compra?: boolean
+          exigir_cancelar_venda?: boolean
+          exigir_excluir_lancamento_financeiro?: boolean
+          exigir_fechar_caixa_divergencia?: boolean
+          exigir_fechar_caixa_qualquer?: boolean
+          exigir_reabrir_caixa?: boolean
+          exigir_remover_item_venda?: boolean
+          exigir_sangria_caixa?: boolean
+          exigir_suprimento_caixa?: boolean
+          metodo_codigo_qr_habilitado?: boolean
+          metodo_pin_habilitado?: boolean
+          metodo_senha_master_habilitado?: boolean
+          owner_id?: string
+          papeis_autorizadores?: Database["public"]["Enums"]["app_role"][]
+          senha_master_hash?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      autorizacoes_log: {
+        Row: {
+          acao: Database["public"]["Enums"]["autorizacao_acao"]
+          autorizador_funcionario_id: string | null
+          autorizador_nome: string | null
+          autorizador_user_id: string | null
+          contexto: string
+          contexto_dados: Json
+          created_at: string
+          diferenca_caixa: number | null
+          id: string
+          ip_address: string | null
+          metodo: Database["public"]["Enums"]["autorizacao_metodo"]
+          motivo_negacao: string | null
+          owner_id: string
+          referencia_id: string | null
+          referencia_tipo: string | null
+          solicitante_funcionario_id: string | null
+          solicitante_user_id: string | null
+          status: Database["public"]["Enums"]["autorizacao_status"]
+          terminal_id: string | null
+          user_agent: string | null
+          valor_envolvido: number | null
+        }
+        Insert: {
+          acao: Database["public"]["Enums"]["autorizacao_acao"]
+          autorizador_funcionario_id?: string | null
+          autorizador_nome?: string | null
+          autorizador_user_id?: string | null
+          contexto: string
+          contexto_dados?: Json
+          created_at?: string
+          diferenca_caixa?: number | null
+          id?: string
+          ip_address?: string | null
+          metodo: Database["public"]["Enums"]["autorizacao_metodo"]
+          motivo_negacao?: string | null
+          owner_id: string
+          referencia_id?: string | null
+          referencia_tipo?: string | null
+          solicitante_funcionario_id?: string | null
+          solicitante_user_id?: string | null
+          status: Database["public"]["Enums"]["autorizacao_status"]
+          terminal_id?: string | null
+          user_agent?: string | null
+          valor_envolvido?: number | null
+        }
+        Update: {
+          acao?: Database["public"]["Enums"]["autorizacao_acao"]
+          autorizador_funcionario_id?: string | null
+          autorizador_nome?: string | null
+          autorizador_user_id?: string | null
+          contexto?: string
+          contexto_dados?: Json
+          created_at?: string
+          diferenca_caixa?: number | null
+          id?: string
+          ip_address?: string | null
+          metodo?: Database["public"]["Enums"]["autorizacao_metodo"]
+          motivo_negacao?: string | null
+          owner_id?: string
+          referencia_id?: string | null
+          referencia_tipo?: string | null
+          solicitante_funcionario_id?: string | null
+          solicitante_user_id?: string | null
+          status?: Database["public"]["Enums"]["autorizacao_status"]
+          terminal_id?: string | null
+          user_agent?: string | null
+          valor_envolvido?: number | null
+        }
+        Relationships: []
+      }
       balanca_config: {
         Row: {
           ativo: boolean
@@ -585,6 +788,7 @@ export type Database = {
           data_emissao: string
           data_prevista: string | null
           data_recebimento: string | null
+          data_vencimento: string | null
           desconto: number
           fornecedor_id: string | null
           frete: number
@@ -592,6 +796,7 @@ export type Database = {
           numero: string
           numero_nf: string | null
           observacoes: string | null
+          observacoes_json: Json | null
           outros: number
           owner_id: string
           serie_nf: string | null
@@ -605,6 +810,7 @@ export type Database = {
           data_emissao?: string
           data_prevista?: string | null
           data_recebimento?: string | null
+          data_vencimento?: string | null
           desconto?: number
           fornecedor_id?: string | null
           frete?: number
@@ -612,6 +818,7 @@ export type Database = {
           numero: string
           numero_nf?: string | null
           observacoes?: string | null
+          observacoes_json?: Json | null
           outros?: number
           owner_id: string
           serie_nf?: string | null
@@ -625,6 +832,7 @@ export type Database = {
           data_emissao?: string
           data_prevista?: string | null
           data_recebimento?: string | null
+          data_vencimento?: string | null
           desconto?: number
           fornecedor_id?: string | null
           frete?: number
@@ -632,6 +840,7 @@ export type Database = {
           numero?: string
           numero_nf?: string | null
           observacoes?: string | null
+          observacoes_json?: Json | null
           outros?: number
           owner_id?: string
           serie_nf?: string | null
@@ -1928,6 +2137,102 @@ export type Database = {
         }
         Relationships: []
       }
+      pix_cobrancas_geradas: {
+        Row: {
+          cliente_id: string | null
+          copia_cola: string | null
+          created_at: string
+          empresa_id: string
+          id: string
+          invoice_url: string | null
+          lancamento_id: string | null
+          owner_id: string
+          paid_at: string | null
+          payload_request: Json | null
+          payload_response: Json | null
+          provider: string
+          provider_payment_id: string | null
+          qr_code_image: string | null
+          status: string
+          updated_at: string
+          valor: number
+          vencimento: string | null
+        }
+        Insert: {
+          cliente_id?: string | null
+          copia_cola?: string | null
+          created_at?: string
+          empresa_id: string
+          id?: string
+          invoice_url?: string | null
+          lancamento_id?: string | null
+          owner_id: string
+          paid_at?: string | null
+          payload_request?: Json | null
+          payload_response?: Json | null
+          provider: string
+          provider_payment_id?: string | null
+          qr_code_image?: string | null
+          status?: string
+          updated_at?: string
+          valor: number
+          vencimento?: string | null
+        }
+        Update: {
+          cliente_id?: string | null
+          copia_cola?: string | null
+          created_at?: string
+          empresa_id?: string
+          id?: string
+          invoice_url?: string | null
+          lancamento_id?: string | null
+          owner_id?: string
+          paid_at?: string | null
+          payload_request?: Json | null
+          payload_response?: Json | null
+          provider?: string
+          provider_payment_id?: string | null
+          qr_code_image?: string | null
+          status?: string
+          updated_at?: string
+          valor?: number
+          vencimento?: string | null
+        }
+        Relationships: []
+      }
+      pix_webhook_eventos: {
+        Row: {
+          event_id: string | null
+          id: string
+          payload: Json
+          payment_id: string | null
+          processado_em: string | null
+          provider: string
+          recebido_em: string
+          status: string | null
+        }
+        Insert: {
+          event_id?: string | null
+          id?: string
+          payload: Json
+          payment_id?: string | null
+          processado_em?: string | null
+          provider: string
+          recebido_em?: string
+          status?: string | null
+        }
+        Update: {
+          event_id?: string | null
+          id?: string
+          payload?: Json
+          payment_id?: string | null
+          processado_em?: string | null
+          provider?: string
+          recebido_em?: string
+          status?: string | null
+        }
+        Relationships: []
+      }
       planos: {
         Row: {
           ativo: boolean
@@ -2824,6 +3129,7 @@ export type Database = {
       }
     }
     Functions: {
+      _auth_owner_id: { Args: never; Returns: string }
       _lote_tem_vinculo: { Args: { _lote_id: string }; Returns: boolean }
       _owner_atual_categorias_financeiras: { Args: never; Returns: string }
       _pode_gerenciar_categorias_financeiras: {
@@ -3223,6 +3529,10 @@ export type Database = {
         }
         Returns: string
       }
+      admin_zerar_empresa: {
+        Args: { p_empresa_id: string; p_incluir_produtos?: boolean }
+        Returns: Json
+      }
       ajustar_quantidade_lote: {
         Args: {
           _client_uuid?: string
@@ -3246,6 +3556,10 @@ export type Database = {
           _status: Database["public"]["Enums"]["cadastro_status"]
         }
         Returns: Json
+      }
+      alterar_status_compra: {
+        Args: { _id: string; _status: string }
+        Returns: undefined
       }
       alterar_status_fornecedor: {
         Args: {
@@ -3272,6 +3586,147 @@ export type Database = {
       assinatura_status_efetivo: {
         Args: { _empresa_id: string }
         Returns: Json
+      }
+      atualizar_compra_metadados: {
+        Args: {
+          _compra_id: string
+          _data_prevista?: string
+          _data_vencimento?: string
+          _fornecedor_id?: string
+          _numero_nf?: string
+          _observacoes?: string
+          _patch_data_prevista?: boolean
+          _patch_data_vencimento?: boolean
+          _patch_fornecedor_id?: boolean
+          _patch_numero_nf?: boolean
+          _patch_observacoes?: boolean
+          _patch_serie_nf?: boolean
+          _serie_nf?: string
+        }
+        Returns: {
+          created_at: string
+          data_emissao: string
+          data_prevista: string | null
+          data_recebimento: string | null
+          data_vencimento: string | null
+          desconto: number
+          fornecedor_id: string | null
+          frete: number
+          id: string
+          numero: string
+          numero_nf: string | null
+          observacoes: string | null
+          observacoes_json: Json | null
+          outros: number
+          owner_id: string
+          serie_nf: string | null
+          status: Database["public"]["Enums"]["compra_status"]
+          subtotal: number
+          total: number
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "compras"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      autorizacao_cartao_criar: {
+        Args: {
+          _codigo: string
+          _funcao?: string
+          _funcionario_id?: string
+          _observacoes?: string
+          _rotulo: string
+          _user_id?: string
+        }
+        Returns: string
+      }
+      autorizacao_cartao_excluir: { Args: { _id: string }; Returns: undefined }
+      autorizacao_cartao_set_ativo: {
+        Args: { _ativo: boolean; _id: string }
+        Returns: undefined
+      }
+      autorizacao_resolver_owner: { Args: never; Returns: string }
+      autorizacao_validar: {
+        Args: {
+          _acao: Database["public"]["Enums"]["autorizacao_acao"]
+          _contexto: string
+          _contexto_dados?: Json
+          _diferenca_caixa?: number
+          _metodo: Database["public"]["Enums"]["autorizacao_metodo"]
+          _payload: Json
+          _referencia_id?: string
+          _referencia_tipo?: string
+          _solicitante_funcionario_id?: string
+          _terminal_id?: string
+          _user_agent?: string
+          _valor_envolvido?: number
+        }
+        Returns: Json
+      }
+      autorizacoes_config_obter: {
+        Args: never
+        Returns: {
+          codigo_qr_hash: string | null
+          codigo_qr_label: string | null
+          created_at: string
+          exigir_alterar_valor_confirmado: boolean
+          exigir_cancelar_compra: boolean
+          exigir_cancelar_venda: boolean
+          exigir_excluir_lancamento_financeiro: boolean
+          exigir_fechar_caixa_divergencia: boolean
+          exigir_fechar_caixa_qualquer: boolean
+          exigir_reabrir_caixa: boolean
+          exigir_remover_item_venda: boolean
+          exigir_sangria_caixa: boolean
+          exigir_suprimento_caixa: boolean
+          metodo_codigo_qr_habilitado: boolean
+          metodo_pin_habilitado: boolean
+          metodo_senha_master_habilitado: boolean
+          owner_id: string
+          papeis_autorizadores: Database["public"]["Enums"]["app_role"][]
+          senha_master_hash: string | null
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "autorizacoes_config"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      autorizacoes_config_salvar: {
+        Args: { _payload: Json }
+        Returns: {
+          codigo_qr_hash: string | null
+          codigo_qr_label: string | null
+          created_at: string
+          exigir_alterar_valor_confirmado: boolean
+          exigir_cancelar_compra: boolean
+          exigir_cancelar_venda: boolean
+          exigir_excluir_lancamento_financeiro: boolean
+          exigir_fechar_caixa_divergencia: boolean
+          exigir_fechar_caixa_qualquer: boolean
+          exigir_reabrir_caixa: boolean
+          exigir_remover_item_venda: boolean
+          exigir_sangria_caixa: boolean
+          exigir_suprimento_caixa: boolean
+          metodo_codigo_qr_habilitado: boolean
+          metodo_pin_habilitado: boolean
+          metodo_senha_master_habilitado: boolean
+          owner_id: string
+          papeis_autorizadores: Database["public"]["Enums"]["app_role"][]
+          senha_master_hash: string | null
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "autorizacoes_config"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       buscar_produto_por_codigo: {
         Args: { _codigo: string }
@@ -3382,6 +3837,7 @@ export type Database = {
       }
       criar_categoria_produto: {
         Args: {
+          _categoria_id_in?: string
           _client_uuid?: string
           _descricao?: string
           _nome: string
@@ -3413,6 +3869,7 @@ export type Database = {
         }
         Returns: Json
       }
+      criar_compra: { Args: { _payload: Json }; Returns: Json }
       criar_fornecedor: {
         Args: {
           _bairro?: string
@@ -3486,6 +3943,7 @@ export type Database = {
           _plu?: string
           _preco_custo: number
           _preco_venda: number
+          _produto_id?: string
           _qr_code?: string
           _sku: string
           _status: Database["public"]["Enums"]["produto_status"]
@@ -3505,6 +3963,7 @@ export type Database = {
           _preco_venda?: number
           _produto_id: string
           _sku: string
+          _variacao_id_in?: string
         }
         Returns: Json
       }
@@ -3645,6 +4104,7 @@ export type Database = {
         Returns: Json
       }
       excluir_cliente: { Args: { _cliente_id: string }; Returns: Json }
+      excluir_compra: { Args: { _compra_id: string }; Returns: undefined }
       excluir_fornecedor: { Args: { _fornecedor_id: string }; Returns: Json }
       excluir_lancamento_avulso: {
         Args: { _lancamento_id: string }
@@ -3772,26 +4232,17 @@ export type Database = {
         Args: { _ativo: boolean; _funcionario_id: string }
         Returns: Json
       }
-      funcionario_criar:
-        | {
-            Args: {
-              _login: string
-              _nome: string
-              _pin: string
-              _role?: Database["public"]["Enums"]["app_role"]
-            }
-            Returns: string
-          }
-        | {
-            Args: {
-              _client_uuid?: string
-              _login: string
-              _nome: string
-              _pin: string
-              _role?: Database["public"]["Enums"]["app_role"]
-            }
-            Returns: Json
-          }
+      funcionario_criar: {
+        Args: {
+          _client_uuid?: string
+          _funcionario_id?: string
+          _login: string
+          _nome: string
+          _pin: string
+          _role?: Database["public"]["Enums"]["app_role"]
+        }
+        Returns: Json
+      }
       funcionario_desbloquear_pin: {
         Args: { _funcionario_id: string }
         Returns: Json
@@ -3856,6 +4307,7 @@ export type Database = {
         }[]
       }
       marcar_assinaturas_overdue_expired: { Args: never; Returns: Json }
+      marcar_lancamentos_vencidos: { Args: never; Returns: number }
       meus_modulos: {
         Args: never
         Returns: {
@@ -3917,6 +4369,10 @@ export type Database = {
       pode_ver_financeiro: {
         Args: { _empresa_id: string; _user_id: string }
         Returns: boolean
+      }
+      reabrir_caixa: {
+        Args: { _caixa_id: string; _motivo?: string }
+        Returns: Json
       }
       reabrir_lancamento: { Args: { _lancamento_id: string }; Returns: Json }
       receber_compra: {
@@ -3986,6 +4442,10 @@ export type Database = {
           saldo: number
         }[]
       }
+      sincronizar_lancamento_compra: {
+        Args: { _compra_id: string }
+        Returns: string
+      }
       solicitar_carrinho: {
         Args: { _modulos?: string[]; _planos?: string[] }
         Returns: string
@@ -4049,6 +4509,10 @@ export type Database = {
         Args: { _terminal_id: string }
         Returns: undefined
       }
+      terminal_obter_pareamento_token: {
+        Args: { _terminal_id: string }
+        Returns: string
+      }
       terminal_ping: { Args: never; Returns: string }
       terminal_resolver: {
         Args: { _identificador?: string; _token?: string }
@@ -4081,6 +4545,19 @@ export type Database = {
         | "overdue"
         | "expired"
         | "canceled"
+      autorizacao_acao:
+        | "fechar_caixa_divergencia"
+        | "fechar_caixa_qualquer"
+        | "remover_item_venda"
+        | "cancelar_venda"
+        | "cancelar_compra"
+        | "excluir_lancamento_financeiro"
+        | "alterar_valor_confirmado"
+        | "reabrir_caixa"
+        | "sangria_caixa"
+        | "suprimento_caixa"
+      autorizacao_metodo: "pin_funcionario" | "senha_master" | "codigo_qr"
+      autorizacao_status: "autorizado" | "negado"
       cadastro_status: "ativo" | "inativo"
       caixa_movimento_tipo:
         | "abertura"
@@ -4308,6 +4785,20 @@ export const Constants = {
         "expired",
         "canceled",
       ],
+      autorizacao_acao: [
+        "fechar_caixa_divergencia",
+        "fechar_caixa_qualquer",
+        "remover_item_venda",
+        "cancelar_venda",
+        "cancelar_compra",
+        "excluir_lancamento_financeiro",
+        "alterar_valor_confirmado",
+        "reabrir_caixa",
+        "sangria_caixa",
+        "suprimento_caixa",
+      ],
+      autorizacao_metodo: ["pin_funcionario", "senha_master", "codigo_qr"],
+      autorizacao_status: ["autorizado", "negado"],
       cadastro_status: ["ativo", "inativo"],
       caixa_movimento_tipo: [
         "abertura",

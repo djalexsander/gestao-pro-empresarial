@@ -12,6 +12,7 @@ import { PlanosModulosTab } from "@/components/configuracoes/PlanosModulosTab";
 import { BalancaTab } from "@/components/configuracoes/BalancaTab";
 import { DesktopTab } from "@/components/configuracoes/DesktopTab";
 import { IntegracoesTab } from "@/components/configuracoes/IntegracoesTab";
+import { ImpressoraConfigCard } from "@/components/configuracoes/ImpressoraConfigCard";
 
 export const Route = createFileRoute("/configuracoes")({
   head: () => ({
@@ -32,17 +33,20 @@ function SettingsPage() {
       />
 
       <Tabs defaultValue="empresa">
-        <TabsList>
-          <TabsTrigger value="empresa">Empresa</TabsTrigger>
-          <TabsTrigger value="planos">Planos e módulos</TabsTrigger>
-          <TabsTrigger value="socios">Sócios e Admins</TabsTrigger>
-          <TabsTrigger value="funcionarios">Funcionários</TabsTrigger>
-          <TabsTrigger value="terminais">Terminais</TabsTrigger>
-          <TabsTrigger value="balanca">Balança</TabsTrigger>
-          <TabsTrigger value="desktop">Desktop</TabsTrigger>
-          <TabsTrigger value="prefs">Preferências</TabsTrigger>
-          <TabsTrigger value="integracoes">Integrações</TabsTrigger>
-        </TabsList>
+        <div className="-mx-1 overflow-x-auto pb-1">
+          <TabsList className="inline-flex w-max flex-nowrap">
+            <TabsTrigger value="empresa">Empresa</TabsTrigger>
+            <TabsTrigger value="planos">Planos e módulos</TabsTrigger>
+            <TabsTrigger value="socios">Sócios e Admins</TabsTrigger>
+            <TabsTrigger value="funcionarios">Funcionários</TabsTrigger>
+            <TabsTrigger value="terminais">Terminais</TabsTrigger>
+            <TabsTrigger value="balanca">Balança</TabsTrigger>
+            <TabsTrigger value="desktop">Desktop</TabsTrigger>
+            <TabsTrigger value="impressoras">Impressoras</TabsTrigger>
+            <TabsTrigger value="prefs">Preferências</TabsTrigger>
+            <TabsTrigger value="integracoes">Integrações</TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="empresa" className="mt-4">
           <EmpresaTab />
@@ -70,6 +74,10 @@ function SettingsPage() {
 
         <TabsContent value="desktop" className="mt-4">
           <DesktopTab />
+        </TabsContent>
+
+        <TabsContent value="impressoras" className="mt-4">
+          <ImpressoraConfigCard />
         </TabsContent>
 
 

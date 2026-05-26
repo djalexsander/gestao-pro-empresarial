@@ -85,6 +85,8 @@ export function VendaSucessoDialog({
   const { data: empresa } = useConfigEmpresa();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerWarning, setPickerWarning] = useState<string | null>(null);
+  const [noPrinterOpen, setNoPrinterOpen] = useState(false);
+  const [noPrinterMsg, setNoPrinterMsg] = useState<string | null>(null);
 
   function buildCupom() {
     if (!venda) return null;
@@ -114,6 +116,14 @@ export function VendaSucessoDialog({
       if (res.printerName) {
         toast.success(`Cupom enviado para "${res.printerName}".`);
       }
+      return;
+    }
+    if (res.noPrinters) {
+      setNoPrinterMsg(
+        res.warning ??
+          "Nenhuma impressora encontrada neste computador. Você pode salvar o comprovante como PDF.",
+      );
+      setNoPrinterOpen(true);
       return;
     }
     if (res.needsPicker) {
@@ -294,6 +304,36 @@ export function VendaSucessoDialog({
       warning={pickerWarning}
       onSelect={(name) => void handlePickerSelect(name)}
     />
+    <Dialog
+      open={noPrinterOpen}
+      onOpenChange={(v) => {
+        setNoPrinterOpen(v);
+        if (!v) setNoPrinterMsg(null);
+      }}
+    >
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Nenhuma impressora encontrada</DialogTitle>
+          <DialogDescription>
+            {noPrinterMsg ??
+              "Nenhuma impressora encontrada neste computador. Você pode salvar o comprovante como PDF."}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <Button variant="outline" onClick={() => setNoPrinterOpen(false)}>
+            Cancelar
+          </Button>
+          <Button
+            onClick={() => {
+              setNoPrinterOpen(false);
+              void handleBaixarPdf();
+            }}
+          >
+            <Download className="h-4 w-4" /> Salvar comprovante
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
     </>
   );
 }

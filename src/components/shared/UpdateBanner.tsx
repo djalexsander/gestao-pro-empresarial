@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
  * - "Depois" silencia por 10 minutos; depois reaparece se ainda houver atualização.
  */
 export function UpdateBanner() {
-  const { updateAvailable, isApplying, applyUpdate, snooze, dismiss } = useAppUpdate();
+  const { updateAvailable, isApplying, newVersion, applyUpdate, snooze, dismiss } = useAppUpdate();
 
   if (!updateAvailable) return null;
 
@@ -54,10 +54,12 @@ export function UpdateBanner() {
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold leading-tight text-foreground">
-              Nova versão disponível
+              Nova atualização disponível
             </p>
             <p className="mt-1 text-[13px] leading-snug text-muted-foreground">
-              Atualize agora para receber melhorias e correções.
+              {newVersion
+                ? `Versão v${newVersion} disponível.`
+                : "Atualize agora para receber melhorias e correções."}
             </p>
 
             <div className="mt-3 flex items-center gap-2">

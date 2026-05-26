@@ -14,8 +14,11 @@ import type { ConfigEmpresa } from "@/hooks/useConfigEmpresa";
 import { gerarCupomHtml, type CupomData } from "@/lib/cupom";
 import { formatBRL } from "@/lib/mock-data";
 import {
-  getDefaultPrinter,
+  getReceiptPrinter,
+  getReceiptWidthMm,
+  listPrinters,
   printPdfBytes,
+  printReceiptText,
 } from "@/integrations/desktop/printers";
 
 const FORMA_LABEL: Record<string, string> = {
@@ -103,6 +106,8 @@ export interface ImprimirCupomResult {
   ok: boolean;
   /** Quando true: precisa pedir ao usuário para escolher impressora. */
   needsPicker?: boolean;
+  /** Quando true: nenhuma impressora foi encontrada no computador. */
+  noPrinters?: boolean;
   /** Mensagem de aviso (impressora salva indisponível, etc.) */
   warning?: string;
   error?: string;
@@ -134,8 +139,23 @@ export async function imprimirCupom(
       : { ok: false, error: "Não foi possível iniciar a impressão." };
   }
 
-  const printer = getDefaultPrinter();
+  const printer = getReceiptPrinter();
   if (!printer) {
+    // Antes de pedir picker, verifica se existe alguma impressora no SO.
+    let available: Awaited<ReturnType<typeof listPrinters>> = [];
+    try {
+      available = await listPrinters();
+    } catch (e) {
+      console.warn("[cupom-print] falha ao listar impressoras", e);
+    }
+    if (!available || available.length === 0) {
+      return {
+        ok: false,
+        noPrinters: true,
+        warning:
+          "Nenhuma impressora encontrada neste computador. Você pode salvar o comprovante como PDF.",
+      };
+    }
     return {
       ok: false,
       needsPicker: true,
@@ -144,6 +164,43 @@ export async function imprimirCupom(
     };
   }
 
+  // Detecta se a impressora salva é térmica → ESC/POS RAW direto.
+  // Se não der para detectar (lista falhou), assume PDF para manter o fluxo
+  // antigo funcionando — fallback seguro.
+  let isThermal = false;
+  try {
+    const list = await listPrinters();
+    const found = list.find((p) => p.name === printer);
+    isThermal = !!found?.is_thermal;
+    console.info("[cupom-print] impressora padrão", {
+      printer,
+      isThermal,
+      found: !!found,
+    });
+  } catch (e) {
+    console.warn("[cupom-print] falha ao detectar tipo da impressora", e);
+  }
+
+  // --- ROTA TÉRMICA: ESC/POS RAW, sem PDF, sem Start-Process ---
+  if (isThermal) {
+    try {
+      const width = getReceiptWidthMm();
+      const texto = gerarCupomTextoPlano(empresa, cupom, width);
+      const msg = await printReceiptText(texto, printer, {
+        widthMm: width,
+        cut: true,
+      });
+      return { ok: true, printerName: printer, warning: msg };
+    } catch (e) {
+      // Cai para o fluxo PDF como fallback seguro.
+      console.warn(
+        "[cupom-print] ESC/POS falhou, caindo para PDF como fallback",
+        e,
+      );
+    }
+  }
+
+  // --- ROTA PDF (não-térmica ou fallback) ---
   try {
     const doc = gerarPdfCupom(empresa, cupom);
     const buf = doc.output("arraybuffer");
@@ -159,6 +216,90 @@ export async function imprimirCupom(
       printerName: printer,
     };
   }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Cupom em texto plano (para envio ESC/POS RAW)                              */
+/* -------------------------------------------------------------------------- */
+
+function gerarCupomTextoPlano(
+  empresa: ConfigEmpresa | null,
+  cupom: CupomData,
+  width: 58 | 80,
+): string {
+  const cols = width === 58 ? 32 : 48;
+  const linhas: string[] = [];
+
+  const center = (s: string) => {
+    const t = s.slice(0, cols);
+    const pad = Math.max(0, Math.floor((cols - t.length) / 2));
+    return " ".repeat(pad) + t;
+  };
+  const row = (l: string, r: string) => {
+    const left = l.slice(0, cols - 1);
+    const right = r.slice(0, cols - left.length - 1);
+    const pad = Math.max(1, cols - left.length - right.length);
+    return left + " ".repeat(pad) + right;
+  };
+  const sep = () => "-".repeat(cols);
+
+  if (empresa) {
+    linhas.push(center(empresa.nome_fantasia ?? empresa.razao_social));
+    if (empresa.nome_fantasia) linhas.push(center(empresa.razao_social));
+    if (empresa.cnpj) linhas.push(center(`CNPJ: ${empresa.cnpj}`));
+    if (empresa.telefone) linhas.push(center(`Tel: ${empresa.telefone}`));
+  } else {
+    linhas.push(center("CUPOM DE VENDA"));
+  }
+  linhas.push(sep());
+  linhas.push(center("CUPOM NAO FISCAL"));
+  linhas.push(center("SEM VALOR FISCAL"));
+  linhas.push(sep());
+
+  linhas.push(row("Cupom:", cupom.numero ?? "—"));
+  linhas.push(row("Data:", fmtDate(cupom.data)));
+  if (cupom.operador) linhas.push(row("Operador:", cupom.operador));
+  linhas.push(
+    row("Cliente:", cupom.cliente?.nome ?? "CONSUMIDOR"),
+  );
+  linhas.push(sep());
+
+  cupom.itens.forEach((it, i) => {
+    const idx = String(i + 1).padStart(3, "0");
+    linhas.push(
+      `${idx} ${it.descricao}${it.sku ? ` (${it.sku})` : ""}`.slice(0, cols),
+    );
+    linhas.push(
+      row(
+        `  ${it.quantidade.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} ${it.unidade ?? "UN"} x ${formatBRL(it.preco_unitario)}`,
+        formatBRL(it.total),
+      ),
+    );
+  });
+
+  linhas.push(sep());
+  linhas.push(row("Subtotal:", formatBRL(cupom.subtotal)));
+  if (cupom.desconto > 0)
+    linhas.push(row("Descontos:", `- ${formatBRL(cupom.desconto)}`));
+  linhas.push(row("TOTAL", formatBRL(cupom.total)));
+  linhas.push(sep());
+  linhas.push(row("Pagamento:", FORMA_LABEL[cupom.forma] ?? cupom.forma));
+  linhas.push(row("Status:", STATUS_LABEL[cupom.status] ?? cupom.status));
+  if (cupom.troco > 0) {
+    linhas.push(
+      row("Recebido:", formatBRL(cupom.valorRecebido ?? cupom.total + cupom.troco)),
+    );
+    linhas.push(row("TROCO:", formatBRL(cupom.troco)));
+  }
+  if (cupom.observacao) {
+    linhas.push(sep());
+    linhas.push(`Obs.: ${cupom.observacao}`.slice(0, cols));
+  }
+  linhas.push(sep());
+  linhas.push(center("Obrigado pela preferencia!"));
+  linhas.push(center("Volte sempre."));
+
+  return linhas.join("\n");
 }
 
 function fmtDate(d: Date): string {
@@ -316,8 +457,8 @@ function gerarPdfCupom(
 }
 
 function safeFileName(numero: string | null): string {
-  const base = (numero ?? "cupom").toString().replace(/[^a-zA-Z0-9_-]+/g, "_");
-  return `cupom_${base}.pdf`;
+  const base = (numero ?? "sem-numero").toString().replace(/[^a-zA-Z0-9_-]+/g, "_");
+  return `comprovante-venda-${base}.pdf`;
 }
 
 const LAST_DIR_KEY = "gp.cupomPdf.lastDir.v1";

@@ -105,7 +105,35 @@ export function useDashboard() {
         })
         .reduce((s, c) => s + Number(c.total ?? 0), 0);
 
-      const lucroMes = vendasMes - comprasMes;
+      // === Custo das mercadorias vendidas no mês (CMV) ===
+      const vendasIdsMes = (vendas ?? [])
+        .filter((v) => new Date(v.data_emissao) >= inicioMes)
+        .map((v) => v.id);
+
+      let custoMes = 0;
+      if (vendasIdsMes.length > 0) {
+        const { data: itens } = await supabase
+          .from("venda_itens")
+          .select("quantidade, produto_id")
+          .in("venda_id", vendasIdsMes);
+
+        const prodIds = [...new Set((itens ?? []).map((i) => i.produto_id).filter(Boolean) as string[])];
+        const custoMap = new Map<string, number>();
+        if (prodIds.length > 0) {
+          const { data: prods } = await supabase
+            .from("produtos")
+            .select("id, preco_custo")
+            .in("id", prodIds);
+          for (const p of prods ?? []) custoMap.set(p.id, Number(p.preco_custo ?? 0));
+        }
+        custoMes = (itens ?? []).reduce(
+          (s, i) => s + Number(i.quantidade ?? 0) * (custoMap.get(i.produto_id) ?? 0),
+          0,
+        );
+      }
+
+      // Lucro bruto = Vendas - Custo dos produtos vendidos
+      const lucroMes = vendasMes - custoMes;
       const margem = vendasMes > 0 ? (lucroMes / vendasMes) * 100 : 0;
 
       // === Séries por mês ===
