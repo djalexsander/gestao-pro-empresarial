@@ -1,30 +1,27 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 
 /**
- * Detecta se há uma nova versão do app publicada comparando as referências
- * de assets (scripts e stylesheets) no `index.html`.
+ * Detecta nova versão do app.
  *
- * Por que não comparar o HTML inteiro?
- *   No preview/host da Lovable o HTML contém marcações dinâmicas (scripts
- *   injetados pelo `lovable.js`, IDs de sessão, comentários de build) que
- *   mudam a cada request — gerava falsos positivos a cada 2 min.
- *
- * Estratégia:
- *   - Buscar `/` com cache-bust.
- *   - Extrair APENAS as URLs dos <script type="module" src=...> e
- *     <link rel="stylesheet" href=...>. O Vite gera hashes estáveis nesses
- *     nomes, então só mudam em um build novo de verdade.
- *   - Comparar a assinatura ordenada dessas URLs com a inicial.
+ * - No desktop (Tauri): usa @tauri-apps/plugin-updater (mesmo fluxo da aba
+ *   Configurações > Atualizações), verifica ao iniciar e a cada 30 min.
+ * - Na web: compara a assinatura de assets do index.html para detectar
+ *   novo deploy.
  */
 
-const CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutos
-const SNOOZE_MS = 30 * 60 * 1000; // "Depois" silencia por 30 min
+const CHECK_INTERVAL_MS = 5 * 60 * 1000;
+const DESKTOP_CHECK_INTERVAL_MS = 30 * 60 * 1000;
+const SNOOZE_MS = 30 * 60 * 1000;
 const SNOOZE_KEY = "app-update:snoozed-until";
 
-/** Extrai assinatura estável a partir do HTML do index. */
+function isTauriRuntime(): boolean {
+  if (typeof window === "undefined") return false;
+  const w = window as unknown as Record<string, unknown>;
+  return Boolean(w.__TAURI_INTERNALS__) || Boolean(w.__TAURI__) || Boolean(w.isTauri);
+}
+
 function extractAssetSignature(html: string): string | null {
   try {
-    // Captura URLs de scripts module e stylesheets — atributos podem estar em qualquer ordem.
     const scriptRegex =
       /<script\b[^>]*\btype=["']module["'][^>]*\bsrc=["']([^"']+)["'][^>]*>|<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*\btype=["']module["'][^>]*>/gi;
     const linkRegex =
@@ -35,12 +32,8 @@ function extractAssetSignature(html: string): string | null {
     while ((m = scriptRegex.exec(html))) urls.add(m[1] ?? m[2]);
     while ((m = linkRegex.exec(html))) urls.add(m[1] ?? m[2]);
 
-    // Filtra runtime injetado por terceiros (ex.: cdn.gpteng.co/lovable.js) que
-    // pode mudar independentemente do build do app.
     const filtered = [...urls].filter((u) => {
       if (!u) return false;
-      // Mantém apenas assets servidos do mesmo host (caminhos relativos ou
-      // do próprio domínio). URLs absolutas externas são descartadas.
       if (/^https?:\/\//i.test(u)) {
         try {
           const parsed = new URL(u, window.location.origin);
@@ -78,6 +71,7 @@ async function fetchAssetSignature(): Promise<string | null> {
 export interface AppUpdateState {
   updateAvailable: boolean;
   isApplying: boolean;
+  newVersion: string | null;
   applyUpdate: () => void;
   snooze: () => void;
   dismiss: () => void;
@@ -86,8 +80,10 @@ export interface AppUpdateState {
 export function useAppUpdate(): AppUpdateState {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
+  const [newVersion, setNewVersion] = useState<string | null>(null);
   const initialSigRef = useRef<string | null>(null);
   const dismissedRef = useRef(false);
+  const tauriRef = useRef(false);
 
   const isSnoozed = useCallback(() => {
     try {
@@ -98,8 +94,7 @@ export function useAppUpdate(): AppUpdateState {
     }
   }, []);
 
-  const check = useCallback(async () => {
-    if (typeof window === "undefined") return;
+  const checkWeb = useCallback(async () => {
     if (document.visibilityState !== "visible") return;
     if (dismissedRef.current) return;
 
@@ -117,20 +112,44 @@ export function useAppUpdate(): AppUpdateState {
     }
   }, [isSnoozed]);
 
+  const checkTauri = useCallback(async () => {
+    if (dismissedRef.current) return;
+    try {
+      const { check } = await import("@tauri-apps/plugin-updater");
+      const update = await check();
+      if (update) {
+        if (isSnoozed()) return;
+        setNewVersion(update.version);
+        setUpdateAvailable(true);
+      } else {
+        setUpdateAvailable(false);
+        setNewVersion(null);
+      }
+    } catch {
+      // silencioso — não travar app
+    }
+  }, [isSnoozed]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const inTauri = isTauriRuntime();
+    tauriRef.current = inTauri;
 
-    // Captura assinatura inicial após o mount
-    void check();
-
-    const interval = window.setInterval(() => {
-      void check();
-    }, CHECK_INTERVAL_MS);
-
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") void check();
+    const run = () => {
+      if (inTauri) void checkTauri();
+      else void checkWeb();
     };
-    const onFocus = () => void check();
+
+    run();
+
+    const interval = window.setInterval(
+      run,
+      inTauri ? DESKTOP_CHECK_INTERVAL_MS : CHECK_INTERVAL_MS,
+    );
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") run();
+    };
+    const onFocus = () => run();
 
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onFocus);
@@ -140,15 +159,36 @@ export function useAppUpdate(): AppUpdateState {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
     };
-  }, [check]);
+  }, [checkTauri, checkWeb]);
 
   const applyUpdate = useCallback(() => {
     setIsApplying(true);
     try {
       localStorage.removeItem(SNOOZE_KEY);
     } catch {
-      // ignore
+      /* ignore */
     }
+
+    if (tauriRef.current) {
+      void (async () => {
+        try {
+          const { check } = await import("@tauri-apps/plugin-updater");
+          const update = await check();
+          if (!update) {
+            setIsApplying(false);
+            setUpdateAvailable(false);
+            return;
+          }
+          await update.downloadAndInstall();
+          const { relaunch } = await import("@tauri-apps/plugin-process");
+          await relaunch();
+        } catch {
+          setIsApplying(false);
+        }
+      })();
+      return;
+    }
+
     window.setTimeout(() => {
       window.location.reload();
     }, 350);
@@ -158,7 +198,7 @@ export function useAppUpdate(): AppUpdateState {
     try {
       localStorage.setItem(SNOOZE_KEY, String(Date.now() + SNOOZE_MS));
     } catch {
-      // ignore
+      /* ignore */
     }
     setUpdateAvailable(false);
   }, []);
@@ -168,5 +208,5 @@ export function useAppUpdate(): AppUpdateState {
     setUpdateAvailable(false);
   }, []);
 
-  return { updateAvailable, isApplying, applyUpdate, snooze, dismiss };
+  return { updateAvailable, isApplying, newVersion, applyUpdate, snooze, dismiss };
 }
