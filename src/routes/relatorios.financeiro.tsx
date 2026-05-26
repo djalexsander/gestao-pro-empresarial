@@ -315,12 +315,26 @@ function Conteudo() {
   const totais = useMemo(() => {
     let entradas = 0;
     let saidas = 0;
+    let receberTotal = 0;
+    let receberVencido = 0;
     for (const r of filteredRows) {
       const valor = r.valor_pago || r.valor;
       if (r.tipo === "receita") entradas += valor;
       else if (r.tipo === "despesa") saidas += valor;
+      // Inadimplência: receitas em aberto (vencidas ou pendentes)
+      if (r.tipo === "receita") {
+        const sv = statusVisual(r);
+        if (sv !== "pago" && sv !== "cancelado") {
+          const restante = Math.max(0, r.valor - r.valor_pago);
+          receberTotal += restante;
+          if (sv === "vencido") receberVencido += restante;
+        }
+      }
     }
-    return { entradas, saidas, lucro: entradas - saidas };
+    const lucro = entradas - saidas;
+    const margem = entradas > 0 ? (lucro / entradas) * 100 : 0;
+    const inadimplencia = receberTotal > 0 ? (receberVencido / receberTotal) * 100 : 0;
+    return { entradas, saidas, lucro, margem, inadimplencia, receberVencido, receberTotal };
   }, [filteredRows]);
 
   // ---- Gráfico barras: entradas vs saídas por dia/mês ----
