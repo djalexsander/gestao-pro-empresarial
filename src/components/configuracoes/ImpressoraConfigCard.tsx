@@ -358,6 +358,7 @@ export function ImpressoraConfigCard() {
   }
 
   return (
+    <div className="space-y-4">
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-4">
         <CardTitle className="flex items-center gap-2">
