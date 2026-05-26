@@ -277,7 +277,7 @@ function Conteudo() {
             <div className="flex h-40 items-center justify-center">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          ) : rows.length === 0 ? (
+          ) : filtered.length === 0 ? (
             <div className="flex h-40 flex-col items-center justify-center gap-1 text-muted-foreground">
               <FileText className="h-8 w-8 opacity-40" />
               <p className="font-medium">Nenhuma NF encontrada no período</p>
@@ -295,7 +295,7 @@ function Conteudo() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((r) => (
+                {filtered.map((r) => (
                   <TableRow key={r.id}>
                     <TableCell className="font-mono">{r.nf}</TableCell>
                     <TableCell className="text-muted-foreground">{r.serie || "—"}</TableCell>
