@@ -512,7 +512,7 @@ async function gerarEtiquetaPng(args: GerarPngArgs): Promise<Uint8Array> {
       produto.nome,
       innerW,
       `bold ${Math.round(nomeFontPx)}px Arial, sans-serif`,
-      2,
+      1,
     );
     const fontFinal = quebra.fontPx;
     ctx.font = `bold ${fontFinal}px Arial, sans-serif`;
