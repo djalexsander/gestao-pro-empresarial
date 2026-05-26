@@ -32,7 +32,7 @@ import {
   getLabelFormat,
   setLabelFormat,
   getLabelCustomFormats,
-  printPdfBytes,
+  printLabelImage,
 } from "@/integrations/desktop/printers";
 import { PrinterPickerDialog } from "@/components/desktop/PrinterPickerDialog";
 import { subscribeDesktopConfig } from "@/integrations/desktop/configStore";
