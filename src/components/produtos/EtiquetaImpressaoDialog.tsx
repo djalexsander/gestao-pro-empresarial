@@ -190,7 +190,7 @@ export function EtiquetaImpressaoDialog({
     } catch (e) {
       console.error("[etiqueta-print] falha", e);
       toast.error(
-        `Falha ao imprimir etiqueta: ${e instanceof Error ? e.message : String(e)}`,
+        "Não foi possível imprimir nesta impressora. Verifique se ela está ligada, instalada e definida corretamente no Windows.",
       );
     } finally {
       setImprimindo(false);
