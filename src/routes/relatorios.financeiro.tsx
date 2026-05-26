@@ -646,6 +646,24 @@ function Conteudo() {
         />
       </div>
 
+      {/* ---- Cards complementares: margem + inadimplência ---- */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <StatCard
+          label="Margem líquida"
+          value={`${totais.margem.toFixed(1)}%`}
+          icon={Percent}
+          iconTone={totais.margem >= 0 ? "success" : "danger"}
+          hint={`Lucro / Entradas no período`}
+        />
+        <StatCard
+          label="Inadimplência"
+          value={`${totais.inadimplencia.toFixed(1)}%`}
+          icon={AlertTriangle}
+          iconTone={totais.inadimplencia > 10 ? "danger" : totais.inadimplencia > 0 ? "warning" : "success"}
+          hint={`${formatBRL(totais.receberVencido)} vencidos / ${formatBRL(totais.receberTotal)} em aberto`}
+        />
+      </div>
+
       {/* ---- Gráficos ---- */}
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
