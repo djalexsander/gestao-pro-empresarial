@@ -56,6 +56,7 @@ import {
   type LancamentoDetalhe,
 } from "@/components/financeiro/LancamentoDetalheDialog";
 import { ConciliarIfoodDialog } from "@/components/financeiro/ConciliarIfoodDialog";
+import { FiadosClientesPanel } from "@/components/financeiro/FiadosClientesPanel";
 import { LancamentoFormDialog } from "@/components/financeiro/LancamentoFormDialog";
 import {
   BlocoDetalheDialog,
