@@ -22,12 +22,15 @@ import { toast } from "sonner";
 import {
   getReceiptPrinter,
   setReceiptPrinter,
+  getReceiptWidthMm,
+  setReceiptWidthMm,
   getLabelPrinter,
   setLabelPrinter,
   getLabelFormat,
   setLabelFormat,
   listPrinters,
   printPdfBytes,
+  printReceiptText,
   type PrinterInfo,
 } from "@/integrations/desktop/printers";
 import { PrinterPickerDialog } from "@/components/desktop/PrinterPickerDialog";
