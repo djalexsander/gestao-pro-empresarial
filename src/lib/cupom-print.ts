@@ -106,6 +106,8 @@ export interface ImprimirCupomResult {
   ok: boolean;
   /** Quando true: precisa pedir ao usuário para escolher impressora. */
   needsPicker?: boolean;
+  /** Quando true: nenhuma impressora foi encontrada no computador. */
+  noPrinters?: boolean;
   /** Mensagem de aviso (impressora salva indisponível, etc.) */
   warning?: string;
   error?: string;
@@ -139,6 +141,21 @@ export async function imprimirCupom(
 
   const printer = getReceiptPrinter();
   if (!printer) {
+    // Antes de pedir picker, verifica se existe alguma impressora no SO.
+    let available: Awaited<ReturnType<typeof listPrinters>> = [];
+    try {
+      available = await listPrinters();
+    } catch (e) {
+      console.warn("[cupom-print] falha ao listar impressoras", e);
+    }
+    if (!available || available.length === 0) {
+      return {
+        ok: false,
+        noPrinters: true,
+        warning:
+          "Nenhuma impressora encontrada neste computador. Você pode salvar o comprovante como PDF.",
+      };
+    }
     return {
       ok: false,
       needsPicker: true,
@@ -440,8 +457,8 @@ function gerarPdfCupom(
 }
 
 function safeFileName(numero: string | null): string {
-  const base = (numero ?? "cupom").toString().replace(/[^a-zA-Z0-9_-]+/g, "_");
-  return `cupom_${base}.pdf`;
+  const base = (numero ?? "sem-numero").toString().replace(/[^a-zA-Z0-9_-]+/g, "_");
+  return `comprovante-venda-${base}.pdf`;
 }
 
 const LAST_DIR_KEY = "gp.cupomPdf.lastDir.v1";
