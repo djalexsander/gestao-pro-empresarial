@@ -241,7 +241,7 @@ function Conteudo() {
           value={formatBRL(valorTotal)}
           icon={Boxes}
           iconTone="success"
-          helperText={`A preço de venda: ${formatBRL(valorVenda)}`}
+          hint={`A preço de venda: ${formatBRL(valorVenda)}`}
         />
         <StatCard
           label="Abaixo do mínimo"
@@ -253,7 +253,7 @@ function Conteudo() {
           label="Zerados"
           value={zerados.toString()}
           icon={AlertTriangle}
-          iconTone="destructive"
+          iconTone="danger"
         />
       </div>
 
