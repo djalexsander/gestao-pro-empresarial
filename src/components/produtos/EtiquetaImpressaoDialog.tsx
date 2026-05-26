@@ -585,21 +585,59 @@ function printViaBrowser(args: {
 </style></head>
 <body>
   ${itens.map(() => itemHtml).join("")}
-  <script>
-    window.addEventListener('load', () => { setTimeout(() => { window.print(); }, 200); });
-  </script>
 </body></html>`;
 
-  const w = window.open("", "_blank", "width=400,height=600");
-  if (!w) {
+  // Usa iframe oculto em vez de window.open — não dispara bloqueador de
+  // pop-ups e funciona em qualquer navegador / no Tauri.
+  try {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("aria-hidden", "true");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentDocument;
+    if (!doc) {
+      document.body.removeChild(iframe);
+      throw new Error("iframe sem document");
+    }
+    doc.open();
+    doc.write(html);
+    doc.close();
+
+    const trigger = () => {
+      try {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+      } catch (e) {
+        console.error("[etiqueta] iframe print falhou", e);
+      } finally {
+        setTimeout(() => {
+          try {
+            document.body.removeChild(iframe);
+          } catch {}
+        }, 60_000);
+      }
+    };
+
+    if (iframe.contentWindow?.document.readyState === "complete") {
+      setTimeout(trigger, 150);
+    } else {
+      iframe.addEventListener("load", () => setTimeout(trigger, 150), {
+        once: true,
+      });
+      setTimeout(trigger, 700);
+    }
+  } catch (e) {
+    console.error("[etiqueta] falha ao montar iframe", e);
     toast.error(
-      "Não foi possível abrir a janela de impressão. Verifique o bloqueador de pop-ups.",
+      "Não foi possível abrir a impressão. Tente novamente ou gere um PDF.",
     );
-    return;
   }
-  w.document.open();
-  w.document.write(html);
-  w.document.close();
 }
 
 function escapeHtml(s: string): string {
