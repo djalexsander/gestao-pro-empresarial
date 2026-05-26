@@ -59,6 +59,7 @@ const FORMATOS: Record<
   "50x50": { label: "Etiqueta 50×50 mm", w: 50, h: 50 },
   "60x40": { label: "Etiqueta 60×40 mm", w: 60, h: 40 },
   "80x40": { label: "Etiqueta 80×40 mm", w: 80, h: 40 },
+  "80mm": { label: "Etiqueta 80 mm", w: 80, h: 40 },
   "a4-grade": { label: "Folha A4 (grade)", w: 210, h: 297 },
 };
 
@@ -100,13 +101,19 @@ export function EtiquetaImpressaoDialog({
   const [incluirQr, setIncluirQr] = useState(false);
   const [imprimindo, setImprimindo] = useState(false);
   const [labelPrinter, setLP] = useState<string | null>(getLabelPrinter());
+  const [customFormats, setCustomFormats] = useState<string[]>(getLabelCustomFormats());
   const [pickerOpen, setPickerOpen] = useState(false);
   const barcodeRef = useRef<SVGSVGElement | null>(null);
   const qrRef = useRef<HTMLCanvasElement | null>(null);
   const [previewErro, setPreviewErro] = useState<string | null>(null);
 
   useEffect(() => {
-    return subscribeDesktopConfig((cfg) => setLP(cfg.labelPrinter ?? null));
+    return subscribeDesktopConfig((cfg) => {
+      setLP(cfg.labelPrinter ?? null);
+      setCustomFormats(
+        (cfg.labelCustomFormats ?? []).filter((v) => /^\d{2,3}x\d{2,3}$/i.test(v)),
+      );
+    });
   }, []);
 
   // Persiste o formato escolhido como padrão deste terminal.
@@ -219,6 +226,13 @@ export function EtiquetaImpressaoDialog({
     }
   }
 
+  const formatosDisponiveis = [
+    ...Object.entries(FORMATOS),
+    ...customFormats
+      .filter((value) => !FORMATOS[value])
+      .map((value) => [value, getFormatoInfo(value)] as const),
+  ];
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -315,7 +329,7 @@ export function EtiquetaImpressaoDialog({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.entries(FORMATOS).map(([k, f]) => (
+                      {formatosDisponiveis.map(([k, f]) => (
                         <SelectItem key={k} value={k}>
                           {f.label}
                         </SelectItem>
