@@ -86,7 +86,9 @@ export function EtiquetaImpressaoDialog({
   const [imprimindo, setImprimindo] = useState(false);
   const [labelPrinter, setLP] = useState<string | null>(getLabelPrinter());
   const [pickerOpen, setPickerOpen] = useState(false);
-  const previewRef = useRef<SVGSVGElement>(null);
+  const barcodeRef = useRef<SVGSVGElement | null>(null);
+  const qrRef = useRef<HTMLCanvasElement | null>(null);
+  const [previewErro, setPreviewErro] = useState<string | null>(null);
 
   useEffect(() => {
     return subscribeDesktopConfig((cfg) => setLP(cfg.labelPrinter ?? null));
@@ -97,23 +99,52 @@ export function EtiquetaImpressaoDialog({
     if (formato !== "a4-grade") setLabelFormat(formato);
   }, [formato]);
 
+  // Render do preview (barcode e/ou QR). Roda sempre que muda código,
+  // toggles ou formato, garantindo que o preview nunca fique em branco.
   useEffect(() => {
-    if (!open || !produto?.codigo || !previewRef.current) return;
-    const fmt = validarEan13(produto.codigo) ? "EAN13" : "CODE128";
-    try {
-      JsBarcode(previewRef.current, produto.codigo, {
-        format: fmt,
-        width: 2,
-        height: 50,
-        displayValue: true,
-        margin: 2,
-        fontSize: 12,
-        background: "#ffffff",
-      });
-    } catch {
-      /* ignora */
+    if (!open) return;
+    setPreviewErro(null);
+    const codigo = produto?.codigo?.trim() ?? "";
+    if (!codigo) {
+      setPreviewErro("Produto sem código de barras. Gere ou informe um código primeiro.");
+      return;
     }
-  }, [open, produto?.codigo]);
+    // Barcode (sempre que houver SVG montado)
+    if (barcodeRef.current) {
+      const fmt = validarEan13(codigo) ? "EAN13" : "CODE128";
+      try {
+        // Limpa render anterior
+        while (barcodeRef.current.firstChild) {
+          barcodeRef.current.removeChild(barcodeRef.current.firstChild);
+        }
+        JsBarcode(barcodeRef.current, codigo, {
+          format: fmt,
+          width: 2,
+          height: 48,
+          displayValue: true,
+          margin: 2,
+          fontSize: 12,
+          background: "#ffffff",
+          lineColor: "#000000",
+        });
+      } catch (e) {
+        console.warn("[etiqueta] falha ao renderizar barcode", e);
+        setPreviewErro(
+          "Código inválido para barras. Verifique o código do produto.",
+        );
+      }
+    }
+    // QR (quando ativado)
+    if (incluirQr && qrRef.current) {
+      QRCode.toCanvas(qrRef.current, codigo, {
+        margin: 0,
+        width: 96,
+        color: { dark: "#000000", light: "#ffffff" },
+      }).catch((e) => {
+        console.warn("[etiqueta] falha ao renderizar QR", e);
+      });
+    }
+  }, [open, produto?.codigo, incluirQr, mostrarNome, mostrarPreco, formato]);
 
   async function handlePrint() {
     if (!produto?.codigo) return;
@@ -159,7 +190,7 @@ export function EtiquetaImpressaoDialog({
     } catch (e) {
       console.error("[etiqueta-print] falha", e);
       toast.error(
-        `Falha ao imprimir etiqueta: ${e instanceof Error ? e.message : String(e)}`,
+        "Não foi possível imprimir nesta impressora. Verifique se ela está ligada, instalada e definida corretamente no Windows.",
       );
     } finally {
       setImprimindo(false);
@@ -184,8 +215,38 @@ export function EtiquetaImpressaoDialog({
             </p>
           ) : (
             <div className="space-y-4">
-              <div className="flex justify-center rounded-md border border-border bg-white p-3">
-                <svg ref={previewRef} />
+              <div className="rounded-md border border-border bg-white p-3 text-black">
+                {previewErro ? (
+                  <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+                    <span>⚠️</span>
+                    <span>{previewErro}</span>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-1">
+                    {mostrarNome && (
+                      <div className="line-clamp-2 max-w-full text-center text-[11px] font-semibold leading-tight">
+                        {produto.nome}
+                      </div>
+                    )}
+                    <div className="flex w-full items-center justify-center gap-3">
+                      <svg
+                        ref={barcodeRef}
+                        className="block max-h-[64px] w-auto"
+                      />
+                      {incluirQr && (
+                        <canvas
+                          ref={qrRef}
+                          className="block h-[64px] w-[64px]"
+                        />
+                      )}
+                    </div>
+                    {mostrarPreco && produto.preco != null && (
+                      <div className="text-sm font-bold">
+                        R$ {Number(produto.preco).toFixed(2).replace(".", ",")}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {desktop && (
@@ -524,21 +585,59 @@ function printViaBrowser(args: {
 </style></head>
 <body>
   ${itens.map(() => itemHtml).join("")}
-  <script>
-    window.addEventListener('load', () => { setTimeout(() => { window.print(); }, 200); });
-  </script>
 </body></html>`;
 
-  const w = window.open("", "_blank", "width=400,height=600");
-  if (!w) {
+  // Usa iframe oculto em vez de window.open — não dispara bloqueador de
+  // pop-ups e funciona em qualquer navegador / no Tauri.
+  try {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("aria-hidden", "true");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentDocument;
+    if (!doc) {
+      document.body.removeChild(iframe);
+      throw new Error("iframe sem document");
+    }
+    doc.open();
+    doc.write(html);
+    doc.close();
+
+    const trigger = () => {
+      try {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+      } catch (e) {
+        console.error("[etiqueta] iframe print falhou", e);
+      } finally {
+        setTimeout(() => {
+          try {
+            document.body.removeChild(iframe);
+          } catch {}
+        }, 60_000);
+      }
+    };
+
+    if (iframe.contentWindow?.document.readyState === "complete") {
+      setTimeout(trigger, 150);
+    } else {
+      iframe.addEventListener("load", () => setTimeout(trigger, 150), {
+        once: true,
+      });
+      setTimeout(trigger, 700);
+    }
+  } catch (e) {
+    console.error("[etiqueta] falha ao montar iframe", e);
     toast.error(
-      "Não foi possível abrir a janela de impressão. Verifique o bloqueador de pop-ups.",
+      "Não foi possível abrir a impressão. Tente novamente ou gere um PDF.",
     );
-    return;
   }
-  w.document.open();
-  w.document.write(html);
-  w.document.close();
 }
 
 function escapeHtml(s: string): string {
