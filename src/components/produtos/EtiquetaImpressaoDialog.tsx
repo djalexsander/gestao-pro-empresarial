@@ -556,10 +556,12 @@ async function gerarEtiquetaPng(args: GerarPngArgs): Promise<Uint8Array> {
   // Largura da barra fina em px (módulo). EAN13 ≈ 113 módulos com texto.
   const targetModules = barcodeFmt === "EAN13" ? 113 : 140;
   const barWidth = Math.max(1, Math.floor(bcAreaW / targetModules));
-  const bcHeightPx = Math.max(mm(6), Math.min(barcodeAreaH * 0.78, mm(22)));
+  // Barcode mais baixo: ocupa ~50% da área central, com teto menor.
+  // Reduz ~35% em relação ao layout anterior, preservando legibilidade.
+  const bcHeightPx = Math.max(mm(4), Math.min(barcodeAreaH * 0.5, mm(14)));
   const bcFontSize = Math.max(
-    10,
-    Math.min(Math.round(mm(2.2)), Math.round(precoFontPx * 0.55) || 999),
+    9,
+    Math.min(Math.round(mm(2.0)), Math.round(precoFontPx * 0.45) || 999),
   );
 
   try {
