@@ -83,14 +83,8 @@ export type CompraInput = {
   client_uuid?: string | null;
 };
 
-function calcularTotais(input: CompraInput) {
-  const subtotal = input.itens.reduce(
-    (acc, it) => acc + it.quantidade * it.preco_unitario - (it.desconto ?? 0),
-    0
-  );
-  const total = subtotal - (input.desconto ?? 0) + (input.frete ?? 0) + (input.outros ?? 0);
-  return { subtotal, total: Math.max(0, total) };
-}
+// Totais (subtotal/total) agora são calculados server-side dentro da RPC
+// `criar_compra` para evitar divergência entre cliente e banco.
 
 // ================= QUERIES =================
 
