@@ -1004,19 +1004,14 @@ pub fn db_info() -> DbResult<DbInfo> {
 // `payload` mantém o JSON completo do registro para que o adapter possa
 // devolver o objeto inteiro sem mapear todas as colunas ainda.
 
-fn parse_iso_to_ms(s: &str) -> Option<i64> {
-    chrono::DateTime::parse_from_rfc3339(s)
-        .ok()
-        .map(|d| d.timestamp_millis())
-}
-
-fn json_str<'a>(v: &'a serde_json::Value, key: &str) -> Option<&'a str> {
-    v.get(key).and_then(|x| x.as_str())
-}
-
-fn json_f64(v: &serde_json::Value, key: &str) -> Option<f64> {
-    v.get(key).and_then(|x| x.as_f64())
-}
+// Helpers puros (parse_iso_to_ms, json_str, json_f64, iso_from_ms_z_pub,
+// backoff_ms_for_attempts) foram movidos para `db::helpers` no PROMPT 12.
+// Os símbolos continuam disponíveis dentro deste módulo via `use helpers::*`
+// abaixo, sem mudar assinaturas nem comportamento.
+mod helpers;
+use helpers::{
+    backoff_ms_for_attempts, iso_from_ms_z_pub, json_f64, json_str, parse_iso_to_ms,
+};
 
 #[derive(Debug, Serialize)]
 pub struct DomainStat {
