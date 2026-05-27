@@ -23,9 +23,11 @@ import {
   fetchBackupList,
   fetchBackupLog,
   fetchBackupStatus,
+  fetchRestorePreflight,
   type BackupFileItem,
   type BackupLogEntry,
   type BackupStatusPayload,
+  type RestorePreflight,
 } from "@/integrations/desktop/serverConnection";
 import type { TerminalConexaoConfig } from "@/integrations/desktop/types";
 
