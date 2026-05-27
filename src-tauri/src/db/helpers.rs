@@ -51,3 +51,71 @@ pub(super) fn backoff_ms_for_attempts(attempts: i64) -> i64 {
         _ => 15 * 60_000,
     }
 }
+
+// ============================================================================
+// Tests (PROMPT 13) — fixam o comportamento dos helpers puros.
+// Rodar com: `cargo test -p gestao-pro --lib`.
+// Não dependem de SQLite, rede ou Supabase.
+// ============================================================================
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn backoff_curve_locked() {
+        // Trava a curva exata usada pelo scheduler de outbox. Alterar
+        // estes valores deve ser uma decisão consciente.
+        assert_eq!(backoff_ms_for_attempts(0), 5_000);
+        assert_eq!(backoff_ms_for_attempts(1), 5_000);
+        assert_eq!(backoff_ms_for_attempts(2), 15_000);
+        assert_eq!(backoff_ms_for_attempts(3), 60_000);
+        assert_eq!(backoff_ms_for_attempts(4), 5 * 60_000);
+        assert_eq!(backoff_ms_for_attempts(5), 15 * 60_000);
+        assert_eq!(backoff_ms_for_attempts(99), 15 * 60_000);
+    }
+
+    #[test]
+    fn backoff_is_monotonic_nondecreasing() {
+        let mut prev = 0_i64;
+        for n in 0..20 {
+            let cur = backoff_ms_for_attempts(n);
+            assert!(cur >= prev, "backoff regrediu em n={n}: {cur} < {prev}");
+            prev = cur;
+        }
+    }
+
+    #[test]
+    fn parse_iso_to_ms_roundtrip() {
+        let ms = 1_700_000_000_000_i64;
+        let s = iso_from_ms_z_pub(ms);
+        assert!(!s.is_empty(), "iso_from_ms_z_pub devolveu vazio");
+        let back = parse_iso_to_ms(&s).expect("parse_iso_to_ms falhou");
+        assert_eq!(back, ms);
+    }
+
+    #[test]
+    fn parse_iso_to_ms_invalid_returns_none() {
+        assert!(parse_iso_to_ms("").is_none());
+        assert!(parse_iso_to_ms("not-a-date").is_none());
+        assert!(parse_iso_to_ms("2024-13-40").is_none());
+    }
+
+    #[test]
+    fn iso_from_extreme_ms_is_safe() {
+        // Não deve causar panic em valores extremos.
+        let _ = iso_from_ms_z_pub(i64::MAX);
+        let _ = iso_from_ms_z_pub(i64::MIN);
+        let _ = iso_from_ms_z_pub(0);
+    }
+
+    #[test]
+    fn json_str_and_f64_extract_fields() {
+        let v = json!({ "nome": "Café", "preco": 12.5, "qtd": 3 });
+        assert_eq!(json_str(&v, "nome"), Some("Café"));
+        assert_eq!(json_str(&v, "ausente"), None);
+        assert_eq!(json_f64(&v, "preco"), Some(12.5));
+        assert_eq!(json_f64(&v, "qtd"), Some(3.0));
+        assert_eq!(json_f64(&v, "nome"), None);
+    }
+}
