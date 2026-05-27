@@ -348,17 +348,69 @@ export function BackupSeguranca({ cfg }: Props) {
             <DownloadCloud className="h-4 w-4" />
             Restaurar backup
           </div>
+
+          {/* Preflight de segurança (PROMPT 15) */}
+          {preflight && (
+            <div
+              className={`mb-3 rounded-md border p-2 text-xs ${
+                preflight.blocked
+                  ? "border-destructive/50 bg-destructive/10 text-destructive"
+                  : "border-emerald-400/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+              }`}
+            >
+              <div className="font-semibold">
+                {preflight.blocked
+                  ? "Restore bloqueado pelo preflight"
+                  : "Pronto para restaurar"}
+              </div>
+              <ul className="mt-1 list-inside list-disc">
+                <li>
+                  Caixa aberto: {preflight.caixa_abertos_count > 0 ? `sim (${preflight.caixa_abertos_count})` : "não"}
+                </li>
+                <li>Outbox pendente: {preflight.outbox_pending_total}</li>
+                <li>Outbox com erro: {preflight.outbox_error_total}</li>
+              </ul>
+              {preflight.reasons.length > 0 && (
+                <ul className="mt-1 list-inside list-disc">
+                  {preflight.reasons.map((r, i) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
           <div className="space-y-2 text-xs">
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Input
-                placeholder="Caminho do arquivo .db a restaurar"
-                value={restorePath}
-                onChange={(e) => setRestorePath(e.target.value)}
-              />
+            <Input
+              placeholder="Caminho do arquivo .db a restaurar"
+              value={restorePath}
+              onChange={(e) => setRestorePath(e.target.value)}
+            />
+            <Input
+              placeholder='Digite "RESTAURAR" para confirmar'
+              value={restoreConfirmText}
+              onChange={(e) => setRestoreConfirmText(e.target.value)}
+            />
+            {preflight?.blocked && (
+              <label className="flex items-center gap-2 text-destructive">
+                <input
+                  type="checkbox"
+                  checked={forceRestore}
+                  onChange={(e) => setForceRestore(e.target.checked)}
+                />
+                Forçar restore como administrador (registrado em auditoria)
+              </label>
+            )}
+            <div className="flex justify-end">
               <Button
                 variant="destructive"
                 onClick={handleRestore}
-                disabled={!!busy || !restorePath.trim()}
+                disabled={
+                  !!busy ||
+                  !restorePath.trim() ||
+                  restoreConfirmText.trim().toUpperCase() !== "RESTAURAR" ||
+                  (preflight?.blocked === true && !forceRestore)
+                }
               >
                 Restaurar
               </Button>
@@ -366,10 +418,12 @@ export function BackupSeguranca({ cfg }: Props) {
             <div className="text-muted-foreground">
               Antes da restauração: validamos o arquivo, criamos um pre-backup
               do estado atual e agendamos o swap atômico para o próximo boot.
-              Depois, basta reiniciar o app.
+              Depois, basta reiniciar o app. Todas as tentativas (incluindo
+              negadas e forçadas) ficam registradas no histórico abaixo.
             </div>
           </div>
         </div>
+
 
         {/* Histórico */}
         <div className="rounded-lg border border-border">
