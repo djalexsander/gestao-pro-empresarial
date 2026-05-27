@@ -1077,10 +1077,16 @@ export function DesktopTab() {
                 />
                 {outboxCaixa.last_error && (
                   <div className="sm:col-span-4">
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                    <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
                       Último erro
+                      <Badge variant="destructive" className="text-[10px]">
+                        {classifyOutboxError(outboxCaixa.last_error).label}
+                      </Badge>
                     </div>
-                    <div className="mt-0.5 break-all text-xs text-destructive">
+                    <div className="mt-0.5 text-xs text-destructive">
+                      {classifyOutboxError(outboxCaixa.last_error).friendly}
+                    </div>
+                    <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
                       {outboxCaixa.last_error}
                     </div>
                   </div>
