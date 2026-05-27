@@ -3132,14 +3132,35 @@ async fn backup_export_handler(
 #[derive(Deserialize)]
 struct BackupRestoreRequest {
     source_path: String,
+    /// Override administrativo. Quando `true`, permite restaurar mesmo
+    /// com caixa aberto ou pendências de outbox. O evento fica gravado
+    /// em `backup_log` com status `forced` para auditoria.
+    #[serde(default)]
+    force: bool,
+}
+
+async fn backup_restore_preflight_handler(
+) -> Result<Json<backup::RestorePreflight>, (StatusCode, String)> {
+    backup::restore_preflight()
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))
 }
 
 async fn backup_restore_schedule_handler(
     Json(req): Json<BackupRestoreRequest>,
 ) -> Result<Json<backup::BackupEntry>, (StatusCode, String)> {
-    backup::schedule_restore(&req.source_path)
+    backup::schedule_restore(&req.source_path, req.force)
         .map(Json)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.0))
+        .map_err(|e| {
+            // Bloqueio do preflight → 409 Conflict (estado do recurso),
+            // para a UI distinguir de erro de arquivo (400) ou interno.
+            let status = if e.0.contains("preflight") {
+                StatusCode::CONFLICT
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            (status, e.0)
+        })
 }
 
 async fn backup_restore_cancel_handler() -> Result<Json<serde_json::Value>, (StatusCode, String)> {
