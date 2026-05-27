@@ -19,9 +19,10 @@
 // a função `proxy_get` por uma consulta SQL local.
 
 use axum::{
-    extract::{ConnectInfo, Query, State},
-    http::{HeaderMap, StatusCode},
-    response::IntoResponse,
+    extract::{ConnectInfo, Query, Request, State},
+    http::{HeaderMap, HeaderValue, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -31,7 +32,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Mutex;
 use tokio::sync::oneshot;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
 use crate::backup;
 use crate::db;
@@ -62,6 +63,12 @@ struct ServerState {
     upstream: Option<UpstreamConfig>,
     /// Últimos heartbeats por terminalId (em memória; banco local virá depois).
     terminals: HashMap<String, TerminalHeartbeat>,
+    /// Token local de pareamento — exigido em todas as rotas sensíveis
+    /// (`/api/*`, `/db/*`, `/backup/*`, `/heartbeat`, `/terminals*`, `/events`).
+    /// Rotas públicas (`/health`, `/server-info`) NÃO exigem token.
+    /// Gerado/persistido pelo frontend via Tauri Store; quando vazio é
+    /// auto-gerado no primeiro `start()`.
+    auth_token: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -129,6 +136,10 @@ pub struct LocalServerStatus {
     pub version: &'static str,
     pub upstream_configured: bool,
     pub terminals_conectados: usize,
+    /// Token de pareamento atual — devolvido APENAS para o processo Tauri
+    /// que invocou `start_local_server` (mesma máquina). Nunca é exposto
+    /// por HTTP.
+    pub auth_token: Option<String>,
 }
 
 // ---------- Heartbeat ----------
@@ -2128,14 +2139,32 @@ async fn run_outbox_caixa_scheduler(
 // ---------- Router ----------
 
 fn build_router(ctx: AppCtx) -> Router {
+    // CORS restrita — apenas origens conhecidas do app desktop (Tauri WebView)
+    // e localhost/127.0.0.1 para ferramentas locais. Sem `Any` para origem.
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _req| {
+            let s = match origin.to_str() {
+                Ok(v) => v,
+                Err(_) => return false,
+            };
+            // Tauri v2 WebView (todas as plataformas)
+            s == "tauri://localhost"
+                || s == "https://tauri.localhost"
+                || s == "http://tauri.localhost"
+                // ferramentas locais / dev
+                || s.starts_with("http://localhost")
+                || s.starts_with("http://127.0.0.1")
+        }))
         .allow_methods(Any)
         .allow_headers(Any);
 
-    Router::new()
+    // Rotas públicas — diagnóstico e descoberta. Sem token.
+    let public = Router::new()
         .route("/health", get(health_handler))
-        .route("/server-info", get(server_info_handler))
+        .route("/server-info", get(server_info_handler));
+
+    // Rotas sensíveis — exigem header `X-Gestao-Token` válido.
+    let protected = Router::new()
         .route("/heartbeat", post(heartbeat_handler))
         .route("/terminals", get(terminals_handler))
         .route("/terminals/known", get(known_terminals_handler))
@@ -2191,8 +2220,82 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/backup/export", post(backup_export_handler))
         .route("/backup/restore/schedule", post(backup_restore_schedule_handler))
         .route("/backup/restore/cancel", post(backup_restore_cancel_handler))
+        .route_layer(middleware::from_fn(require_local_token));
+
+    public
+        .merge(protected)
         .with_state(ctx)
         .layer(cors)
+}
+
+/// Middleware: exige `X-Gestao-Token: <token>` (ou `Authorization: Bearer <token>`)
+/// para qualquer rota sensível. Se o servidor ainda não tem token configurado,
+/// bloqueia tudo (estado seguro por padrão).
+async fn require_local_token(req: Request, next: Next) -> Result<Response, (StatusCode, String)> {
+    let expected = STATE
+        .lock()
+        .ok()
+        .and_then(|s| s.auth_token.clone())
+        .unwrap_or_default();
+
+    if expected.is_empty() {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Servidor local sem token de pareamento configurado.".into(),
+        ));
+    }
+
+    let headers = req.headers();
+    let provided = headers
+        .get("x-gestao-token")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            headers
+                .get(axum::http::header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.strip_prefix("Bearer ").map(|t| t.to_string()))
+        })
+        .unwrap_or_default();
+
+    // Comparação de tempo constante para reduzir oráculos de tempo.
+    if provided.len() != expected.len()
+        || !provided
+            .as_bytes()
+            .iter()
+            .zip(expected.as_bytes().iter())
+            .fold(true, |acc, (a, b)| acc & (a == b))
+    {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "Token de pareamento inválido ou ausente.".into(),
+        ));
+    }
+
+    Ok(next.run(req).await)
+}
+
+/// Gera um token novo (~256 bits de entropia derivada de tempo + endereço).
+fn generate_auth_token() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let a = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let b: usize = (&a as *const _) as usize;
+    let c = std::process::id() as u128;
+    let mix1 = a
+        .wrapping_mul(0x9E3779B97F4A7C15)
+        ^ (b as u128).wrapping_mul(0xC2B2AE3D27D4EB4F)
+        ^ c.wrapping_mul(0xBF58476D1CE4E5B9);
+    let a2 = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let mix2 = a2
+        .wrapping_mul(0x94D049BB133111EB)
+        ^ mix1.rotate_left(33);
+    format!("gpt_{:032x}{:032x}", mix1, mix2)
 }
 
 // ---------- API pública ----------
@@ -2210,6 +2313,7 @@ pub fn current_status() -> LocalServerStatus {
         version: APP_VERSION,
         upstream_configured: s.upstream.is_some(),
         terminals_conectados: s.terminals.len(),
+        auth_token: s.auth_token.clone(),
     }
 }
 
@@ -2219,6 +2323,7 @@ pub async fn start(
     server_id: Option<String>,
     upstream_url: Option<String>,
     upstream_anon_key: Option<String>,
+    auth_token: Option<String>,
 ) -> Result<LocalServerStatus, String> {
     let upstream = match (upstream_url, upstream_anon_key) {
         (Some(url), Some(key)) if !url.is_empty() && !key.is_empty() => {
@@ -2230,6 +2335,13 @@ pub async fn start(
     let host = hostname::get()
         .ok()
         .and_then(|s| s.into_string().ok());
+
+    // Resolve o token: usa o vindo do frontend (persistido na Tauri Store),
+    // ou gera um novo se for a primeira execução. Token vazio nunca é aceito.
+    let resolved_token = match auth_token {
+        Some(t) if !t.trim().is_empty() => t,
+        _ => generate_auth_token(),
+    };
 
     {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
@@ -2244,6 +2356,7 @@ pub async fn start(
             if s.hostname.is_none() {
                 s.hostname = host.clone();
             }
+            // Não troca o token se já está rodando — evita derrubar terminais.
             return Ok(LocalServerStatus {
                 running: true,
                 port: s.port,
@@ -2255,6 +2368,7 @@ pub async fn start(
                 version: APP_VERSION,
                 upstream_configured: s.upstream.is_some(),
                 terminals_conectados: s.terminals.len(),
+                auth_token: s.auth_token.clone(),
             });
         }
     }
@@ -2391,6 +2505,7 @@ pub async fn start(
         s.backup_scheduler_shutdown_tx = Some(backup_scheduler_tx);
         s.upstream = upstream;
         s.terminals.clear();
+        s.auth_token = Some(resolved_token);
     }
 
     Ok(current_status())

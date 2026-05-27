@@ -28,6 +28,12 @@ export interface TerminalConexaoConfig {
   terminalId: string;
   /** Nome amigável exibido na UI ("Caixa 01", "Balcão"...). */
   terminalNome: string;
+  /**
+   * Token de pareamento do servidor — exigido pelo backend local em
+   * todas as rotas sensíveis. Obtido na tela Configurações → Desktop
+   * da máquina servidor e digitado no wizard do terminal.
+   */
+  serverToken?: string;
 }
 
 export interface DesktopConfig {
