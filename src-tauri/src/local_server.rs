@@ -63,6 +63,12 @@ struct ServerState {
     upstream: Option<UpstreamConfig>,
     /// Últimos heartbeats por terminalId (em memória; banco local virá depois).
     terminals: HashMap<String, TerminalHeartbeat>,
+    /// Token local de pareamento — exigido em todas as rotas sensíveis
+    /// (`/api/*`, `/db/*`, `/backup/*`, `/heartbeat`, `/terminals*`, `/events`).
+    /// Rotas públicas (`/health`, `/server-info`) NÃO exigem token.
+    /// Gerado/persistido pelo frontend via Tauri Store; quando vazio é
+    /// auto-gerado no primeiro `start()`.
+    auth_token: Option<String>,
 }
 
 #[derive(Clone, Debug)]
