@@ -2005,13 +2005,16 @@ async fn push_one_outbox_caixa(
     let payload: serde_json::Value =
         serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
 
-    db::outbox_caixa_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
+    let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
+        Some(a) => a,
+        None => {
+            let msg = "AUTH: sem JWT do usuário — aguardando login no terminal".to_string();
+            let _ = db::outbox_caixa_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
 
-    let auth = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+    db::outbox_caixa_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
 
     let (rpc, body) = match item.action.as_str() {
         "abrir" => (
