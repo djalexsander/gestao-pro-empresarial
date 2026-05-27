@@ -30,9 +30,51 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
+
+/// Cache compartilhado do JWT do usuário (header `Authorization: Bearer <jwt>`
+/// recebido nas requisições autenticadas do terminal). Alimenta os schedulers
+/// de background — que não recebem header — para que NUNCA caiam em anon_key
+/// ao sincronizar a outbox. Quando vazio, o push falha com erro `AUTH:` claro
+/// e o item permanece pending para retentar após o próximo login do usuário.
+type JwtCache = Arc<Mutex<Option<String>>>;
+
+/// Lê o JWT do header `Authorization` da request (cacheando para uso nos
+/// schedulers) ou recupera o último JWT válido em cache. Retorna `None`
+/// quando ninguém ainda autenticou no servidor local nesta sessão.
+///
+/// Heurística para evitar contaminar o cache com o token de pareamento
+/// (que pode ser enviado em `Authorization: Bearer <pairing>` por terminais
+/// antigos): só aceita strings que pareçam JWT (header.payload.signature).
+fn resolve_user_jwt(cache: &JwtCache, headers: &HeaderMap) -> Option<String> {
+    if let Some(v) = headers.get(axum::http::header::AUTHORIZATION) {
+        if let Ok(s) = v.to_str() {
+            if let Some(rest) = s.strip_prefix("Bearer ") {
+                // JWT real tem 3 segmentos separados por '.' — o token de
+                // pareamento local é hex puro e não tem ponto.
+                if rest.matches('.').count() >= 2 {
+                    let owned = s.to_string();
+                    if let Ok(mut g) = cache.lock() {
+                        *g = Some(owned.clone());
+                    }
+                    return Some(owned);
+                }
+            }
+        }
+    }
+    cache.lock().ok().and_then(|g| g.clone())
+}
+
+/// Limpa o cache de JWT — chamado quando o upstream rejeita o token
+/// (HTTP 401/403), forçando a próxima request autenticada do terminal a
+/// repopular com um token fresco.
+fn clear_user_jwt(cache: &JwtCache) {
+    if let Ok(mut g) = cache.lock() {
+        *g = None;
+    }
+}
 
 use crate::backup;
 use crate::db;
