@@ -2421,6 +2421,11 @@ pub struct LocalVendaInput {
     pub operador_id: Option<String>,
     pub terminal_id: Option<String>,
     pub client_uuid: Option<String>,
+    /// Data de vencimento (YYYY-MM-DD) — obrigatória quando há pagamento
+    /// `fiado`. Validada aqui e re-enviada à RPC `finalizar_venda_pdv` como
+    /// `_data_vencimento` no push da outbox.
+    #[serde(default)]
+    pub data_vencimento: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -2438,6 +2443,33 @@ pub fn registrar_venda_local(
     if input.itens.is_empty() {
         return Err(DbError("venda sem itens".into()));
     }
+
+    // FIADO: cliente + data_vencimento são obrigatórios. Mesma regra do
+    // backend cloud — falhar aqui evita que o PDV registre uma venda offline
+    // que depois quebraria na RPC `finalizar_venda_pdv` por falta de dados.
+    let tem_fiado = input.forma_pagamento.eq_ignore_ascii_case("fiado")
+        || input
+            .pagamentos
+            .iter()
+            .any(|p| p.forma_pagamento.eq_ignore_ascii_case("fiado"));
+    if tem_fiado {
+        if input.cliente_id.as_deref().map(|s| s.is_empty()).unwrap_or(true) {
+            return Err(DbError(
+                "Venda fiado exige cliente — selecione um cliente antes de finalizar.".into(),
+            ));
+        }
+        if input
+            .data_vencimento
+            .as_deref()
+            .map(|s| s.trim().is_empty())
+            .unwrap_or(true)
+        {
+            return Err(DbError(
+                "Venda fiado exige data de vencimento — informe a data antes de finalizar.".into(),
+            ));
+        }
+    }
+
 
     // Idempotência por client_uuid (antes da transação grande).
     if let Some(cu) = input.client_uuid.as_deref() {
@@ -2521,6 +2553,7 @@ pub fn registrar_venda_local(
         "operador_id":      input.operador_id,
         "terminal_id":      input.terminal_id,
         "client_uuid":      input.client_uuid,
+        "data_vencimento":  input.data_vencimento,
     })
     .to_string();
 
