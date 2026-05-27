@@ -137,6 +137,10 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
 
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
+          {/* Alerta de pendências/erros nas filas offline (não bloqueia o fechamento) */}
+          <OutboxPendenciasAlert
+            contexto="Confira antes de encerrar o turno — vendas, caixa, estoque e financeiro do dia podem estar aguardando envio para a nuvem."
+          />
           {/* Resumo do caixa */}
           <div className="rounded-lg border border-border bg-muted/30 p-4">
             <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
