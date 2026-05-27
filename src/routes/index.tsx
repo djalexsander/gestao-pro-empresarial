@@ -298,6 +298,10 @@ function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      <CloudDependencyNotice
+        title="Painel pode estar incompleto"
+        message="Este painel ainda lê da nuvem. Em modo terminal local, vendas/caixa/movimentos ainda não sincronizados podem não aparecer aqui. Os números convergem após a sincronização."
+      />
       <PageHeader
         title="Dashboard"
         description="Visão consolidada do desempenho da sua empresa."
