@@ -2899,6 +2899,24 @@ export type Database = {
           },
         ]
       }
+      venda_numero_sequencias: {
+        Row: {
+          owner_id: string
+          ultimo_numero: number
+          updated_at: string
+        }
+        Insert: {
+          owner_id: string
+          ultimo_numero?: number
+          updated_at?: string
+        }
+        Update: {
+          owner_id?: string
+          ultimo_numero?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       venda_pagamentos: {
         Row: {
           created_at: string
