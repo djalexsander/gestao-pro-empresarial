@@ -2313,6 +2313,7 @@ pub fn current_status() -> LocalServerStatus {
         version: APP_VERSION,
         upstream_configured: s.upstream.is_some(),
         terminals_conectados: s.terminals.len(),
+        auth_token: s.auth_token.clone(),
     }
 }
 
