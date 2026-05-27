@@ -64,8 +64,16 @@ fn backup_export(source_path: String, dest_path: String) -> Result<backup::Backu
 }
 
 #[tauri::command]
-fn backup_schedule_restore(source_path: String) -> Result<backup::BackupEntry, String> {
-    backup::schedule_restore(&source_path).map_err(|e| e.0)
+fn backup_schedule_restore(
+    source_path: String,
+    force: Option<bool>,
+) -> Result<backup::BackupEntry, String> {
+    backup::schedule_restore(&source_path, force.unwrap_or(false)).map_err(|e| e.0)
+}
+
+#[tauri::command]
+fn backup_restore_preflight() -> Result<backup::RestorePreflight, String> {
+    backup::restore_preflight().map_err(|e| e.0)
 }
 
 #[tauri::command]
