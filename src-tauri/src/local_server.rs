@@ -1467,6 +1467,12 @@ async fn push_one_outbox_venda(
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
     if !status.is_success() {
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            clear_user_jwt(&ctx.user_jwt);
+            let msg = format!("AUTH: upstream rejeitou JWT (HTTP {}): {}", status.as_u16(), text);
+            let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
         let msg = format!("HTTP {}: {}", status.as_u16(), text);
         let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
         return Err(msg);
