@@ -439,6 +439,9 @@ async fn proxy_get(
         .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Falha upstream: {e}")))?;
 
     let status = res.status();
+    if status.as_u16() == 401 || status.as_u16() == 403 {
+        clear_user_jwt(&ctx.user_jwt);
+    }
     let body = res
         .bytes()
         .await
