@@ -2776,6 +2776,12 @@ async fn push_one_outbox_cancel(
                 .map_err(|e| e.to_string())?;
             return Ok(text);
         }
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            clear_user_jwt(&ctx.user_jwt);
+            let msg = format!("AUTH: upstream rejeitou JWT (HTTP {}): {}", status.as_u16(), text);
+            let _ = db::outbox_cancel_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
         let msg = format!("HTTP {}: {}", status.as_u16(), text);
         let _ = db::outbox_cancel_mark_error(local_uuid, &msg, now);
         return Err(msg);
