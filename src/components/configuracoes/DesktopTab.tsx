@@ -60,6 +60,7 @@ import {
   type PersistedTerminal,
   type ServerConnStatus,
 } from "@/integrations/desktop/serverConnection";
+import { classifyOutboxError } from "@/integrations/desktop/outboxErrors";
 import { supabase } from "@/integrations/supabase/client";
 import { BackupSeguranca } from "./BackupSeguranca";
 import { AtualizacoesTab } from "./AtualizacoesTab";
@@ -885,10 +886,16 @@ export function DesktopTab() {
                 />
                 {outbox.last_error && (
                   <div className="sm:col-span-4">
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                    <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
                       Último erro
+                      <Badge variant="destructive" className="text-[10px]">
+                        {classifyOutboxError(outbox.last_error).label}
+                      </Badge>
                     </div>
-                    <div className="mt-0.5 break-all text-xs text-destructive">
+                    <div className="mt-0.5 text-xs text-destructive">
+                      {classifyOutboxError(outbox.last_error).friendly}
+                    </div>
+                    <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
                       {outbox.last_error}
                     </div>
                   </div>
@@ -986,10 +993,16 @@ export function DesktopTab() {
                 />
                 {outboxVendas.last_error && (
                   <div className="sm:col-span-4">
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                    <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
                       Último erro
+                      <Badge variant="destructive" className="text-[10px]">
+                        {classifyOutboxError(outboxVendas.last_error).label}
+                      </Badge>
                     </div>
-                    <div className="mt-0.5 break-all text-xs text-destructive">
+                    <div className="mt-0.5 text-xs text-destructive">
+                      {classifyOutboxError(outboxVendas.last_error).friendly}
+                    </div>
+                    <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
                       {outboxVendas.last_error}
                     </div>
                   </div>
@@ -1064,10 +1077,16 @@ export function DesktopTab() {
                 />
                 {outboxCaixa.last_error && (
                   <div className="sm:col-span-4">
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                    <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
                       Último erro
+                      <Badge variant="destructive" className="text-[10px]">
+                        {classifyOutboxError(outboxCaixa.last_error).label}
+                      </Badge>
                     </div>
-                    <div className="mt-0.5 break-all text-xs text-destructive">
+                    <div className="mt-0.5 text-xs text-destructive">
+                      {classifyOutboxError(outboxCaixa.last_error).friendly}
+                    </div>
+                    <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
                       {outboxCaixa.last_error}
                     </div>
                   </div>
@@ -1170,10 +1189,16 @@ export function DesktopTab() {
                 />
                 {outboxCancel.last_error && (
                   <div className="sm:col-span-4">
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                    <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
                       Último erro
+                      <Badge variant="destructive" className="text-[10px]">
+                        {classifyOutboxError(outboxCancel.last_error).label}
+                      </Badge>
                     </div>
-                    <div className="mt-0.5 break-all text-xs text-destructive">
+                    <div className="mt-0.5 text-xs text-destructive">
+                      {classifyOutboxError(outboxCancel.last_error).friendly}
+                    </div>
+                    <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
                       {outboxCancel.last_error}
                     </div>
                   </div>
@@ -1260,10 +1285,16 @@ export function DesktopTab() {
                 />
                 {outboxFin.last_error && (
                   <div className="sm:col-span-4">
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                    <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
                       Último erro
+                      <Badge variant="destructive" className="text-[10px]">
+                        {classifyOutboxError(outboxFin.last_error).label}
+                      </Badge>
                     </div>
-                    <div className="mt-0.5 break-all text-xs text-destructive">
+                    <div className="mt-0.5 text-xs text-destructive">
+                      {classifyOutboxError(outboxFin.last_error).friendly}
+                    </div>
+                    <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
                       {outboxFin.last_error}
                     </div>
                   </div>
