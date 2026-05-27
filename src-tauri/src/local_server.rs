@@ -2339,6 +2339,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/backup/log", get(backup_log_handler))
         .route("/backup/create", post(backup_create_handler))
         .route("/backup/export", post(backup_export_handler))
+        .route("/backup/restore/preflight", get(backup_restore_preflight_handler))
         .route("/backup/restore/schedule", post(backup_restore_schedule_handler))
         .route("/backup/restore/cancel", post(backup_restore_cancel_handler))
         .route_layer(middleware::from_fn(require_local_token));
