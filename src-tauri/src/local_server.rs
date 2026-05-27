@@ -1412,13 +1412,18 @@ async fn push_one_outbox_venda(
     let payload: serde_json::Value =
         serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
 
-    db::outbox_vendas_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
+    // Auth: exige JWT real do usuário (header ou cache). Nunca cai em
+    // anon_key — sem JWT, marca AUTH: e mantém pending para retry pós-login.
+    let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
+        Some(a) => a,
+        None => {
+            let msg = "AUTH: sem JWT do usuário — aguardando login no terminal".to_string();
+            let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
 
-    let auth = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+    db::outbox_vendas_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
 
     let pagamentos = payload.get("pagamentos").cloned().unwrap_or(serde_json::Value::Null);
     let body = serde_json::json!({
