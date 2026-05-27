@@ -1661,13 +1661,47 @@ export async function exportarBackup(
   });
 }
 
+export interface RestorePreflight {
+  blocked: boolean;
+  caixa_aberto: boolean;
+  caixa_abertos_count: number;
+  outbox_pending_total: number;
+  outbox_error_total: number;
+  reasons: string[];
+}
+
+export async function fetchRestorePreflight(
+  cfg?: TerminalConexaoConfig,
+): Promise<RestorePreflight | null> {
+  return getJson<RestorePreflight>(cfg, "/backup/restore/preflight");
+}
+
+/**
+ * Agenda a restauração. Diferente das outras chamadas de backup, esta
+ * **propaga** a mensagem de erro do servidor (incluindo o motivo do
+ * preflight quando bloqueado, 409 Conflict) em vez de devolver `null`
+ * silenciosamente — o operador precisa ver exatamente por que falhou.
+ */
 export async function agendarRestauracao(
   cfg: TerminalConexaoConfig | undefined,
   source_path: string,
-) {
-  return postJson<BackupLogEntry>(cfg, "/backup/restore/schedule", {
-    source_path,
+  options?: { force?: boolean },
+): Promise<BackupLogEntry> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) {
+    throw new Error("Servidor local indisponível.");
+  }
+  const res = await fetch(`${baseUrl}/backup/restore/schedule`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ source_path, force: options?.force ?? false }),
+    cache: "no-store",
   });
+  if (!res.ok) {
+    const msg = (await res.text().catch(() => "")) || `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return (await res.json()) as BackupLogEntry;
 }
 
 export async function cancelarRestauracao(cfg?: TerminalConexaoConfig) {
