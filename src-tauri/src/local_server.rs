@@ -2505,6 +2505,7 @@ pub async fn start(
         s.backup_scheduler_shutdown_tx = Some(backup_scheduler_tx);
         s.upstream = upstream;
         s.terminals.clear();
+        s.auth_token = Some(resolved_token);
     }
 
     Ok(current_status())
