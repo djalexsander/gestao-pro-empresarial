@@ -60,6 +60,7 @@ import {
   type PersistedTerminal,
   type ServerConnStatus,
 } from "@/integrations/desktop/serverConnection";
+import { classifyOutboxError } from "@/integrations/desktop/outboxErrors";
 import { supabase } from "@/integrations/supabase/client";
 import { BackupSeguranca } from "./BackupSeguranca";
 import { AtualizacoesTab } from "./AtualizacoesTab";
