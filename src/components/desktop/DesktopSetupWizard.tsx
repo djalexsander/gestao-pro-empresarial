@@ -59,6 +59,9 @@ export function DesktopSetupWizard({
   const [terminalNome, setTerminalNome] = useState(
     config.terminal?.terminalNome ?? "",
   );
+  const [serverToken, setServerToken] = useState(
+    config.terminal?.serverToken ?? "",
+  );
   const [salvando, setSalvando] = useState(false);
 
   // Diagnóstico
@@ -91,6 +94,10 @@ export function DesktopSetupWizard({
       toast.error("Informe o host ou IP do servidor local.");
       return null;
     }
+    if (!serverToken.trim()) {
+      toast.error("Informe o token de pareamento exibido no servidor.");
+      return null;
+    }
     return {
       host: host.trim(),
       porta: portaNum,
@@ -98,6 +105,7 @@ export function DesktopSetupWizard({
         config.terminal?.terminalId ??
         `term-${Math.random().toString(36).slice(2, 10)}`,
       terminalNome: terminalNome.trim(),
+      serverToken: serverToken.trim(),
     };
   }
 
