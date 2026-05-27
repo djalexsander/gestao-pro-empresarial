@@ -2421,6 +2421,11 @@ pub struct LocalVendaInput {
     pub operador_id: Option<String>,
     pub terminal_id: Option<String>,
     pub client_uuid: Option<String>,
+    /// Data de vencimento (YYYY-MM-DD) — obrigatória quando há pagamento
+    /// `fiado`. Validada aqui e re-enviada à RPC `finalizar_venda_pdv` como
+    /// `_data_vencimento` no push da outbox.
+    #[serde(default)]
+    pub data_vencimento: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
