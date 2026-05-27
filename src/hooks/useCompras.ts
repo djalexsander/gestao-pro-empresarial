@@ -67,6 +67,7 @@ export type CompraInput = {
   fornecedor_id: string | null;
   data_emissao: string;
   data_prevista?: string | null;
+  data_vencimento?: string | null;
   numero_nf?: string | null;
   serie_nf?: string | null;
   desconto?: number;
@@ -74,6 +75,12 @@ export type CompraInput = {
   outros?: number;
   observacoes?: string | null;
   itens: CompraItemInput[];
+  /**
+   * Idempotência: o componente DEVE manter um UUID estável enquanto o
+   * modal estiver aberto. Garante que duplo-clique / retry de rede
+   * não criem duas compras.
+   */
+  client_uuid?: string | null;
 };
 
 function calcularTotais(input: CompraInput) {
