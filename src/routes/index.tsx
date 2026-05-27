@@ -27,6 +27,7 @@ import {
   Legend,
 } from "recharts";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { CloudDependencyNotice } from "@/components/shared/CloudDependencyNotice";
 import { StatCard } from "@/components/shared/StatCard";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -266,6 +267,7 @@ function DashboardPage() {
   if (isLoading || !data) {
     return (
       <div className="space-y-6">
+        <CloudDependencyNotice title="Painel pode estar incompleto" message="Este painel ainda lê da nuvem. Em modo terminal local, vendas/caixa/movimentos ainda não sincronizados podem não aparecer aqui. Os números convergem após a sincronização." />
         <PageHeader
           title="Dashboard"
           description="Visão consolidada do desempenho da sua empresa."
