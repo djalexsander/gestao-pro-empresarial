@@ -36,8 +36,8 @@ export type LancamentoStatus =
   | "parcial";
 
 export interface LancamentoCanonico {
-  tipo: LancamentoTipo | string | null;
-  status: LancamentoStatus | string | null;
+  tipo?: LancamentoTipo | string | null;
+  status?: LancamentoStatus | string | null;
   valor: number | string | null;
   valor_pago?: number | string | null;
   conciliado_em?: string | null;
