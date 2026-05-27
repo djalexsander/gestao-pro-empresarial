@@ -1351,11 +1351,54 @@ function FluxoCaixaPanel() {
     staleTime: 15_000,
   });
 
+  // ---- Filtros (UI only — não muda regra do financeiro) -------------------
+  type FluxoFiltroRapido =
+    | "todos"
+    | "entradas"
+    | "saidas"
+    | "vendas"
+    | "movimentos"
+    | "operacional";
+  const [busca, setBusca] = useState("");
+  const [filtroRapido, setFiltroRapido] = useState<FluxoFiltroRapido>("todos");
+  const [filtroTipo, setFiltroTipo] = useState<"todos" | FluxoTipo>("todos");
+  const [filtroOrigem, setFiltroOrigem] = useState<"todos" | "caixa" | "financeiro">("todos");
+
+  const filteredRows = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+    return rows.filter((r) => {
+      // Filtro rápido
+      if (filtroRapido === "entradas" && !(r.valor > 0 && !r.operacional)) return false;
+      if (filtroRapido === "saidas" && !(r.valor < 0 && !r.operacional)) return false;
+      if (filtroRapido === "vendas" && r.tipo !== "venda") return false;
+      if (
+        filtroRapido === "movimentos" &&
+        !["sangria", "suprimento"].includes(r.tipo)
+      )
+        return false;
+      if (filtroRapido === "operacional" && !r.operacional) return false;
+
+      if (filtroTipo !== "todos" && r.tipo !== filtroTipo) return false;
+      if (filtroOrigem !== "todos" && r.origem !== filtroOrigem) return false;
+
+      if (!termo) return true;
+      const hay = [
+        r.descricao,
+        TIPO_LABEL[r.tipo],
+        r.origem,
+        r.status ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(termo);
+    });
+  }, [rows, busca, filtroRapido, filtroTipo, filtroOrigem]);
+
   const totais = useMemo(() => {
     let entradas = 0;
     let saidas = 0;
     let fundoAberturas = 0; // valor inicial colocado nos caixas (operacional)
-    for (const r of rows) {
+    for (const r of filteredRows) {
       if (r.operacional) {
         // Apenas soma o valor das aberturas para exibir como "Fundo de caixa".
         // Fechamento é informativo e não entra em nenhum total.
@@ -1366,11 +1409,12 @@ function FluxoCaixaPanel() {
       else saidas += Math.abs(r.valor);
     }
     return { entradas, saidas, saldo: entradas - saidas, fundoAberturas };
-  }, [rows]);
+  }, [filteredRows]);
 
   // Saldo acumulado REAL (financeiro): ignora abertura e fechamento.
-  // Reflete apenas entradas e saídas reais do período.
-  const rowsComSaldo = useMemo(() => {
+  // Calculado sobre o conjunto completo, não filtrado, para manter coerência
+  // contábil. Apenas a exibição é filtrada/agrupada depois.
+  const saldoPorId = useMemo(() => {
     const ordenadas = [...rows].sort((a, b) => (a.data < b.data ? -1 : 1));
     let acc = 0;
     const map = new Map<string, number>();
@@ -1378,8 +1422,138 @@ function FluxoCaixaPanel() {
       if (!r.operacional) acc += r.valor;
       map.set(r.id, acc);
     }
-    return rows.map((r) => ({ ...r, saldoAcumulado: map.get(r.id) ?? 0 }));
+    return map;
   }, [rows]);
+
+  // ---- Agrupamento Data → Tipo → Descrição --------------------------------
+  type GrupoFolha = {
+    key: string;
+    descricao: string;
+    tipo: FluxoTipo;
+    items: (FluxoRow & { saldoAcumulado: number })[];
+    total: number;
+    entradas: number;
+    saidas: number;
+  };
+  type GrupoTipo = {
+    key: string;
+    tipo: FluxoTipo;
+    descricoes: GrupoFolha[];
+    total: number;
+    qtd: number;
+  };
+  type GrupoData = {
+    key: string; // YYYY-MM-DD
+    label: string; // dd/mm/yyyy
+    tipos: GrupoTipo[];
+    total: number;
+    qtd: number;
+  };
+
+  const grupos = useMemo<GrupoData[]>(() => {
+    const enriched = filteredRows.map((r) => ({
+      ...r,
+      saldoAcumulado: saldoPorId.get(r.id) ?? 0,
+    }));
+    const byData = new Map<string, Map<FluxoTipo, Map<string, typeof enriched>>>();
+    for (const r of enriched) {
+      const dataKey = r.data.slice(0, 10);
+      if (!byData.has(dataKey)) byData.set(dataKey, new Map());
+      const tipoMap = byData.get(dataKey)!;
+      if (!tipoMap.has(r.tipo)) tipoMap.set(r.tipo, new Map());
+      const descMap = tipoMap.get(r.tipo)!;
+      const descKey = r.descricao || "—";
+      if (!descMap.has(descKey)) descMap.set(descKey, []);
+      descMap.get(descKey)!.push(r);
+    }
+    const out: GrupoData[] = [];
+    const dataKeys = Array.from(byData.keys()).sort((a, b) => (a < b ? 1 : -1));
+    for (const dk of dataKeys) {
+      const [y, m, d] = dk.split("-");
+      const tipoMap = byData.get(dk)!;
+      const tipos: GrupoTipo[] = [];
+      let totalData = 0;
+      let qtdData = 0;
+      for (const [tipo, descMap] of tipoMap) {
+        const folhas: GrupoFolha[] = [];
+        let totalTipo = 0;
+        let qtdTipo = 0;
+        for (const [desc, items] of descMap) {
+          const itemsSorted = [...items].sort((a, b) => (a.data < b.data ? 1 : -1));
+          const entradas = items
+            .filter((i) => i.valor > 0 && !i.operacional)
+            .reduce((s, i) => s + i.valor, 0);
+          const saidas = items
+            .filter((i) => i.valor < 0 && !i.operacional)
+            .reduce((s, i) => s + Math.abs(i.valor), 0);
+          const total = items.reduce(
+            (s, i) => s + (i.operacional ? 0 : i.valor),
+            0,
+          );
+          folhas.push({
+            key: `${dk}|${tipo}|${desc}`,
+            descricao: desc,
+            tipo,
+            items: itemsSorted,
+            total,
+            entradas,
+            saidas,
+          });
+          totalTipo += total;
+          qtdTipo += items.length;
+        }
+        folhas.sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+        tipos.push({
+          key: `${dk}|${tipo}`,
+          tipo,
+          descricoes: folhas,
+          total: totalTipo,
+          qtd: qtdTipo,
+        });
+        totalData += totalTipo;
+        qtdData += qtdTipo;
+      }
+      tipos.sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+      out.push({
+        key: dk,
+        label: `${d}/${m}/${y}`,
+        tipos,
+        total: totalData,
+        qtd: qtdData,
+      });
+    }
+    return out;
+  }, [filteredRows, saldoPorId]);
+
+  const [gruposExpandidos, setGruposExpandidos] = useState<Set<string>>(new Set());
+  const toggleGrupo = (key: string) =>
+    setGruposExpandidos((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const expandirTodos = () => {
+    const all = new Set<string>();
+    for (const g of grupos) {
+      all.add(g.key);
+      for (const t of g.tipos) {
+        all.add(t.key);
+        for (const f of t.descricoes) all.add(f.key);
+      }
+    }
+    setGruposExpandidos(all);
+  };
+  const recolherTodos = () => setGruposExpandidos(new Set());
+
+  const limparFiltros = () => {
+    setBusca("");
+    setFiltroRapido("todos");
+    setFiltroTipo("todos");
+    setFiltroOrigem("todos");
+  };
+  const temFiltro =
+    !!busca || filtroRapido !== "todos" || filtroTipo !== "todos" || filtroOrigem !== "todos";
 
   const [conciliarLoteOpen, setConciliarLoteOpen] = useState(false);
 
