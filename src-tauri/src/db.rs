@@ -2588,6 +2588,44 @@ pub fn registrar_venda_local(
             }
         };
 
+        // 0.5) Validação atômica de estoque local.
+        //
+        // Agrega a quantidade pedida por produto (mesmo SKU repetido em
+        // múltiplas linhas conta junto) e compara com o saldo materializado
+        // em `estoque_saldos_local`. Bloqueia a venda INTEIRA se algum
+        // produto não tiver saldo suficiente — mesma regra do backend
+        // cloud (`finalizar_venda_pdv`). Garante que não há baixa parcial.
+        //
+        // Concorrência multi-terminal é tratada no cloud via
+        // pg_advisory_xact_lock dentro da RPC. Localmente, SQLite serializa
+        // writes na mesma instância, e a leitura+escrita ocorrem dentro
+        // desta transação.
+        {
+            use std::collections::BTreeMap;
+            let mut por_produto: BTreeMap<String, f64> = BTreeMap::new();
+            for item in &input.itens {
+                *por_produto.entry(item.produto_id.clone()).or_insert(0.0) += item.quantidade;
+            }
+            for (produto_id, qtd_pedida) in &por_produto {
+                let variacao_id = String::new();
+                let saldo = read_saldo_atual(&tx, produto_id, &variacao_id)?;
+                if saldo < *qtd_pedida {
+                    let nome: Option<String> = tx
+                        .query_row(
+                            "SELECT nome FROM produtos_local WHERE id = ?1",
+                            params![produto_id],
+                            |r| r.get::<_, Option<String>>(0),
+                        )
+                        .optional()?
+                        .flatten();
+                    let label = nome.unwrap_or_else(|| produto_id.clone());
+                    return Err(DbError(format!(
+                        "Estoque insuficiente para \"{label}\". Disponível: {saldo}, solicitado: {qtd_pedida}."
+                    )));
+                }
+            }
+        }
+
         // 1) Cabeçalho.
         tx.execute(
             "INSERT INTO vendas_local(
