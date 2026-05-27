@@ -217,14 +217,31 @@ export function DesktopSetupWizard({
               </div>
             </div>
 
-            <div className="rounded-lg border border-dashed border-border bg-muted/40 p-3 text-xs text-muted-foreground">
-              <p>
-                Pegue o <strong>IP</strong> e a <strong>porta</strong> na
-                máquina servidor (Configurações → Desktop → Servidor local).
-                Servidor e terminal precisam estar na mesma rede e a porta
-                liberada no firewall.
+            <div className="space-y-2">
+              <Label htmlFor="terminal-token">Token de pareamento *</Label>
+              <Input
+                id="terminal-token"
+                placeholder="Cole aqui o token exibido na máquina servidora"
+                value={serverToken}
+                onChange={(e) => setServerToken(e.target.value)}
+                spellCheck={false}
+                autoComplete="off"
+              />
+              <p className="text-xs text-muted-foreground">
+                Obrigatório. Copie em Configurações → Desktop → Servidor local
+                na máquina principal.
               </p>
             </div>
+
+            <div className="rounded-lg border border-dashed border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+              <p>
+                Pegue o <strong>IP</strong>, a <strong>porta</strong> e o{" "}
+                <strong>token de pareamento</strong> na máquina servidor
+                (Configurações → Desktop → Servidor local). Servidor e terminal
+                precisam estar na mesma rede e a porta liberada no firewall.
+              </p>
+            </div>
+
 
             <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
               <Button
