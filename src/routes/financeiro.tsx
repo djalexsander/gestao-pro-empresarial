@@ -16,7 +16,12 @@ import {
   Download,
   FileText,
   Sheet as SheetIcon,
+  ChevronDown,
+  ChevronRight,
+  Search,
+  X,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { CloudDependencyNotice } from "@/components/shared/CloudDependencyNotice";
