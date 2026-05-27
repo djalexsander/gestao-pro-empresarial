@@ -22,7 +22,11 @@ const DOMAIN_TO_KEYS: Record<DataDomain, string[][]> = {
   vendas: [["vendas"], ["dashboard"]],
   financeiro: [["financeiro"], ["financeiro-indicadores"], ["dashboard"]],
   terminais: [["terminais"]],
+  socios: [["empresa_membros"], ["socios"]],
+  empresa: [["config_empresa"], ["configuracoes_empresa"]],
+  modulos: [["empresa-modulos"], ["modulos"], ["planos"], ["saas-resumo"]],
 };
+
 
 export function QueryProvider({ children }: { children: React.ReactNode }) {
   const [client] = useState(

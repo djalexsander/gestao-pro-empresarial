@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { CloudDependencyNotice } from "@/components/shared/CloudDependencyNotice";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -166,6 +167,7 @@ function CobrancasPage() {
 
   return (
     <div className="space-y-6">
+      <CloudDependencyNotice />
       <PageHeader
         title="Cobranças e faturas"
         description="Acompanhe suas cobranças, baixe faturas e pague pendências por Pix."

@@ -13,9 +13,10 @@ async fn start_local_server(
     server_id: Option<String>,
     upstream_url: Option<String>,
     upstream_anon_key: Option<String>,
+    auth_token: Option<String>,
 ) -> Result<LocalServerStatus, String> {
     eprintln!("[gestao-pro] start_local_server invoked port={port} name={:?} id={:?}", server_name, server_id);
-    let res = local_server::start(port, server_name, server_id, upstream_url, upstream_anon_key).await;
+    let res = local_server::start(port, server_name, server_id, upstream_url, upstream_anon_key, auth_token).await;
     match &res {
         Ok(st) => eprintln!("[gestao-pro] start_local_server OK running={} port={:?}", st.running, st.port),
         Err(e) => eprintln!("[gestao-pro] start_local_server ERROR: {e}"),
@@ -63,8 +64,16 @@ fn backup_export(source_path: String, dest_path: String) -> Result<backup::Backu
 }
 
 #[tauri::command]
-fn backup_schedule_restore(source_path: String) -> Result<backup::BackupEntry, String> {
-    backup::schedule_restore(&source_path).map_err(|e| e.0)
+fn backup_schedule_restore(
+    source_path: String,
+    force: Option<bool>,
+) -> Result<backup::BackupEntry, String> {
+    backup::schedule_restore(&source_path, force.unwrap_or(false)).map_err(|e| e.0)
+}
+
+#[tauri::command]
+fn backup_restore_preflight() -> Result<backup::RestorePreflight, String> {
+    backup::restore_preflight().map_err(|e| e.0)
 }
 
 #[tauri::command]
@@ -145,6 +154,7 @@ pub fn run() {
             backup_log,
             backup_export,
             backup_schedule_restore,
+            backup_restore_preflight,
             backup_cancel_restore,
             list_printers,
             print_pdf_bytes,

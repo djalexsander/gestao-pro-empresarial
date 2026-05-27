@@ -1,5 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  calcLucroBruto,
+  calcMargemPct,
+  calcAbertoLanc,
+  calcValorRealizado,
+} from "@/lib/financeiro-canonico";
 
 export interface FinanceiroPeriodo {
   inicio: string; // YYYY-MM-DD
@@ -157,8 +163,8 @@ export function useFinanceiroIndicadores() {
       }
 
       const totalVendido = vendas.reduce((s, v) => s + (Number(v.total) || 0), 0);
-      const lucroBruto = totalVendido - custoTotal;
-      const margemPct = totalVendido > 0 ? (lucroBruto / totalVendido) * 100 : 0;
+      const lucroBruto = calcLucroBruto(totalVendido, custoTotal);
+      const margemPct = calcMargemPct(totalVendido, lucroBruto);
 
       // 3) Fiado e iFood em aberto (do financeiro_lancamentos a receber)
       const { data: lancsAR } = await supabase
@@ -181,10 +187,9 @@ export function useFinanceiroIndicadores() {
         status: string;
         conciliado_em: string | null;
       }>) {
-        // Só conta o que ainda está pendente E não foi conciliado.
-        // Se já foi conciliado/recebido, a diferença vira taxa — não é mais "a receber".
+        // Canônico: ignora conciliados; usa valor em aberto (nunca negativo).
         if (l.conciliado_em) continue;
-        const aberto = (Number(l.valor) || 0) - (Number(l.valor_pago) || 0);
+        const aberto = calcAbertoLanc(l);
         if (aberto <= 0) continue;
         if (l.forma_pagamento === "fiado") {
           fiadoEmAberto += aberto;
@@ -205,7 +210,7 @@ export function useFinanceiroIndicadores() {
         .limit(2000);
 
       const recebidoHoje = (pagosHoje ?? []).reduce(
-        (s, l) => s + (Number(l.valor_pago ?? l.valor) || 0),
+        (s, l) => s + calcValorRealizado(l),
         0,
       );
       const qtdRecebimentosHoje = (pagosHoje ?? []).length;

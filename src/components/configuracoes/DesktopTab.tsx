@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { SaveBar } from "./SaveBar";
 import {
   Server,
   Monitor,
@@ -12,6 +13,8 @@ import {
   CheckCircle2,
   XCircle,
   Database,
+  Copy,
+  KeyRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,6 +60,7 @@ import {
   type PersistedTerminal,
   type ServerConnStatus,
 } from "@/integrations/desktop/serverConnection";
+import { classifyOutboxError } from "@/integrations/desktop/outboxErrors";
 import { supabase } from "@/integrations/supabase/client";
 import { BackupSeguranca } from "./BackupSeguranca";
 import { AtualizacoesTab } from "./AtualizacoesTab";
@@ -439,6 +443,10 @@ export function DesktopTab() {
             )}
           </CardContent>
         </Card>
+
+        {isServer && (
+          <ServerTokenCard token={config.serverAuthToken ?? null} />
+        )}
 
         {isServer && (
           <ServerReadinessCard
@@ -878,10 +886,16 @@ export function DesktopTab() {
                 />
                 {outbox.last_error && (
                   <div className="sm:col-span-4">
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                    <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
                       Último erro
+                      <Badge variant="destructive" className="text-[10px]">
+                        {classifyOutboxError(outbox.last_error).label}
+                      </Badge>
                     </div>
-                    <div className="mt-0.5 break-all text-xs text-destructive">
+                    <div className="mt-0.5 text-xs text-destructive">
+                      {classifyOutboxError(outbox.last_error).friendly}
+                    </div>
+                    <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
                       {outbox.last_error}
                     </div>
                   </div>
@@ -979,10 +993,16 @@ export function DesktopTab() {
                 />
                 {outboxVendas.last_error && (
                   <div className="sm:col-span-4">
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                    <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
                       Último erro
+                      <Badge variant="destructive" className="text-[10px]">
+                        {classifyOutboxError(outboxVendas.last_error).label}
+                      </Badge>
                     </div>
-                    <div className="mt-0.5 break-all text-xs text-destructive">
+                    <div className="mt-0.5 text-xs text-destructive">
+                      {classifyOutboxError(outboxVendas.last_error).friendly}
+                    </div>
+                    <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
                       {outboxVendas.last_error}
                     </div>
                   </div>
@@ -1057,10 +1077,16 @@ export function DesktopTab() {
                 />
                 {outboxCaixa.last_error && (
                   <div className="sm:col-span-4">
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                    <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
                       Último erro
+                      <Badge variant="destructive" className="text-[10px]">
+                        {classifyOutboxError(outboxCaixa.last_error).label}
+                      </Badge>
                     </div>
-                    <div className="mt-0.5 break-all text-xs text-destructive">
+                    <div className="mt-0.5 text-xs text-destructive">
+                      {classifyOutboxError(outboxCaixa.last_error).friendly}
+                    </div>
+                    <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
                       {outboxCaixa.last_error}
                     </div>
                   </div>
@@ -1163,10 +1189,16 @@ export function DesktopTab() {
                 />
                 {outboxCancel.last_error && (
                   <div className="sm:col-span-4">
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                    <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
                       Último erro
+                      <Badge variant="destructive" className="text-[10px]">
+                        {classifyOutboxError(outboxCancel.last_error).label}
+                      </Badge>
                     </div>
-                    <div className="mt-0.5 break-all text-xs text-destructive">
+                    <div className="mt-0.5 text-xs text-destructive">
+                      {classifyOutboxError(outboxCancel.last_error).friendly}
+                    </div>
+                    <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
                       {outboxCancel.last_error}
                     </div>
                   </div>
@@ -1253,10 +1285,16 @@ export function DesktopTab() {
                 />
                 {outboxFin.last_error && (
                   <div className="sm:col-span-4">
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                    <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
                       Último erro
+                      <Badge variant="destructive" className="text-[10px]">
+                        {classifyOutboxError(outboxFin.last_error).label}
+                      </Badge>
                     </div>
-                    <div className="mt-0.5 break-all text-xs text-destructive">
+                    <div className="mt-0.5 text-xs text-destructive">
+                      {classifyOutboxError(outboxFin.last_error).friendly}
+                    </div>
+                    <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
                       {outboxFin.last_error}
                     </div>
                   </div>
@@ -1624,7 +1662,9 @@ export function DesktopTab() {
             </p>
           </CardContent>
         </Card>
+        <SaveBar hint="Configuração local desta máquina (papel, conexões e dispositivos)." />
       </div>
+
 
       {editando && (
         <DesktopSetupWizard
@@ -1729,5 +1769,69 @@ function Field({
         {value}
       </div>
     </div>
+  );
+}
+
+function ServerTokenCard({ token }: { token: string | null }) {
+  const [copiado, setCopiado] = useState(false);
+  const [revelado, setRevelado] = useState(false);
+
+  const copiar = async () => {
+    if (!token) return;
+    try {
+      await navigator.clipboard.writeText(token);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
+  const masked = token
+    ? `${token.slice(0, 6)}${"•".repeat(Math.max(0, token.length - 10))}${token.slice(-4)}`
+    : "—";
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-4">
+        <CardTitle className="flex items-center gap-2">
+          <KeyRound className="h-5 w-5" />
+          Token de pareamento
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Use este token nos terminais da rede (campo{" "}
+          <strong>Token de pareamento</strong> no wizard do terminal). O backend
+          local exige este código em todas as rotas sensíveis.
+        </p>
+        {token ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 p-3">
+            <code className="flex-1 break-all font-mono text-sm text-foreground">
+              {revelado ? token : masked}
+            </code>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setRevelado((v) => !v)}
+            >
+              {revelado ? "Ocultar" : "Mostrar"}
+            </Button>
+            <Button size="sm" onClick={() => void copiar()}>
+              <Copy className="mr-2 h-4 w-4" />
+              {copiado ? "Copiado!" : "Copiar"}
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-start gap-3 rounded-lg border border-amber-300/60 bg-amber-500/10 p-3 text-amber-700 dark:text-amber-400">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+            <div className="text-sm">
+              O token ainda não foi gerado. Inicie o servidor local — ele será
+              criado automaticamente no primeiro boot e exibido aqui.
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

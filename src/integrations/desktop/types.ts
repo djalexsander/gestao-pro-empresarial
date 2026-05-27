@@ -28,6 +28,12 @@ export interface TerminalConexaoConfig {
   terminalId: string;
   /** Nome amigável exibido na UI ("Caixa 01", "Balcão"...). */
   terminalNome: string;
+  /**
+   * Token de pareamento do servidor — exigido pelo backend local em
+   * todas as rotas sensíveis. Obtido na tela Configurações → Desktop
+   * da máquina servidor e digitado no wizard do terminal.
+   */
+  serverToken?: string;
 }
 
 export interface DesktopConfig {
@@ -68,6 +74,14 @@ export interface DesktopConfig {
   labelFormat?: string | null;
   /** Formatos de etiqueta criados neste terminal (ex.: "50x50"). */
   labelCustomFormats?: string[];
+  /**
+   * Token de pareamento gerado/exibido quando a máquina é `server`.
+   * O backend local exige este token (header `X-Gestao-Token`) em todas
+   * as rotas sensíveis. Persistido para sobreviver a reinícios — o
+   * servidor reusa o mesmo token entre boots, mantendo terminais já
+   * pareados funcionando sem reconfiguração.
+   */
+  serverAuthToken?: string;
   /** Marca de tempo do último ajuste (ms). */
   atualizadoEm?: number;
   /** Versão do schema — útil para migrações futuras. */

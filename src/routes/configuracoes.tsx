@@ -1,8 +1,12 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useSearch } from "@tanstack/react-router";
+import { useEffect, useRef, type ReactNode } from "react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { SaveBar } from "@/components/configuracoes/SaveBar";
+
+
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { EmpresaTab } from "@/components/configuracoes/EmpresaTab";
 import { FuncionariosTab } from "@/components/configuracoes/FuncionariosTab";
@@ -24,7 +28,14 @@ export const Route = createFileRoute("/configuracoes")({
   component: SettingsPage,
 });
 
+const TAB_VALUES = ["empresa","planos","socios","funcionarios","terminais","balanca","desktop","impressoras","prefs","integracoes"] as const;
+
 function SettingsPage() {
+  const search = useSearch({ strict: false }) as { tab?: string };
+  const tab = TAB_VALUES.includes(search.tab as typeof TAB_VALUES[number])
+    ? (search.tab as string)
+    : "empresa";
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -32,88 +43,78 @@ function SettingsPage() {
         description="Personalize o sistema de acordo com sua operação."
       />
 
-      <Tabs defaultValue="empresa">
-        <div className="-mx-1 overflow-x-auto pb-1">
-          <TabsList className="inline-flex w-max flex-nowrap">
-            <TabsTrigger value="empresa">Empresa</TabsTrigger>
-            <TabsTrigger value="planos">Planos e módulos</TabsTrigger>
-            <TabsTrigger value="socios">Sócios e Admins</TabsTrigger>
-            <TabsTrigger value="funcionarios">Funcionários</TabsTrigger>
-            <TabsTrigger value="terminais">Terminais</TabsTrigger>
-            <TabsTrigger value="balanca">Balança</TabsTrigger>
-            <TabsTrigger value="desktop">Desktop</TabsTrigger>
-            <TabsTrigger value="impressoras">Impressoras</TabsTrigger>
-            <TabsTrigger value="prefs">Preferências</TabsTrigger>
-            <TabsTrigger value="integracoes">Integrações</TabsTrigger>
-          </TabsList>
+      <Tabs value={tab} className="space-y-4">
+        <div className="min-w-0 flex-1">
+          <KeepMountedTab value="empresa" active={tab}><EmpresaTab /></KeepMountedTab>
+          <KeepMountedTab value="planos" active={tab}><PlanosModulosTab /></KeepMountedTab>
+          <KeepMountedTab value="socios" active={tab}><SociosTab /></KeepMountedTab>
+          <KeepMountedTab value="funcionarios" active={tab}><FuncionariosTab /></KeepMountedTab>
+          <KeepMountedTab value="terminais" active={tab}><TerminaisTab /></KeepMountedTab>
+          <KeepMountedTab value="balanca" active={tab}><BalancaTab /></KeepMountedTab>
+          <KeepMountedTab value="desktop" active={tab}><DesktopTab /></KeepMountedTab>
+          <KeepMountedTab value="impressoras" active={tab}><ImpressoraConfigCard /></KeepMountedTab>
+          <KeepMountedTab value="prefs" active={tab}>
+            <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Preferências</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between rounded-lg border border-border p-4">
+                  <div>
+                    <p className="font-medium">Notificações por e-mail</p>
+                    <p className="text-sm text-muted-foreground">Receba alertas sobre vendas e estoque.</p>
+                  </div>
+                  <Switch defaultChecked />
+                </div>
+                <div className="flex items-center justify-between rounded-lg border border-border p-4">
+                  <div>
+                    <p className="font-medium">Alerta de estoque baixo</p>
+                    <p className="text-sm text-muted-foreground">Avise quando produtos atingirem o mínimo.</p>
+                  </div>
+                  <Switch defaultChecked />
+                </div>
+                <DarkModeSwitchRow />
+              </CardContent>
+            </Card>
+            <SaveBar />
+            </div>
+          </KeepMountedTab>
+          <KeepMountedTab value="integracoes" active={tab}><IntegracoesTab /></KeepMountedTab>
         </div>
-
-        <TabsContent value="empresa" className="mt-4">
-          <EmpresaTab />
-        </TabsContent>
-
-        <TabsContent value="planos" className="mt-4">
-          <PlanosModulosTab />
-        </TabsContent>
-
-        <TabsContent value="socios" className="mt-4">
-          <SociosTab />
-        </TabsContent>
-
-        <TabsContent value="funcionarios" className="mt-4">
-          <FuncionariosTab />
-        </TabsContent>
-
-        <TabsContent value="terminais" className="mt-4">
-          <TerminaisTab />
-        </TabsContent>
-
-        <TabsContent value="balanca" className="mt-4">
-          <BalancaTab />
-        </TabsContent>
-
-        <TabsContent value="desktop" className="mt-4">
-          <DesktopTab />
-        </TabsContent>
-
-        <TabsContent value="impressoras" className="mt-4">
-          <ImpressoraConfigCard />
-        </TabsContent>
-
-
-        <TabsContent value="prefs" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Preferências</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between rounded-lg border border-border p-4">
-                <div>
-                  <p className="font-medium">Notificações por e-mail</p>
-                  <p className="text-sm text-muted-foreground">Receba alertas sobre vendas e estoque.</p>
-                </div>
-                <Switch defaultChecked />
-              </div>
-              <div className="flex items-center justify-between rounded-lg border border-border p-4">
-                <div>
-                  <p className="font-medium">Alerta de estoque baixo</p>
-                  <p className="text-sm text-muted-foreground">Avise quando produtos atingirem o mínimo.</p>
-                </div>
-                <Switch defaultChecked />
-              </div>
-              <DarkModeSwitchRow />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="integracoes" className="mt-4">
-          <IntegracoesTab />
-        </TabsContent>
-
       </Tabs>
     </div>
   );
 }
+
+/**
+ * Mantém o conteúdo da aba montado depois da primeira visita, escondendo via
+ * CSS quando não está ativa. Evita refetch / remount toda vez que o usuário
+ * troca de aba — a segunda visita é instantânea.
+ */
+function KeepMountedTab({
+  value,
+  active,
+  children,
+}: {
+  value: string;
+  active: string;
+  children: ReactNode;
+}) {
+  const visited = useRef(false);
+  if (active === value) visited.current = true;
+  useEffect(() => {
+    if (active === value) visited.current = true;
+  }, [active, value]);
+
+  if (!visited.current) return null;
+  return (
+    <TabsContent value={value} forceMount className="mt-0 data-[state=inactive]:hidden">
+      {children}
+    </TabsContent>
+  );
+}
+
 
 function DarkModeSwitchRow() {
   const { resolvedTheme, setTheme } = useTheme();

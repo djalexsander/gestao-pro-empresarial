@@ -51,6 +51,88 @@ export function getBaseUrl(cfg?: TerminalConexaoConfig): string | null {
   return `http://${host}:${cfg.porta}`;
 }
 
+// ----------------------------------------------------------------------------
+// Interceptor global de fetch — injeta `X-Gestao-Token` automaticamente
+// em qualquer chamada ao servidor local (cujo baseUrl tenha sido registrado).
+//
+// Isso evita ter que editar manualmente todos os call sites (`fetch(...)`)
+// espalhados neste arquivo e em outros consumidores. Tanto o servidor
+// (`useLocalServerBoot`) quanto o terminal (DesktopRoleProvider, via efeito
+// abaixo) chamam `registerLocalServerAuth(baseUrl, token)` quando o token
+// fica conhecido. A partir daí, todo `fetch(url)` cuja URL comece com esse
+// baseUrl ganha o header `X-Gestao-Token` automaticamente.
+// ----------------------------------------------------------------------------
+
+const HEADER_NAME = "X-Gestao-Token";
+const tokenRegistry = new Map<string, string>(); // baseUrl → token
+let interceptorInstalled = false;
+
+function normalizeBaseUrl(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, "");
+}
+
+function resolveTokenForUrl(url: string): string | null {
+  for (const [base, token] of tokenRegistry) {
+    if (url.startsWith(base)) return token;
+  }
+  return null;
+}
+
+function installFetchInterceptor(): void {
+  if (interceptorInstalled) return;
+  if (typeof globalThis === "undefined" || typeof globalThis.fetch !== "function") {
+    return;
+  }
+  const originalFetch = globalThis.fetch.bind(globalThis);
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    try {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : (input as Request).url;
+      const token = resolveTokenForUrl(url);
+      if (token) {
+        const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+        if (!headers.has(HEADER_NAME)) {
+          headers.set(HEADER_NAME, token);
+        }
+        return originalFetch(input, { ...init, headers });
+      }
+    } catch {
+      // Em caso de qualquer erro de inspeção, segue o fetch original.
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+  interceptorInstalled = true;
+}
+
+/**
+ * Registra o token de pareamento para um baseUrl do servidor local.
+ * Pode ser chamado várias vezes — sobrescreve o token anterior daquele baseUrl.
+ * Passar `token = null/undefined/""` remove o registro.
+ */
+export function registerLocalServerAuth(
+  baseUrl: string | null | undefined,
+  token: string | null | undefined,
+): void {
+  if (!baseUrl) return;
+  installFetchInterceptor();
+  const key = normalizeBaseUrl(baseUrl);
+  if (!token) {
+    tokenRegistry.delete(key);
+    return;
+  }
+  tokenRegistry.set(key, token);
+}
+
+/** Limpa todos os tokens registrados (útil em logout/troca de papel). */
+export function clearLocalServerAuth(): void {
+  tokenRegistry.clear();
+}
+
+
 interface HealthPayload {
   status?: string;
   app?: string;
@@ -544,6 +626,13 @@ export interface RegistrarVendaLocalRequest {
   operador_id?: string | null;
   terminal_id?: string | null;
   client_uuid?: string | null;
+  /**
+   * Data de vencimento (YYYY-MM-DD) — OBRIGATÓRIA quando a venda contiver
+   * pagamento `fiado`. Preservada do PDV até a RPC `finalizar_venda_pdv`
+   * (campo `_data_vencimento`) para que Contas a Receber nasça com a data
+   * correta também em vendas registradas offline.
+   */
+  data_vencimento?: string | null;
 }
 
 export interface RegistrarVendaLocalResponse {
@@ -1572,13 +1661,47 @@ export async function exportarBackup(
   });
 }
 
+export interface RestorePreflight {
+  blocked: boolean;
+  caixa_aberto: boolean;
+  caixa_abertos_count: number;
+  outbox_pending_total: number;
+  outbox_error_total: number;
+  reasons: string[];
+}
+
+export async function fetchRestorePreflight(
+  cfg?: TerminalConexaoConfig,
+): Promise<RestorePreflight | null> {
+  return getJson<RestorePreflight>(cfg, "/backup/restore/preflight");
+}
+
+/**
+ * Agenda a restauração. Diferente das outras chamadas de backup, esta
+ * **propaga** a mensagem de erro do servidor (incluindo o motivo do
+ * preflight quando bloqueado, 409 Conflict) em vez de devolver `null`
+ * silenciosamente — o operador precisa ver exatamente por que falhou.
+ */
 export async function agendarRestauracao(
   cfg: TerminalConexaoConfig | undefined,
   source_path: string,
-) {
-  return postJson<BackupLogEntry>(cfg, "/backup/restore/schedule", {
-    source_path,
+  options?: { force?: boolean },
+): Promise<BackupLogEntry> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) {
+    throw new Error("Servidor local indisponível.");
+  }
+  const res = await fetch(`${baseUrl}/backup/restore/schedule`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ source_path, force: options?.force ?? false }),
+    cache: "no-store",
   });
+  if (!res.ok) {
+    const msg = (await res.text().catch(() => "")) || `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return (await res.json()) as BackupLogEntry;
 }
 
 export async function cancelarRestauracao(cfg?: TerminalConexaoConfig) {

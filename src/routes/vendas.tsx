@@ -13,6 +13,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { CloudDependencyNotice } from "@/components/shared/CloudDependencyNotice";
 import { StatCard } from "@/components/shared/StatCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -159,6 +160,7 @@ function SalesPage() {
 
   return (
     <div className="space-y-6">
+      <CloudDependencyNotice title="Lista de vendas vem da nuvem" message="A listagem de vendas ainda lê da nuvem. Vendas registradas neste terminal e ainda não sincronizadas podem aparecer com atraso. Após a sincronização a lista é atualizada." />
       <PageHeader
         title="Vendas"
         description="Pedidos de venda registrados no sistema."

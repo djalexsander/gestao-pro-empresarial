@@ -2899,6 +2899,24 @@ export type Database = {
           },
         ]
       }
+      venda_numero_sequencias: {
+        Row: {
+          owner_id: string
+          ultimo_numero: number
+          updated_at: string
+        }
+        Insert: {
+          owner_id: string
+          ultimo_numero?: number
+          updated_at?: string
+        }
+        Update: {
+          owner_id?: string
+          ultimo_numero?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       venda_pagamentos: {
         Row: {
           created_at: string
@@ -4458,6 +4476,7 @@ export type Database = {
         Args: { _plano_id: string }
         Returns: string
       }
+      solicitar_mensalidade: { Args: never; Returns: string }
       terminais_listar: {
         Args: never
         Returns: {

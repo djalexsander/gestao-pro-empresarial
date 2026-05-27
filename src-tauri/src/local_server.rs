@@ -19,9 +19,10 @@
 // a função `proxy_get` por uma consulta SQL local.
 
 use axum::{
-    extract::{ConnectInfo, Query, State},
-    http::{HeaderMap, StatusCode},
-    response::IntoResponse,
+    extract::{ConnectInfo, Query, Request, State},
+    http::{HeaderMap, HeaderValue, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -29,9 +30,51 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
+
+/// Cache compartilhado do JWT do usuário (header `Authorization: Bearer <jwt>`
+/// recebido nas requisições autenticadas do terminal). Alimenta os schedulers
+/// de background — que não recebem header — para que NUNCA caiam em anon_key
+/// ao sincronizar a outbox. Quando vazio, o push falha com erro `AUTH:` claro
+/// e o item permanece pending para retentar após o próximo login do usuário.
+type JwtCache = Arc<Mutex<Option<String>>>;
+
+/// Lê o JWT do header `Authorization` da request (cacheando para uso nos
+/// schedulers) ou recupera o último JWT válido em cache. Retorna `None`
+/// quando ninguém ainda autenticou no servidor local nesta sessão.
+///
+/// Heurística para evitar contaminar o cache com o token de pareamento
+/// (que pode ser enviado em `Authorization: Bearer <pairing>` por terminais
+/// antigos): só aceita strings que pareçam JWT (header.payload.signature).
+fn resolve_user_jwt(cache: &JwtCache, headers: &HeaderMap) -> Option<String> {
+    if let Some(v) = headers.get(axum::http::header::AUTHORIZATION) {
+        if let Ok(s) = v.to_str() {
+            if let Some(rest) = s.strip_prefix("Bearer ") {
+                // JWT real tem 3 segmentos separados por '.' — o token de
+                // pareamento local é hex puro e não tem ponto.
+                if rest.matches('.').count() >= 2 {
+                    let owned = s.to_string();
+                    if let Ok(mut g) = cache.lock() {
+                        *g = Some(owned.clone());
+                    }
+                    return Some(owned);
+                }
+            }
+        }
+    }
+    cache.lock().ok().and_then(|g| g.clone())
+}
+
+/// Limpa o cache de JWT — chamado quando o upstream rejeita o token
+/// (HTTP 401/403), forçando a próxima request autenticada do terminal a
+/// repopular com um token fresco.
+fn clear_user_jwt(cache: &JwtCache) {
+    if let Ok(mut g) = cache.lock() {
+        *g = None;
+    }
+}
 
 use crate::backup;
 use crate::db;
@@ -62,6 +105,12 @@ struct ServerState {
     upstream: Option<UpstreamConfig>,
     /// Últimos heartbeats por terminalId (em memória; banco local virá depois).
     terminals: HashMap<String, TerminalHeartbeat>,
+    /// Token local de pareamento — exigido em todas as rotas sensíveis
+    /// (`/api/*`, `/db/*`, `/backup/*`, `/heartbeat`, `/terminals*`, `/events`).
+    /// Rotas públicas (`/health`, `/server-info`) NÃO exigem token.
+    /// Gerado/persistido pelo frontend via Tauri Store; quando vazio é
+    /// auto-gerado no primeiro `start()`.
+    auth_token: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -82,6 +131,8 @@ const PROTOCOL_VERSION: u32 = 1;
 struct AppCtx {
     upstream: Option<UpstreamConfig>,
     http: reqwest::Client,
+    /// Compartilhado com schedulers de background — ver `JwtCache`.
+    user_jwt: JwtCache,
 }
 
 // ---------- Tipos de resposta ----------
@@ -129,6 +180,10 @@ pub struct LocalServerStatus {
     pub version: &'static str,
     pub upstream_configured: bool,
     pub terminals_conectados: usize,
+    /// Token de pareamento atual — devolvido APENAS para o processo Tauri
+    /// que invocou `start_local_server` (mesma máquina). Nunca é exposto
+    /// por HTTP.
+    pub auth_token: Option<String>,
 }
 
 // ---------- Heartbeat ----------
@@ -357,12 +412,18 @@ async fn proxy_get(
 
     let url = format!("{}{}", upstream.base_url.trim_end_matches('/'), path);
 
-    // Auth: prefere JWT do terminal; senão, anon key.
-    let auth = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+    // Auth: exige JWT do usuário (header da request ou cache de schedulers).
+    // NÃO cai mais em anon_key — rotas protegidas precisam do contexto do
+    // usuário para RLS funcionar.
+    let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
+        Some(a) => a,
+        None => {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "AUTH: sem JWT do usuário — autentique no terminal".into(),
+            ));
+        }
+    };
 
     let req = ctx
         .http
@@ -378,6 +439,9 @@ async fn proxy_get(
         .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Falha upstream: {e}")))?;
 
     let status = res.status();
+    if status.as_u16() == 401 || status.as_u16() == 403 {
+        clear_user_jwt(&ctx.user_jwt);
+    }
     let body = res
         .bytes()
         .await
@@ -1122,13 +1186,19 @@ async fn push_one_outbox(
     let payload: serde_json::Value =
         serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
 
-    db::outbox_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
+    // Auth: usa o JWT do header (request do terminal) ou o último JWT em
+    // cache (schedulers de background). Se NADA estiver disponível, marca
+    // erro `AUTH:` claro e mantém o item pending — NÃO sincroniza com anon.
+    let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
+        Some(a) => a,
+        None => {
+            let msg = "AUTH: sem JWT do usuário — aguardando login no terminal".to_string();
+            let _ = db::outbox_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
 
-    let auth = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+    db::outbox_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
 
     let body = serde_json::json!({
         "_produto_id":     payload.get("produto_id"),
@@ -1166,6 +1236,12 @@ async fn push_one_outbox(
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
     if !status.is_success() {
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            clear_user_jwt(&ctx.user_jwt);
+            let msg = format!("AUTH: upstream rejeitou JWT (HTTP {}): {}", status.as_u16(), text);
+            let _ = db::outbox_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
         let msg = format!("HTTP {}: {}", status.as_u16(), text);
         let _ = db::outbox_mark_error(local_uuid, &msg, now);
         return Err(msg);
@@ -1336,15 +1412,53 @@ async fn push_one_outbox_venda(
     let payload: serde_json::Value =
         serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
 
+    // Auth: exige JWT real do usuário (header ou cache). Nunca cai em
+    // anon_key — sem JWT, marca AUTH: e mantém pending para retry pós-login.
+    let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
+        Some(a) => a,
+        None => {
+            let msg = "AUTH: sem JWT do usuário — aguardando login no terminal".to_string();
+            let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
+
     db::outbox_vendas_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
 
-    let auth = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
-
     let pagamentos = payload.get("pagamentos").cloned().unwrap_or(serde_json::Value::Null);
+
+    // FIADO: defesa contra itens antigos da outbox (anteriores à correção)
+    // que foram gravados sem `data_vencimento`. Não sincroniza silenciosamente
+    // — marca erro operacional claro e mantém o item para correção manual,
+    // sem duplicar venda (local_uuid permanece o mesmo).
+    let forma_principal = payload
+        .get("forma_pagamento")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let tem_fiado = forma_principal.eq_ignore_ascii_case("fiado")
+        || pagamentos
+            .as_array()
+            .map(|arr| {
+                arr.iter().any(|p| {
+                    p.get("forma_pagamento")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.eq_ignore_ascii_case("fiado"))
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false);
+    let data_venc = payload
+        .get("data_vencimento")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty());
+    if tem_fiado && data_venc.is_none() {
+        let msg =
+            "FIADO_SEM_VENCIMENTO: venda fiado sem data_vencimento — corrija manualmente antes de sincronizar"
+                .to_string();
+        let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
+        return Err(msg);
+    }
+
     let body = serde_json::json!({
         "_cliente_id":       payload.get("cliente_id"),
         "_subtotal":         payload.get("subtotal"),
@@ -1362,6 +1476,9 @@ async fn push_one_outbox_venda(
         "_gerar_financeiro": payload.get("gerar_financeiro"),
         "_operador_id":      payload.get("operador_id"),
         "_terminal_id":      payload.get("terminal_id"),
+        // Vencimento do fiado — preservado ponta a ponta (frontend → local →
+        // outbox → RPC). Para vendas não-fiado, segue null (RPC ignora).
+        "_data_vencimento":  data_venc,
         // Idempotência ponta a ponta — local_uuid estável.
         "_client_uuid":      local_uuid,
     });
@@ -1386,6 +1503,12 @@ async fn push_one_outbox_venda(
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
     if !status.is_success() {
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            clear_user_jwt(&ctx.user_jwt);
+            let msg = format!("AUTH: upstream rejeitou JWT (HTTP {}): {}", status.as_u16(), text);
+            let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
         let msg = format!("HTTP {}: {}", status.as_u16(), text);
         let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
         return Err(msg);
@@ -1918,13 +2041,16 @@ async fn push_one_outbox_caixa(
     let payload: serde_json::Value =
         serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
 
-    db::outbox_caixa_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
+    let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
+        Some(a) => a,
+        None => {
+            let msg = "AUTH: sem JWT do usuário — aguardando login no terminal".to_string();
+            let _ = db::outbox_caixa_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
 
-    let auth = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+    db::outbox_caixa_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
 
     let (rpc, body) = match item.action.as_str() {
         "abrir" => (
@@ -1991,6 +2117,12 @@ async fn push_one_outbox_caixa(
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
     if !status.is_success() {
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            clear_user_jwt(&ctx.user_jwt);
+            let msg = format!("AUTH: upstream rejeitou JWT (HTTP {}): {}", status.as_u16(), text);
+            let _ = db::outbox_caixa_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
         let msg = format!("HTTP {}: {}", status.as_u16(), text);
         let _ = db::outbox_caixa_mark_error(local_uuid, &msg, now);
         return Err(msg);
@@ -2128,14 +2260,32 @@ async fn run_outbox_caixa_scheduler(
 // ---------- Router ----------
 
 fn build_router(ctx: AppCtx) -> Router {
+    // CORS restrita — apenas origens conhecidas do app desktop (Tauri WebView)
+    // e localhost/127.0.0.1 para ferramentas locais. Sem `Any` para origem.
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _req| {
+            let s = match origin.to_str() {
+                Ok(v) => v,
+                Err(_) => return false,
+            };
+            // Tauri v2 WebView (todas as plataformas)
+            s == "tauri://localhost"
+                || s == "https://tauri.localhost"
+                || s == "http://tauri.localhost"
+                // ferramentas locais / dev
+                || s.starts_with("http://localhost")
+                || s.starts_with("http://127.0.0.1")
+        }))
         .allow_methods(Any)
         .allow_headers(Any);
 
-    Router::new()
+    // Rotas públicas — diagnóstico e descoberta. Sem token.
+    let public = Router::new()
         .route("/health", get(health_handler))
-        .route("/server-info", get(server_info_handler))
+        .route("/server-info", get(server_info_handler));
+
+    // Rotas sensíveis — exigem header `X-Gestao-Token` válido.
+    let protected = Router::new()
         .route("/heartbeat", post(heartbeat_handler))
         .route("/terminals", get(terminals_handler))
         .route("/terminals/known", get(known_terminals_handler))
@@ -2189,10 +2339,85 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/backup/log", get(backup_log_handler))
         .route("/backup/create", post(backup_create_handler))
         .route("/backup/export", post(backup_export_handler))
+        .route("/backup/restore/preflight", get(backup_restore_preflight_handler))
         .route("/backup/restore/schedule", post(backup_restore_schedule_handler))
         .route("/backup/restore/cancel", post(backup_restore_cancel_handler))
+        .route_layer(middleware::from_fn(require_local_token));
+
+    public
+        .merge(protected)
         .with_state(ctx)
         .layer(cors)
+}
+
+/// Middleware: exige `X-Gestao-Token: <token>` (ou `Authorization: Bearer <token>`)
+/// para qualquer rota sensível. Se o servidor ainda não tem token configurado,
+/// bloqueia tudo (estado seguro por padrão).
+async fn require_local_token(req: Request, next: Next) -> Result<Response, (StatusCode, String)> {
+    let expected = STATE
+        .lock()
+        .ok()
+        .and_then(|s| s.auth_token.clone())
+        .unwrap_or_default();
+
+    if expected.is_empty() {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Servidor local sem token de pareamento configurado.".into(),
+        ));
+    }
+
+    let headers = req.headers();
+    let provided = headers
+        .get("x-gestao-token")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            headers
+                .get(axum::http::header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.strip_prefix("Bearer ").map(|t| t.to_string()))
+        })
+        .unwrap_or_default();
+
+    // Comparação de tempo constante para reduzir oráculos de tempo.
+    if provided.len() != expected.len()
+        || !provided
+            .as_bytes()
+            .iter()
+            .zip(expected.as_bytes().iter())
+            .fold(true, |acc, (a, b)| acc & (a == b))
+    {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "Token de pareamento inválido ou ausente.".into(),
+        ));
+    }
+
+    Ok(next.run(req).await)
+}
+
+/// Gera um token novo (~256 bits de entropia derivada de tempo + endereço).
+fn generate_auth_token() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let a = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let b: usize = (&a as *const _) as usize;
+    let c = std::process::id() as u128;
+    let mix1 = a
+        .wrapping_mul(0x9E3779B97F4A7C15)
+        ^ (b as u128).wrapping_mul(0xC2B2AE3D27D4EB4F)
+        ^ c.wrapping_mul(0xBF58476D1CE4E5B9);
+    let a2 = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let mix2 = a2
+        .wrapping_mul(0x94D049BB133111EB)
+        ^ mix1.rotate_left(33);
+    format!("gpt_{:032x}{:032x}", mix1, mix2)
 }
 
 // ---------- API pública ----------
@@ -2210,6 +2435,7 @@ pub fn current_status() -> LocalServerStatus {
         version: APP_VERSION,
         upstream_configured: s.upstream.is_some(),
         terminals_conectados: s.terminals.len(),
+        auth_token: s.auth_token.clone(),
     }
 }
 
@@ -2219,6 +2445,7 @@ pub async fn start(
     server_id: Option<String>,
     upstream_url: Option<String>,
     upstream_anon_key: Option<String>,
+    auth_token: Option<String>,
 ) -> Result<LocalServerStatus, String> {
     let upstream = match (upstream_url, upstream_anon_key) {
         (Some(url), Some(key)) if !url.is_empty() && !key.is_empty() => {
@@ -2230,6 +2457,13 @@ pub async fn start(
     let host = hostname::get()
         .ok()
         .and_then(|s| s.into_string().ok());
+
+    // Resolve o token: usa o vindo do frontend (persistido na Tauri Store),
+    // ou gera um novo se for a primeira execução. Token vazio nunca é aceito.
+    let resolved_token = match auth_token {
+        Some(t) if !t.trim().is_empty() => t,
+        _ => generate_auth_token(),
+    };
 
     {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
@@ -2244,6 +2478,7 @@ pub async fn start(
             if s.hostname.is_none() {
                 s.hostname = host.clone();
             }
+            // Não troca o token se já está rodando — evita derrubar terminais.
             return Ok(LocalServerStatus {
                 running: true,
                 port: s.port,
@@ -2255,6 +2490,7 @@ pub async fn start(
                 version: APP_VERSION,
                 upstream_configured: s.upstream.is_some(),
                 terminals_conectados: s.terminals.len(),
+                auth_token: s.auth_token.clone(),
             });
         }
     }
@@ -2268,12 +2504,19 @@ pub async fn start(
         .parse()
         .map_err(|e: std::net::AddrParseError| format!("Endereço inválido: {e}"))?;
 
+    // Cache compartilhado do JWT do usuário — alimentado por toda request
+    // autenticada do terminal e consumido pelos schedulers de background.
+    // Sem isso, o sync automático cairia em `Bearer {anon_key}` para rotas
+    // protegidas — exatamente o que a auditoria flagou.
+    let user_jwt: JwtCache = Arc::new(Mutex::new(None));
+
     let ctx = AppCtx {
         upstream: upstream.clone(),
         http: reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(10))
             .build()
             .map_err(|e| format!("Falha ao criar HTTP client: {e}"))?,
+        user_jwt: user_jwt.clone(),
     };
 
     let app = build_router(ctx);
@@ -2307,6 +2550,7 @@ pub async fn start(
             .timeout(std::time::Duration::from_secs(15))
             .build()
             .map_err(|e| format!("Falha ao criar HTTP client (scheduler): {e}"))?,
+        user_jwt: user_jwt.clone(),
     };
     handle.spawn(async move {
         run_outbox_scheduler(scheduler_ctx, scheduler_rx).await;
@@ -2321,6 +2565,7 @@ pub async fn start(
             .timeout(std::time::Duration::from_secs(20))
             .build()
             .map_err(|e| format!("Falha ao criar HTTP client (vendas scheduler): {e}"))?,
+        user_jwt: user_jwt.clone(),
     };
     handle.spawn(async move {
         run_outbox_vendas_scheduler(vendas_ctx, vendas_scheduler_rx).await;
@@ -2334,6 +2579,7 @@ pub async fn start(
             .timeout(std::time::Duration::from_secs(20))
             .build()
             .map_err(|e| format!("Falha ao criar HTTP client (caixa scheduler): {e}"))?,
+        user_jwt: user_jwt.clone(),
     };
     handle.spawn(async move {
         run_outbox_caixa_scheduler(caixa_ctx, caixa_scheduler_rx).await;
@@ -2349,6 +2595,7 @@ pub async fn start(
             .timeout(std::time::Duration::from_secs(20))
             .build()
             .map_err(|e| format!("Falha ao criar HTTP client (cancel scheduler): {e}"))?,
+        user_jwt: user_jwt.clone(),
     };
     handle.spawn(async move {
         run_outbox_cancel_scheduler(cancel_ctx, cancel_scheduler_rx).await;
@@ -2362,10 +2609,12 @@ pub async fn start(
             .timeout(std::time::Duration::from_secs(20))
             .build()
             .map_err(|e| format!("Falha ao criar HTTP client (fin scheduler): {e}"))?,
+        user_jwt: user_jwt.clone(),
     };
     handle.spawn(async move {
         run_outbox_financeiro_scheduler(fin_ctx, fin_scheduler_rx).await;
     });
+
 
     // Scheduler de backup automático local. Roda 1× por dia, no máximo,
     // controlado por timestamp em meta. Não depende de upstream.
@@ -2391,6 +2640,7 @@ pub async fn start(
         s.backup_scheduler_shutdown_tx = Some(backup_scheduler_tx);
         s.upstream = upstream;
         s.terminals.clear();
+        s.auth_token = Some(resolved_token);
     }
 
     Ok(current_status())
@@ -2519,13 +2769,16 @@ async fn push_one_outbox_cancel(
         .ok_or("cancelamento não encontrado na outbox")?;
     if item.status == "sent" { return Ok(String::new()); }
 
-    db::outbox_cancel_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
+    let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
+        Some(a) => a,
+        None => {
+            let msg = "AUTH: sem JWT do usuário — aguardando login no terminal".to_string();
+            let _ = db::outbox_cancel_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
 
-    let auth = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+    db::outbox_cancel_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
 
     let body = serde_json::json!({
         "_venda_id": venda_remote_id,
@@ -2559,6 +2812,12 @@ async fn push_one_outbox_cancel(
             db::outbox_cancel_mark_sent(local_uuid, &text, now)
                 .map_err(|e| e.to_string())?;
             return Ok(text);
+        }
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            clear_user_jwt(&ctx.user_jwt);
+            let msg = format!("AUTH: upstream rejeitou JWT (HTTP {}): {}", status.as_u16(), text);
+            let _ = db::outbox_cancel_mark_error(local_uuid, &msg, now);
+            return Err(msg);
         }
         let msg = format!("HTTP {}: {}", status.as_u16(), text);
         let _ = db::outbox_cancel_mark_error(local_uuid, &msg, now);
@@ -2659,13 +2918,16 @@ async fn push_one_outbox_financeiro(
     let payload: serde_json::Value =
         serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
 
-    db::outbox_financeiro_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
+    let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
+        Some(a) => a,
+        None => {
+            let msg = "AUTH: sem JWT do usuário — aguardando login no terminal".to_string();
+            let _ = db::outbox_financeiro_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
 
-    let auth = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+    db::outbox_financeiro_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
 
     let url = format!(
         "{}/rest/v1/rpc/criar_lancamento_avulso",
@@ -2692,6 +2954,12 @@ async fn push_one_outbox_financeiro(
             db::outbox_financeiro_mark_sent(local_uuid, "", &text, now)
                 .map_err(|e| e.to_string())?;
             return Ok(text);
+        }
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            clear_user_jwt(&ctx.user_jwt);
+            let msg = format!("AUTH: upstream rejeitou JWT (HTTP {}): {}", status.as_u16(), text);
+            let _ = db::outbox_financeiro_mark_error(local_uuid, &msg, now);
+            return Err(msg);
         }
         let msg = format!("HTTP {}: {}", status.as_u16(), text);
         let _ = db::outbox_financeiro_mark_error(local_uuid, &msg, now);
@@ -2864,14 +3132,35 @@ async fn backup_export_handler(
 #[derive(Deserialize)]
 struct BackupRestoreRequest {
     source_path: String,
+    /// Override administrativo. Quando `true`, permite restaurar mesmo
+    /// com caixa aberto ou pendências de outbox. O evento fica gravado
+    /// em `backup_log` com status `forced` para auditoria.
+    #[serde(default)]
+    force: bool,
+}
+
+async fn backup_restore_preflight_handler(
+) -> Result<Json<backup::RestorePreflight>, (StatusCode, String)> {
+    backup::restore_preflight()
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))
 }
 
 async fn backup_restore_schedule_handler(
     Json(req): Json<BackupRestoreRequest>,
 ) -> Result<Json<backup::BackupEntry>, (StatusCode, String)> {
-    backup::schedule_restore(&req.source_path)
+    backup::schedule_restore(&req.source_path, req.force)
         .map(Json)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.0))
+        .map_err(|e| {
+            // Bloqueio do preflight → 409 Conflict (estado do recurso),
+            // para a UI distinguir de erro de arquivo (400) ou interno.
+            let status = if e.0.contains("preflight") {
+                StatusCode::CONFLICT
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            (status, e.0)
+        })
 }
 
 async fn backup_restore_cancel_handler() -> Result<Json<serde_json::Value>, (StatusCode, String)> {

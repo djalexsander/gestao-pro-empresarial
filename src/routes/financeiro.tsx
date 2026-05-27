@@ -16,9 +16,15 @@ import {
   Download,
   FileText,
   Sheet as SheetIcon,
+  ChevronDown,
+  ChevronRight,
+  Search,
+  X,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { CloudDependencyNotice } from "@/components/shared/CloudDependencyNotice";
 import { StatCard } from "@/components/shared/StatCard";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/badge";
@@ -337,6 +343,7 @@ function FinanceContent() {
 
   return (
     <div className="space-y-6">
+      <CloudDependencyNotice />
       <PageHeader
         title={
           activeTab === "pagar"
@@ -1344,11 +1351,54 @@ function FluxoCaixaPanel() {
     staleTime: 15_000,
   });
 
+  // ---- Filtros (UI only — não muda regra do financeiro) -------------------
+  type FluxoFiltroRapido =
+    | "todos"
+    | "entradas"
+    | "saidas"
+    | "vendas"
+    | "movimentos"
+    | "operacional";
+  const [busca, setBusca] = useState("");
+  const [filtroRapido, setFiltroRapido] = useState<FluxoFiltroRapido>("todos");
+  const [filtroTipo, setFiltroTipo] = useState<"todos" | FluxoTipo>("todos");
+  const [filtroOrigem, setFiltroOrigem] = useState<"todos" | "caixa" | "financeiro">("todos");
+
+  const filteredRows = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+    return rows.filter((r) => {
+      // Filtro rápido
+      if (filtroRapido === "entradas" && !(r.valor > 0 && !r.operacional)) return false;
+      if (filtroRapido === "saidas" && !(r.valor < 0 && !r.operacional)) return false;
+      if (filtroRapido === "vendas" && r.tipo !== "venda") return false;
+      if (
+        filtroRapido === "movimentos" &&
+        !["sangria", "suprimento"].includes(r.tipo)
+      )
+        return false;
+      if (filtroRapido === "operacional" && !r.operacional) return false;
+
+      if (filtroTipo !== "todos" && r.tipo !== filtroTipo) return false;
+      if (filtroOrigem !== "todos" && r.origem !== filtroOrigem) return false;
+
+      if (!termo) return true;
+      const hay = [
+        r.descricao,
+        TIPO_LABEL[r.tipo],
+        r.origem,
+        r.status ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(termo);
+    });
+  }, [rows, busca, filtroRapido, filtroTipo, filtroOrigem]);
+
   const totais = useMemo(() => {
     let entradas = 0;
     let saidas = 0;
     let fundoAberturas = 0; // valor inicial colocado nos caixas (operacional)
-    for (const r of rows) {
+    for (const r of filteredRows) {
       if (r.operacional) {
         // Apenas soma o valor das aberturas para exibir como "Fundo de caixa".
         // Fechamento é informativo e não entra em nenhum total.
@@ -1359,11 +1409,12 @@ function FluxoCaixaPanel() {
       else saidas += Math.abs(r.valor);
     }
     return { entradas, saidas, saldo: entradas - saidas, fundoAberturas };
-  }, [rows]);
+  }, [filteredRows]);
 
   // Saldo acumulado REAL (financeiro): ignora abertura e fechamento.
-  // Reflete apenas entradas e saídas reais do período.
-  const rowsComSaldo = useMemo(() => {
+  // Calculado sobre o conjunto completo, não filtrado, para manter coerência
+  // contábil. Apenas a exibição é filtrada/agrupada depois.
+  const saldoPorId = useMemo(() => {
     const ordenadas = [...rows].sort((a, b) => (a.data < b.data ? -1 : 1));
     let acc = 0;
     const map = new Map<string, number>();
@@ -1371,8 +1422,138 @@ function FluxoCaixaPanel() {
       if (!r.operacional) acc += r.valor;
       map.set(r.id, acc);
     }
-    return rows.map((r) => ({ ...r, saldoAcumulado: map.get(r.id) ?? 0 }));
+    return map;
   }, [rows]);
+
+  // ---- Agrupamento Data → Tipo → Descrição --------------------------------
+  type GrupoFolha = {
+    key: string;
+    descricao: string;
+    tipo: FluxoTipo;
+    items: (FluxoRow & { saldoAcumulado: number })[];
+    total: number;
+    entradas: number;
+    saidas: number;
+  };
+  type GrupoTipo = {
+    key: string;
+    tipo: FluxoTipo;
+    descricoes: GrupoFolha[];
+    total: number;
+    qtd: number;
+  };
+  type GrupoData = {
+    key: string; // YYYY-MM-DD
+    label: string; // dd/mm/yyyy
+    tipos: GrupoTipo[];
+    total: number;
+    qtd: number;
+  };
+
+  const grupos = useMemo<GrupoData[]>(() => {
+    const enriched = filteredRows.map((r) => ({
+      ...r,
+      saldoAcumulado: saldoPorId.get(r.id) ?? 0,
+    }));
+    const byData = new Map<string, Map<FluxoTipo, Map<string, typeof enriched>>>();
+    for (const r of enriched) {
+      const dataKey = r.data.slice(0, 10);
+      if (!byData.has(dataKey)) byData.set(dataKey, new Map());
+      const tipoMap = byData.get(dataKey)!;
+      if (!tipoMap.has(r.tipo)) tipoMap.set(r.tipo, new Map());
+      const descMap = tipoMap.get(r.tipo)!;
+      const descKey = r.descricao || "—";
+      if (!descMap.has(descKey)) descMap.set(descKey, []);
+      descMap.get(descKey)!.push(r);
+    }
+    const out: GrupoData[] = [];
+    const dataKeys = Array.from(byData.keys()).sort((a, b) => (a < b ? 1 : -1));
+    for (const dk of dataKeys) {
+      const [y, m, d] = dk.split("-");
+      const tipoMap = byData.get(dk)!;
+      const tipos: GrupoTipo[] = [];
+      let totalData = 0;
+      let qtdData = 0;
+      for (const [tipo, descMap] of tipoMap) {
+        const folhas: GrupoFolha[] = [];
+        let totalTipo = 0;
+        let qtdTipo = 0;
+        for (const [desc, items] of descMap) {
+          const itemsSorted = [...items].sort((a, b) => (a.data < b.data ? 1 : -1));
+          const entradas = items
+            .filter((i) => i.valor > 0 && !i.operacional)
+            .reduce((s, i) => s + i.valor, 0);
+          const saidas = items
+            .filter((i) => i.valor < 0 && !i.operacional)
+            .reduce((s, i) => s + Math.abs(i.valor), 0);
+          const total = items.reduce(
+            (s, i) => s + (i.operacional ? 0 : i.valor),
+            0,
+          );
+          folhas.push({
+            key: `${dk}|${tipo}|${desc}`,
+            descricao: desc,
+            tipo,
+            items: itemsSorted,
+            total,
+            entradas,
+            saidas,
+          });
+          totalTipo += total;
+          qtdTipo += items.length;
+        }
+        folhas.sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+        tipos.push({
+          key: `${dk}|${tipo}`,
+          tipo,
+          descricoes: folhas,
+          total: totalTipo,
+          qtd: qtdTipo,
+        });
+        totalData += totalTipo;
+        qtdData += qtdTipo;
+      }
+      tipos.sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+      out.push({
+        key: dk,
+        label: `${d}/${m}/${y}`,
+        tipos,
+        total: totalData,
+        qtd: qtdData,
+      });
+    }
+    return out;
+  }, [filteredRows, saldoPorId]);
+
+  const [gruposExpandidos, setGruposExpandidos] = useState<Set<string>>(new Set());
+  const toggleGrupo = (key: string) =>
+    setGruposExpandidos((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const expandirTodos = () => {
+    const all = new Set<string>();
+    for (const g of grupos) {
+      all.add(g.key);
+      for (const t of g.tipos) {
+        all.add(t.key);
+        for (const f of t.descricoes) all.add(f.key);
+      }
+    }
+    setGruposExpandidos(all);
+  };
+  const recolherTodos = () => setGruposExpandidos(new Set());
+
+  const limparFiltros = () => {
+    setBusca("");
+    setFiltroRapido("todos");
+    setFiltroTipo("todos");
+    setFiltroOrigem("todos");
+  };
+  const temFiltro =
+    !!busca || filtroRapido !== "todos" || filtroTipo !== "todos" || filtroOrigem !== "todos";
 
   const [conciliarLoteOpen, setConciliarLoteOpen] = useState(false);
 
@@ -1475,95 +1656,290 @@ function FluxoCaixaPanel() {
         </Card>
       )}
 
+      {/* Barra de filtros — sticky para auditoria contínua */}
+      <Card className="sticky top-0 z-10 border-border/60">
+        <CardContent className="space-y-3 p-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                placeholder="Buscar por descrição, número da venda, tipo, origem, status…"
+                className="pl-8"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Select
+                value={filtroTipo}
+                onValueChange={(v) => setFiltroTipo(v as typeof filtroTipo)}
+              >
+                <SelectTrigger className="h-9 w-[170px]">
+                  <SelectValue placeholder="Tipo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos os tipos</SelectItem>
+                  {(Object.keys(TIPO_LABEL) as FluxoTipo[]).map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {TIPO_LABEL[t]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={filtroOrigem}
+                onValueChange={(v) => setFiltroOrigem(v as typeof filtroOrigem)}
+              >
+                <SelectTrigger className="h-9 w-[150px]">
+                  <SelectValue placeholder="Origem" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todas origens</SelectItem>
+                  <SelectItem value="caixa">Caixa</SelectItem>
+                  <SelectItem value="financeiro">Financeiro</SelectItem>
+                </SelectContent>
+              </Select>
+              {temFiltro && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={limparFiltros}
+                  className="h-9 gap-1"
+                >
+                  <X className="h-3.5 w-3.5" /> Limpar
+                </Button>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {(
+              [
+                { id: "todos", label: "Todos" },
+                { id: "entradas", label: "Apenas entradas" },
+                { id: "saidas", label: "Apenas saídas" },
+                { id: "vendas", label: "Apenas vendas" },
+                { id: "movimentos", label: "Sangria/Suprimento" },
+                { id: "operacional", label: "Operacional (abertura/fechamento)" },
+              ] as { id: FluxoFiltroRapido; label: string }[]
+            ).map((f) => (
+              <Button
+                key={f.id}
+                size="sm"
+                variant={filtroRapido === f.id ? "default" : "outline"}
+                className="h-7 px-2.5 text-xs"
+                onClick={() => setFiltroRapido(f.id)}
+              >
+                {f.label}
+              </Button>
+            ))}
+            <div className="ml-auto flex gap-1">
+              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={expandirTodos}>
+                Expandir tudo
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={recolherTodos}>
+                Recolher tudo
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[160px]">Data</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Descrição</TableHead>
-                <TableHead>Origem</TableHead>
-                <TableHead className="text-right">Valor</TableHead>
-                <TableHead className="text-right">Saldo acumulado</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                    Carregando…
-                  </TableCell>
-                </TableRow>
-              ) : rowsComSaldo.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                    Nenhuma movimentação no período selecionado.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                rowsComSaldo.map((r) => (
-                  <TableRow key={r.id} className={cn(r.operacional && "bg-muted/30")}>
-                    <TableCell className="text-muted-foreground">
-                      {formatDateTime(r.data)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          "font-normal",
-                          r.operacional && "border-info/40 bg-info/10 text-info",
-                        )}
-                      >
-                        {TIPO_LABEL[r.tipo]}
-                        {r.operacional && (
-                          <span className="ml-1 text-[10px] opacity-80">• operacional</span>
-                        )}
-                      </Badge>
-                    </TableCell>
-                    <TableCell
-                      className={cn("font-medium", r.operacional && "text-muted-foreground")}
+          {isLoading ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">Carregando…</div>
+          ) : grupos.length === 0 ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              {temFiltro
+                ? "Nenhum lançamento corresponde aos filtros."
+                : "Nenhuma movimentação no período selecionado."}
+            </div>
+          ) : (
+            <div className="divide-y divide-border">
+              {grupos.map((gData) => {
+                const dataOpen = gruposExpandidos.has(gData.key);
+                return (
+                  <div key={gData.key}>
+                    <button
+                      type="button"
+                      onClick={() => toggleGrupo(gData.key)}
+                      className="flex w-full items-center gap-2 bg-muted/40 px-3 py-2 text-left transition-colors hover:bg-muted/60"
                     >
-                      {r.descricao}
-                    </TableCell>
-                    <TableCell>
+                      {dataOpen ? (
+                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      )}
+                      <span className="font-semibold">{gData.label}</span>
+                      <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-[10px]">
+                        {gData.qtd} {gData.qtd === 1 ? "registro" : "registros"}
+                      </Badge>
                       <span
                         className={cn(
-                          "rounded-md px-2 py-0.5 text-xs",
-                          r.origem === "caixa"
-                            ? "bg-primary/10 text-primary"
-                            : "bg-muted text-muted-foreground",
+                          "ml-auto font-mono text-sm font-semibold tabular-nums",
+                          gData.total > 0
+                            ? "text-success"
+                            : gData.total < 0
+                              ? "text-destructive"
+                              : "text-muted-foreground",
                         )}
                       >
-                        {r.origem === "caixa" ? "Caixa" : "Financeiro"}
+                        {formatBRL(gData.total)}
                       </span>
-                    </TableCell>
-                    <TableCell
-                      className={cn(
-                        "text-right font-medium tabular-nums",
-                        r.operacional
-                          ? "text-muted-foreground italic"
-                          : r.valor > 0
-                            ? "text-success"
-                            : r.valor < 0
-                              ? "text-destructive"
-                              : "",
-                      )}
-                    >
-                      {r.valor === 0
-                        ? "—"
-                        : r.operacional
-                          ? `(${formatBRL(Math.abs(r.valor))})`
-                          : formatBRL(r.valor)}
-                    </TableCell>
-                    <TableCell className="text-right text-muted-foreground tabular-nums">
-                      {formatBRL(r.saldoAcumulado)}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                    </button>
+                    {dataOpen && (
+                      <div className="bg-background">
+                        {gData.tipos.map((gTipo) => {
+                          const tipoOpen = gruposExpandidos.has(gTipo.key);
+                          const isOper =
+                            gTipo.tipo === "abertura" || gTipo.tipo === "fechamento";
+                          return (
+                            <div key={gTipo.key} className="border-t border-border/60">
+                              <button
+                                type="button"
+                                onClick={() => toggleGrupo(gTipo.key)}
+                                className="flex w-full items-center gap-2 px-3 py-1.5 pl-8 text-left text-sm transition-colors hover:bg-muted/30"
+                              >
+                                {tipoOpen ? (
+                                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                                ) : (
+                                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                                )}
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    "font-normal",
+                                    isOper && "border-info/40 bg-info/10 text-info",
+                                  )}
+                                >
+                                  {TIPO_LABEL[gTipo.tipo]}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground">
+                                  {gTipo.qtd} {gTipo.qtd === 1 ? "registro" : "registros"} •{" "}
+                                  {gTipo.descricoes.length}{" "}
+                                  {gTipo.descricoes.length === 1 ? "descrição" : "descrições"}
+                                </span>
+                                <span
+                                  className={cn(
+                                    "ml-auto font-mono text-sm tabular-nums",
+                                    isOper
+                                      ? "italic text-muted-foreground"
+                                      : gTipo.total > 0
+                                        ? "text-success"
+                                        : gTipo.total < 0
+                                          ? "text-destructive"
+                                          : "text-muted-foreground",
+                                  )}
+                                >
+                                  {isOper
+                                    ? `(${formatBRL(Math.abs(gTipo.total))})`
+                                    : formatBRL(gTipo.total)}
+                                </span>
+                              </button>
+                              {tipoOpen && (
+                                <div className="border-t border-border/40 bg-muted/10">
+                                  {gTipo.descricoes.map((folha) => {
+                                    const folhaOpen = gruposExpandidos.has(folha.key);
+                                    return (
+                                      <div key={folha.key}>
+                                        <button
+                                          type="button"
+                                          onClick={() => toggleGrupo(folha.key)}
+                                          className="flex w-full items-center gap-2 px-3 py-1.5 pl-14 text-left text-xs transition-colors hover:bg-muted/30"
+                                        >
+                                          {folhaOpen ? (
+                                            <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                                          ) : (
+                                            <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                                          )}
+                                          <span className="font-medium">{folha.descricao}</span>
+                                          <Badge
+                                            variant="secondary"
+                                            className="h-4 px-1 text-[10px]"
+                                          >
+                                            {folha.items.length}
+                                          </Badge>
+                                          <span
+                                            className={cn(
+                                              "ml-auto font-mono tabular-nums",
+                                              isOper
+                                                ? "italic text-muted-foreground"
+                                                : folha.total > 0
+                                                  ? "text-success"
+                                                  : folha.total < 0
+                                                    ? "text-destructive"
+                                                    : "text-muted-foreground",
+                                            )}
+                                          >
+                                            {isOper
+                                              ? `(${formatBRL(Math.abs(folha.total))})`
+                                              : formatBRL(folha.total)}
+                                          </span>
+                                        </button>
+                                        {folhaOpen && (
+                                          <Table>
+                                            <TableBody>
+                                              {folha.items.map((r) => (
+                                                <TableRow
+                                                  key={r.id}
+                                                  className={cn(r.operacional && "bg-muted/20")}
+                                                >
+                                                  <TableCell className="w-[170px] pl-16 text-xs text-muted-foreground">
+                                                    {formatDateTime(r.data)}
+                                                  </TableCell>
+                                                  <TableCell className="text-xs">
+                                                    <span
+                                                      className={cn(
+                                                        "rounded-md px-2 py-0.5",
+                                                        r.origem === "caixa"
+                                                          ? "bg-primary/10 text-primary"
+                                                          : "bg-muted text-muted-foreground",
+                                                      )}
+                                                    >
+                                                      {r.origem === "caixa" ? "Caixa" : "Financeiro"}
+                                                    </span>
+                                                  </TableCell>
+                                                  <TableCell
+                                                    className={cn(
+                                                      "text-right font-medium tabular-nums",
+                                                      r.operacional
+                                                        ? "italic text-muted-foreground"
+                                                        : r.valor > 0
+                                                          ? "text-success"
+                                                          : r.valor < 0
+                                                            ? "text-destructive"
+                                                            : "",
+                                                    )}
+                                                  >
+                                                    {r.valor === 0
+                                                      ? "—"
+                                                      : r.operacional
+                                                        ? `(${formatBRL(Math.abs(r.valor))})`
+                                                        : formatBRL(r.valor)}
+                                                  </TableCell>
+                                                  <TableCell className="w-[140px] text-right text-xs text-muted-foreground tabular-nums">
+                                                    {formatBRL(r.saldoAcumulado)}
+                                                  </TableCell>
+                                                </TableRow>
+                                              ))}
+                                            </TableBody>
+                                          </Table>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </CardContent>
       </Card>
 

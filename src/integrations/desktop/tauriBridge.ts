@@ -23,6 +23,8 @@ export interface LocalServerStatus {
   version: string;
   upstream_configured?: boolean;
   terminals_conectados?: number;
+  /** Token de pareamento que o backend local exige (X-Gestao-Token). */
+  auth_token?: string | null;
 }
 
 const STATUS_OFF: LocalServerStatus = {
@@ -36,6 +38,7 @@ const STATUS_OFF: LocalServerStatus = {
   version: "0",
   upstream_configured: false,
   terminals_conectados: 0,
+  auth_token: null,
 };
 
 type TauriInvoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -63,6 +66,12 @@ export interface StartLocalServerOptions {
   serverId?: string | null;
   upstreamUrl?: string | null;
   upstreamAnonKey?: string | null;
+  /**
+   * Token previamente persistido. Quando informado, o backend reusa esse
+   * mesmo token (não gera um novo). Mantém terminais pareados funcionando
+   * entre reinícios do servidor.
+   */
+  authToken?: string | null;
 }
 
 export async function startLocalServer(
@@ -76,6 +85,7 @@ export async function startLocalServer(
     serverId: opts.serverId ?? null,
     upstreamUrl: opts.upstreamUrl ?? null,
     upstreamAnonKey: opts.upstreamAnonKey ?? null,
+    authToken: opts.authToken ?? null,
   });
 }
 

@@ -1004,19 +1004,14 @@ pub fn db_info() -> DbResult<DbInfo> {
 // `payload` mantém o JSON completo do registro para que o adapter possa
 // devolver o objeto inteiro sem mapear todas as colunas ainda.
 
-fn parse_iso_to_ms(s: &str) -> Option<i64> {
-    chrono::DateTime::parse_from_rfc3339(s)
-        .ok()
-        .map(|d| d.timestamp_millis())
-}
-
-fn json_str<'a>(v: &'a serde_json::Value, key: &str) -> Option<&'a str> {
-    v.get(key).and_then(|x| x.as_str())
-}
-
-fn json_f64(v: &serde_json::Value, key: &str) -> Option<f64> {
-    v.get(key).and_then(|x| x.as_f64())
-}
+// Helpers puros (parse_iso_to_ms, json_str, json_f64, iso_from_ms_z_pub,
+// backoff_ms_for_attempts) foram movidos para `db::helpers` no PROMPT 12.
+// Os símbolos continuam disponíveis dentro deste módulo via `use helpers::*`
+// abaixo, sem mudar assinaturas nem comportamento.
+mod helpers;
+use helpers::{
+    backoff_ms_for_attempts, iso_from_ms_z_pub, json_f64, json_str, parse_iso_to_ms,
+};
 
 #[derive(Debug, Serialize)]
 pub struct DomainStat {
@@ -1976,11 +1971,7 @@ pub fn registrar_movimento_local(
     })
 }
 
-fn iso_from_ms_z_pub(ms: i64) -> String {
-    chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms)
-        .map(|d| d.to_rfc3339())
-        .unwrap_or_default()
-}
+// `iso_from_ms_z_pub` foi movida para `db::helpers` (PROMPT 12).
 
 // ---------- Outbox: leitura, stats e atualização de status ----------
 
@@ -2284,15 +2275,7 @@ pub fn outbox_mark_sent(local_uuid: &str, remote_id: &str, now_ms: i64) -> DbRes
 
 /// Política de backoff exponencial limitado (em ms):
 /// 1ª falha → 5s, 2ª → 15s, 3ª → 1min, 4ª → 5min, 5ª+ → 15min (cap).
-fn backoff_ms_for_attempts(attempts: i64) -> i64 {
-    match attempts {
-        a if a <= 1 => 5_000,
-        2 => 15_000,
-        3 => 60_000,
-        4 => 5 * 60_000,
-        _ => 15 * 60_000,
-    }
-}
+// `backoff_ms_for_attempts` foi movida para `db::helpers` (PROMPT 12).
 
 /// Após este nº de tentativas automáticas o item para de ser retomado pelo
 /// scheduler e fica como `error`, exigindo "Reenfileirar erros" / manual.
@@ -2421,6 +2404,11 @@ pub struct LocalVendaInput {
     pub operador_id: Option<String>,
     pub terminal_id: Option<String>,
     pub client_uuid: Option<String>,
+    /// Data de vencimento (YYYY-MM-DD) — obrigatória quando há pagamento
+    /// `fiado`. Validada aqui e re-enviada à RPC `finalizar_venda_pdv` como
+    /// `_data_vencimento` no push da outbox.
+    #[serde(default)]
+    pub data_vencimento: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -2438,6 +2426,33 @@ pub fn registrar_venda_local(
     if input.itens.is_empty() {
         return Err(DbError("venda sem itens".into()));
     }
+
+    // FIADO: cliente + data_vencimento são obrigatórios. Mesma regra do
+    // backend cloud — falhar aqui evita que o PDV registre uma venda offline
+    // que depois quebraria na RPC `finalizar_venda_pdv` por falta de dados.
+    let tem_fiado = input.forma_pagamento.eq_ignore_ascii_case("fiado")
+        || input
+            .pagamentos
+            .iter()
+            .any(|p| p.forma_pagamento.eq_ignore_ascii_case("fiado"));
+    if tem_fiado {
+        if input.cliente_id.as_deref().map(|s| s.is_empty()).unwrap_or(true) {
+            return Err(DbError(
+                "Venda fiado exige cliente — selecione um cliente antes de finalizar.".into(),
+            ));
+        }
+        if input
+            .data_vencimento
+            .as_deref()
+            .map(|s| s.trim().is_empty())
+            .unwrap_or(true)
+        {
+            return Err(DbError(
+                "Venda fiado exige data de vencimento — informe a data antes de finalizar.".into(),
+            ));
+        }
+    }
+
 
     // Idempotência por client_uuid (antes da transação grande).
     if let Some(cu) = input.client_uuid.as_deref() {
@@ -2521,6 +2536,7 @@ pub fn registrar_venda_local(
         "operador_id":      input.operador_id,
         "terminal_id":      input.terminal_id,
         "client_uuid":      input.client_uuid,
+        "data_vencimento":  input.data_vencimento,
     })
     .to_string();
 
@@ -2554,6 +2570,44 @@ pub fn registrar_venda_local(
                 ).optional()?
             }
         };
+
+        // 0.5) Validação atômica de estoque local.
+        //
+        // Agrega a quantidade pedida por produto (mesmo SKU repetido em
+        // múltiplas linhas conta junto) e compara com o saldo materializado
+        // em `estoque_saldos_local`. Bloqueia a venda INTEIRA se algum
+        // produto não tiver saldo suficiente — mesma regra do backend
+        // cloud (`finalizar_venda_pdv`). Garante que não há baixa parcial.
+        //
+        // Concorrência multi-terminal é tratada no cloud via
+        // pg_advisory_xact_lock dentro da RPC. Localmente, SQLite serializa
+        // writes na mesma instância, e a leitura+escrita ocorrem dentro
+        // desta transação.
+        {
+            use std::collections::BTreeMap;
+            let mut por_produto: BTreeMap<String, f64> = BTreeMap::new();
+            for item in &input.itens {
+                *por_produto.entry(item.produto_id.clone()).or_insert(0.0) += item.quantidade;
+            }
+            for (produto_id, qtd_pedida) in &por_produto {
+                let variacao_id = String::new();
+                let saldo = read_saldo_atual(&tx, produto_id, &variacao_id)?;
+                if saldo < *qtd_pedida {
+                    let nome: Option<String> = tx
+                        .query_row(
+                            "SELECT nome FROM produtos_local WHERE id = ?1",
+                            params![produto_id],
+                            |r| r.get::<_, Option<String>>(0),
+                        )
+                        .optional()?
+                        .flatten();
+                    let label = nome.unwrap_or_else(|| produto_id.clone());
+                    return Err(DbError(format!(
+                        "Estoque insuficiente para \"{label}\". Disponível: {saldo}, solicitado: {qtd_pedida}."
+                    )));
+                }
+            }
+        }
 
         // 1) Cabeçalho.
         tx.execute(
