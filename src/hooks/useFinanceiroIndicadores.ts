@@ -163,8 +163,8 @@ export function useFinanceiroIndicadores() {
       }
 
       const totalVendido = vendas.reduce((s, v) => s + (Number(v.total) || 0), 0);
-      const lucroBruto = totalVendido - custoTotal;
-      const margemPct = totalVendido > 0 ? (lucroBruto / totalVendido) * 100 : 0;
+      const lucroBruto = calcLucroBruto(totalVendido, custoTotal);
+      const margemPct = calcMargemPct(totalVendido, lucroBruto);
 
       // 3) Fiado e iFood em aberto (do financeiro_lancamentos a receber)
       const { data: lancsAR } = await supabase
