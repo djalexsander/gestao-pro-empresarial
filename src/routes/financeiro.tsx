@@ -1656,95 +1656,290 @@ function FluxoCaixaPanel() {
         </Card>
       )}
 
+      {/* Barra de filtros — sticky para auditoria contínua */}
+      <Card className="sticky top-0 z-10 border-border/60">
+        <CardContent className="space-y-3 p-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                placeholder="Buscar por descrição, número da venda, tipo, origem, status…"
+                className="pl-8"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Select
+                value={filtroTipo}
+                onValueChange={(v) => setFiltroTipo(v as typeof filtroTipo)}
+              >
+                <SelectTrigger className="h-9 w-[170px]">
+                  <SelectValue placeholder="Tipo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos os tipos</SelectItem>
+                  {(Object.keys(TIPO_LABEL) as FluxoTipo[]).map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {TIPO_LABEL[t]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={filtroOrigem}
+                onValueChange={(v) => setFiltroOrigem(v as typeof filtroOrigem)}
+              >
+                <SelectTrigger className="h-9 w-[150px]">
+                  <SelectValue placeholder="Origem" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todas origens</SelectItem>
+                  <SelectItem value="caixa">Caixa</SelectItem>
+                  <SelectItem value="financeiro">Financeiro</SelectItem>
+                </SelectContent>
+              </Select>
+              {temFiltro && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={limparFiltros}
+                  className="h-9 gap-1"
+                >
+                  <X className="h-3.5 w-3.5" /> Limpar
+                </Button>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {(
+              [
+                { id: "todos", label: "Todos" },
+                { id: "entradas", label: "Apenas entradas" },
+                { id: "saidas", label: "Apenas saídas" },
+                { id: "vendas", label: "Apenas vendas" },
+                { id: "movimentos", label: "Sangria/Suprimento" },
+                { id: "operacional", label: "Operacional (abertura/fechamento)" },
+              ] as { id: FluxoFiltroRapido; label: string }[]
+            ).map((f) => (
+              <Button
+                key={f.id}
+                size="sm"
+                variant={filtroRapido === f.id ? "default" : "outline"}
+                className="h-7 px-2.5 text-xs"
+                onClick={() => setFiltroRapido(f.id)}
+              >
+                {f.label}
+              </Button>
+            ))}
+            <div className="ml-auto flex gap-1">
+              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={expandirTodos}>
+                Expandir tudo
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={recolherTodos}>
+                Recolher tudo
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[160px]">Data</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Descrição</TableHead>
-                <TableHead>Origem</TableHead>
-                <TableHead className="text-right">Valor</TableHead>
-                <TableHead className="text-right">Saldo acumulado</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                    Carregando…
-                  </TableCell>
-                </TableRow>
-              ) : rowsComSaldo.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                    Nenhuma movimentação no período selecionado.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                rowsComSaldo.map((r) => (
-                  <TableRow key={r.id} className={cn(r.operacional && "bg-muted/30")}>
-                    <TableCell className="text-muted-foreground">
-                      {formatDateTime(r.data)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          "font-normal",
-                          r.operacional && "border-info/40 bg-info/10 text-info",
-                        )}
-                      >
-                        {TIPO_LABEL[r.tipo]}
-                        {r.operacional && (
-                          <span className="ml-1 text-[10px] opacity-80">• operacional</span>
-                        )}
-                      </Badge>
-                    </TableCell>
-                    <TableCell
-                      className={cn("font-medium", r.operacional && "text-muted-foreground")}
+          {isLoading ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">Carregando…</div>
+          ) : grupos.length === 0 ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              {temFiltro
+                ? "Nenhum lançamento corresponde aos filtros."
+                : "Nenhuma movimentação no período selecionado."}
+            </div>
+          ) : (
+            <div className="divide-y divide-border">
+              {grupos.map((gData) => {
+                const dataOpen = gruposExpandidos.has(gData.key);
+                return (
+                  <div key={gData.key}>
+                    <button
+                      type="button"
+                      onClick={() => toggleGrupo(gData.key)}
+                      className="flex w-full items-center gap-2 bg-muted/40 px-3 py-2 text-left transition-colors hover:bg-muted/60"
                     >
-                      {r.descricao}
-                    </TableCell>
-                    <TableCell>
+                      {dataOpen ? (
+                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      )}
+                      <span className="font-semibold">{gData.label}</span>
+                      <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-[10px]">
+                        {gData.qtd} {gData.qtd === 1 ? "registro" : "registros"}
+                      </Badge>
                       <span
                         className={cn(
-                          "rounded-md px-2 py-0.5 text-xs",
-                          r.origem === "caixa"
-                            ? "bg-primary/10 text-primary"
-                            : "bg-muted text-muted-foreground",
+                          "ml-auto font-mono text-sm font-semibold tabular-nums",
+                          gData.total > 0
+                            ? "text-success"
+                            : gData.total < 0
+                              ? "text-destructive"
+                              : "text-muted-foreground",
                         )}
                       >
-                        {r.origem === "caixa" ? "Caixa" : "Financeiro"}
+                        {formatBRL(gData.total)}
                       </span>
-                    </TableCell>
-                    <TableCell
-                      className={cn(
-                        "text-right font-medium tabular-nums",
-                        r.operacional
-                          ? "text-muted-foreground italic"
-                          : r.valor > 0
-                            ? "text-success"
-                            : r.valor < 0
-                              ? "text-destructive"
-                              : "",
-                      )}
-                    >
-                      {r.valor === 0
-                        ? "—"
-                        : r.operacional
-                          ? `(${formatBRL(Math.abs(r.valor))})`
-                          : formatBRL(r.valor)}
-                    </TableCell>
-                    <TableCell className="text-right text-muted-foreground tabular-nums">
-                      {formatBRL(r.saldoAcumulado)}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                    </button>
+                    {dataOpen && (
+                      <div className="bg-background">
+                        {gData.tipos.map((gTipo) => {
+                          const tipoOpen = gruposExpandidos.has(gTipo.key);
+                          const isOper =
+                            gTipo.tipo === "abertura" || gTipo.tipo === "fechamento";
+                          return (
+                            <div key={gTipo.key} className="border-t border-border/60">
+                              <button
+                                type="button"
+                                onClick={() => toggleGrupo(gTipo.key)}
+                                className="flex w-full items-center gap-2 px-3 py-1.5 pl-8 text-left text-sm transition-colors hover:bg-muted/30"
+                              >
+                                {tipoOpen ? (
+                                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                                ) : (
+                                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                                )}
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    "font-normal",
+                                    isOper && "border-info/40 bg-info/10 text-info",
+                                  )}
+                                >
+                                  {TIPO_LABEL[gTipo.tipo]}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground">
+                                  {gTipo.qtd} {gTipo.qtd === 1 ? "registro" : "registros"} •{" "}
+                                  {gTipo.descricoes.length}{" "}
+                                  {gTipo.descricoes.length === 1 ? "descrição" : "descrições"}
+                                </span>
+                                <span
+                                  className={cn(
+                                    "ml-auto font-mono text-sm tabular-nums",
+                                    isOper
+                                      ? "italic text-muted-foreground"
+                                      : gTipo.total > 0
+                                        ? "text-success"
+                                        : gTipo.total < 0
+                                          ? "text-destructive"
+                                          : "text-muted-foreground",
+                                  )}
+                                >
+                                  {isOper
+                                    ? `(${formatBRL(Math.abs(gTipo.total))})`
+                                    : formatBRL(gTipo.total)}
+                                </span>
+                              </button>
+                              {tipoOpen && (
+                                <div className="border-t border-border/40 bg-muted/10">
+                                  {gTipo.descricoes.map((folha) => {
+                                    const folhaOpen = gruposExpandidos.has(folha.key);
+                                    return (
+                                      <div key={folha.key}>
+                                        <button
+                                          type="button"
+                                          onClick={() => toggleGrupo(folha.key)}
+                                          className="flex w-full items-center gap-2 px-3 py-1.5 pl-14 text-left text-xs transition-colors hover:bg-muted/30"
+                                        >
+                                          {folhaOpen ? (
+                                            <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                                          ) : (
+                                            <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                                          )}
+                                          <span className="font-medium">{folha.descricao}</span>
+                                          <Badge
+                                            variant="secondary"
+                                            className="h-4 px-1 text-[10px]"
+                                          >
+                                            {folha.items.length}
+                                          </Badge>
+                                          <span
+                                            className={cn(
+                                              "ml-auto font-mono tabular-nums",
+                                              isOper
+                                                ? "italic text-muted-foreground"
+                                                : folha.total > 0
+                                                  ? "text-success"
+                                                  : folha.total < 0
+                                                    ? "text-destructive"
+                                                    : "text-muted-foreground",
+                                            )}
+                                          >
+                                            {isOper
+                                              ? `(${formatBRL(Math.abs(folha.total))})`
+                                              : formatBRL(folha.total)}
+                                          </span>
+                                        </button>
+                                        {folhaOpen && (
+                                          <Table>
+                                            <TableBody>
+                                              {folha.items.map((r) => (
+                                                <TableRow
+                                                  key={r.id}
+                                                  className={cn(r.operacional && "bg-muted/20")}
+                                                >
+                                                  <TableCell className="w-[170px] pl-16 text-xs text-muted-foreground">
+                                                    {formatDateTime(r.data)}
+                                                  </TableCell>
+                                                  <TableCell className="text-xs">
+                                                    <span
+                                                      className={cn(
+                                                        "rounded-md px-2 py-0.5",
+                                                        r.origem === "caixa"
+                                                          ? "bg-primary/10 text-primary"
+                                                          : "bg-muted text-muted-foreground",
+                                                      )}
+                                                    >
+                                                      {r.origem === "caixa" ? "Caixa" : "Financeiro"}
+                                                    </span>
+                                                  </TableCell>
+                                                  <TableCell
+                                                    className={cn(
+                                                      "text-right font-medium tabular-nums",
+                                                      r.operacional
+                                                        ? "italic text-muted-foreground"
+                                                        : r.valor > 0
+                                                          ? "text-success"
+                                                          : r.valor < 0
+                                                            ? "text-destructive"
+                                                            : "",
+                                                    )}
+                                                  >
+                                                    {r.valor === 0
+                                                      ? "—"
+                                                      : r.operacional
+                                                        ? `(${formatBRL(Math.abs(r.valor))})`
+                                                        : formatBRL(r.valor)}
+                                                  </TableCell>
+                                                  <TableCell className="w-[140px] text-right text-xs text-muted-foreground tabular-nums">
+                                                    {formatBRL(r.saldoAcumulado)}
+                                                  </TableCell>
+                                                </TableRow>
+                                              ))}
+                                            </TableBody>
+                                          </Table>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </CardContent>
       </Card>
 
