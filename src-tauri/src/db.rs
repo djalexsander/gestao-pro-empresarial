@@ -2553,6 +2553,7 @@ pub fn registrar_venda_local(
         "operador_id":      input.operador_id,
         "terminal_id":      input.terminal_id,
         "client_uuid":      input.client_uuid,
+        "data_vencimento":  input.data_vencimento,
     })
     .to_string();
 
