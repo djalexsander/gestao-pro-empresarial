@@ -92,14 +92,17 @@ export function useDashboard() {
         (fornRes.data ?? []).map((f) => [f.id, f.nome_fantasia || f.razao_social]),
       );
 
-      // === Cálculo dos totais do mês ===
+      // === Cálculo dos totais do mês (canônico: data_finalizacao) ===
+      const dataVenda = (v: { data_finalizacao: string | null; data_emissao: string }) =>
+        new Date(v.data_finalizacao ?? v.data_emissao);
+
       const vendasMes = (vendas ?? [])
-        .filter((v) => new Date(v.data_emissao) >= inicioMes)
+        .filter((v) => dataVenda(v) >= inicioMes)
         .reduce((s, v) => s + Number(v.total ?? 0), 0);
 
       const vendasMesAnterior = (vendas ?? [])
         .filter((v) => {
-          const d = new Date(v.data_emissao);
+          const d = dataVenda(v);
           return d >= inicioMesAnt && d < inicioMes;
         })
         .reduce((s, v) => s + Number(v.total ?? 0), 0);
@@ -116,8 +119,10 @@ export function useDashboard() {
         .reduce((s, c) => s + Number(c.total ?? 0), 0);
 
       // === Custo das mercadorias vendidas no mês (CMV) ===
+      // Hoje usa produtos.preco_custo; quando venda_itens passar a persistir
+      // custo no momento da venda, esse valor deve ter preferência.
       const vendasIdsMes = (vendas ?? [])
-        .filter((v) => new Date(v.data_emissao) >= inicioMes)
+        .filter((v) => dataVenda(v) >= inicioMes)
         .map((v) => v.id);
 
       let custoMes = 0;
@@ -142,9 +147,9 @@ export function useDashboard() {
         );
       }
 
-      // Lucro bruto = Vendas - Custo dos produtos vendidos
-      const lucroMes = vendasMes - custoMes;
-      const margem = vendasMes > 0 ? (lucroMes / vendasMes) * 100 : 0;
+      // Canônico: lucro bruto e margem
+      const lucroMes = calcLucroBruto(vendasMes, custoMes);
+      const margem = calcMargemPct(vendasMes, lucroMes);
 
       // === Séries por mês ===
       const seriesMap = new Map<string, { vendas: number; compras: number }>();
@@ -154,7 +159,7 @@ export function useDashboard() {
         seriesMap.set(key, { vendas: 0, compras: 0 });
       }
       for (const v of vendas ?? []) {
-        const d = new Date(v.data_emissao);
+        const d = dataVenda(v);
         const key = `${d.getFullYear()}-${d.getMonth()}`;
         const ref = seriesMap.get(key);
         if (ref) ref.vendas += Number(v.total ?? 0);
@@ -170,40 +175,38 @@ export function useDashboard() {
         return { month: MESES_PT[m], vendas: val.vendas, compras: val.compras };
       });
 
-      // === Financeiro: contas a pagar / receber pendentes ===
+      // === Financeiro: contas a pagar / receber pendentes (canônico) ===
+      // BUGFIX: filtros antigos usavam tipo "receita"/"despesa", mas o schema
+      // canônico é "receber"/"pagar". Helpers aceitam ambos por segurança.
       const { data: lancamentos } = await supabase
         .from("financeiro_lancamentos")
-        .select("id, tipo, valor, valor_pago, status, data_vencimento, data_pagamento");
+        .select("id, tipo, valor, valor_pago, status, data_vencimento, data_pagamento, conciliado_em");
 
       const contasPagarLancs = (lancamentos ?? []).filter(
-        (l) => l.tipo === "despesa" && l.status !== "pago" && l.status !== "cancelado",
+        (l) => isLancPagar(l) && !isLancRealizado(l) && !isLancCancelado(l),
       );
       const contasReceberLancs = (lancamentos ?? []).filter(
-        (l) => l.tipo === "receita" && l.status !== "pago" && l.status !== "cancelado",
+        (l) => isLancReceber(l) && !isLancRealizado(l) && !isLancCancelado(l) && !l.conciliado_em,
       );
-      const contasPagar = contasPagarLancs.reduce(
-        (s, l) => s + (Number(l.valor) - Number(l.valor_pago ?? 0)),
-        0,
-      );
-      const contasReceber = contasReceberLancs.reduce(
-        (s, l) => s + (Number(l.valor) - Number(l.valor_pago ?? 0)),
-        0,
-      );
+      const contasPagar = contasPagarLancs.reduce((s, l) => s + calcAbertoLanc(l), 0);
+      const contasReceber = contasReceberLancs.reduce((s, l) => s + calcAbertoLanc(l), 0);
 
-      // === Fluxo de caixa do mês (pagamentos efetivados) ===
+      // === Fluxo de caixa do mês (somente pagamentos realizados) ===
       const fluxoMap = new Map<number, { entrada: number; saida: number }>();
       const diasNoMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
       for (let d = 1; d <= diasNoMes; d++) fluxoMap.set(d, { entrada: 0, saida: 0 });
 
       for (const l of lancamentos ?? []) {
         if (!l.data_pagamento) continue;
+        if (!isLancRealizado(l)) continue; // ignora pendente/cancelado
         const dp = new Date(l.data_pagamento);
         if (dp < inicioMes) continue;
         const dia = dp.getDate();
         const ref = fluxoMap.get(dia);
         if (!ref) continue;
-        if (l.tipo === "receita") ref.entrada += Number(l.valor_pago ?? 0);
-        else if (l.tipo === "despesa") ref.saida += Number(l.valor_pago ?? 0);
+        const valor = Number(l.valor_pago ?? l.valor) || 0;
+        if (isLancReceber(l)) ref.entrada += valor;
+        else if (isLancPagar(l)) ref.saida += valor;
       }
       const fluxoCaixa = Array.from(fluxoMap.entries()).map(([dia, val]) => ({
         day: String(dia).padStart(2, "0"),
