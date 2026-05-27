@@ -249,7 +249,7 @@ export function useDashboard() {
         cliente: v.cliente_id ? (clientesMap.get(v.cliente_id) ?? "—") : "Consumidor",
         valor: Number(v.total ?? 0),
         status: v.status,
-        data: v.data_emissao,
+        data: v.data_finalizacao ?? v.data_emissao,
       }));
       const ultimasCompras = (compras ?? []).slice(0, 5).map((c) => ({
         id: c.id,
