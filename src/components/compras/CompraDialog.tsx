@@ -189,6 +189,7 @@ export function CompraDialog({ open, onOpenChange }: Props) {
         outros,
         observacoes: observacoes || null,
         itens: itensValidos.map(({ _key: _k, ...rest }) => rest),
+        client_uuid: clientUuidRef.current,
       });
       onOpenChange(false);
     } catch {
