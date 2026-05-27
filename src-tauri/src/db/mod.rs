@@ -1971,11 +1971,7 @@ pub fn registrar_movimento_local(
     })
 }
 
-fn iso_from_ms_z_pub(ms: i64) -> String {
-    chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms)
-        .map(|d| d.to_rfc3339())
-        .unwrap_or_default()
-}
+// `iso_from_ms_z_pub` foi movida para `db::helpers` (PROMPT 12).
 
 // ---------- Outbox: leitura, stats e atualização de status ----------
 
