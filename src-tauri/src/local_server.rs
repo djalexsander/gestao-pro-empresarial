@@ -136,6 +136,10 @@ pub struct LocalServerStatus {
     pub version: &'static str,
     pub upstream_configured: bool,
     pub terminals_conectados: usize,
+    /// Token de pareamento atual — devolvido APENAS para o processo Tauri
+    /// que invocou `start_local_server` (mesma máquina). Nunca é exposto
+    /// por HTTP.
+    pub auth_token: Option<String>,
 }
 
 // ---------- Heartbeat ----------
