@@ -19,9 +19,10 @@
 // a função `proxy_get` por uma consulta SQL local.
 
 use axum::{
-    extract::{ConnectInfo, Query, State},
-    http::{HeaderMap, StatusCode},
-    response::IntoResponse,
+    extract::{ConnectInfo, Query, Request, State},
+    http::{HeaderMap, HeaderValue, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -31,7 +32,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Mutex;
 use tokio::sync::oneshot;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
 use crate::backup;
 use crate::db;
