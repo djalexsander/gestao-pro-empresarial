@@ -137,64 +137,47 @@ export function useCreateCompra() {
       if (!user) throw new Error("Não autenticado");
       if (input.itens.length === 0) throw new Error("Adicione pelo menos um item à compra.");
 
-      const { subtotal, total } = calcularTotais(input);
+      // Toda a gravação (compra + itens + cálculos) acontece atomicamente
+      // dentro da RPC `criar_compra`. Idempotência cross-retry é garantida
+      // pelo `_client_uuid` enviado pelo componente: reenviar o mesmo UUID
+      // (duplo-clique, retry de rede) retorna a compra já existente em vez
+      // de criar uma nova.
+      const payload = {
+        _numero: input.numero,
+        _fornecedor_id: input.fornecedor_id,
+        _data_emissao: input.data_emissao,
+        _data_prevista: input.data_prevista ?? null,
+        _data_vencimento: input.data_vencimento ?? null,
+        _numero_nf: input.numero_nf ?? null,
+        _serie_nf: input.serie_nf ?? null,
+        _desconto: input.desconto ?? 0,
+        _frete: input.frete ?? 0,
+        _outros: input.outros ?? 0,
+        _observacoes: input.observacoes ?? null,
+        _status: "pendente",
+        _client_uuid: input.client_uuid ?? null,
+        _itens: input.itens.map((it) => ({
+          produto_id: it.produto_id,
+          variacao_id: it.variacao_id ?? null,
+          descricao: it.descricao ?? null,
+          quantidade: it.quantidade,
+          preco_unitario: it.preco_unitario,
+          desconto: it.desconto ?? 0,
+        })),
+      };
 
-      const { data: compra, error } = await supabase
-        .from("compras")
-        .insert({
-          owner_id: user.id,
-          numero: input.numero,
-          fornecedor_id: input.fornecedor_id,
-          data_emissao: input.data_emissao,
-          data_prevista: input.data_prevista ?? null,
-          numero_nf: input.numero_nf ?? null,
-          serie_nf: input.serie_nf ?? null,
-          desconto: input.desconto ?? 0,
-          frete: input.frete ?? 0,
-          outros: input.outros ?? 0,
-          observacoes: input.observacoes ?? null,
-          subtotal,
-          total,
-          status: "pendente",
-        })
-        .select()
-        .single();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc("criar_compra", { _payload: payload });
       if (error) throw error;
-
-      const itensPayload: Array<{
-        owner_id: string;
-        compra_id: string;
-        produto_id: string;
-        variacao_id: string | null;
-        descricao: string | null;
-        quantidade: number;
-        preco_unitario: number;
-        desconto: number;
-        total: number;
-      }> = input.itens.map((it) => ({
-        owner_id: user.id,
-        compra_id: compra.id,
-        produto_id: it.produto_id,
-        variacao_id: it.variacao_id ?? null,
-        descricao: it.descricao ?? null,
-        quantidade: it.quantidade,
-        preco_unitario: it.preco_unitario,
-        desconto: it.desconto ?? 0,
-        total: it.quantidade * it.preco_unitario - (it.desconto ?? 0),
-      }));
-
-      const { error: itensErr } = await supabase.from("compra_itens").insert(itensPayload);
-      if (itensErr) {
-        // rollback manual da compra para não deixar lixo
-        await supabase.from("compras").delete().eq("id", compra.id);
-        throw itensErr;
-      }
-
-      return compra;
+      return data as { id: string; idempotent: boolean };
     },
-    onSuccess: () => {
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["compras"] });
-      toast.success("Compra registrada.");
+      if (res?.idempotent) {
+        toast.success("Compra já registrada (reenvio idempotente).");
+      } else {
+        toast.success("Compra registrada.");
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   });
