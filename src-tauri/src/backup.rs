@@ -99,6 +99,21 @@ pub struct BackupStatus {
     pub total_size_bytes: i64,
 }
 
+/// Resultado do preflight de restauração (PROMPT 15).
+/// Indica se o banco local está em estado seguro para receber um restore.
+/// `blocked=true` significa que existe risco operacional (caixa aberto ou
+/// pendências de outbox) e a UI deve exigir confirmação explícita
+/// (`force=true`) antes de prosseguir.
+#[derive(Debug, Serialize, Clone)]
+pub struct RestorePreflight {
+    pub blocked: bool,
+    pub caixa_aberto: bool,
+    pub caixa_abertos_count: i64,
+    pub outbox_pending_total: i64,
+    pub outbox_error_total: i64,
+    pub reasons: Vec<String>,
+}
+
 // ----------------------------------------------------------------------------
 // Migração leve (v13 lógica): tabela `backup_log`. Mantida fora do init() do db
 // para não quebrar SCHEMA_VERSION; usamos CREATE IF NOT EXISTS.
