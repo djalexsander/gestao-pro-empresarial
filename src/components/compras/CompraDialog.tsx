@@ -60,6 +60,10 @@ export function CompraDialog({ open, onOpenChange }: Props) {
   const [outros, setOutros] = useState(0);
   const [observacoes, setObservacoes] = useState("");
   const [itens, setItens] = useState<LinhaItem[]>([novoItem()]);
+  // Idempotência: mantém um UUID estável enquanto o modal está aberto.
+  // Duplo-clique / retry de rede reenviam o mesmo UUID e a RPC
+  // `criar_compra` devolve a compra já existente em vez de duplicar.
+  const clientUuidRef = useRef<string>(crypto.randomUUID());
 
   // Scanner / busca rápida por código
   const [codigoBusca, setCodigoBusca] = useState("");
@@ -79,6 +83,7 @@ export function CompraDialog({ open, onOpenChange }: Props) {
       setObservacoes("");
       setItens([novoItem()]);
       setCodigoBusca("");
+      clientUuidRef.current = crypto.randomUUID();
       setTimeout(() => codigoRef.current?.focus(), 150);
     }
   }, [open]);
@@ -184,6 +189,7 @@ export function CompraDialog({ open, onOpenChange }: Props) {
         outros,
         observacoes: observacoes || null,
         itens: itensValidos.map(({ _key: _k, ...rest }) => rest),
+        client_uuid: clientUuidRef.current,
       });
       onOpenChange(false);
     } catch {
