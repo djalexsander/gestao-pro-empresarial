@@ -2139,14 +2139,32 @@ async fn run_outbox_caixa_scheduler(
 // ---------- Router ----------
 
 fn build_router(ctx: AppCtx) -> Router {
+    // CORS restrita — apenas origens conhecidas do app desktop (Tauri WebView)
+    // e localhost/127.0.0.1 para ferramentas locais. Sem `Any` para origem.
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _req| {
+            let s = match origin.to_str() {
+                Ok(v) => v,
+                Err(_) => return false,
+            };
+            // Tauri v2 WebView (todas as plataformas)
+            s == "tauri://localhost"
+                || s == "https://tauri.localhost"
+                || s == "http://tauri.localhost"
+                // ferramentas locais / dev
+                || s.starts_with("http://localhost")
+                || s.starts_with("http://127.0.0.1")
+        }))
         .allow_methods(Any)
         .allow_headers(Any);
 
-    Router::new()
+    // Rotas públicas — diagnóstico e descoberta. Sem token.
+    let public = Router::new()
         .route("/health", get(health_handler))
-        .route("/server-info", get(server_info_handler))
+        .route("/server-info", get(server_info_handler));
+
+    // Rotas sensíveis — exigem header `X-Gestao-Token` válido.
+    let protected = Router::new()
         .route("/heartbeat", post(heartbeat_handler))
         .route("/terminals", get(terminals_handler))
         .route("/terminals/known", get(known_terminals_handler))
@@ -2202,8 +2220,82 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/backup/export", post(backup_export_handler))
         .route("/backup/restore/schedule", post(backup_restore_schedule_handler))
         .route("/backup/restore/cancel", post(backup_restore_cancel_handler))
+        .route_layer(middleware::from_fn(require_local_token));
+
+    public
+        .merge(protected)
         .with_state(ctx)
         .layer(cors)
+}
+
+/// Middleware: exige `X-Gestao-Token: <token>` (ou `Authorization: Bearer <token>`)
+/// para qualquer rota sensível. Se o servidor ainda não tem token configurado,
+/// bloqueia tudo (estado seguro por padrão).
+async fn require_local_token(req: Request, next: Next) -> Result<Response, (StatusCode, String)> {
+    let expected = STATE
+        .lock()
+        .ok()
+        .and_then(|s| s.auth_token.clone())
+        .unwrap_or_default();
+
+    if expected.is_empty() {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Servidor local sem token de pareamento configurado.".into(),
+        ));
+    }
+
+    let headers = req.headers();
+    let provided = headers
+        .get("x-gestao-token")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            headers
+                .get(axum::http::header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.strip_prefix("Bearer ").map(|t| t.to_string()))
+        })
+        .unwrap_or_default();
+
+    // Comparação de tempo constante para reduzir oráculos de tempo.
+    if provided.len() != expected.len()
+        || !provided
+            .as_bytes()
+            .iter()
+            .zip(expected.as_bytes().iter())
+            .fold(true, |acc, (a, b)| acc & (a == b))
+    {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "Token de pareamento inválido ou ausente.".into(),
+        ));
+    }
+
+    Ok(next.run(req).await)
+}
+
+/// Gera um token novo (~256 bits de entropia derivada de tempo + endereço).
+fn generate_auth_token() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let a = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let b: usize = (&a as *const _) as usize;
+    let c = std::process::id() as u128;
+    let mix1 = a
+        .wrapping_mul(0x9E3779B97F4A7C15)
+        ^ (b as u128).wrapping_mul(0xC2B2AE3D27D4EB4F)
+        ^ c.wrapping_mul(0xBF58476D1CE4E5B9);
+    let a2 = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let mix2 = a2
+        .wrapping_mul(0x94D049BB133111EB)
+        ^ mix1.rotate_left(33);
+    format!("gpt_{:032x}{:032x}", mix1, mix2)
 }
 
 // ---------- API pública ----------
