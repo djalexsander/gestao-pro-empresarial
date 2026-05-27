@@ -17,6 +17,7 @@ import { useFecharCaixa, type CaixaResumo } from "@/hooks/useCaixa";
 import { formatBRL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { useHotkeys } from "@/hooks/useHotkeys";
+import { OutboxPendenciasAlert } from "@/components/shared/OutboxPendenciasAlert";
 
 interface Props {
   open: boolean;
