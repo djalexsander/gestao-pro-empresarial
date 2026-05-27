@@ -1004,19 +1004,14 @@ pub fn db_info() -> DbResult<DbInfo> {
 // `payload` mantém o JSON completo do registro para que o adapter possa
 // devolver o objeto inteiro sem mapear todas as colunas ainda.
 
-fn parse_iso_to_ms(s: &str) -> Option<i64> {
-    chrono::DateTime::parse_from_rfc3339(s)
-        .ok()
-        .map(|d| d.timestamp_millis())
-}
-
-fn json_str<'a>(v: &'a serde_json::Value, key: &str) -> Option<&'a str> {
-    v.get(key).and_then(|x| x.as_str())
-}
-
-fn json_f64(v: &serde_json::Value, key: &str) -> Option<f64> {
-    v.get(key).and_then(|x| x.as_f64())
-}
+// Helpers puros (parse_iso_to_ms, json_str, json_f64, iso_from_ms_z_pub,
+// backoff_ms_for_attempts) foram movidos para `db::helpers` no PROMPT 12.
+// Os símbolos continuam disponíveis dentro deste módulo via `use helpers::*`
+// abaixo, sem mudar assinaturas nem comportamento.
+mod helpers;
+use helpers::{
+    backoff_ms_for_attempts, iso_from_ms_z_pub, json_f64, json_str, parse_iso_to_ms,
+};
 
 #[derive(Debug, Serialize)]
 pub struct DomainStat {
@@ -1976,11 +1971,7 @@ pub fn registrar_movimento_local(
     })
 }
 
-fn iso_from_ms_z_pub(ms: i64) -> String {
-    chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms)
-        .map(|d| d.to_rfc3339())
-        .unwrap_or_default()
-}
+// `iso_from_ms_z_pub` foi movida para `db::helpers` (PROMPT 12).
 
 // ---------- Outbox: leitura, stats e atualização de status ----------
 
@@ -2284,15 +2275,7 @@ pub fn outbox_mark_sent(local_uuid: &str, remote_id: &str, now_ms: i64) -> DbRes
 
 /// Política de backoff exponencial limitado (em ms):
 /// 1ª falha → 5s, 2ª → 15s, 3ª → 1min, 4ª → 5min, 5ª+ → 15min (cap).
-fn backoff_ms_for_attempts(attempts: i64) -> i64 {
-    match attempts {
-        a if a <= 1 => 5_000,
-        2 => 15_000,
-        3 => 60_000,
-        4 => 5 * 60_000,
-        _ => 15 * 60_000,
-    }
-}
+// `backoff_ms_for_attempts` foi movida para `db::helpers` (PROMPT 12).
 
 /// Após este nº de tentativas automáticas o item para de ser retomado pelo
 /// scheduler e fica como `error`, exigindo "Reenfileirar erros" / manual.
