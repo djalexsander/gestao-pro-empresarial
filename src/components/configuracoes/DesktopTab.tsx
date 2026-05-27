@@ -442,6 +442,10 @@ export function DesktopTab() {
         </Card>
 
         {isServer && (
+          <ServerTokenCard token={config.serverAuthToken ?? null} />
+        )}
+
+        {isServer && (
           <ServerReadinessCard
             daemon={daemon}
             info={info}
