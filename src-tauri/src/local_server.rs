@@ -412,12 +412,18 @@ async fn proxy_get(
 
     let url = format!("{}{}", upstream.base_url.trim_end_matches('/'), path);
 
-    // Auth: prefere JWT do terminal; senão, anon key.
-    let auth = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+    // Auth: exige JWT do usuário (header da request ou cache de schedulers).
+    // NÃO cai mais em anon_key — rotas protegidas precisam do contexto do
+    // usuário para RLS funcionar.
+    let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
+        Some(a) => a,
+        None => {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "AUTH: sem JWT do usuário — autentique no terminal".into(),
+            ));
+        }
+    };
 
     let req = ctx
         .http
