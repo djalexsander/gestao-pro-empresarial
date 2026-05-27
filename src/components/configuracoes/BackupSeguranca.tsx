@@ -59,22 +59,27 @@ export function BackupSeguranca({ cfg }: Props) {
   const [status, setStatus] = useState<BackupStatusPayload | null>(null);
   const [files, setFiles] = useState<BackupFileItem[]>([]);
   const [log, setLog] = useState<BackupLogEntry[]>([]);
+  const [preflight, setPreflight] = useState<RestorePreflight | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [restorePath, setRestorePath] = useState("");
+  const [restoreConfirmText, setRestoreConfirmText] = useState("");
+  const [forceRestore, setForceRestore] = useState(false);
   const [exportSrc, setExportSrc] = useState<string | null>(null);
   const [exportDest, setExportDest] = useState("");
 
   const recarregar = async () => {
-    const [st, fs, lg] = await Promise.all([
+    const [st, fs, lg, pf] = await Promise.all([
       fetchBackupStatus(cfg),
       fetchBackupList(cfg),
       fetchBackupLog(cfg, 30),
+      fetchRestorePreflight(cfg),
     ]);
     setStatus(st);
     setFiles(fs);
     setLog(lg);
+    setPreflight(pf);
   };
 
   useEffect(() => {
@@ -112,10 +117,26 @@ export function BackupSeguranca({ cfg }: Props) {
       setError("Informe o caminho do arquivo .db a restaurar.");
       return;
     }
-    if (!confirm(
-      "Restaurar substituirá o banco atual. Um pre-backup automático será criado e o app precisará ser reiniciado. Deseja continuar?",
-    )) return;
-    await run("Restauração agendada", () => agendarRestauracao(cfg, path));
+    if (restoreConfirmText.trim().toUpperCase() !== "RESTAURAR") {
+      setError('Digite a palavra "RESTAURAR" para confirmar.');
+      return;
+    }
+    if (preflight?.blocked && !forceRestore) {
+      setError(
+        "Restauração bloqueada: " +
+          (preflight.reasons.join(" | ") || "estado inseguro"),
+      );
+      return;
+    }
+    const aviso = preflight?.blocked
+      ? "ATENÇÃO: existem pendências (caixa aberto e/ou outbox). Você está forçando o restore como administrador. Um pre-backup automático será criado, mas dados não sincronizados podem ser perdidos. Confirmar?"
+      : "Restaurar substituirá o banco atual. Um pre-backup automático será criado e o app precisará ser reiniciado. Deseja continuar?";
+    if (!confirm(aviso)) return;
+    await run("Restauração agendada", () =>
+      agendarRestauracao(cfg, path, { force: forceRestore }),
+    );
+    setRestoreConfirmText("");
+    setForceRestore(false);
   };
 
   const handleCancelRestore = async () => {
