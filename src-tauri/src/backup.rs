@@ -282,13 +282,103 @@ pub fn export_backup(source_path: &str, dest_path: &str) -> DbResult<BackupEntry
     Ok(read_log_entry(id)?.expect("entry just inserted"))
 }
 
+/// Calcula o preflight de restauração: caixa aberto e pendências de outbox
+/// (PROMPT 15). Sempre executa em modo read-only — não altera o banco.
+pub fn restore_preflight() -> DbResult<RestorePreflight> {
+    db::with_raw_conn(|conn| {
+        // Caixa local aberto (status='aberto' e sem data_fechamento_ms).
+        let caixa_abertos: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM caixa_local
+                   WHERE status='aberto' AND data_fechamento_ms IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+
+        // Total de itens pending e error em TODAS as outboxes conhecidas.
+        // Usa COALESCE para sobreviver a tabelas que possam não existir
+        // (defensivo — em fluxo normal todas existem após init()).
+        let outboxes = [
+            "outbox_estoque_movs",
+            "outbox_vendas",
+            "outbox_caixa",
+            "outbox_cancelamentos_venda",
+            "outbox_financeiro",
+        ];
+        let mut pending_total: i64 = 0;
+        let mut error_total: i64 = 0;
+        for t in outboxes.iter() {
+            let q = format!(
+                "SELECT
+                    COALESCE(SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END),0),
+                    COALESCE(SUM(CASE WHEN status='error'   THEN 1 ELSE 0 END),0)
+                   FROM {t}"
+            );
+            if let Ok((p, e)) =
+                conn.query_row(&q, [], |r| Ok::<(i64, i64), rusqlite::Error>((r.get(0)?, r.get(1)?)))
+            {
+                pending_total += p;
+                error_total += e;
+            }
+        }
+
+        let mut reasons: Vec<String> = Vec::new();
+        if caixa_abertos > 0 {
+            reasons.push(format!(
+                "Existe(m) {caixa_abertos} caixa(s) aberto(s). Feche o caixa antes de restaurar."
+            ));
+        }
+        if pending_total > 0 {
+            reasons.push(format!(
+                "{pending_total} registro(s) pendente(s) na fila de sincronização. Sincronize antes de restaurar."
+            ));
+        }
+        if error_total > 0 {
+            reasons.push(format!(
+                "{error_total} registro(s) com erro de sincronização. Reenfileire e sincronize antes de restaurar."
+            ));
+        }
+        Ok(RestorePreflight {
+            blocked: !reasons.is_empty(),
+            caixa_aberto: caixa_abertos > 0,
+            caixa_abertos_count: caixa_abertos,
+            outbox_pending_total: pending_total,
+            outbox_error_total: error_total,
+            reasons,
+        })
+    })
+}
+
 /// Valida que o arquivo é um SQLite válido com schema compatível e
 /// agenda restauração para o próximo boot. Antes disso, gera pre-backup.
-pub fn schedule_restore(source_path: &str) -> DbResult<BackupEntry> {
+///
+/// `force=false` (default): se o preflight detectar caixa aberto ou
+/// pendências na outbox, a operação é bloqueada com erro descritivo e
+/// um evento `status='denied'` é gravado em `backup_log`. O usuário
+/// precisa resolver as pendências OU acionar a confirmação administrativa
+/// explícita (`force=true`), que loga `status='forced'`.
+pub fn schedule_restore(source_path: &str, force: bool) -> DbResult<BackupEntry> {
     ensure_schema()?;
     let src = Path::new(source_path);
     if !src.exists() {
         return Err(DbError(format!("arquivo não encontrado: {source_path}")));
+    }
+
+    // 0) Preflight de segurança (PROMPT 15). Bloqueia se houver risco
+    // operacional, salvo override administrativo explícito.
+    let pre_check = restore_preflight()?;
+    if pre_check.blocked && !force {
+        let reason = pre_check.reasons.join(" | ");
+        let _ = log_entry(
+            "restore",
+            src,
+            "denied",
+            Some(&format!("preflight blocked: {reason}")),
+        );
+        return Err(DbError(format!(
+            "Restauração bloqueada pelo preflight de segurança: {reason}"
+        )));
     }
 
     // 1) Validação: tentar abrir como SQLite read-only e ler schema_version.
@@ -320,6 +410,17 @@ pub fn schedule_restore(source_path: &str) -> DbResult<BackupEntry> {
         meta_set(c, "restore_pending_source", source_path)?;
         meta_set(c, "restore_pending_at_ms", &now_ms().to_string())
     })?;
+
+    // Quando o admin forçou apesar de preflight bloqueado, deixa rastro
+    // separado para auditoria.
+    if force && pre_check.blocked {
+        let _ = log_entry(
+            "restore",
+            src,
+            "forced",
+            Some(&format!("override de preflight: {}", pre_check.reasons.join(" | "))),
+        );
+    }
 
     let id = log_entry(
         "restore",
