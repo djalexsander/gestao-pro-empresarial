@@ -1740,3 +1740,67 @@ function Field({
     </div>
   );
 }
+
+function ServerTokenCard({ token }: { token: string | null }) {
+  const [copiado, setCopiado] = useState(false);
+  const [revelado, setRevelado] = useState(false);
+
+  const copiar = async () => {
+    if (!token) return;
+    try {
+      await navigator.clipboard.writeText(token);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
+  const masked = token
+    ? `${token.slice(0, 6)}${"•".repeat(Math.max(0, token.length - 10))}${token.slice(-4)}`
+    : "—";
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-4">
+        <CardTitle className="flex items-center gap-2">
+          <KeyRound className="h-5 w-5" />
+          Token de pareamento
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Use este token nos terminais da rede (campo{" "}
+          <strong>Token de pareamento</strong> no wizard do terminal). O backend
+          local exige este código em todas as rotas sensíveis.
+        </p>
+        {token ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 p-3">
+            <code className="flex-1 break-all font-mono text-sm text-foreground">
+              {revelado ? token : masked}
+            </code>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setRevelado((v) => !v)}
+            >
+              {revelado ? "Ocultar" : "Mostrar"}
+            </Button>
+            <Button size="sm" onClick={() => void copiar()}>
+              <Copy className="mr-2 h-4 w-4" />
+              {copiado ? "Copiado!" : "Copiar"}
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-start gap-3 rounded-lg border border-amber-300/60 bg-amber-500/10 p-3 text-amber-700 dark:text-amber-400">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+            <div className="text-sm">
+              O token ainda não foi gerado. Inicie o servidor local — ele será
+              criado automaticamente no primeiro boot e exibido aqui.
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
