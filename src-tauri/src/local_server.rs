@@ -2323,6 +2323,7 @@ pub async fn start(
     server_id: Option<String>,
     upstream_url: Option<String>,
     upstream_anon_key: Option<String>,
+    auth_token: Option<String>,
 ) -> Result<LocalServerStatus, String> {
     let upstream = match (upstream_url, upstream_anon_key) {
         (Some(url), Some(key)) if !url.is_empty() && !key.is_empty() => {
@@ -2334,6 +2335,13 @@ pub async fn start(
     let host = hostname::get()
         .ok()
         .and_then(|s| s.into_string().ok());
+
+    // Resolve o token: usa o vindo do frontend (persistido na Tauri Store),
+    // ou gera um novo se for a primeira execução. Token vazio nunca é aceito.
+    let resolved_token = match auth_token {
+        Some(t) if !t.trim().is_empty() => t,
+        _ => generate_auth_token(),
+    };
 
     {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
@@ -2348,6 +2356,7 @@ pub async fn start(
             if s.hostname.is_none() {
                 s.hostname = host.clone();
             }
+            // Não troca o token se já está rodando — evita derrubar terminais.
             return Ok(LocalServerStatus {
                 running: true,
                 port: s.port,
@@ -2359,6 +2368,7 @@ pub async fn start(
                 version: APP_VERSION,
                 upstream_configured: s.upstream.is_some(),
                 terminals_conectados: s.terminals.len(),
+                auth_token: s.auth_token.clone(),
             });
         }
     }
