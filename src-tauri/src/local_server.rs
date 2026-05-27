@@ -1426,6 +1426,39 @@ async fn push_one_outbox_venda(
     db::outbox_vendas_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
 
     let pagamentos = payload.get("pagamentos").cloned().unwrap_or(serde_json::Value::Null);
+
+    // FIADO: defesa contra itens antigos da outbox (anteriores à correção)
+    // que foram gravados sem `data_vencimento`. Não sincroniza silenciosamente
+    // — marca erro operacional claro e mantém o item para correção manual,
+    // sem duplicar venda (local_uuid permanece o mesmo).
+    let forma_principal = payload
+        .get("forma_pagamento")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let tem_fiado = forma_principal.eq_ignore_ascii_case("fiado")
+        || pagamentos
+            .as_array()
+            .map(|arr| {
+                arr.iter().any(|p| {
+                    p.get("forma_pagamento")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.eq_ignore_ascii_case("fiado"))
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false);
+    let data_venc = payload
+        .get("data_vencimento")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty());
+    if tem_fiado && data_venc.is_none() {
+        let msg =
+            "FIADO_SEM_VENCIMENTO: venda fiado sem data_vencimento — corrija manualmente antes de sincronizar"
+                .to_string();
+        let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
+        return Err(msg);
+    }
+
     let body = serde_json::json!({
         "_cliente_id":       payload.get("cliente_id"),
         "_subtotal":         payload.get("subtotal"),
@@ -1443,6 +1476,9 @@ async fn push_one_outbox_venda(
         "_gerar_financeiro": payload.get("gerar_financeiro"),
         "_operador_id":      payload.get("operador_id"),
         "_terminal_id":      payload.get("terminal_id"),
+        // Vencimento do fiado — preservado ponta a ponta (frontend → local →
+        // outbox → RPC). Para vendas não-fiado, segue null (RPC ignora).
+        "_data_vencimento":  data_venc,
         // Idempotência ponta a ponta — local_uuid estável.
         "_client_uuid":      local_uuid,
     });
