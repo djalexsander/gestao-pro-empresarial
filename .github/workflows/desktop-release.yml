@@ -70,14 +70,15 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          $secret = $env:TAURI_SIGNING_PRIVATE_KEY
-          Write-Host "Secret carregado com tamanho:" $secret.Length
-          Write-Host "Senha carregada:" ($env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD.Length -gt 0)
-          $bytes = [System.Text.Encoding]::UTF8.GetBytes($secret)
-          $hash = [System.Security.Cryptography.SHA256]::Create().ComputeHash($bytes)
-          $hashText = -join ($hash | ForEach-Object { $_.ToString("x2") })
-          Write-Host "SHA256 da chave privada carregada no Actions:"
-          Write-Host $hashText
+          if ([string]::IsNullOrEmpty($env:TAURI_SIGNING_PRIVATE_KEY)) {
+            Write-Error "TAURI_SIGNING_PRIVATE_KEY não configurada."
+            exit 1
+          }
+          if ([string]::IsNullOrEmpty($env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD)) {
+            Write-Error "TAURI_SIGNING_PRIVATE_KEY_PASSWORD não configurada."
+            exit 1
+          }
+          Write-Host "Chave de assinatura do updater configurada."
 
       - name: Build assinado (Tauri)
         env:
