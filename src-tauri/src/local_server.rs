@@ -412,12 +412,18 @@ async fn proxy_get(
 
     let url = format!("{}{}", upstream.base_url.trim_end_matches('/'), path);
 
-    // Auth: prefere JWT do terminal; senão, anon key.
-    let auth = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+    // Auth: exige JWT do usuário (header da request ou cache de schedulers).
+    // NÃO cai mais em anon_key — rotas protegidas precisam do contexto do
+    // usuário para RLS funcionar.
+    let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
+        Some(a) => a,
+        None => {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "AUTH: sem JWT do usuário — autentique no terminal".into(),
+            ));
+        }
+    };
 
     let req = ctx
         .http
@@ -433,6 +439,9 @@ async fn proxy_get(
         .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Falha upstream: {e}")))?;
 
     let status = res.status();
+    if status.as_u16() == 401 || status.as_u16() == 403 {
+        clear_user_jwt(&ctx.user_jwt);
+    }
     let body = res
         .bytes()
         .await
@@ -1227,6 +1236,12 @@ async fn push_one_outbox(
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
     if !status.is_success() {
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            clear_user_jwt(&ctx.user_jwt);
+            let msg = format!("AUTH: upstream rejeitou JWT (HTTP {}): {}", status.as_u16(), text);
+            let _ = db::outbox_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
         let msg = format!("HTTP {}: {}", status.as_u16(), text);
         let _ = db::outbox_mark_error(local_uuid, &msg, now);
         return Err(msg);
@@ -1397,13 +1412,18 @@ async fn push_one_outbox_venda(
     let payload: serde_json::Value =
         serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
 
-    db::outbox_vendas_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
+    // Auth: exige JWT real do usuário (header ou cache). Nunca cai em
+    // anon_key — sem JWT, marca AUTH: e mantém pending para retry pós-login.
+    let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
+        Some(a) => a,
+        None => {
+            let msg = "AUTH: sem JWT do usuário — aguardando login no terminal".to_string();
+            let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
 
-    let auth = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+    db::outbox_vendas_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
 
     let pagamentos = payload.get("pagamentos").cloned().unwrap_or(serde_json::Value::Null);
     let body = serde_json::json!({
@@ -1447,6 +1467,12 @@ async fn push_one_outbox_venda(
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
     if !status.is_success() {
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            clear_user_jwt(&ctx.user_jwt);
+            let msg = format!("AUTH: upstream rejeitou JWT (HTTP {}): {}", status.as_u16(), text);
+            let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
         let msg = format!("HTTP {}: {}", status.as_u16(), text);
         let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
         return Err(msg);
@@ -1979,13 +2005,16 @@ async fn push_one_outbox_caixa(
     let payload: serde_json::Value =
         serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
 
-    db::outbox_caixa_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
+    let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
+        Some(a) => a,
+        None => {
+            let msg = "AUTH: sem JWT do usuário — aguardando login no terminal".to_string();
+            let _ = db::outbox_caixa_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
 
-    let auth = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+    db::outbox_caixa_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
 
     let (rpc, body) = match item.action.as_str() {
         "abrir" => (
@@ -2052,6 +2081,12 @@ async fn push_one_outbox_caixa(
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
     if !status.is_success() {
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            clear_user_jwt(&ctx.user_jwt);
+            let msg = format!("AUTH: upstream rejeitou JWT (HTTP {}): {}", status.as_u16(), text);
+            let _ = db::outbox_caixa_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
         let msg = format!("HTTP {}: {}", status.as_u16(), text);
         let _ = db::outbox_caixa_mark_error(local_uuid, &msg, now);
         return Err(msg);
@@ -2697,13 +2732,16 @@ async fn push_one_outbox_cancel(
         .ok_or("cancelamento não encontrado na outbox")?;
     if item.status == "sent" { return Ok(String::new()); }
 
-    db::outbox_cancel_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
+    let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
+        Some(a) => a,
+        None => {
+            let msg = "AUTH: sem JWT do usuário — aguardando login no terminal".to_string();
+            let _ = db::outbox_cancel_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
 
-    let auth = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+    db::outbox_cancel_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
 
     let body = serde_json::json!({
         "_venda_id": venda_remote_id,
@@ -2737,6 +2775,12 @@ async fn push_one_outbox_cancel(
             db::outbox_cancel_mark_sent(local_uuid, &text, now)
                 .map_err(|e| e.to_string())?;
             return Ok(text);
+        }
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            clear_user_jwt(&ctx.user_jwt);
+            let msg = format!("AUTH: upstream rejeitou JWT (HTTP {}): {}", status.as_u16(), text);
+            let _ = db::outbox_cancel_mark_error(local_uuid, &msg, now);
+            return Err(msg);
         }
         let msg = format!("HTTP {}: {}", status.as_u16(), text);
         let _ = db::outbox_cancel_mark_error(local_uuid, &msg, now);
@@ -2837,13 +2881,16 @@ async fn push_one_outbox_financeiro(
     let payload: serde_json::Value =
         serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
 
-    db::outbox_financeiro_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
+    let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
+        Some(a) => a,
+        None => {
+            let msg = "AUTH: sem JWT do usuário — aguardando login no terminal".to_string();
+            let _ = db::outbox_financeiro_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
 
-    let auth = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+    db::outbox_financeiro_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
 
     let url = format!(
         "{}/rest/v1/rpc/criar_lancamento_avulso",
@@ -2870,6 +2917,12 @@ async fn push_one_outbox_financeiro(
             db::outbox_financeiro_mark_sent(local_uuid, "", &text, now)
                 .map_err(|e| e.to_string())?;
             return Ok(text);
+        }
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            clear_user_jwt(&ctx.user_jwt);
+            let msg = format!("AUTH: upstream rejeitou JWT (HTTP {}): {}", status.as_u16(), text);
+            let _ = db::outbox_financeiro_mark_error(local_uuid, &msg, now);
+            return Err(msg);
         }
         let msg = format!("HTTP {}: {}", status.as_u16(), text);
         let _ = db::outbox_financeiro_mark_error(local_uuid, &msg, now);
