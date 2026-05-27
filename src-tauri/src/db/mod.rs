@@ -2275,15 +2275,7 @@ pub fn outbox_mark_sent(local_uuid: &str, remote_id: &str, now_ms: i64) -> DbRes
 
 /// Política de backoff exponencial limitado (em ms):
 /// 1ª falha → 5s, 2ª → 15s, 3ª → 1min, 4ª → 5min, 5ª+ → 15min (cap).
-fn backoff_ms_for_attempts(attempts: i64) -> i64 {
-    match attempts {
-        a if a <= 1 => 5_000,
-        2 => 15_000,
-        3 => 60_000,
-        4 => 5 * 60_000,
-        _ => 15 * 60_000,
-    }
-}
+// `backoff_ms_for_attempts` foi movida para `db::helpers` (PROMPT 12).
 
 /// Após este nº de tentativas automáticas o item para de ser retomado pelo
 /// scheduler e fica como `error`, exigindo "Reenfileirar erros" / manual.
