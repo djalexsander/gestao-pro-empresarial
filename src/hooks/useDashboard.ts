@@ -59,12 +59,13 @@ export function useDashboard() {
       const inicio6Meses = new Date(hoje.getFullYear(), hoje.getMonth() - 5, 1);
 
       // === Vendas dos últimos 6 meses (finalizadas) ===
+      // Canônico: usar data_finalizacao (mesma base do Financeiro/Relatórios).
       const { data: vendas } = await supabase
         .from("vendas")
-        .select("id, numero, total, status, data_emissao, cliente_id")
-        .gte("data_emissao", inicio6Meses.toISOString().slice(0, 10))
+        .select("id, numero, total, status, data_finalizacao, data_emissao, cliente_id")
+        .gte("data_finalizacao", inicio6Meses.toISOString())
         .neq("status", "cancelada")
-        .order("data_emissao", { ascending: false });
+        .order("data_finalizacao", { ascending: false });
 
       // === Compras dos últimos 6 meses ===
       const { data: compras } = await supabase
