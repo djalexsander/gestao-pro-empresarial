@@ -187,10 +187,9 @@ export function useFinanceiroIndicadores() {
         status: string;
         conciliado_em: string | null;
       }>) {
-        // Só conta o que ainda está pendente E não foi conciliado.
-        // Se já foi conciliado/recebido, a diferença vira taxa — não é mais "a receber".
+        // Canônico: ignora conciliados; usa valor em aberto (nunca negativo).
         if (l.conciliado_em) continue;
-        const aberto = (Number(l.valor) || 0) - (Number(l.valor_pago) || 0);
+        const aberto = calcAbertoLanc(l);
         if (aberto <= 0) continue;
         if (l.forma_pagamento === "fiado") {
           fiadoEmAberto += aberto;
