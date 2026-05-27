@@ -210,7 +210,7 @@ export function useFinanceiroIndicadores() {
         .limit(2000);
 
       const recebidoHoje = (pagosHoje ?? []).reduce(
-        (s, l) => s + (Number(l.valor_pago ?? l.valor) || 0),
+        (s, l) => s + calcValorRealizado(l),
         0,
       );
       const qtdRecebimentosHoje = (pagosHoje ?? []).length;
