@@ -51,6 +51,88 @@ export function getBaseUrl(cfg?: TerminalConexaoConfig): string | null {
   return `http://${host}:${cfg.porta}`;
 }
 
+// ----------------------------------------------------------------------------
+// Interceptor global de fetch — injeta `X-Gestao-Token` automaticamente
+// em qualquer chamada ao servidor local (cujo baseUrl tenha sido registrado).
+//
+// Isso evita ter que editar manualmente todos os call sites (`fetch(...)`)
+// espalhados neste arquivo e em outros consumidores. Tanto o servidor
+// (`useLocalServerBoot`) quanto o terminal (DesktopRoleProvider, via efeito
+// abaixo) chamam `registerLocalServerAuth(baseUrl, token)` quando o token
+// fica conhecido. A partir daí, todo `fetch(url)` cuja URL comece com esse
+// baseUrl ganha o header `X-Gestao-Token` automaticamente.
+// ----------------------------------------------------------------------------
+
+const HEADER_NAME = "X-Gestao-Token";
+const tokenRegistry = new Map<string, string>(); // baseUrl → token
+let interceptorInstalled = false;
+
+function normalizeBaseUrl(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, "");
+}
+
+function resolveTokenForUrl(url: string): string | null {
+  for (const [base, token] of tokenRegistry) {
+    if (url.startsWith(base)) return token;
+  }
+  return null;
+}
+
+function installFetchInterceptor(): void {
+  if (interceptorInstalled) return;
+  if (typeof globalThis === "undefined" || typeof globalThis.fetch !== "function") {
+    return;
+  }
+  const originalFetch = globalThis.fetch.bind(globalThis);
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    try {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : (input as Request).url;
+      const token = resolveTokenForUrl(url);
+      if (token) {
+        const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+        if (!headers.has(HEADER_NAME)) {
+          headers.set(HEADER_NAME, token);
+        }
+        return originalFetch(input, { ...init, headers });
+      }
+    } catch {
+      // Em caso de qualquer erro de inspeção, segue o fetch original.
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+  interceptorInstalled = true;
+}
+
+/**
+ * Registra o token de pareamento para um baseUrl do servidor local.
+ * Pode ser chamado várias vezes — sobrescreve o token anterior daquele baseUrl.
+ * Passar `token = null/undefined/""` remove o registro.
+ */
+export function registerLocalServerAuth(
+  baseUrl: string | null | undefined,
+  token: string | null | undefined,
+): void {
+  if (!baseUrl) return;
+  installFetchInterceptor();
+  const key = normalizeBaseUrl(baseUrl);
+  if (!token) {
+    tokenRegistry.delete(key);
+    return;
+  }
+  tokenRegistry.set(key, token);
+}
+
+/** Limpa todos os tokens registrados (útil em logout/troca de papel). */
+export function clearLocalServerAuth(): void {
+  tokenRegistry.clear();
+}
+
+
 interface HealthPayload {
   status?: string;
   app?: string;
