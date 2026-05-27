@@ -2426,12 +2426,19 @@ pub async fn start(
         .parse()
         .map_err(|e: std::net::AddrParseError| format!("Endereço inválido: {e}"))?;
 
+    // Cache compartilhado do JWT do usuário — alimentado por toda request
+    // autenticada do terminal e consumido pelos schedulers de background.
+    // Sem isso, o sync automático cairia em `Bearer {anon_key}` para rotas
+    // protegidas — exatamente o que a auditoria flagou.
+    let user_jwt: JwtCache = Arc::new(Mutex::new(None));
+
     let ctx = AppCtx {
         upstream: upstream.clone(),
         http: reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(10))
             .build()
             .map_err(|e| format!("Falha ao criar HTTP client: {e}"))?,
+        user_jwt: user_jwt.clone(),
     };
 
     let app = build_router(ctx);
@@ -2465,6 +2472,7 @@ pub async fn start(
             .timeout(std::time::Duration::from_secs(15))
             .build()
             .map_err(|e| format!("Falha ao criar HTTP client (scheduler): {e}"))?,
+        user_jwt: user_jwt.clone(),
     };
     handle.spawn(async move {
         run_outbox_scheduler(scheduler_ctx, scheduler_rx).await;
@@ -2479,6 +2487,7 @@ pub async fn start(
             .timeout(std::time::Duration::from_secs(20))
             .build()
             .map_err(|e| format!("Falha ao criar HTTP client (vendas scheduler): {e}"))?,
+        user_jwt: user_jwt.clone(),
     };
     handle.spawn(async move {
         run_outbox_vendas_scheduler(vendas_ctx, vendas_scheduler_rx).await;
@@ -2492,6 +2501,7 @@ pub async fn start(
             .timeout(std::time::Duration::from_secs(20))
             .build()
             .map_err(|e| format!("Falha ao criar HTTP client (caixa scheduler): {e}"))?,
+        user_jwt: user_jwt.clone(),
     };
     handle.spawn(async move {
         run_outbox_caixa_scheduler(caixa_ctx, caixa_scheduler_rx).await;
@@ -2507,6 +2517,7 @@ pub async fn start(
             .timeout(std::time::Duration::from_secs(20))
             .build()
             .map_err(|e| format!("Falha ao criar HTTP client (cancel scheduler): {e}"))?,
+        user_jwt: user_jwt.clone(),
     };
     handle.spawn(async move {
         run_outbox_cancel_scheduler(cancel_ctx, cancel_scheduler_rx).await;
@@ -2520,10 +2531,12 @@ pub async fn start(
             .timeout(std::time::Duration::from_secs(20))
             .build()
             .map_err(|e| format!("Falha ao criar HTTP client (fin scheduler): {e}"))?,
+        user_jwt: user_jwt.clone(),
     };
     handle.spawn(async move {
         run_outbox_financeiro_scheduler(fin_ctx, fin_scheduler_rx).await;
     });
+
 
     // Scheduler de backup automático local. Roda 1× por dia, no máximo,
     // controlado por timestamp em meta. Não depende de upstream.
