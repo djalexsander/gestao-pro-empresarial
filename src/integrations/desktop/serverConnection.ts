@@ -626,6 +626,13 @@ export interface RegistrarVendaLocalRequest {
   operador_id?: string | null;
   terminal_id?: string | null;
   client_uuid?: string | null;
+  /**
+   * Data de vencimento (YYYY-MM-DD) — OBRIGATÓRIA quando a venda contiver
+   * pagamento `fiado`. Preservada do PDV até a RPC `finalizar_venda_pdv`
+   * (campo `_data_vencimento`) para que Contas a Receber nasça com a data
+   * correta também em vendas registradas offline.
+   */
+  data_vencimento?: string | null;
 }
 
 export interface RegistrarVendaLocalResponse {
