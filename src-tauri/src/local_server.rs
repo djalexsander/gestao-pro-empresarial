@@ -131,6 +131,8 @@ const PROTOCOL_VERSION: u32 = 1;
 struct AppCtx {
     upstream: Option<UpstreamConfig>,
     http: reqwest::Client,
+    /// Compartilhado com schedulers de background — ver `JwtCache`.
+    user_jwt: JwtCache,
 }
 
 // ---------- Tipos de resposta ----------
