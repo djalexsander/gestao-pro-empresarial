@@ -30,9 +30,51 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
+
+/// Cache compartilhado do JWT do usuário (header `Authorization: Bearer <jwt>`
+/// recebido nas requisições autenticadas do terminal). Alimenta os schedulers
+/// de background — que não recebem header — para que NUNCA caiam em anon_key
+/// ao sincronizar a outbox. Quando vazio, o push falha com erro `AUTH:` claro
+/// e o item permanece pending para retentar após o próximo login do usuário.
+type JwtCache = Arc<Mutex<Option<String>>>;
+
+/// Lê o JWT do header `Authorization` da request (cacheando para uso nos
+/// schedulers) ou recupera o último JWT válido em cache. Retorna `None`
+/// quando ninguém ainda autenticou no servidor local nesta sessão.
+///
+/// Heurística para evitar contaminar o cache com o token de pareamento
+/// (que pode ser enviado em `Authorization: Bearer <pairing>` por terminais
+/// antigos): só aceita strings que pareçam JWT (header.payload.signature).
+fn resolve_user_jwt(cache: &JwtCache, headers: &HeaderMap) -> Option<String> {
+    if let Some(v) = headers.get(axum::http::header::AUTHORIZATION) {
+        if let Ok(s) = v.to_str() {
+            if let Some(rest) = s.strip_prefix("Bearer ") {
+                // JWT real tem 3 segmentos separados por '.' — o token de
+                // pareamento local é hex puro e não tem ponto.
+                if rest.matches('.').count() >= 2 {
+                    let owned = s.to_string();
+                    if let Ok(mut g) = cache.lock() {
+                        *g = Some(owned.clone());
+                    }
+                    return Some(owned);
+                }
+            }
+        }
+    }
+    cache.lock().ok().and_then(|g| g.clone())
+}
+
+/// Limpa o cache de JWT — chamado quando o upstream rejeita o token
+/// (HTTP 401/403), forçando a próxima request autenticada do terminal a
+/// repopular com um token fresco.
+fn clear_user_jwt(cache: &JwtCache) {
+    if let Ok(mut g) = cache.lock() {
+        *g = None;
+    }
+}
 
 use crate::backup;
 use crate::db;
@@ -89,6 +131,8 @@ const PROTOCOL_VERSION: u32 = 1;
 struct AppCtx {
     upstream: Option<UpstreamConfig>,
     http: reqwest::Client,
+    /// Compartilhado com schedulers de background — ver `JwtCache`.
+    user_jwt: JwtCache,
 }
 
 // ---------- Tipos de resposta ----------
@@ -1133,13 +1177,19 @@ async fn push_one_outbox(
     let payload: serde_json::Value =
         serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
 
-    db::outbox_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
+    // Auth: usa o JWT do header (request do terminal) ou o último JWT em
+    // cache (schedulers de background). Se NADA estiver disponível, marca
+    // erro `AUTH:` claro e mantém o item pending — NÃO sincroniza com anon.
+    let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
+        Some(a) => a,
+        None => {
+            let msg = "AUTH: sem JWT do usuário — aguardando login no terminal".to_string();
+            let _ = db::outbox_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
 
-    let auth = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("Bearer {}", upstream.anon_key));
+    db::outbox_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
 
     let body = serde_json::json!({
         "_produto_id":     payload.get("produto_id"),
@@ -2382,12 +2432,19 @@ pub async fn start(
         .parse()
         .map_err(|e: std::net::AddrParseError| format!("Endereço inválido: {e}"))?;
 
+    // Cache compartilhado do JWT do usuário — alimentado por toda request
+    // autenticada do terminal e consumido pelos schedulers de background.
+    // Sem isso, o sync automático cairia em `Bearer {anon_key}` para rotas
+    // protegidas — exatamente o que a auditoria flagou.
+    let user_jwt: JwtCache = Arc::new(Mutex::new(None));
+
     let ctx = AppCtx {
         upstream: upstream.clone(),
         http: reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(10))
             .build()
             .map_err(|e| format!("Falha ao criar HTTP client: {e}"))?,
+        user_jwt: user_jwt.clone(),
     };
 
     let app = build_router(ctx);
@@ -2421,6 +2478,7 @@ pub async fn start(
             .timeout(std::time::Duration::from_secs(15))
             .build()
             .map_err(|e| format!("Falha ao criar HTTP client (scheduler): {e}"))?,
+        user_jwt: user_jwt.clone(),
     };
     handle.spawn(async move {
         run_outbox_scheduler(scheduler_ctx, scheduler_rx).await;
@@ -2435,6 +2493,7 @@ pub async fn start(
             .timeout(std::time::Duration::from_secs(20))
             .build()
             .map_err(|e| format!("Falha ao criar HTTP client (vendas scheduler): {e}"))?,
+        user_jwt: user_jwt.clone(),
     };
     handle.spawn(async move {
         run_outbox_vendas_scheduler(vendas_ctx, vendas_scheduler_rx).await;
@@ -2448,6 +2507,7 @@ pub async fn start(
             .timeout(std::time::Duration::from_secs(20))
             .build()
             .map_err(|e| format!("Falha ao criar HTTP client (caixa scheduler): {e}"))?,
+        user_jwt: user_jwt.clone(),
     };
     handle.spawn(async move {
         run_outbox_caixa_scheduler(caixa_ctx, caixa_scheduler_rx).await;
@@ -2463,6 +2523,7 @@ pub async fn start(
             .timeout(std::time::Duration::from_secs(20))
             .build()
             .map_err(|e| format!("Falha ao criar HTTP client (cancel scheduler): {e}"))?,
+        user_jwt: user_jwt.clone(),
     };
     handle.spawn(async move {
         run_outbox_cancel_scheduler(cancel_ctx, cancel_scheduler_rx).await;
@@ -2476,10 +2537,12 @@ pub async fn start(
             .timeout(std::time::Duration::from_secs(20))
             .build()
             .map_err(|e| format!("Falha ao criar HTTP client (fin scheduler): {e}"))?,
+        user_jwt: user_jwt.clone(),
     };
     handle.spawn(async move {
         run_outbox_financeiro_scheduler(fin_ctx, fin_scheduler_rx).await;
     });
+
 
     // Scheduler de backup automático local. Roda 1× por dia, no máximo,
     // controlado por timestamp em meta. Não depende de upstream.
