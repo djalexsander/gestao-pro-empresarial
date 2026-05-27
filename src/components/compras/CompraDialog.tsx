@@ -83,6 +83,7 @@ export function CompraDialog({ open, onOpenChange }: Props) {
       setObservacoes("");
       setItens([novoItem()]);
       setCodigoBusca("");
+      clientUuidRef.current = crypto.randomUUID();
       setTimeout(() => codigoRef.current?.focus(), 150);
     }
   }, [open]);
