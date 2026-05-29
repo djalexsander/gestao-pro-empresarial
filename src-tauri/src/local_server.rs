@@ -814,6 +814,106 @@ async fn produtos_list_handler(
     proxy_with_incremental_sync(&ctx, &headers, "produtos", "/rest/v1/produtos", &q_owned, false).await
 }
 
+async fn produtos_buscar_handler(
+    State(_ctx): State<AppCtx>,
+    _headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let codigo = q
+        .get("codigo")
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or((StatusCode::BAD_REQUEST, "codigo obrigatório".into()))?;
+
+    // Lê todos os produtos locais (snapshot) e procura o código solicitado.
+    let json = db::read_produtos(db::ProdutosFilter {
+        status: None,
+        categoria_id: None,
+        busca: None,
+    })
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("db error: {}", e)))?;
+
+    let arr: serde_json::Value = serde_json::from_str(&json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("json parse: {}", e)))?;
+    let mut found: Option<serde_json::Value> = None;
+    if let Some(items) = arr.as_array() {
+        for item in items {
+            if !item.is_object() { continue; }
+            let get = |k: &str| item.get(k).and_then(|v| v.as_str()).map(|s| s.trim().to_string());
+            let matches = [
+                get("codigo_barras"),
+                get("qr_code"),
+                get("codigo_interno"),
+                get("sku"),
+                get("plu"),
+            ];
+            // direct match
+            if matches.iter().any(|o| o.as_deref() == Some(&codigo)) {
+                found = Some(item.clone());
+                break;
+            }
+            // try PLU without leading zeros
+            let stripped = codigo.trim_start_matches('0').to_string();
+            if !stripped.is_empty() && matches.iter().any(|o| o.as_deref() == Some(&stripped)) {
+                found = Some(item.clone());
+                break;
+            }
+        }
+    }
+
+    if found.is_none() {
+        // retorno vazio explícito — o caller offline deve entender null/404.
+        let mut hm = HeaderMap::new();
+        hm.insert("x-gp-source", HeaderValue::from_static("local-table"));
+        return Ok((hm, Json(serde_json::json!(null))).into_response());
+    }
+
+    let item = found.unwrap();
+    // Monta resposta compatível com `ProdutoBuscaResult` / `ProdutoPluResult`.
+    let produto_id = item.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let sku = item.get("sku").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let nome = item.get("nome").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let codigo_barras = item.get("codigo_barras").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let qr_code = item.get("qr_code").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let codigo_interno = item.get("codigo_interno").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let tipo_identificacao_principal = item.get("tipo_identificacao_principal").and_then(|v| v.as_str()).unwrap_or("sku").to_string();
+    let preco_venda = item.get("preco_venda").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let preco_custo = item.get("preco_custo").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let unidade = item.get("unidade").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let status = item.get("status").and_then(|v| v.as_str()).unwrap_or("inativo").to_string();
+    let categoria_id = item.get("categoria_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let categoria_nome = item.get("categoria_nome").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let fonte = item.get("plu")
+        .and_then(|v| v.as_str())
+        .map(|_| "plu")
+        .unwrap_or("sku");
+    let saldo_estoque = item.get("estoque_atual").and_then(|v| v.as_f64())
+        .or_else(|| item.get("saldo_estoque").and_then(|v| v.as_f64()))
+        .unwrap_or(0.0);
+
+    let result = serde_json::json!({
+        "produto_id": produto_id,
+        "sku": sku,
+        "nome": nome,
+        "codigo_barras": codigo_barras,
+        "qr_code": qr_code,
+        "codigo_interno": codigo_interno,
+        "tipo_identificacao_principal": tipo_identificacao_principal,
+        "preco_venda": preco_venda,
+        "preco_custo": preco_custo,
+        "unidade": unidade,
+        "status": status,
+        "categoria_id": categoria_id,
+        "categoria_nome": categoria_nome,
+        "fonte": fonte,
+        "saldo_estoque": saldo_estoque,
+    });
+
+    let mut hm = HeaderMap::new();
+    hm.insert("x-gp-source", HeaderValue::from_static("local-table"));
+    Ok((hm, Json(result)).into_response())
+}
+
 // ---------- /api/estoque/saldos ----------
 //
 // Saldos passam a ser DERIVADOS do sync incremental de movimentações.
@@ -1374,7 +1474,12 @@ async fn registrar_venda_local_handler(
 
     let mut outbox_status = "pending".to_string();
     let mut remote_id: Option<String> = None;
-    if !result.idempotente && ctx.upstream.is_some() {
+    if result.idempotente {
+        if let Ok(Some(item)) = db::outbox_vendas_get(&result.local_uuid) {
+            outbox_status = item.status.clone();
+            remote_id = item.remote_id.clone();
+        }
+    } else if ctx.upstream.is_some() {
         if let Ok(rid) = push_one_outbox_venda(&ctx, &headers, &result.local_uuid).await {
             outbox_status = "sent".into();
             remote_id = Some(rid);
@@ -1932,6 +2037,29 @@ async fn caixa_lancamentos_handler(
     Ok(Json(rows))
 }
 
+async fn caixa_historico_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<db::CaixaLocalRow>>, (StatusCode, String)> {
+    let limit = q.get("limit").and_then(|v| v.parse::<i64>().ok());
+    let rows = db::caixa_local_historico(limit)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(rows))
+}
+
+async fn caixa_movimentos_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<db::CaixaMovimentoLocalRow>>, (StatusCode, String)> {
+    let cid = q.get("caixa_id")
+        .cloned()
+        .ok_or((StatusCode::BAD_REQUEST, "caixa_id é obrigatório".into()))?;
+    let local_uuid = db::resolve_caixa_id_publico(&cid)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "caixa não encontrada".into()))?;
+    let rows = db::caixa_movimentos_local(&local_uuid)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(rows))
+}
+
 /// POST `/api/caixa/regenerar-lancamentos?caixa_id=...` — força a
 /// regeneração dos lançamentos derivados (idempotente).
 async fn caixa_regenerar_lancamentos_handler(
@@ -2302,6 +2430,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/db/outbox/vendas/flush", post(outbox_vendas_flush_handler))
         .route("/db/outbox/vendas/retry-errors", post(outbox_vendas_retry_errors_handler))
         .route("/api/produtos/list", get(produtos_list_handler))
+        .route("/api/produtos/buscar", get(produtos_buscar_handler))
         .route("/api/estoque/saldos", get(estoque_saldos_handler))
         .route("/api/estoque/movimentacoes", get(estoque_movimentacoes_handler))
         .route(
@@ -2314,6 +2443,8 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/caixa/fechar", post(registrar_caixa_fechar_handler))
         .route("/api/caixa/aberto", get(caixa_local_aberto_handler))
         .route("/api/caixa/resumo", get(caixa_resumo_handler))
+        .route("/api/caixa/historico", get(caixa_historico_handler))
+        .route("/api/caixa/movimentos", get(caixa_movimentos_handler))
         .route("/api/caixa/lancamentos", get(caixa_lancamentos_handler))
         .route("/api/caixa/regenerar-lancamentos", post(caixa_regenerar_lancamentos_handler))
         .route("/api/financeiro/lancamentos", get(financeiro_listar_handler))

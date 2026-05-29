@@ -36,6 +36,7 @@ hostname = "0.4"
 # Banco local (SQLite embutido) — inicia a camada de persistência local real.
 # `bundled` evita depender do SQLite do sistema; gera build self-contained.
 rusqlite = { version = "0.31", features = ["bundled"] }
+bcrypt = "0.14"
 dirs = "5"
 
 # Decodificação de PNG para impressão GDI de etiquetas (PT260 e drivers Windows

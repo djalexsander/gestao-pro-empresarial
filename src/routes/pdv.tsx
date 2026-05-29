@@ -875,6 +875,10 @@ function PDVPage() {
   }
 
   async function finalizarVenda() {
+    if (!caixaAberto) {
+      toast.error("Abra o caixa antes de finalizar a venda.");
+      return;
+    }
     if (items.length === 0) {
       toast.warning("Adicione ao menos um item à venda.");
       return;
@@ -1545,7 +1549,7 @@ function PDVPage() {
                 hotkeyFlash === "F10" && "ring-2 ring-primary ring-offset-2 ring-offset-background",
               )}
               onClick={finalizarVenda}
-              disabled={items.length === 0}
+              disabled={!caixaAberto || items.length === 0}
             >
               <CheckCircle2 className="h-5 w-5" />
               Finalizar venda · {formatBRL(totals.total)}

@@ -1,5 +1,6 @@
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router";
 import { useEffect, useId, useState } from "react";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 import { z } from "zod";
 import { zodValidator } from "@tanstack/zod-adapter";
 import {
@@ -26,6 +27,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable";
 import { useAuth } from "@/components/auth/AuthProvider";
+import {
+  saveDesktopAuthorizedUser,
+  verifyDesktopAuthorizedUser,
+} from "@/integrations/desktop/tauriBridge";
+import { isDesktop } from "@/integrations/data/mode";
 import { cn } from "@/lib/utils";
 
 const searchSchema = z.object({
@@ -88,7 +94,8 @@ const stats = [
 ];
 
 function AuthPage() {
-  const { user, loading } = useAuth();
+  const auth = useAuth();
+  const { user, loading } = auth;
   const { redirect } = Route.useSearch();
 
   // Após login, sempre passamos pelo /hub para o usuário escolher entre
@@ -299,6 +306,7 @@ function SignInForm({ redirect }: { redirect: string }) {
   const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
+  const auth = useAuth();
 
   // Nome aleatório do campo de senha + key do form a cada montagem.
   // Impede o navegador (Chrome, Edge, gerenciadores de senha) de salvar
@@ -346,16 +354,50 @@ function SignInForm({ redirect }: { redirect: string }) {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setBusy(false);
-    if (error) {
+    let result;
+    try {
+      result = await supabase.auth.signInWithPassword({ email, password });
+    } catch (error) {
+      result = { error: error as Error };
+    }
+    if (result.error) {
+      if (isDesktop()) {
+        const local = await verifyDesktopAuthorizedUser(email.trim(), password);
+        if (local) {
+          auth.signInOffline({
+            id: local.user_id,
+            email: email.trim(),
+            aud: "authenticated",
+            app_metadata: {},
+            user_metadata: {},
+            created_at: new Date().toISOString(),
+          } as SupabaseUser);
+          try {
+            if (remember) {
+              localStorage.setItem(REMEMBER_LOGIN_KEY, email.trim());
+            } else {
+              localStorage.removeItem(REMEMBER_LOGIN_KEY);
+            }
+          } catch {
+            /* noop */
+          }
+          setPassword("");
+          setBusy(false);
+          toast.success("Bem-vindo de volta! (modo offline)");
+          navigate({ to: redirect });
+          return;
+        }
+      }
+      setBusy(false);
       toast.error(
-        error.message === "Invalid login credentials"
+        result.error.message === "Invalid login credentials"
           ? "E-mail ou senha inválidos."
-          : error.message,
+          : result.error.message,
       );
       return;
     }
+
+    setBusy(false);
     // Lembra apenas o e-mail, se solicitado. Senha nunca é salva.
     try {
       if (remember) {
@@ -365,6 +407,12 @@ function SignInForm({ redirect }: { redirect: string }) {
       }
     } catch {
       /* noop */
+    }
+    const user = result.data?.user;
+    if (user && isDesktop()) {
+      saveDesktopAuthorizedUser(email.trim(), user.id, password).catch(() => {
+        /* ignore local cache failures */
+      });
     }
     setPassword("");
     toast.success("Bem-vindo de volta!");

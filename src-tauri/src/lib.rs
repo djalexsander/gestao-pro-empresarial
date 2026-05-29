@@ -5,6 +5,9 @@ mod printers;
 
 use local_server::LocalServerStatus;
 use printers::PrinterInfo;
+use serde::{Deserialize, Serialize};
+use chrono::Utc;
+use bcrypt::hash;
 
 #[tauri::command]
 async fn start_local_server(
@@ -32,6 +35,123 @@ async fn stop_local_server() -> Result<LocalServerStatus, String> {
 #[tauri::command]
 fn local_server_status() -> LocalServerStatus {
     local_server::current_status()
+}
+
+#[derive(Debug, Serialize)]
+pub struct DesktopAuthorizedUser {
+    pub user_id: String,
+    pub email: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DesktopFuncionarioLocalRow {
+    pub funcionario_id: String,
+    pub nome: String,
+    pub login: String,
+    pub role: String,
+    pub ativo: bool,
+    pub synced_at_ms: i64,
+}
+
+#[tauri::command]
+fn desktop_authorized_user_save(
+    email: String,
+    user_id: String,
+    password: String,
+) -> Result<(), String> {
+    let password_hash = hash(&password, 10).map_err(|e| e.to_string())?;
+    db::upsert_authorized_user(
+        &user_id,
+        &email,
+        &password_hash,
+        Utc::now().timestamp_millis(),
+    )
+    .map_err(|e| e.0)
+}
+
+#[tauri::command]
+fn desktop_authorized_user_verify(
+    email: String,
+    password: String,
+) -> Result<Option<DesktopAuthorizedUser>, String> {
+    let user = db::verify_authorized_user(&email, &password).map_err(|e| e.0)?;
+    Ok(user.map(|u| DesktopAuthorizedUser {
+        user_id: u.user_id,
+        email: u.email,
+    }))
+}
+
+#[tauri::command]
+fn desktop_funcionario_pin_save(
+    funcionario_id: String,
+    nome: String,
+    login: String,
+    role: String,
+    ativo: bool,
+    pin: String,
+) -> Result<(), String> {
+    let pin_hash = hash(&pin, 10).map_err(|e| e.to_string())?;
+    db::upsert_funcionario_local(
+        &funcionario_id,
+        &nome,
+        &login,
+        &role,
+        ativo,
+        Some(&pin_hash),
+        Utc::now().timestamp_millis(),
+    )
+    .map_err(|e| e.0)
+}
+
+#[tauri::command]
+fn desktop_funcionarios_cache(
+    funcionarios: Vec<DesktopFuncionarioLocalRow>,
+) -> Result<(), String> {
+    for funcionario in funcionarios {
+        db::upsert_funcionario_local(
+            &funcionario.funcionario_id,
+            &funcionario.nome,
+            &funcionario.login,
+            &funcionario.role,
+            funcionario.ativo,
+            None,
+            Utc::now().timestamp_millis(),
+        )
+        .map_err(|e| e.0)?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn desktop_funcionarios_ativos() -> Result<Vec<DesktopFuncionarioLocalRow>, String> {
+    let rows = db::list_funcionarios_ativos_local().map_err(|e| e.0)?;
+    Ok(rows
+        .into_iter()
+        .map(|row| DesktopFuncionarioLocalRow {
+            funcionario_id: row.funcionario_id,
+            nome: row.nome,
+            login: row.login,
+            role: row.role,
+            ativo: row.ativo,
+            synced_at_ms: row.synced_at_ms,
+        })
+        .collect())
+}
+
+#[tauri::command]
+fn desktop_funcionario_pin_verify(
+    funcionario_id: String,
+    pin: String,
+) -> Result<Option<DesktopFuncionarioLocalRow>, String> {
+    let row = db::verify_funcionario_pin_local(&funcionario_id, &pin).map_err(|e| e.0)?;
+    Ok(row.map(|row| DesktopFuncionarioLocalRow {
+        funcionario_id: row.funcionario_id,
+        nome: row.nome,
+        login: row.login,
+        role: row.role,
+        ativo: row.ativo,
+        synced_at_ms: row.synced_at_ms,
+    }))
 }
 
 // ---- Backup / restauração / exportação ----
@@ -156,6 +276,12 @@ pub fn run() {
             backup_schedule_restore,
             backup_restore_preflight,
             backup_cancel_restore,
+            desktop_authorized_user_save,
+            desktop_authorized_user_verify,
+            desktop_funcionario_pin_save,
+            desktop_funcionarios_cache,
+            desktop_funcionarios_ativos,
+            desktop_funcionario_pin_verify,
             list_printers,
             print_pdf_bytes,
             print_raw_escpos,

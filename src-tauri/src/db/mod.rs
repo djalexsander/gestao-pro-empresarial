@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i64 = 12;
+const SCHEMA_VERSION: i64 = 13;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -193,6 +193,34 @@ pub fn init() -> DbResult<()> {
             last_source     TEXT,
             last_error      TEXT
         );
+
+        -- ====================================================================
+        -- v13: Autenticação offline local mínima
+        --
+        -- Armazena usuários autorizados para login ERP offline e operadores
+        -- que já fizeram validação de PIN online neste desktop.
+        -- O PIN continua hasheado no cliente local.
+        -- ====================================================================
+        CREATE TABLE IF NOT EXISTS desktop_authorized_users (
+            user_id        TEXT PRIMARY KEY,
+            email          TEXT NOT NULL UNIQUE,
+            password_hash  TEXT NOT NULL,
+            synced_at_ms   INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS funcionarios_local (
+            funcionario_id TEXT PRIMARY KEY,
+            nome           TEXT NOT NULL,
+            login          TEXT NOT NULL,
+            role           TEXT NOT NULL,
+            ativo          INTEGER NOT NULL DEFAULT 1,
+            pin_hash       TEXT,
+            synced_at_ms   INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_funcionarios_local_ativo
+            ON funcionarios_local(ativo);
+        CREATE INDEX IF NOT EXISTS idx_funcionarios_local_login
+            ON funcionarios_local(login);
 
         -- ====================================================================
         -- v4: Estoque normalizado real
@@ -724,6 +752,166 @@ fn with_conn<T>(f: impl FnOnce(&Connection) -> DbResult<T>) -> DbResult<T> {
 /// que precisam executar SQL administrativo (logs, metadados).
 pub fn with_raw_conn<T>(f: impl FnOnce(&Connection) -> DbResult<T>) -> DbResult<T> {
     with_conn(f)
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AuthorizedUserRow {
+    pub user_id: String,
+    pub email: String,
+    pub synced_at_ms: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FuncionarioLocalRow {
+    pub funcionario_id: String,
+    pub nome: String,
+    pub login: String,
+    pub role: String,
+    pub ativo: bool,
+    pub synced_at_ms: i64,
+}
+
+pub fn upsert_authorized_user(
+    user_id: &str,
+    email: &str,
+    password_hash: &str,
+    now_ms: i64,
+) -> DbResult<()> {
+    with_conn(|conn| {
+        conn.execute(
+            r#"INSERT INTO desktop_authorized_users(user_id, email, password_hash, synced_at_ms)
+               VALUES(?1, ?2, ?3, ?4)
+               ON CONFLICT(user_id) DO UPDATE SET
+                 email = excluded.email,
+                 password_hash = excluded.password_hash,
+                 synced_at_ms = excluded.synced_at_ms"#,
+            params![user_id, email, password_hash, now_ms],
+        )?;
+        Ok(())
+    })
+}
+
+pub fn verify_authorized_user(email: &str, password: &str) -> DbResult<Option<AuthorizedUserRow>> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT user_id, email, password_hash, synced_at_ms
+             FROM desktop_authorized_users
+             WHERE lower(email) = lower(?1)",
+        )?;
+        let row = stmt
+            .query_row(params![email], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })
+            .optional()?;
+        if let Some((user_id, email, password_hash, synced_at_ms)) = row {
+            if bcrypt::verify(password, &password_hash)
+                .map_err(|e| DbError(e.to_string()))?
+            {
+                return Ok(Some(AuthorizedUserRow {
+                    user_id,
+                    email,
+                    synced_at_ms,
+                }));
+            }
+        }
+        Ok(None)
+    })
+}
+
+pub fn upsert_funcionario_local(
+    funcionario_id: &str,
+    nome: &str,
+    login: &str,
+    role: &str,
+    ativo: bool,
+    pin_hash: Option<&str>,
+    now_ms: i64,
+) -> DbResult<()> {
+    with_conn(|conn| {
+        conn.execute(
+            r#"INSERT INTO funcionarios_local(funcionario_id, nome, login, role, ativo, pin_hash, synced_at_ms)
+               VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
+               ON CONFLICT(funcionario_id) DO UPDATE SET
+                 nome = excluded.nome,
+                 login = excluded.login,
+                 role = excluded.role,
+                 ativo = excluded.ativo,
+                 pin_hash = COALESCE(excluded.pin_hash, funcionarios_local.pin_hash),
+                 synced_at_ms = excluded.synced_at_ms"#,
+            params![funcionario_id, nome, login, role, ativo as i64, pin_hash, now_ms],
+        )?;
+        Ok(())
+    })
+}
+
+pub fn list_funcionarios_ativos_local() -> DbResult<Vec<FuncionarioLocalRow>> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT funcionario_id, nome, login, role, ativo, synced_at_ms
+             FROM funcionarios_local
+             WHERE ativo = 1
+             ORDER BY nome",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(FuncionarioLocalRow {
+                    funcionario_id: row.get(0)?,
+                    nome: row.get(1)?,
+                    login: row.get(2)?,
+                    role: row.get(3)?,
+                    ativo: row.get::<_, i64>(4)? != 0,
+                    synced_at_ms: row.get(5)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, rusqlite::Error>>()?;
+        Ok(rows)
+    })
+}
+
+pub fn verify_funcionario_pin_local(
+    funcionario_id: &str,
+    pin: &str,
+) -> DbResult<Option<FuncionarioLocalRow>> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT funcionario_id, nome, login, role, ativo, pin_hash, synced_at_ms
+             FROM funcionarios_local
+             WHERE funcionario_id = ?1 AND ativo = 1",
+        )?;
+        let row = stmt
+            .query_row(params![funcionario_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)? != 0,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, i64>(6)?,
+                ))
+            })
+            .optional()?;
+        if let Some((funcionario_id, nome, login, role, ativo, pin_hash, synced_at_ms)) = row {
+            if let Some(pin_hash) = pin_hash {
+                if bcrypt::verify(pin, &pin_hash).map_err(|e| DbError(e.to_string()))? {
+                    return Ok(Some(FuncionarioLocalRow {
+                        funcionario_id,
+                        nome,
+                        login,
+                        role,
+                        ativo,
+                        synced_at_ms,
+                    }));
+                }
+            }
+        }
+        Ok(None)
+    })
 }
 
 // ---------- Terminals ----------
@@ -2545,8 +2733,9 @@ pub fn registrar_venda_local(
 
         // 0) Resolve o caixa local aberto para vincular esta venda.
         //    Estratégia: prioriza match por operador_id; cai para qualquer
-        //    caixa aberto neste banco (típico em terminais 1-caixa). NULL é
-        //    aceito — venda ainda funciona mesmo sem caixa aberto local.
+        //    caixa aberto neste banco (típico em terminais 1-caixa). Venda sem
+        //    caixa local aberto NÃO é permitida — o PDV offline deve ser
+        //    atrelado a um caixa local aberto.
         let caixa_local_uuid: Option<String> = {
             let by_op: Option<String> = match input.operador_id.as_deref() {
                 Some(op) if !op.is_empty() => tx.query_row(
@@ -2570,6 +2759,12 @@ pub fn registrar_venda_local(
                 ).optional()?
             }
         };
+
+        if caixa_local_uuid.is_none() {
+            return Err(DbError(
+                "Não há caixa local aberto. Abra um caixa antes de finalizar a venda.".into(),
+            ));
+        }
 
         // 0.5) Validação atômica de estoque local.
         //
@@ -2610,8 +2805,8 @@ pub fn registrar_venda_local(
         }
 
         // 1) Cabeçalho.
-        tx.execute(
-            "INSERT INTO vendas_local(
+        let inserted = tx.execute(
+            "INSERT OR IGNORE INTO vendas_local(
                 local_uuid, client_uuid, cliente_id, subtotal, desconto, total,
                 forma_pagamento, status_pagamento, valor_recebido, troco,
                 observacao, operador_id, terminal_id, gerar_financeiro,
@@ -2637,6 +2832,31 @@ pub fn registrar_venda_local(
                 now_ms,
             ],
         )?;
+        if inserted == 0 {
+            if let Some(cu) = input.client_uuid.as_deref().filter(|s| !s.is_empty()) {
+                if let Some((local_uuid, qtd, total)) = tx
+                    .query_row(
+                        "SELECT local_uuid, qtd_itens, total FROM vendas_local WHERE client_uuid = ?1",
+                        params![cu],
+                        |r| Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, i64>(1)?,
+                            r.get::<_, f64>(2)?,
+                        )),
+                    )
+                    .optional()? {
+                    return Ok(LocalVendaResult {
+                        local_uuid,
+                        idempotente: true,
+                        qtd_itens: qtd,
+                        total,
+                    });
+                }
+            }
+            return Err(DbError(
+                "Falha ao registrar a venda. Já existe uma venda local com este client_uuid.".into(),
+            ));
+        }
 
         // 2) Itens + baixa de estoque local.
         for (idx, item) in input.itens.iter().enumerate() {
@@ -2680,7 +2900,7 @@ pub fn registrar_venda_local(
                 "_pending": true,
             })
             .to_string();
-            tx.execute(
+            let mov_inserted = tx.execute(
                 "INSERT OR IGNORE INTO estoque_movimentacoes_local(
                     id, produto_id, variacao_id, tipo, quantidade,
                     saldo_anterior, saldo_posterior, custo_unitario,
@@ -2698,14 +2918,16 @@ pub fn registrar_venda_local(
                     mov_payload,
                 ],
             )?;
-            apply_mov_to_saldo(
-                &tx,
-                &item.produto_id,
-                &variacao_id,
-                Some("saida"),
-                item.quantidade,
-                now_ms,
-            )?;
+            if mov_inserted > 0 {
+                apply_mov_to_saldo(
+                    &tx,
+                    &item.produto_id,
+                    &variacao_id,
+                    Some("saida"),
+                    item.quantidade,
+                    now_ms,
+                )?;
+            }
         }
 
         // 3) Pagamentos.
@@ -2870,6 +3092,31 @@ pub fn outbox_vendas_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec
             for r in rows { out.push(r?); }
         }
         Ok(out)
+    })
+}
+
+pub fn outbox_vendas_get(local_uuid: &str) -> DbResult<Option<OutboxItem>> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT local_uuid, client_uuid, payload, status, attempts, last_error,
+                    remote_id, created_at_ms, updated_at_ms, sent_at_ms
+               FROM outbox_vendas WHERE local_uuid = ?1",
+        )?;
+        let item = stmt.query_row(params![local_uuid], |r| {
+            Ok(OutboxItem {
+                local_uuid: r.get(0)?,
+                client_uuid: r.get(1)?,
+                payload: r.get(2)?,
+                status: r.get(3)?,
+                attempts: r.get(4)?,
+                last_error: r.get(5)?,
+                remote_id: r.get(6)?,
+                created_at_ms: r.get(7)?,
+                updated_at_ms: r.get(8)?,
+                sent_at_ms: r.get(9)?,
+            })
+        }).optional()?;
+        Ok(item)
     })
 }
 
@@ -4133,6 +4380,125 @@ pub fn caixa_local_aberto(operador_id: Option<&str>) -> DbResult<Option<CaixaLoc
             data_abertura_ms: dt_ab, data_fechamento_ms: dt_fc,
             qtd_movimentos: qtd, total_suprimentos: sup, total_sangrias: san,
         }))
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct CaixaMovimentoLocalRow {
+    pub local_uuid: String,
+    pub caixa_local_uuid: String,
+    pub tipo: String,
+    pub valor: f64,
+    pub motivo: Option<String>,
+    pub operador_id: Option<String>,
+    pub remote_id: Option<String>,
+    pub created_at_ms: i64,
+}
+
+pub fn caixa_local_historico(limit: Option<i64>) -> DbResult<Vec<CaixaLocalRow>> {
+    with_conn(|conn| {
+        let sql = if limit.is_some() {
+            "SELECT c.local_uuid, c.remote_id, c.client_uuid, c.status, c.valor_inicial,
+                    c.valor_informado, c.valor_esperado, c.diferenca,
+                    c.observacao_abertura, c.observacao_fechamento,
+                    c.operador_id, c.terminal_id,
+                    c.data_abertura_ms, c.data_fechamento_ms,
+                    COALESCE(m.qtd,0),
+                    COALESCE(m.total_suprimentos,0),
+                    COALESCE(m.total_sangrias,0)
+               FROM caixa_local c
+               LEFT JOIN (
+                    SELECT caixa_local_uuid,
+                           COUNT(*) AS qtd,
+                           COALESCE(SUM(CASE WHEN tipo='suprimento' THEN valor ELSE 0 END),0) AS total_suprimentos,
+                           COALESCE(SUM(CASE WHEN tipo='sangria' THEN valor ELSE 0 END),0) AS total_sangrias
+                      FROM caixa_movs_local
+                     GROUP BY caixa_local_uuid
+               ) m ON m.caixa_local_uuid = c.local_uuid
+              ORDER BY c.data_abertura_ms DESC
+              LIMIT ?1"
+        } else {
+            "SELECT c.local_uuid, c.remote_id, c.client_uuid, c.status, c.valor_inicial,
+                    c.valor_informado, c.valor_esperado, c.diferenca,
+                    c.observacao_abertura, c.observacao_fechamento,
+                    c.operador_id, c.terminal_id,
+                    c.data_abertura_ms, c.data_fechamento_ms,
+                    COALESCE(m.qtd,0),
+                    COALESCE(m.total_suprimentos,0),
+                    COALESCE(m.total_sangrias,0)
+               FROM caixa_local c
+               LEFT JOIN (
+                    SELECT caixa_local_uuid,
+                           COUNT(*) AS qtd,
+                           COALESCE(SUM(CASE WHEN tipo='suprimento' THEN valor ELSE 0 END),0) AS total_suprimentos,
+                           COALESCE(SUM(CASE WHEN tipo='sangria' THEN valor ELSE 0 END),0) AS total_sangrias
+                      FROM caixa_movs_local
+                     GROUP BY caixa_local_uuid
+               ) m ON m.caixa_local_uuid = c.local_uuid
+              ORDER BY c.data_abertura_ms DESC"
+        };
+
+        let mut stmt = conn.prepare(sql)?;
+
+        fn map_caixa_local_row(r: &rusqlite::Row) -> rusqlite::Result<CaixaLocalRow> {
+            Ok(CaixaLocalRow {
+                local_uuid: r.get(0)?,
+                remote_id: r.get(1)?,
+                client_uuid: r.get(2)?,
+                status: r.get(3)?,
+                valor_inicial: r.get(4)?,
+                valor_informado: r.get(5)?,
+                valor_esperado: r.get(6)?,
+                diferenca: r.get(7)?,
+                observacao_abertura: r.get(8)?,
+                observacao_fechamento: r.get(9)?,
+                operador_id: r.get(10)?,
+                terminal_id: r.get(11)?,
+                data_abertura_ms: r.get(12)?,
+                data_fechamento_ms: r.get(13)?,
+                qtd_movimentos: r.get(14)?,
+                total_suprimentos: r.get(15)?,
+                total_sangrias: r.get(16)?,
+            })
+        }
+
+        let rows = if let Some(limit) = limit {
+            stmt.query_map(params![limit], map_caixa_local_row)?
+        } else {
+            stmt.query_map([], map_caixa_local_row)?
+        };
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    })
+}
+
+pub fn caixa_movimentos_local(caixa_local_uuid: &str) -> DbResult<Vec<CaixaMovimentoLocalRow>> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT local_uuid, caixa_local_uuid, tipo, valor, motivo, operador_id, remote_id, created_at_ms
+               FROM caixa_movs_local
+              WHERE caixa_local_uuid = ?1
+           ORDER BY created_at_ms ASC",
+        )?;
+        let rows = stmt.query_map(params![caixa_local_uuid], |r| Ok(CaixaMovimentoLocalRow {
+            local_uuid: r.get(0)?,
+            caixa_local_uuid: r.get(1)?,
+            tipo: r.get(2)?,
+            valor: r.get(3)?,
+            motivo: r.get(4)?,
+            operador_id: r.get(5)?,
+            remote_id: r.get(6)?,
+            created_at_ms: r.get(7)?,
+        }))?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
     })
 }
 

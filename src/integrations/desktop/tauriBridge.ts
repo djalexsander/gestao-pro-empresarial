@@ -104,3 +104,108 @@ export async function getLocalServerStatus(): Promise<LocalServerStatus> {
     return STATUS_OFF;
   }
 }
+
+export interface DesktopAuthorizedUser {
+  user_id: string;
+  email: string;
+}
+
+export interface DesktopFuncionarioLocalRow {
+  funcionario_id: string;
+  nome: string;
+  login: string;
+  role: string;
+  ativo: boolean;
+  synced_at_ms: number;
+}
+
+export async function saveDesktopAuthorizedUser(
+  email: string,
+  userId: string,
+  password: string,
+): Promise<void> {
+  const invoke = await getInvoke();
+  if (!invoke) return;
+  await invoke<void>("desktop_authorized_user_save", {
+    email,
+    user_id: userId,
+    password,
+  });
+}
+
+export async function verifyDesktopAuthorizedUser(
+  email: string,
+  password: string,
+): Promise<DesktopAuthorizedUser | null> {
+  const invoke = await getInvoke();
+  if (!invoke) return null;
+  try {
+    return await invoke<DesktopAuthorizedUser | null>(
+      "desktop_authorized_user_verify",
+      { email, password },
+    );
+  } catch {
+    return null;
+  }
+}
+
+export async function cacheDesktopFuncionarios(
+  funcionarios: DesktopFuncionarioLocalRow[],
+): Promise<void> {
+  const invoke = await getInvoke();
+  if (!invoke) return;
+  await invoke<void>("desktop_funcionarios_cache", { funcionarios });
+}
+
+export async function loadDesktopFuncionariosAtivos(): Promise<
+  DesktopFuncionarioLocalRow[]
+> {
+  const invoke = await getInvoke();
+  if (!invoke) return [];
+  try {
+    return await invoke<DesktopFuncionarioLocalRow[]>(
+      "desktop_funcionarios_ativos",
+    );
+  } catch {
+    return [];
+  }
+}
+
+export async function saveDesktopFuncionarioPin(
+  funcionarioId: string,
+  nome: string,
+  login: string,
+  role: string,
+  ativo: boolean,
+  pin: string,
+): Promise<void> {
+  const invoke = await getInvoke();
+  if (!invoke) return;
+  await invoke<void>("desktop_funcionario_pin_save", {
+    funcionario_id: funcionarioId,
+    nome,
+    login,
+    role,
+    ativo,
+    pin,
+  });
+}
+
+export async function verifyDesktopFuncionarioPin(
+  funcionarioId: string,
+  pin: string,
+): Promise<DesktopFuncionarioLocalRow | null> {
+  const invoke = await getInvoke();
+  if (!invoke) return null;
+  try {
+    return await invoke<DesktopFuncionarioLocalRow | null>(
+      "desktop_funcionario_pin_verify",
+      {
+        funcionario_id: funcionarioId,
+        pin,
+      },
+    );
+  } catch {
+    return null;
+  }
+}

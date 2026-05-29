@@ -30,9 +30,17 @@ import type {
   RegistrarMovimentoEstoqueInput,
   RegistrarMovimentoEstoqueResult,
 } from "../types";
+import type { ProdutoComCategoria } from "../types";
 import { cloudAdapter } from "./cloud";
 import { reportDataSource } from "../source-telemetry";
 import { getDesktopConfig } from "@/integrations/desktop/configStore";
+import { isDesktop } from "../mode";
+import {
+  cacheDesktopFuncionarios,
+  loadDesktopFuncionariosAtivos,
+  saveDesktopFuncionarioPin,
+  verifyDesktopFuncionarioPin,
+} from "@/integrations/desktop/tauriBridge";
 import {
   abrirCaixaLocal,
   cancelarVendaLocal,
@@ -41,6 +49,8 @@ import {
   registrarMovCaixaLocal,
   registrarMovimentoLocal,
   registrarVendaLocal,
+  type CaixaLocalAbertoRow,
+  type CaixaResumoLocal,
 } from "@/integrations/desktop/serverConnection";
 import type {
   AbrirCaixaInput,
@@ -152,6 +162,123 @@ async function tryLocal<T>(
   }
 }
 
+function mapFormaPagamentoValue(
+  formas: Array<{ forma_pagamento: string; total: number }> ,
+  chave: string,
+): number {
+  const found = formas.find((forma) => forma.forma_pagamento === chave);
+  return found?.total ?? 0;
+}
+
+function mapCaixaResumoLocalToDomain(
+  row: CaixaResumoLocal,
+): import("../types").CaixaResumoDomain {
+  return {
+    caixa_id: row.remote_id ?? row.caixa_local_uuid,
+    status: row.status,
+    data_abertura: new Date(row.data_abertura_ms).toISOString(),
+    data_fechamento: row.data_fechamento_ms
+      ? new Date(row.data_fechamento_ms).toISOString()
+      : null,
+    valor_inicial: row.valor_inicial,
+    qtd_vendas: row.qtd_vendas,
+    total_vendas: row.total_vendido,
+    total_dinheiro: mapFormaPagamentoValue(row.por_forma, "dinheiro"),
+    total_pix: mapFormaPagamentoValue(row.por_forma, "pix"),
+    total_debito: mapFormaPagamentoValue(row.por_forma, "debito"),
+    total_credito: mapFormaPagamentoValue(row.por_forma, "credito"),
+    total_boleto: mapFormaPagamentoValue(row.por_forma, "boleto"),
+    total_ifood: mapFormaPagamentoValue(row.por_forma, "ifood"),
+    total_fiado: mapFormaPagamentoValue(row.por_forma, "fiado"),
+    total_outros:
+      row.por_forma.reduce((sum, forma) => {
+        const known = [
+          "dinheiro",
+          "pix",
+          "debito",
+          "credito",
+          "boleto",
+          "ifood",
+          "fiado",
+        ];
+        return known.includes(forma.forma_pagamento)
+          ? sum
+          : sum + forma.total;
+      }, 0) || 0,
+    total_sangrias: row.total_sangrias,
+    total_suprimentos: row.total_suprimentos,
+    valor_esperado: row.valor_esperado_dinheiro,
+    valor_informado: row.valor_informado,
+    diferenca: row.diferenca ?? 0,
+  };
+}
+
+type CaixaMovimentoLocalRow = {
+  local_uuid: string;
+  caixa_local_uuid: string;
+  tipo: string;
+  valor: number;
+  motivo: string | null;
+  operador_id: string | null;
+  remote_id: string | null;
+  created_at_ms: number;
+};
+
+function mapCaixaLocalToDomain(
+  row: CaixaLocalAbertoRow,
+  ownerId: string,
+): import("../types").CaixaDomain {
+  return {
+    id: row.remote_id ?? row.local_uuid,
+    owner_id: ownerId,
+    usuario_id: ownerId,
+    operador_id: row.operador_id,
+    data_abertura: new Date(row.data_abertura_ms).toISOString(),
+    data_fechamento: row.data_fechamento_ms
+      ? new Date(row.data_fechamento_ms).toISOString()
+      : null,
+    valor_inicial: row.valor_inicial,
+    total_vendas: 0,
+    qtd_vendas: 0,
+    total_dinheiro: 0,
+    total_pix: 0,
+    total_debito: 0,
+    total_credito: 0,
+    total_boleto: 0,
+    total_ifood: 0,
+    total_fiado: 0,
+    total_outros: 0,
+    total_sangrias: row.total_sangrias,
+    total_suprimentos: row.total_suprimentos,
+    valor_esperado: row.valor_esperado ?? 0,
+    valor_informado: row.valor_informado,
+    diferenca: row.diferenca ?? 0,
+    status: row.status as import("../types").CaixaStatusDomain,
+    observacao: row.observacao_abertura,
+    observacao_fechamento: row.observacao_fechamento,
+    created_at: new Date(row.data_abertura_ms).toISOString(),
+    updated_at: row.data_fechamento_ms
+      ? new Date(row.data_fechamento_ms).toISOString()
+      : new Date(row.data_abertura_ms).toISOString(),
+  };
+}
+
+function mapCaixaMovimentoLocalToDomain(
+  row: CaixaMovimentoLocalRow,
+): import("../types").CaixaMovimentoDomain {
+  return {
+    id: row.remote_id ?? row.local_uuid,
+    caixa_id: row.remote_id ?? row.caixa_local_uuid,
+    tipo: row.tipo as import("../types").CaixaMovimentoTipoDomain,
+    valor: row.valor,
+    motivo: row.motivo,
+    venda_id: null,
+    usuario_id: null,
+    operador_id: row.operador_id,
+    created_at: new Date(row.created_at_ms).toISOString(),
+  };
+}
+
 /**
  * Leituras seguras: podem cair para cloud sem risco de divergência
  * (apenas dados de tela, sem mutar caixa/estoque/financeiro).
@@ -169,6 +296,42 @@ async function withFallback<T>(
   return result;
 }
 
+async function tryDesktopFuncionariosList(
+  input?: import("../types").FuncionariosListInput,
+): Promise<import("../types").FuncionarioDomain[] | null> {
+  if (!isDesktop()) return null;
+  const rows = await loadDesktopFuncionariosAtivos();
+  if (!rows || rows.length === 0) return null;
+  const mapped = rows.map((row) => ({
+    id: row.funcionario_id,
+    nome: row.nome,
+    login: row.login,
+    role: row.role as "gerente" | "caixa",
+    ativo: row.ativo,
+    ultimo_acesso: null,
+    created_at: new Date().toISOString(),
+  }));
+  if (input?.somente_ativos) {
+    return mapped.filter((f) => f.ativo);
+  }
+  return mapped;
+}
+
+async function tryDesktopFuncionarioPin(
+  funcionarioId: string,
+  pin: string,
+): Promise<import("../types").OperadorSessaoDomain | null> {
+  if (!isDesktop()) return null;
+  const row = await verifyDesktopFuncionarioPin(funcionarioId, pin);
+  if (!row) return null;
+  return {
+    id: row.funcionario_id,
+    nome: row.nome,
+    login: row.login,
+    role: row.role as "gerente" | "caixa",
+  };
+}
+
 // ----------------------------------------------------------------------------
 // Adapter
 // ----------------------------------------------------------------------------
@@ -178,6 +341,20 @@ export const localTerminalAdapter: DataAdapter = {
 
   produtos: {
     ...cloudAdapter.produtos,
+    listar: async () => {
+      const base = getServerBaseUrl();
+      if (base) {
+        const local = await tryLocal<Awaited<ReturnType<DataAdapter["produtos"]["listar"]>>>(
+          "produtos",
+          "listar",
+          "/api/produtos/list",
+        );
+        if (local !== null && local !== undefined) return local;
+        throw new LocalServerIndisponivelError("produtos.listar");
+      }
+      return cloudAdapter.produtos.listar();
+    },
+
     list: (input) =>
       withFallback(
         "produtos",
@@ -195,6 +372,40 @@ export const localTerminalAdapter: DataAdapter = {
           ),
         () => cloudAdapter.produtos.list(input),
       ),
+
+    buscarPorCodigo: async (codigo: string) => {
+      const base = getServerBaseUrl();
+      const valor = codigo.trim();
+      if (!valor) return null;
+      if (base) {
+        const res = await tryLocal<import("../types").ProdutoBuscaResult | null>(
+          "produtos",
+          "buscarPorCodigo",
+          "/api/produtos/buscar",
+          { codigo: valor },
+        );
+        if (res === null) throw new LocalServerIndisponivelError("produtos.buscarPorCodigo");
+        return res as import("../types").ProdutoBuscaResult | null;
+      }
+      return cloudAdapter.produtos.buscarPorCodigo(codigo);
+    },
+
+    buscarPorPlu: async (plu: string) => {
+      const base = getServerBaseUrl();
+      const valor = plu.trim();
+      if (!valor) return null;
+      if (base) {
+        const res = await tryLocal<import("../types").ProdutoPluResult | null>(
+          "produtos",
+          "buscarPorPlu",
+          "/api/produtos/buscar",
+          { codigo: valor },
+        );
+        if (res === null) throw new LocalServerIndisponivelError("produtos.buscarPorPlu");
+        return res as import("../types").ProdutoPluResult | null;
+      }
+      return cloudAdapter.produtos.buscarPorPlu(plu);
+    },
   },
 
   estoque: {
@@ -396,8 +607,140 @@ export const localTerminalAdapter: DataAdapter = {
       ),
   },
 
+  funcionarios: {
+    ...cloudAdapter.funcionarios,
+    async list(input) {
+      try {
+        const result = await cloudAdapter.funcionarios.list(input);
+        if (isDesktop() && result.length > 0) {
+          cacheDesktopFuncionarios(
+            result.map((funcionario) => ({
+              funcionario_id: funcionario.id,
+              nome: funcionario.nome,
+              login: funcionario.login,
+              role: funcionario.role,
+              ativo: funcionario.ativo,
+              synced_at_ms: Date.now(),
+            })),
+          ).catch(() => {
+            /* ignore cache errors */
+          });
+        }
+        return result;
+      } catch (error) {
+        const cached = await tryDesktopFuncionariosList(input);
+        if (cached) return cached;
+        throw error;
+      }
+    },
+
+    async validarPin(input) {
+      try {
+        const result = await cloudAdapter.funcionarios.validarPin(input);
+        if (isDesktop()) {
+          saveDesktopFuncionarioPin(
+            result.id,
+            result.nome,
+            result.login,
+            result.role,
+            true,
+            input.pin,
+          ).catch(() => {
+            /* ignore local cache save failures */
+          });
+        }
+        return result;
+      } catch (error) {
+        const local = await tryDesktopFuncionarioPin(input.funcionario_id, input.pin);
+        if (local) return local;
+        throw error;
+      }
+    },
+  },
+
   caixa: {
     ...cloudAdapter.caixa,
+
+    async aberto(filtro) {
+      return withFallback(
+        "caixa",
+        "aberto",
+        async () => {
+          const query = filtro?.operador_id
+            ? { operador_id: filtro.operador_id }
+            : undefined;
+          const result = await tryLocal<CaixaLocalAbertoRow | null>(
+            "caixa",
+            "aberto",
+            "/api/caixa/aberto",
+            query,
+          );
+          if (!result) return null;
+          const { data } = await supabase.auth.getUser();
+          const ownerId = data.user?.id ?? "";
+          return mapCaixaLocalToDomain(result, ownerId);
+        },
+        () => cloudAdapter.caixa.aberto(filtro),
+      );
+    },
+
+    async resumo(caixaId) {
+      return withFallback(
+        "caixa",
+        "resumo",
+        async () => {
+          const result = await tryLocal<CaixaResumoLocal | null>(
+            "caixa",
+            "resumo",
+            "/api/caixa/resumo",
+            { caixa_id: caixaId },
+          );
+          return result ? mapCaixaResumoLocalToDomain(result) : null;
+        },
+        () => cloudAdapter.caixa.resumo(caixaId),
+      );
+    },
+
+    async historico(input) {
+      return withFallback(
+        "caixa",
+        "historico",
+        async () => {
+          const result = await tryLocal<CaixaLocalAbertoRow[] | null>(
+            "caixa",
+            "historico",
+            "/api/caixa/historico",
+            {
+              limit: input?.limit != null ? String(input.limit) : undefined,
+            },
+          );
+          if (!result) return null;
+          const { data } = await supabase.auth.getUser();
+          const ownerId = data.user?.id ?? "";
+          return result.map((row) => mapCaixaLocalToDomain(row, ownerId));
+        },
+        () => cloudAdapter.caixa.historico(input),
+      );
+    },
+
+    async movimentos(caixaId) {
+      return withFallback(
+        "caixa",
+        "movimentos",
+        async () => {
+          const result = await tryLocal<CaixaMovimentoLocalRow[] | null>(
+            "caixa",
+            "movimentos",
+            "/api/caixa/movimentos",
+            { caixa_id: caixaId },
+          );
+          if (!result) return null;
+          return result.map(mapCaixaMovimentoLocalToDomain);
+        },
+        () => cloudAdapter.caixa.movimentos(caixaId),
+      );
+    },
+
     /**
      * CRÍTICO — abertura de caixa.
      * Em modo terminal local, NUNCA cai para cloud automaticamente.

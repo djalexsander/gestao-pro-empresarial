@@ -44,7 +44,18 @@ export const localServerAdapter: DataAdapter = {
   ...cloudAdapter,
   produtos: {
     ...cloudAdapter.produtos,
+    listar: wrapRead("produtos", "listar", cloudAdapter.produtos.listar.bind(cloudAdapter.produtos)),
     list: wrapRead("produtos", "list", cloudAdapter.produtos.list.bind(cloudAdapter.produtos)),
+    buscarPorCodigo: wrapRead(
+      "produtos",
+      "buscarPorCodigo",
+      cloudAdapter.produtos.buscarPorCodigo.bind(cloudAdapter.produtos),
+    ),
+    buscarPorPlu: wrapRead(
+      "produtos",
+      "buscarPorPlu",
+      cloudAdapter.produtos.buscarPorPlu.bind(cloudAdapter.produtos),
+    ),
   },
   estoque: {
     ...cloudAdapter.estoque,

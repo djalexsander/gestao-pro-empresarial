@@ -155,11 +155,14 @@ export function FinalizarVendaDialog({
   const [obsFinal, setObsFinal] = useState("");
   const [hotkeyFlash, setHotkeyFlash] = useState<string | null>(null);
   const [vencimentoFiado, setVencimentoFiado] = useState<string>("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitLockRef = useRef(false);
   const ultimoValorRef = useRef<HTMLInputElement>(null);
   const vencimentoInputRef = useRef<HTMLInputElement>(null);
   const dialogContentRef = useRef<HTMLDivElement>(null);
 
   const finalizar = useFinalizarVendaPDV();
+  const isConfirming = isSubmitting || finalizar.isPending;
   const { operador } = useOperador();
   const { terminal } = useTerminal();
 
@@ -178,6 +181,7 @@ export function FinalizarVendaDialog({
       setPagamentos([inicial]);
       setObsFinal("");
       setHotkeyFlash(null);
+      submitLockRef.current = false;
       setVencimentoFiado(dataPadraoFiado());
       setTimeout(() => ultimoValorRef.current?.focus(), 50);
     }
@@ -330,6 +334,7 @@ export function FinalizarVendaDialog({
 
   // ============= Confirmar =============
   function handleConfirmar() {
+    if (submitLockRef.current || isSubmitting) return;
     if (itens.length === 0) return;
     if (dinheiroInsuficiente) return;
     if (pagamentos.length === 0) return;
@@ -368,6 +373,8 @@ export function FinalizarVendaDialog({
       };
     });
 
+    submitLockRef.current = true;
+    setIsSubmitting(true);
     finalizar.mutate(
       {
         cliente_id: cliente?.id ?? null,
@@ -397,13 +404,17 @@ export function FinalizarVendaDialog({
             valorRecebido: totalRecebidoDinheiro,
           });
         },
+        onSettled: () => {
+          submitLockRef.current = false;
+          setIsSubmitting(false);
+        },
       },
     );
   }
 
   // ============= Atalhos de teclado =============
   const podeConfirmar =
-    !finalizar.isPending &&
+    !isConfirming &&
     itens.length > 0 &&
     !dinheiroInsuficiente &&
     pagamentos.length > 0 &&
@@ -934,7 +945,7 @@ export function FinalizarVendaDialog({
           <Button
             variant="ghost"
             onClick={() => onOpenChange(false)}
-            disabled={finalizar.isPending}
+            disabled={isConfirming}
           >
             <ArrowLeft className="h-4 w-4" /> Voltar
             <Kbd className="ml-1">Esc</Kbd>
@@ -943,7 +954,7 @@ export function FinalizarVendaDialog({
             <Button
               variant="outline"
               onClick={() => onOpenChange(false)}
-              disabled={finalizar.isPending}
+              disabled={isConfirming}
               className="text-destructive hover:text-destructive"
             >
               <X className="h-4 w-4" /> Cancelar
@@ -953,7 +964,7 @@ export function FinalizarVendaDialog({
               className="h-11 min-w-[220px]"
               onClick={handleConfirmar}
               disabled={
-                finalizar.isPending ||
+                isConfirming ||
                 itens.length === 0 ||
                 dinheiroInsuficiente ||
                 pagamentos.length === 0 ||

@@ -9,12 +9,15 @@ interface AuthContextValue {
   session: Session | null;
   loading: boolean;
   signOut: () => Promise<void>;
+  signInOffline: (user: User) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [offlineUser, setOfflineUser] = useState<User | null>(null);
+  const offlineUserRef = useRef<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const lastEventUserRef = useRef<string | null>(null);
@@ -22,7 +25,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, sess) => {
       setSession(sess);
-      setUser(sess?.user ?? null);
+      setUser(sess?.user ?? offlineUserRef.current ?? null);
 
       // Registra eventos de auditoria (apenas eventos significativos, evita duplicar)
       if (event === "SIGNED_IN" && sess?.user && lastEventUserRef.current !== sess.user.id) {
@@ -43,7 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     supabase.auth.getSession().then(({ data: { session: sess } }) => {
       setSession(sess);
-      setUser(sess?.user ?? null);
+      setUser(sess?.user ?? offlineUserRef.current ?? null);
       setLoading(false);
       if (sess?.user) lastEventUserRef.current = sess.user.id;
     });
@@ -60,11 +63,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
     }
     lockErp();
-    await supabase.auth.signOut();
+    setOfflineUser(null);
+    offlineUserRef.current = null;
+    await supabase.auth.signOut().catch(() => {
+      /* Ignore logout failures when offline */
+    });
   };
 
+  const signInOffline = (offline: User) => {
+    setOfflineUser(offline);
+    offlineUserRef.current = offline;
+    setUser(offline);
+    setSession(null);
+    lastEventUserRef.current = offline.id;
+  };
+
+  useEffect(() => {
+    if (!session && offlineUser) {
+      setUser(offlineUser);
+    }
+  }, [offlineUser, session]);
+
   return (
-    <AuthContext.Provider value={{ user, session, loading, signOut }}>
+    <AuthContext.Provider
+      value={{ user, session, loading, signOut, signInOffline }}
+    >
       {children}
     </AuthContext.Provider>
   );
