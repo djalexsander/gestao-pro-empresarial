@@ -36,6 +36,8 @@ import {
   abrirCaixaLocal,
   cancelarVendaLocal,
   fecharCaixaLocal,
+  fetchCaixaLocalAberto,
+  fetchCaixaResumoLocal,
   getBaseUrl,
   registrarMovCaixaLocal,
   registrarMovimentoLocal,
@@ -92,7 +94,7 @@ function getServerBaseUrl(): string | null {
 }
 
 function localUnavailable<T>(domain: string, method: string): T {
-  reportDataSource({ source: "cloud", domain, method, fallback: true });
+  reportDataSource({ source: "local-server", domain, method, fallback: false });
   throw new LocalServerIndisponivelError(`${domain}.${method}`);
 }
 
@@ -715,38 +717,33 @@ export const localTerminalAdapter: DataAdapter = {
      */
     abrir: async (input: AbrirCaixaInput): Promise<string> => {
       const cfg = getLocalConnectionConfig();
-      if (getBaseUrl(cfg)) {
-        const { data } = await supabase.auth.getSession();
-        const token = data.session?.access_token ?? null;
-        const local = await abrirCaixaLocal(
-          cfg,
-          {
-            valor_inicial: input.valor_inicial,
-            observacao: input.observacao ?? null,
-            operador_id: input.operador_id ?? null,
-            terminal_id: input.terminal_id ?? null,
-            client_uuid:
-              (input as AbrirCaixaInput & { client_uuid?: string | null })
-                .client_uuid ?? null,
-          },
-          token,
-        );
-        if (local) {
-          reportDataSource({
-            source: "local-server",
-            domain: "caixa",
-            method: "abrir",
-            fallback: false,
-          });
-          return local.remote_id ?? local.caixa_id;
-        }
-        return localUnavailable("caixa", "abrir");
+      if (!getBaseUrl(cfg)) return localUnavailable("caixa", "abrir");
+
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token ?? null;
+      const local = await abrirCaixaLocal(
+        cfg,
+        {
+          valor_inicial: input.valor_inicial,
+          observacao: input.observacao ?? null,
+          operador_id: input.operador_id ?? null,
+          terminal_id: input.terminal_id ?? null,
+          client_uuid:
+            (input as AbrirCaixaInput & { client_uuid?: string | null })
+              .client_uuid ?? null,
+        },
+        token,
+      );
+      if (local) {
+        reportDataSource({
+          source: "local-server",
+          domain: "caixa",
+          method: "abrir",
+          fallback: false,
+        });
+        return local.remote_id ?? local.caixa_id;
       }
-      const result = await cloudAdapter.caixa.abrir(input);
-      reportDataSource({
-        source: "cloud", domain: "caixa", method: "abrir", fallback: true,
-      });
-      return result;
+      return localUnavailable("caixa", "abrir");
     },
 
     registrarMovimento: async (
@@ -834,6 +831,93 @@ export const localTerminalAdapter: DataAdapter = {
         source: "cloud", domain: "caixa", method: "fechar", fallback: true,
       });
       return result;
+    },
+    aberto: async (filtro) => {
+      const cfg = getLocalConnectionConfig();
+      const local = await fetchCaixaLocalAberto(
+        cfg,
+        filtro?.qualquer ? undefined : filtro?.operador_id,
+      );
+      if (!local) return null;
+      reportDataSource({
+        source: "local-server",
+        domain: "caixa",
+        method: "aberto",
+        fallback: false,
+      });
+      const dataAbertura = new Date(local.data_abertura_ms).toISOString();
+      const dataFechamento =
+        local.data_fechamento_ms != null
+          ? new Date(local.data_fechamento_ms).toISOString()
+          : null;
+      return {
+        id: local.remote_id ?? local.local_uuid,
+        owner_id: "",
+        usuario_id: "",
+        operador_id: local.operador_id,
+        data_abertura: dataAbertura,
+        data_fechamento: dataFechamento,
+        valor_inicial: Number(local.valor_inicial) || 0,
+        total_vendas: 0,
+        qtd_vendas: 0,
+        total_dinheiro: 0,
+        total_pix: 0,
+        total_debito: 0,
+        total_credito: 0,
+        total_boleto: 0,
+        total_ifood: 0,
+        total_fiado: 0,
+        total_outros: 0,
+        total_sangrias: Number(local.total_sangrias) || 0,
+        total_suprimentos: Number(local.total_suprimentos) || 0,
+        valor_esperado: local.valor_esperado,
+        valor_informado: local.valor_informado,
+        diferenca: local.diferenca,
+        status: local.status,
+        observacao: local.observacao_abertura,
+        observacao_fechamento: local.observacao_fechamento,
+        created_at: dataAbertura,
+        updated_at: dataFechamento ?? dataAbertura,
+      };
+    },
+    resumo: async (caixaId) => {
+      const cfg = getLocalConnectionConfig();
+      const local = await fetchCaixaResumoLocal(cfg, { caixaId });
+      if (!local) return null;
+      reportDataSource({
+        source: "local-server",
+        domain: "caixa",
+        method: "resumo",
+        fallback: false,
+      });
+      const porForma = new Map(
+        local.por_forma.map((row) => [row.forma_pagamento, Number(row.total) || 0]),
+      );
+      return {
+        caixa_id: local.remote_id ?? local.caixa_local_uuid,
+        status: local.status,
+        data_abertura: new Date(local.data_abertura_ms).toISOString(),
+        data_fechamento:
+          local.data_fechamento_ms != null
+            ? new Date(local.data_fechamento_ms).toISOString()
+            : null,
+        valor_inicial: Number(local.valor_inicial) || 0,
+        qtd_vendas: Number(local.qtd_vendas) || 0,
+        total_vendas: Number(local.total_vendido) || 0,
+        total_dinheiro: porForma.get("dinheiro") ?? 0,
+        total_pix: porForma.get("pix") ?? 0,
+        total_debito: porForma.get("debito") ?? 0,
+        total_credito: porForma.get("credito") ?? 0,
+        total_boleto: porForma.get("boleto") ?? 0,
+        total_ifood: porForma.get("ifood") ?? 0,
+        total_fiado: porForma.get("fiado") ?? 0,
+        total_outros: porForma.get("outros") ?? 0,
+        total_sangrias: Number(local.total_sangrias) || 0,
+        total_suprimentos: Number(local.total_suprimentos) || 0,
+        valor_esperado: Number(local.valor_esperado_dinheiro) || 0,
+        valor_informado: local.valor_informado,
+        diferenca: local.diferenca,
+      };
     },
   },
 };

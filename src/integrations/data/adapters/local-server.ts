@@ -400,9 +400,37 @@ export const localServerAdapter: DataAdapter = {
 
   caixa: {
     ...cloudAdapter.caixa,
-    abrir: (input) => localTerminalAdapter.caixa.abrir(input),
-    registrarMovimento: (input) => localTerminalAdapter.caixa.registrarMovimento(input),
-    fechar: (input) => localTerminalAdapter.caixa.fechar(input),
+    abrir: async (input) => {
+      const local = await localPost<Awaited<ReturnType<DataAdapter["caixa"]["abrir"]>> | {
+        caixa_id: string;
+        remote_id?: string | null;
+      }>("caixa", "abrir", "/api/caixa/abrir", input);
+      if (typeof local === "string") return local;
+      return local.remote_id ?? local.caixa_id;
+    },
+    registrarMovimento: async (input) => {
+      const local = await localPost<Awaited<ReturnType<DataAdapter["caixa"]["registrarMovimento"]>> | {
+        movimento_id: string;
+        remote_id?: string | null;
+      }>("caixa", "registrarMovimento", "/api/caixa/movimento", input);
+      if (typeof local === "string") return local;
+      return local.remote_id ?? local.movimento_id;
+    },
+    fechar: async (input) => {
+      const local = await localPost<{
+        remote_id?: string | null;
+        valor_informado: number;
+      }>("caixa", "fechar", "/api/caixa/fechar", input);
+      return {
+        caixa_id: local.remote_id ?? input.caixa_id,
+        valor_esperado: input.valor_informado,
+        valor_informado: local.valor_informado,
+        diferenca: 0,
+        fechado_em: new Date().toISOString(),
+      };
+    },
+    aberto: (filtro) => localTerminalAdapter.caixa.aberto(filtro),
+    resumo: (caixaId) => localTerminalAdapter.caixa.resumo(caixaId),
   },
 };
 
