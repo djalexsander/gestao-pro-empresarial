@@ -1,148 +1,72 @@
 /**
  * ============================================================================
- * local-server adapter - Servidor Local (mesma maquina que roda o backend)
+ * local-server adapter - maquina que hospeda o backend local
  * ============================================================================
  *
- * O computador servidor tambem pode operar como caixa. Portanto, leituras
- * operacionais do PDV nao podem cair no Supabase: elas devem consultar o
- * backend Rust local em 127.0.0.1, que entrega SQLite/local-table quando a
- * internet esta indisponivel.
- *
- * Escopo desta etapa:
- * - produtos/lista/busca por codigo/PLU
- * - clientes lite
- * - estoque saldos/movimentacoes
- *
- * Demais dominios continuam inalterados e delegados ao cloudAdapter.
+ * Leituras seguras usam a API HTTP local primeiro. Se essa API nao estiver
+ * disponivel, caem para cloud para manter o modo online normal. Escritas
+ * criticas de PDV/caixa/estoque passam pelo adapter local-terminal, que grava
+ * no servidor local quando ele esta configurado.
  */
 
-import { getDesktopConfig } from "@/integrations/desktop/configStore";
-import { getBaseUrl } from "@/integrations/desktop/serverConnection";
 import { supabase } from "@/integrations/supabase/client";
 import type { DataAdapter } from "../adapter";
-import type {
-  ProdutoBuscaResult,
-  ProdutoComCategoria,
-  ProdutoComVariacoes,
-  ProdutoPluResult,
-} from "../types";
-import { reportDataSource } from "../source-telemetry";
+import type { ProdutoComVariacoes } from "../types";
 import { cloudAdapter } from "./cloud";
 import { localTerminalAdapter } from "./local-terminal";
+import { reportDataSource } from "../source-telemetry";
+import { getDesktopConfig } from "@/integrations/desktop/configStore";
 
 const LOCAL_READ_DOMAINS = ["produtos", "estoque", "clientes"] as const;
 const DEFAULT_LOCAL_PORT = 3333;
 const HTTP_TIMEOUT_MS = 4000;
 
-class LocalServerReadError extends Error {
-  code = "LOCAL_SERVER_READ_FAILED" as const;
-
-  constructor(domain: string, method: string, detail: string) {
-    super(`Falha na leitura local (${domain}.${method}): ${detail}`);
-    this.name = "LocalServerReadError";
-  }
-}
-
-class LocalOfflineUnsupportedError extends Error {
-  code = "LOCAL_OFFLINE_UNSUPPORTED" as const;
-
-  constructor(operacao: string) {
-    super(
-      `${operacao} ainda nÃ£o tem gravaÃ§Ã£o local/offline implementada. ` +
-        "A operaÃ§Ã£o foi bloqueada para evitar divergÃªncia entre o banco local e a nuvem.",
-    );
-    this.name = "LocalOfflineUnsupportedError";
-  }
-}
-
-function unsupportedLocalWrite(operacao: string): never {
-  throw new LocalOfflineUnsupportedError(operacao);
-}
-
-function reportCloudOnly(domain: string, method: string): void {
-  reportDataSource({ source: "cloud", domain, method, fallback: true });
-}
-
-async function cloudOnly<T>(
-  domain: string,
-  method: string,
-  fn: () => Promise<T>,
-): Promise<T> {
-  reportCloudOnly(domain, method);
-  return fn();
-}
-
 function getSelfServerBaseUrl(): string {
   const cfg = getDesktopConfig();
-  const baseUrl = getBaseUrl({
-    host: "127.0.0.1",
-    porta: cfg.terminal?.porta ?? DEFAULT_LOCAL_PORT,
-    terminalId: "self",
-    terminalNome: cfg.serverNome ?? "Servidor",
-    serverToken: cfg.serverAuthToken,
-  });
+  return `http://127.0.0.1:${cfg.terminal?.porta ?? DEFAULT_LOCAL_PORT}`;
+}
 
-  if (!baseUrl) {
-    throw new LocalServerReadError(
-      "server",
-      "baseUrl",
-      "servidor local sem host/porta configurados",
-    );
+async function getAuthHeader(): Promise<Record<string, string>> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  } catch {
+    return {};
   }
-
-  return baseUrl;
 }
 
 async function localGet<T>(
   domain: string,
   method: string,
   path: string,
-  query?: Record<string, string | null | undefined>,
-): Promise<T> {
+  query?: Record<string, string | undefined>,
+): Promise<T | null> {
   const url = new URL(`${getSelfServerBaseUrl()}${path}`);
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value != null && value !== "") url.searchParams.set(key, value);
   }
 
   const ctrl = new AbortController();
-  const timer = window.setTimeout(() => ctrl.abort(), HTTP_TIMEOUT_MS);
-
+  const timer = setTimeout(() => ctrl.abort(), HTTP_TIMEOUT_MS);
   try {
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token ?? null;
-    const headers: Record<string, string> = { Accept: "application/json" };
-    if (token) headers.Authorization = `Bearer ${token}`;
+    const headers = await getAuthHeader();
     const res = await fetch(url.toString(), {
       method: "GET",
-      headers,
+      headers: { Accept: "application/json", ...headers },
       signal: ctrl.signal,
       cache: "no-store",
     });
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new LocalServerReadError(
-        domain,
-        method,
-        `HTTP ${res.status}${text ? ` - ${text}` : ""}`,
-      );
-    }
-
+    clearTimeout(timer);
+    if (!res.ok) return null;
     const json = (await res.json()) as { data?: T } | T;
-    const payload =
-      json && typeof json === "object" && "data" in (json as Record<string, unknown>)
-        ? (json as { data?: T }).data
-        : json;
-
     reportDataSource({ source: "local-server", domain, method, fallback: false });
-    return payload as T;
-  } catch (error) {
-    console.warn(`[gestao-pro] leitura local falhou: ${domain}.${method}`, error);
-    if (error instanceof LocalServerReadError) throw error;
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new LocalServerReadError(domain, method, detail);
-  } finally {
-    window.clearTimeout(timer);
+    return json && typeof json === "object" && "data" in (json as any)
+      ? ((json as any).data as T)
+      : (json as T);
+  } catch {
+    clearTimeout(timer);
+    return null;
   }
 }
 
@@ -153,114 +77,68 @@ async function localPost<T>(
   body: unknown,
 ): Promise<T> {
   const ctrl = new AbortController();
-  const timer = window.setTimeout(() => ctrl.abort(), HTTP_TIMEOUT_MS);
-
+  const timer = setTimeout(() => ctrl.abort(), HTTP_TIMEOUT_MS);
   try {
+    const headers = await getAuthHeader();
     const res = await fetch(`${getSelfServerBaseUrl()}${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify(body ?? {}),
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        ...headers,
+      },
       signal: ctrl.signal,
       cache: "no-store",
+      body: JSON.stringify(body),
     });
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new LocalServerReadError(
-        domain,
-        method,
-        `HTTP ${res.status}${text ? ` - ${text}` : ""}`,
-      );
-    }
-
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(await res.text());
+    const json = (await res.json()) as { data?: T } | T;
     reportDataSource({ source: "local-server", domain, method, fallback: false });
-    return (await res.json()) as T;
+    return json && typeof json === "object" && "data" in (json as any)
+      ? ((json as any).data as T)
+      : (json as T);
   } catch (error) {
-    console.warn(`[gestao-pro] escrita local falhou: ${domain}.${method}`, error);
-    if (error instanceof LocalServerReadError) throw error;
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new LocalServerReadError(domain, method, detail);
-  } finally {
-    window.clearTimeout(timer);
+    clearTimeout(timer);
+    throw error instanceof Error ? error : new Error(String(error));
   }
 }
 
-function norm(value: string | null | undefined): string {
-  return (value ?? "").trim().toLowerCase();
+async function withFallback<T>(
+  domain: string,
+  method: string,
+  localFetcher: () => Promise<T | null>,
+  cloudFetcher: () => Promise<T>,
+): Promise<T> {
+  const local = await localFetcher();
+  if (local !== null && local !== undefined) return local;
+  const result = await cloudFetcher();
+  reportDataSource({ source: "cloud", domain, method, fallback: true });
+  return result;
 }
 
-function filterProdutos(
-  rows: ProdutoComCategoria[],
-  input?: Parameters<DataAdapter["produtos"]["list"]>[0],
-): ProdutoComCategoria[] {
-  const busca = norm(input?.busca);
-  return rows.filter((produto) => {
-    if (input?.status && produto.status !== input.status) return false;
-    if (input?.categoria_id && produto.categoria_id !== input.categoria_id) return false;
-    if (!busca) return true;
-    return norm(produto.nome).includes(busca) || norm(produto.sku).includes(busca);
-  });
+async function cloudOnly<T>(
+  domain: string,
+  method: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const result = await fn();
+  reportDataSource({ source: "cloud", domain, method, fallback: true });
+  return result;
 }
 
-function mapProdutoToPluResult(row: ProdutoComCategoria): ProdutoPluResult {
-  const raw = row as ProdutoComCategoria & {
-    vendido_por_peso?: boolean | null;
-    aceita_etiqueta_balanca?: boolean | null;
-    plu?: string | null;
-    codigo_interno?: string | null;
-  };
-
-  return {
-    produto_id: row.id,
-    sku: row.sku,
-    nome: row.nome,
-    unidade: row.unidade,
-    preco_venda: Number(row.preco_venda ?? 0),
-    vendido_por_peso: Boolean(raw.vendido_por_peso),
-    aceita_etiqueta_balanca: Boolean(raw.aceita_etiqueta_balanca),
-    plu: raw.plu ?? raw.codigo_interno ?? row.sku ?? null,
-    status: row.status,
-  };
-}
-
-function matchesPlu(row: ProdutoComCategoria, plu: string): boolean {
-  const raw = row as ProdutoComCategoria & {
-    plu?: string | null;
-    codigo_interno?: string | null;
-  };
-  const value = plu.trim();
-  const stripped = value.replace(/^0+/, "");
-  const candidates = [raw.plu, row.sku, raw.codigo_interno]
-    .filter((candidate): candidate is string => !!candidate)
-    .map((candidate) => candidate.trim());
-
-  return candidates.some(
-    (candidate) => candidate === value || (!!stripped && candidate === stripped),
-  );
-}
-
-function listProdutosLocal(): Promise<ProdutoComCategoria[]> {
-  return localGet<ProdutoComCategoria[]>("produtos", "list", "/api/produtos/list");
-}
-
-function categoriasFromProdutos(
-  rows: ProdutoComCategoria[],
-): import("../types").CategoriaProdutoDomain[] {
-  const map = new Map<string, import("../types").CategoriaProdutoDomain>();
-  for (const row of rows) {
-    const raw = row as ProdutoComCategoria & {
-      categoria?: { id?: string | null; nome?: string | null } | null;
-      categoria_nome?: string | null;
-    };
-    const id = row.categoria_id ?? raw.categoria?.id ?? null;
-    if (!id || map.has(id)) continue;
-    map.set(id, {
-      id,
-      nome: raw.categoria?.nome ?? raw.categoria_nome ?? "Categoria",
-      parent_id: null,
-      ativo: true,
-      descricao: null,
-    });
+function categoriasFromProdutos(produtos: ProdutoComVariacoes[]) {
+  const map = new Map<string, { id: string; nome: string; parent_id: string | null; ativo: boolean }>();
+  for (const produto of produtos as Array<ProdutoComVariacoes & { categoria?: { id?: string; nome?: string } | null }>) {
+    const categoria = produto.categoria;
+    if (produto.categoria_id && categoria?.nome) {
+      map.set(produto.categoria_id, {
+        id: produto.categoria_id,
+        nome: categoria.nome,
+        parent_id: null,
+        ativo: true,
+      });
+    }
   }
   return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome));
 }
@@ -270,139 +148,122 @@ export const localServerAdapter: DataAdapter = {
 
   produtos: {
     ...cloudAdapter.produtos,
-    listar: () => listProdutosLocal(),
-    async list(input) {
-      const rows = await listProdutosLocal();
-      return filterProdutos(rows, input);
-    },
-    async get(produtoId) {
-      const rows = await listProdutosLocal();
-      const found = rows.find((produto) => produto.id === produtoId);
-      return found ? ({ ...found, variacoes: [] } as ProdutoComVariacoes) : null;
-    },
+    listar: () =>
+      withFallback(
+        "produtos",
+        "listar",
+        () =>
+          localGet<Awaited<ReturnType<DataAdapter["produtos"]["listar"]>>>(
+            "produtos",
+            "listar",
+            "/api/produtos/list",
+          ),
+        () => cloudAdapter.produtos.listar(),
+      ),
+    list: (input) =>
+      withFallback(
+        "produtos",
+        "list",
+        () =>
+          localGet<Awaited<ReturnType<DataAdapter["produtos"]["list"]>>>(
+            "produtos",
+            "list",
+            "/api/produtos/list",
+            {
+              status: input?.status ?? undefined,
+              categoria_id: input?.categoria_id ?? undefined,
+              busca: input?.busca ?? undefined,
+            },
+          ),
+        () => cloudAdapter.produtos.list(input),
+      ),
+    get: (produtoId) =>
+      withFallback(
+        "produtos",
+        "get",
+        async () => {
+          const produtos = await localGet<ProdutoComVariacoes[]>(
+            "produtos",
+            "get",
+            "/api/produtos/list",
+          );
+          return produtos?.find((p) => p.id === produtoId) ?? null;
+        },
+        () => cloudAdapter.produtos.get(produtoId),
+      ),
     buscarPorCodigo: (codigo) =>
-      localGet<ProdutoBuscaResult | null>("produtos", "buscarPorCodigo", "/api/produtos/buscar", {
-        codigo: codigo.trim(),
-      }),
-    async buscarPorPlu(plu) {
-      const value = plu.trim();
-      if (!value) return null;
-      const rows = await listProdutosLocal();
-      const found = rows.find((row) => matchesPlu(row, value));
-      return found ? mapProdutoToPluResult(found) : null;
-    },
-    criar: localTerminalAdapter.produtos.criar,
+      withFallback(
+        "produtos",
+        "buscarPorCodigo",
+        () =>
+          localGet<Awaited<ReturnType<DataAdapter["produtos"]["buscarPorCodigo"]>>>(
+            "produtos",
+            "buscarPorCodigo",
+            "/api/produtos/buscar",
+            { codigo },
+          ),
+        () => cloudAdapter.produtos.buscarPorCodigo(codigo),
+      ),
+    buscarPorPlu: (plu) =>
+      withFallback(
+        "produtos",
+        "buscarPorPlu",
+        () =>
+          localGet<Awaited<ReturnType<DataAdapter["produtos"]["buscarPorPlu"]>>>(
+            "produtos",
+            "buscarPorPlu",
+            "/api/produtos/buscar",
+            { codigo: plu },
+          ),
+        () => cloudAdapter.produtos.buscarPorPlu(plu),
+      ),
+    criar: (input) =>
+      localPost<Awaited<ReturnType<DataAdapter["produtos"]["criar"]>>>(
+        "produtos",
+        "criar",
+        "/api/produtos/criar",
+        input,
+      ),
     editar: (input) =>
       cloudOnly("produtos", "editar", () => cloudAdapter.produtos.editar(input)),
     alterarStatus: (input) =>
-      cloudOnly("produtos", "alterarStatus", () => cloudAdapter.produtos.alterarStatus(input)),
+      cloudOnly("produtos", "alterarStatus", () =>
+        cloudAdapter.produtos.alterarStatus(input),
+      ),
     excluir: (produtoId) =>
       cloudOnly("produtos", "excluir", () => cloudAdapter.produtos.excluir(produtoId)),
     adicionarCodigo: (input) =>
-      cloudOnly("produtos", "adicionarCodigo", () => cloudAdapter.produtos.adicionarCodigo(input)),
+      cloudOnly("produtos", "adicionarCodigo", () =>
+        cloudAdapter.produtos.adicionarCodigo(input),
+      ),
     excluirCodigo: (codigoId) =>
-      cloudOnly("produtos", "excluirCodigo", () => cloudAdapter.produtos.excluirCodigo(codigoId)),
+      cloudOnly("produtos", "excluirCodigo", () =>
+        cloudAdapter.produtos.excluirCodigo(codigoId),
+      ),
     criarVariacao: (input) =>
-      cloudOnly("produtos", "criarVariacao", () => cloudAdapter.produtos.criarVariacao(input)),
+      cloudOnly("produtos", "criarVariacao", () =>
+        cloudAdapter.produtos.criarVariacao(input),
+      ),
     excluirVariacao: (variacaoId) =>
-      cloudOnly("produtos", "excluirVariacao", () => cloudAdapter.produtos.excluirVariacao(variacaoId)),
+      cloudOnly("produtos", "excluirVariacao", () =>
+        cloudAdapter.produtos.excluirVariacao(variacaoId),
+      ),
     criarCategoria: (input) =>
-      cloudOnly("produtos", "criarCategoria", () => cloudAdapter.produtos.criarCategoria(input)),
-  },
-
-  estoque: {
-    ...cloudAdapter.estoque,
-    saldosLinhas: () =>
-      localGet<Awaited<ReturnType<DataAdapter["estoque"]["saldosLinhas"]>>>(
-        "estoque",
-        "saldosLinhas",
-        "/api/estoque/saldos",
+      cloudOnly("produtos", "criarCategoria", () =>
+        cloudAdapter.produtos.criarCategoria(input),
       ),
-    movimentacoes: (input) =>
-      localGet<Awaited<ReturnType<DataAdapter["estoque"]["movimentacoes"]>>>(
-        "estoque",
-        "movimentacoes",
-        "/api/estoque/movimentacoes",
-        {
-          produto_id: input?.produto_id ?? undefined,
-          limit: input?.limit != null ? String(input.limit) : undefined,
-        },
-      ),
-    registrarMovimento: localTerminalAdapter.estoque.registrarMovimento,
-  },
-
-  vendas: {
-    ...cloudAdapter.vendas,
-    finalizar: localTerminalAdapter.vendas.finalizar,
-    cancelar: localTerminalAdapter.vendas.cancelar,
-  },
-
-  caixa: localTerminalAdapter.caixa,
-
-  clientes: {
-    ...cloudAdapter.clientes,
-    criar: (input) =>
-      localPost<Awaited<ReturnType<DataAdapter["clientes"]["criar"]>>>(
-        "clientes",
-        "criar",
-        "/api/clientes/registrar",
-        input,
-      ),
-    list: (input) =>
-      localGet<Awaited<ReturnType<DataAdapter["clientes"]["list"]>>>(
-        "clientes",
-        "list",
-        "/api/clientes/list",
-        {
-          status: input?.status ?? undefined,
-          busca: input?.busca ?? undefined,
-        },
-      ),
-    listLite: (input) =>
-      localGet<Awaited<ReturnType<DataAdapter["clientes"]["listLite"]>>>(
-        "clientes",
-        "listLite",
-        "/api/clientes/lite",
-        {
-          status:
-            input && "status" in input
-              ? input.status === null
-                ? ""
-                : (input.status ?? undefined)
-          : undefined,
-        },
-      ),
-    get: (clienteId) =>
-      localGet<Awaited<ReturnType<DataAdapter["clientes"]["get"]>>>(
-        "clientes",
-        "get",
-        "/api/clientes/get",
-        { cliente_id: clienteId },
-      ),
-    metricas: async () => new Map(),
-    historico: async () => [],
-    checkDocumentoDuplicado: (documento, ignoreId) =>
-      localGet<Awaited<ReturnType<DataAdapter["clientes"]["checkDocumentoDuplicado"]>>>(
-        "clientes",
-        "checkDocumentoDuplicado",
-        "/api/clientes/documento",
-        { documento, ignore_id: ignoreId ?? undefined },
-      ),
-    editar: (input) =>
-      cloudOnly("clientes", "editar", () => cloudAdapter.clientes.editar(input)),
-    alterarStatus: (input) =>
-      cloudOnly("clientes", "alterarStatus", () => cloudAdapter.clientes.alterarStatus(input)),
-    excluir: (clienteId) =>
-      cloudOnly("clientes", "excluir", () => cloudAdapter.clientes.excluir(clienteId)),
   },
 
   categoriasProduto: {
     ...cloudAdapter.categoriasProduto,
-    async list() {
-      return categoriasFromProdutos(await listProdutosLocal());
+    list: async () => {
+      const produtos = await localServerAdapter.produtos.listar();
+      return categoriasFromProdutos(produtos as unknown as ProdutoComVariacoes[]);
     },
     editar: (input) =>
-      cloudOnly("categoriasProduto", "editar", () => cloudAdapter.categoriasProduto.editar(input)),
+      cloudOnly("categoriasProduto", "editar", () =>
+        cloudAdapter.categoriasProduto.editar(input),
+      ),
     alterarStatus: (input) =>
       cloudOnly("categoriasProduto", "alterarStatus", () =>
         cloudAdapter.categoriasProduto.alterarStatus(input),
@@ -411,6 +272,165 @@ export const localServerAdapter: DataAdapter = {
       cloudOnly("categoriasProduto", "excluir", () =>
         cloudAdapter.categoriasProduto.excluir(categoriaId),
       ),
+  },
+
+  estoque: {
+    ...cloudAdapter.estoque,
+    saldosLinhas: () =>
+      withFallback(
+        "estoque",
+        "saldosLinhas",
+        () =>
+          localGet<Awaited<ReturnType<DataAdapter["estoque"]["saldosLinhas"]>>>(
+            "estoque",
+            "saldosLinhas",
+            "/api/estoque/saldos",
+          ),
+        () => cloudAdapter.estoque.saldosLinhas(),
+      ),
+    movimentacoes: (input) =>
+      withFallback(
+        "estoque",
+        "movimentacoes",
+        () =>
+          localGet<Awaited<ReturnType<DataAdapter["estoque"]["movimentacoes"]>>>(
+            "estoque",
+            "movimentacoes",
+            "/api/estoque/movimentacoes",
+            {
+              produto_id: input?.produto_id ?? undefined,
+              limit: input?.limit != null ? String(input.limit) : undefined,
+            },
+          ),
+        () => cloudAdapter.estoque.movimentacoes(input),
+      ),
+    registrarMovimento: (input) => localTerminalAdapter.estoque.registrarMovimento(input),
+  },
+
+  vendas: {
+    ...cloudAdapter.vendas,
+    finalizar: (input) => localTerminalAdapter.vendas.finalizar(input),
+    cancelar: (input) => localTerminalAdapter.vendas.cancelar(input),
+  },
+
+  clientes: {
+    ...cloudAdapter.clientes,
+    criar: (input) =>
+      localPost<Awaited<ReturnType<DataAdapter["clientes"]["criar"]>>>(
+        "clientes",
+        "criar",
+        "/api/clientes/criar",
+        input,
+      ),
+    editar: (input) =>
+      cloudOnly("clientes", "editar", () => cloudAdapter.clientes.editar(input)),
+    alterarStatus: (input) =>
+      cloudOnly("clientes", "alterarStatus", () =>
+        cloudAdapter.clientes.alterarStatus(input),
+      ),
+    excluir: (clienteId) =>
+      cloudOnly("clientes", "excluir", () => cloudAdapter.clientes.excluir(clienteId)),
+    list: (input) =>
+      withFallback(
+        "clientes",
+        "list",
+        () =>
+          localGet<Awaited<ReturnType<DataAdapter["clientes"]["list"]>>>(
+            "clientes",
+            "list",
+            "/api/clientes/list",
+            {
+              status:
+                input && "status" in input
+                  ? input.status === null
+                    ? ""
+                    : (input.status ?? undefined)
+                  : undefined,
+            },
+          ),
+        () => cloudAdapter.clientes.list(input),
+      ),
+    listLite: (input) =>
+      withFallback(
+        "clientes",
+        "listLite",
+        () =>
+          localGet<Awaited<ReturnType<DataAdapter["clientes"]["listLite"]>>>(
+            "clientes",
+            "listLite",
+            "/api/clientes/lite",
+            {
+              status:
+                input && "status" in input
+                  ? input.status === null
+                    ? ""
+                    : (input.status ?? undefined)
+                  : undefined,
+            },
+          ),
+        () => cloudAdapter.clientes.listLite(input),
+      ),
+    get: (clienteId) =>
+      withFallback(
+        "clientes",
+        "get",
+        async () => {
+          const clientes = await localGet<Awaited<ReturnType<DataAdapter["clientes"]["list"]>>>(
+            "clientes",
+            "get",
+            "/api/clientes/list",
+          );
+          return clientes?.find((c) => c.id === clienteId) ?? null;
+        },
+        () => cloudAdapter.clientes.get(clienteId),
+      ),
+    metricas: async () => new Map(),
+    historico: async () => [],
+    checkDocumentoDuplicado: async (documento, ignoreId) => {
+      const clientes = await localServerAdapter.clientes.list({ status: null });
+      const normalizado = documento.replace(/\D/g, "");
+      return (
+        clientes.find((cliente) => {
+          const doc = (cliente.documento ?? "").replace(/\D/g, "");
+          return doc === normalizado && cliente.id !== ignoreId;
+        }) ?? null
+      );
+    },
+  },
+
+  caixa: {
+    ...cloudAdapter.caixa,
+    abrir: async (input) => {
+      const local = await localPost<Awaited<ReturnType<DataAdapter["caixa"]["abrir"]>> | {
+        caixa_id: string;
+        remote_id?: string | null;
+      }>("caixa", "abrir", "/api/caixa/abrir", input);
+      if (typeof local === "string") return local;
+      return local.remote_id ?? local.caixa_id;
+    },
+    registrarMovimento: async (input) => {
+      const local = await localPost<Awaited<ReturnType<DataAdapter["caixa"]["registrarMovimento"]>> | {
+        movimento_id: string;
+        remote_id?: string | null;
+      }>("caixa", "registrarMovimento", "/api/caixa/movimento", input);
+      if (typeof local === "string") return local;
+      return local.remote_id ?? local.movimento_id;
+    },
+    fechar: async (input) => {
+      const local = await localPost<{
+        remote_id?: string | null;
+        valor_informado: number;
+      }>("caixa", "fechar", "/api/caixa/fechar", input);
+      return {
+        caixa_id: local.remote_id ?? input.caixa_id,
+        valor_esperado: input.valor_informado,
+        valor_informado: local.valor_informado,
+        diferenca: 0,
+        fechado_em: new Date().toISOString(),
+      };
+    },
+    aberto: (filtro) => localTerminalAdapter.caixa.aberto(filtro),
+    resumo: (caixaId) => localTerminalAdapter.caixa.resumo(caixaId),
   },
 };
 

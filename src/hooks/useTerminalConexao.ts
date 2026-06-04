@@ -57,12 +57,14 @@ export function useTerminalConexao(): ConexaoInfo {
                 porta: cfg.terminal?.porta ?? 3333,
                 terminalId: "self",
                 terminalNome: cfg.serverNome ?? "Servidor",
-                serverToken: cfg.serverAuthToken,
               }
             : cfg.terminal;
         const local = await pingServidorLocal(terminalCfg);
-        if (local.status !== "online") throw new Error(local.mensagem ?? "Servidor local offline");
-        setLatenciaMs(local.latenciaMs);
+        if (local.status !== "online") {
+          throw new Error(local.mensagem ?? "Servidor local offline");
+        }
+        const dt = Math.round(performance.now() - t0);
+        setLatenciaMs(local.latenciaMs ?? dt);
         setUltimoSync(new Date());
         setStatus("online");
         setTentativas(0);

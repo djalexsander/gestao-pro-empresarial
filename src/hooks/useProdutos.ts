@@ -8,6 +8,11 @@ import type { Produto, ProdutoComCategoria, TipoIdentificacao } from "@/integrat
 // Re-exports para preservar a API pública anterior deste módulo.
 export type { Produto, TipoIdentificacao };
 
+function isLocalProdutosMode(): boolean {
+  const mode = getDataMode();
+  return mode === "local-server" || mode === "local-terminal";
+}
+
 export type Categoria = {
   id: string;
   nome: string;
@@ -41,11 +46,12 @@ export function useCreateCategoria() {
     mutationFn: async (nome: string): Promise<Categoria> => {
       const client_uuid = crypto.randomUUID();
       const r = await dataClient.produtos.criarCategoria({ nome, client_uuid });
-      const mode = getDataMode();
-      if (mode === "local-server" || mode === "local-terminal") {
-        const rows = await dataClient.categoriasProduto.list({ incluir_inativas: true });
-        const found = rows.find((categoria) => categoria.id === r.categoria_id);
-        if (found) return found as Categoria;
+      if (isLocalProdutosMode()) {
+        const categorias = (await dataClient.categoriasProduto.list({
+          incluir_inativas: true,
+        })) as Categoria[];
+        const local = categorias.find((c) => c.id === r.categoria_id);
+        if (local) return local;
       }
       const { data, error } = await supabase
         .from("categorias_produto")
@@ -81,8 +87,11 @@ export function useProduto(id: string | undefined) {
   return useQuery({
     queryKey: ["produto", id],
     enabled: !!id,
-    queryFn: () =>
-      dataClient.produtos.get(id!) as Promise<(Produto & { variacoes: Variacao[] }) | null>,
+    queryFn: async () => {
+      return dataClient.produtos.get(id!) as Promise<
+        (Produto & { variacoes: Variacao[] }) | null
+      >;
+    },
   });
 }
 
@@ -142,16 +151,10 @@ export function useCreateProduto() {
       const client_uuid = crypto.randomUUID();
       try {
         const r = await dataClient.produtos.criar({ ...input, client_uuid });
-        // In local modes, prefer reading from local adapter instead of Supabase
-        const mode = getDataMode();
-        if (mode === "local-server" || mode === "local-terminal") {
-          try {
-            const list = (await dataClient.produtos.listar()) as ProdutoComCategoria[];
-            const found = list.find((p) => p.id === r.produto_id);
-            if (found) return found as unknown as Produto;
-          } catch {
-            // fallthrough to remote fetch as last resort
-          }
+        if (isLocalProdutosMode()) {
+          const produtos = await dataClient.produtos.listar();
+          const local = produtos.find((p) => p.id === r.produto_id);
+          if (local) return local;
         }
         return await fetchProdutoRow(r.produto_id);
       } catch (e) {
@@ -176,15 +179,10 @@ export function useUpdateProduto() {
           produto_id: id,
           ...input,
         });
-        const mode = getDataMode();
-        if (mode === "local-server" || mode === "local-terminal") {
-          try {
-            const list = (await dataClient.produtos.listar()) as ProdutoComCategoria[];
-            const found = list.find((p) => p.id === r.produto_id);
-            if (found) return found as unknown as Produto;
-          } catch {
-            // fallthrough
-          }
+        if (isLocalProdutosMode()) {
+          const produtos = await dataClient.produtos.listar();
+          const local = produtos.find((p) => p.id === r.produto_id);
+          if (local) return local;
         }
         return await fetchProdutoRow(r.produto_id);
       } catch (e) {

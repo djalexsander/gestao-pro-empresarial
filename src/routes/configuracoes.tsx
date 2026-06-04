@@ -5,8 +5,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { SaveBar } from "@/components/configuracoes/SaveBar";
-
-
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { EmpresaTab } from "@/components/configuracoes/EmpresaTab";
 import { FuncionariosTab } from "@/components/configuracoes/FuncionariosTab";
@@ -28,11 +26,22 @@ export const Route = createFileRoute("/configuracoes")({
   component: SettingsPage,
 });
 
-const TAB_VALUES = ["empresa","planos","socios","funcionarios","terminais","balanca","desktop","impressoras","prefs","integracoes"] as const;
+const TAB_VALUES = [
+  "empresa",
+  "planos",
+  "socios",
+  "funcionarios",
+  "terminais",
+  "balanca",
+  "desktop",
+  "impressoras",
+  "prefs",
+  "integracoes",
+] as const;
 
 function SettingsPage() {
   const search = useSearch({ strict: false }) as { tab?: string };
-  const tab = TAB_VALUES.includes(search.tab as typeof TAB_VALUES[number])
+  const tab = TAB_VALUES.includes(search.tab as (typeof TAB_VALUES)[number])
     ? (search.tab as string)
     : "empresa";
 
@@ -45,53 +54,70 @@ function SettingsPage() {
 
       <Tabs value={tab} className="space-y-4">
         <div className="min-w-0 flex-1">
-          <KeepMountedTab value="empresa" active={tab}><EmpresaTab /></KeepMountedTab>
-          <KeepMountedTab value="planos" active={tab}><PlanosModulosTab /></KeepMountedTab>
-          <KeepMountedTab value="socios" active={tab}><SociosTab /></KeepMountedTab>
-          <KeepMountedTab value="funcionarios" active={tab}><FuncionariosTab /></KeepMountedTab>
-          <KeepMountedTab value="terminais" active={tab}><TerminaisTab /></KeepMountedTab>
-          <KeepMountedTab value="balanca" active={tab}><BalancaTab /></KeepMountedTab>
-          <KeepMountedTab value="desktop" active={tab}><DesktopTab /></KeepMountedTab>
-          <KeepMountedTab value="impressoras" active={tab}><ImpressoraConfigCard /></KeepMountedTab>
+          <KeepMountedTab value="empresa" active={tab}>
+            <EmpresaTab />
+          </KeepMountedTab>
+          <KeepMountedTab value="planos" active={tab}>
+            <PlanosModulosTab />
+          </KeepMountedTab>
+          <KeepMountedTab value="socios" active={tab}>
+            <SociosTab />
+          </KeepMountedTab>
+          <KeepMountedTab value="funcionarios" active={tab}>
+            <FuncionariosTab />
+          </KeepMountedTab>
+          <KeepMountedTab value="terminais" active={tab}>
+            <TerminaisTab />
+          </KeepMountedTab>
+          <KeepMountedTab value="balanca" active={tab}>
+            <BalancaTab />
+          </KeepMountedTab>
+          <KeepMountedTab value="desktop" active={tab}>
+            <DesktopTab />
+          </KeepMountedTab>
+          <KeepMountedTab value="impressoras" active={tab}>
+            <ImpressoraConfigCard />
+          </KeepMountedTab>
           <KeepMountedTab value="prefs" active={tab}>
             <div className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Preferências</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between rounded-lg border border-border p-4">
-                  <div>
-                    <p className="font-medium">Notificações por e-mail</p>
-                    <p className="text-sm text-muted-foreground">Receba alertas sobre vendas e estoque.</p>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Preferências</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between rounded-lg border border-border p-4">
+                    <div>
+                      <p className="font-medium">Notificações por e-mail</p>
+                      <p className="text-sm text-muted-foreground">
+                        Receba alertas sobre vendas e estoque.
+                      </p>
+                    </div>
+                    <Switch defaultChecked />
                   </div>
-                  <Switch defaultChecked />
-                </div>
-                <div className="flex items-center justify-between rounded-lg border border-border p-4">
-                  <div>
-                    <p className="font-medium">Alerta de estoque baixo</p>
-                    <p className="text-sm text-muted-foreground">Avise quando produtos atingirem o mínimo.</p>
+                  <div className="flex items-center justify-between rounded-lg border border-border p-4">
+                    <div>
+                      <p className="font-medium">Alerta de estoque baixo</p>
+                      <p className="text-sm text-muted-foreground">
+                        Avise quando produtos atingirem o mínimo.
+                      </p>
+                    </div>
+                    <Switch defaultChecked />
                   </div>
-                  <Switch defaultChecked />
-                </div>
-                <DarkModeSwitchRow />
-              </CardContent>
-            </Card>
-            <SaveBar />
+                  <DarkModeSwitchRow />
+                </CardContent>
+              </Card>
+              <SaveBar />
             </div>
           </KeepMountedTab>
-          <KeepMountedTab value="integracoes" active={tab}><IntegracoesTab /></KeepMountedTab>
+          <KeepMountedTab value="integracoes" active={tab}>
+            <IntegracoesTab />
+          </KeepMountedTab>
         </div>
       </Tabs>
     </div>
   );
 }
 
-/**
- * Mantém o conteúdo da aba montado depois da primeira visita, escondendo via
- * CSS quando não está ativa. Evita refetch / remount toda vez que o usuário
- * troca de aba — a segunda visita é instantânea.
- */
 function KeepMountedTab({
   value,
   active,
@@ -115,7 +141,6 @@ function KeepMountedTab({
   );
 }
 
-
 function DarkModeSwitchRow() {
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -135,4 +160,3 @@ function DarkModeSwitchRow() {
     </div>
   );
 }
-

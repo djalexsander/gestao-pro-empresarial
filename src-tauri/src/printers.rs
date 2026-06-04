@@ -308,7 +308,12 @@ pub fn print_image_png(
 // ---------------------------------------------------------------------------
 // ESC/POS — construtor de cupom de texto
 // ---------------------------------------------------------------------------
-
+//
+// Caminho dedicado a impressoras de etiqueta que NÃO aceitam RAW/ESC-POS
+// (ex.: PT260, Argox OS-214, Elgin L42, Zebra GK420 em modo Windows).
+// Decodifica um PNG vindo do frontend e desenha via GDI (StretchDIBits) no
+// DC da impressora. Compatível com qualquer driver Windows que aceite
+// impressão GDI/bitmap, sem depender de SumatraPDF nem de handler PDF.
 
 /// Constrói um buffer ESC/POS para o texto informado.
 ///
