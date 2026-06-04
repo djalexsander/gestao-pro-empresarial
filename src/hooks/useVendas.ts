@@ -141,6 +141,8 @@ export interface VendaListItem {
   operador_id: string | null;
   terminal_id: string | null;
   sync_status?: string | null;
+  sync_error?: string | null;
+  cancel_sync_status?: string | null;
   outbox_status?: string | null;
   remote_id?: string | null;
 }
@@ -203,6 +205,8 @@ export interface VendaDetalhe {
   forma_pagamento: FormaPagamento | null;
   observacoes: string | null;
   sync_status?: string | null;
+  sync_error?: string | null;
+  cancel_sync_status?: string | null;
   outbox_status?: string | null;
   remote_id?: string | null;
   itens: Array<{

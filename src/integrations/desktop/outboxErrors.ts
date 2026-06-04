@@ -1,19 +1,19 @@
 /**
  * ============================================================================
- * outboxErrors — classificação amigável de erros das outboxes locais
+ * outboxErrors - classificacao amigavel de erros das outboxes locais
  * ============================================================================
  *
- * As outboxes (estoque, vendas, caixa, cancelamentos, financeiro) gravam o
- * `last_error` retornado pelo upstream (Supabase/RPC) ou pelo próprio
- * scheduler local. As mensagens originais são técnicas (HTTP 401, fetch
- * failed, "invalid input syntax for type date", etc.). Este módulo
- * traduz para categorias e mensagens curtas para o operador/admin.
- *
- * Não muda comportamento de sync — só leitura/diagnóstico.
+ * Nao muda comportamento de sync: apenas transforma `last_error` cru em uma
+ * etiqueta curta e uma mensagem de diagnostico para a UI.
  */
 export type OutboxErrorKind =
   | "rede"
   | "auth"
+  | "campo-ausente"
+  | "valor-invalido"
+  | "fk-inexistente"
+  | "produto-nao-encontrado"
+  | "cliente-invalido"
   | "validacao"
   | "servidor"
   | "dados-antigos"
@@ -24,6 +24,7 @@ export interface OutboxErrorClass {
   kind: OutboxErrorKind;
   label: string;
   friendly: string;
+  technical?: string;
 }
 
 const NONE: OutboxErrorClass = {
@@ -32,29 +33,36 @@ const NONE: OutboxErrorClass = {
   friendly: "Sem erros recentes.",
 };
 
-/**
- * Classifica um `last_error` cru numa categoria amigável.
- * Não joga fora a mensagem original — quem renderiza ainda pode mostrá-la
- * em detalhe; este helper apenas dá uma etiqueta e uma frase curta.
- */
 export function classifyOutboxError(
   raw: string | null | undefined,
 ): OutboxErrorClass {
   if (!raw) return NONE;
-  const msg = String(raw).toLowerCase();
 
-  // --- rede / conectividade ---
+  const supabaseError = extractSupabaseError(String(raw));
+  const combined = [
+    raw,
+    supabaseError?.code,
+    supabaseError?.message,
+    supabaseError?.details,
+    supabaseError?.hint,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
   if (
-    msg.includes("failed to fetch") ||
-    msg.includes("networkerror") ||
-    msg.includes("network error") ||
-    msg.includes("econnrefused") ||
-    msg.includes("enotfound") ||
-    msg.includes("etimedout") ||
-    msg.includes("timeout") ||
-    msg.includes("dns") ||
-    msg.includes("connect error") ||
-    msg.includes("offline")
+    includesAny(combined, [
+      "failed to fetch",
+      "networkerror",
+      "network error",
+      "econnrefused",
+      "enotfound",
+      "etimedout",
+      "timeout",
+      "dns",
+      "connect error",
+      "offline",
+    ])
   ) {
     return {
       kind: "rede",
@@ -64,73 +72,150 @@ export function classifyOutboxError(
     };
   }
 
-  // --- autenticação / JWT ---
   if (
-    msg.includes("401") ||
-    msg.includes("unauthorized") ||
-    msg.includes("jwt") ||
-    msg.includes("invalid token") ||
-    msg.includes("token expired") ||
-    msg.includes("not authenticated") ||
-    msg.includes("permission denied")
+    includesAny(combined, [
+      "401",
+      "unauthorized",
+      "não autenticado",
+      "nao autenticado",
+      "jwt",
+      "invalid token",
+      "token expired",
+      "not authenticated",
+      "permission denied",
+    ])
   ) {
     return {
       kind: "auth",
       label: "Sessão expirada",
       friendly:
-        "Sessão da nuvem expirou ou perdeu autorização. Saia e entre novamente para retomar o envio.",
+        "A nuvem rejeitou o envio por falta de autenticação válida. Entre novamente no sistema e reenvie a fila.",
+      technical: supabaseError?.message ?? String(raw),
     };
   }
 
-  // --- dados antigos / inconsistência conhecida (ex.: fiado sem vencimento) ---
   if (
-    msg.includes("data_vencimento") ||
-    msg.includes("vencimento") ||
-    msg.includes("invalid input syntax for type date") ||
-    msg.includes("violates not-null") ||
-    msg.includes("null value in column")
+    combined.includes("produto") &&
+    includesAny(combined, [
+      "foreign key",
+      "23503",
+      "not present in table",
+      "não encontrado",
+      "nao encontrado",
+    ])
   ) {
     return {
-      kind: "dados-antigos",
-      label: "Dado obrigatório faltando",
+      kind: "produto-nao-encontrado",
+      label: "Produto não encontrado",
       friendly:
-        "Um registro antigo está sem um campo obrigatório (ex.: fiado sem data de vencimento). Edite o registro original ou peça suporte para corrigir.",
+        "A nuvem rejeitou a venda porque um produto do payload não existe ou não está sincronizado na nuvem.",
+      technical: supabaseError?.message ?? String(raw),
     };
   }
 
-  // --- validação (HTTP 4xx genérico, schema, regra de negócio) ---
   if (
-    msg.includes("400") ||
-    msg.includes("422") ||
-    msg.includes("validation") ||
-    msg.includes("invalid") ||
-    msg.includes("constraint") ||
-    msg.includes("foreign key")
+    combined.includes("cliente") &&
+    includesAny(combined, [
+      "foreign key",
+      "23503",
+      "not present in table",
+      "inválido",
+      "invalido",
+      "pendente",
+    ])
+  ) {
+    return {
+      kind: "cliente-invalido",
+      label: "Cliente inválido",
+      friendly:
+        "A nuvem rejeitou a venda porque o cliente informado é inválido ou ainda não existe na nuvem.",
+      technical: supabaseError?.message ?? String(raw),
+    };
+  }
+
+  if (
+    includesAny(combined, ["foreign key", "23503", "not present in table"])
+  ) {
+    return {
+      kind: "fk-inexistente",
+      label: "FK inexistente",
+      friendly:
+        "A nuvem rejeitou os dados porque uma referência usada no payload não existe na nuvem.",
+      technical: supabaseError?.message ?? String(raw),
+    };
+  }
+
+  if (
+    includesAny(combined, [
+      "data_vencimento",
+      "vencimento",
+      "violates not-null",
+      "null value in column",
+      "not-null constraint",
+      "required",
+      "obrigat",
+      "ausente",
+    ])
+  ) {
+    return {
+      kind: "campo-ausente",
+      label: "Campo ausente",
+      friendly:
+        "Campo obrigatório ausente no payload enviado à nuvem. Abra os detalhes para ver o registro e o erro original.",
+      technical: supabaseError?.message ?? String(raw),
+    };
+  }
+
+  if (
+    includesAny(combined, [
+      "invalid input syntax",
+      "invalid input",
+      "cannot cast",
+      "malformed",
+      "valor inválido",
+      "valor invalido",
+    ])
+  ) {
+    return {
+      kind: "valor-invalido",
+      label: "Valor inválido",
+      friendly:
+        "A nuvem rejeitou o payload porque um campo contém valor inválido para o formato esperado.",
+      technical: supabaseError?.message ?? String(raw),
+    };
+  }
+
+  if (
+    includesAny(combined, ["400", "422", "validation", "invalid", "constraint"])
   ) {
     return {
       kind: "validacao",
-      label: "Dados inválidos",
-      friendly:
-        "A nuvem rejeitou os dados por validação. Verifique o registro original ou acione o suporte.",
+      label: "Erro retornado pelo Supabase",
+      friendly: supabaseError?.message
+        ? `Supabase: ${supabaseError.message}`
+        : "A nuvem rejeitou os dados. Abra os detalhes para ver o payload e a mensagem original.",
+      technical: supabaseError?.details ?? supabaseError?.message ?? String(raw),
     };
   }
 
-  // --- servidor / cloud (5xx, "internal", etc.) ---
   if (
-    msg.includes("500") ||
-    msg.includes("502") ||
-    msg.includes("503") ||
-    msg.includes("504") ||
-    msg.includes("internal server") ||
-    msg.includes("upstream") ||
-    msg.includes("supabase") ||
-    msg.includes("rpc")
+    includesAny(combined, [
+      "500",
+      "502",
+      "503",
+      "504",
+      "internal server",
+      "upstream",
+      "supabase",
+      "rpc",
+    ])
   ) {
     return {
       kind: "servidor",
       label: "Erro na nuvem",
       friendly:
         "A nuvem respondeu com erro. Tentaremos novamente em segundos. Se persistir, acione o suporte.",
+      technical: supabaseError?.message ?? String(raw),
     };
   }
 
@@ -139,5 +224,27 @@ export function classifyOutboxError(
     label: "Erro desconhecido",
     friendly:
       "Falha não classificada ao sincronizar. Confira a mensagem técnica e, se necessário, acione o suporte.",
+    technical: supabaseError?.message ?? String(raw),
   };
+}
+
+function includesAny(value: string, needles: string[]) {
+  return needles.some((needle) => value.includes(needle));
+}
+
+function extractSupabaseError(raw: string): {
+  code?: string | null;
+  message?: string | null;
+  details?: string | null;
+  hint?: string | null;
+} | null {
+  const start = raw.indexOf("{");
+  if (start < 0) return null;
+  try {
+    const parsed = JSON.parse(raw.slice(start));
+    if (parsed && typeof parsed === "object") return parsed;
+  } catch {
+    return null;
+  }
+  return null;
 }

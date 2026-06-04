@@ -15,10 +15,19 @@ import {
   Database,
   Copy,
   KeyRound,
+  Eye,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useDesktopRole } from "@/components/desktop/DesktopRoleProvider";
 import { DesktopSetupWizard } from "@/components/desktop/DesktopSetupWizard";
 import { useServerConnection } from "@/components/desktop/useServerConnection";
@@ -36,6 +45,7 @@ import {
   fetchOutboxFinanceiroStats,
   fetchOutboxStats,
   fetchOutboxStatus,
+  fetchOutboxVendasList,
   fetchOutboxVendasStats,
   flushOutbox,
   flushOutboxCaixa,
@@ -59,6 +69,7 @@ import {
   type OutboxCancelamentosStats,
   type OutboxStatusResponse,
   type OutboxFinanceiroStats,
+  type OutboxItem,
   type OutboxStats,
   type PersistedTerminal,
   type ServerConnStatus,
@@ -93,6 +104,10 @@ export function DesktopTab() {
   const [flushing, setFlushing] = useState(false);
   const [outboxVendas, setOutboxVendas] = useState<OutboxStats | null>(null);
   const [flushingVendas, setFlushingVendas] = useState(false);
+  const [vendasErroOpen, setVendasErroOpen] = useState(false);
+  const [vendasErroItems, setVendasErroItems] = useState<OutboxItem[]>([]);
+  const [vendasErroLoading, setVendasErroLoading] = useState(false);
+  const [vendaErroSelecionada, setVendaErroSelecionada] = useState<string | null>(null);
   const [outboxCaixa, setOutboxCaixa] = useState<OutboxCaixaStats | null>(null);
   const [flushingCaixa, setFlushingCaixa] = useState(false);
   const [outboxCancel, setOutboxCancel] =
@@ -127,6 +142,11 @@ export function DesktopTab() {
             terminalNome: "self",
           }
         : undefined;
+
+  const selectedVendaErro =
+    vendasErroItems.find((item) => item.local_uuid === vendaErroSelecionada) ??
+    vendasErroItems[0] ??
+    null;
 
   const recarregarOutboxStatus = async () => {
     if (!localCfg) return;
@@ -185,11 +205,40 @@ export function DesktopTab() {
     }
   };
 
+  const carregarDetalhesErrosVendas = async () => {
+    if (!localCfg) return;
+    setVendasErroLoading(true);
+    try {
+      const items = await fetchOutboxVendasList(localCfg, {
+        status: "error",
+        limit: 50,
+      });
+      setVendasErroItems(items);
+      setVendaErroSelecionada((current) => {
+        if (current && items.some((item) => item.local_uuid === current)) {
+          return current;
+        }
+        return items[0]?.local_uuid ?? null;
+      });
+    } finally {
+      setVendasErroLoading(false);
+    }
+  };
+
+  const handleOpenVendasErrorDetails = async () => {
+    if (!localCfg) return;
+    setVendasErroOpen(true);
+    await carregarDetalhesErrosVendas();
+  };
+
   const handleRetryErrorsVendas = async () => {
     if (!localCfg) return;
     await retryOutboxVendasErrors(localCfg);
     setOutboxVendas(await fetchOutboxVendasStats(localCfg));
     await recarregarOutboxStatus();
+    if (vendasErroOpen) {
+      await carregarDetalhesErrosVendas();
+    }
   };
 
   const handleFlushCaixa = async () => {
@@ -583,8 +632,19 @@ export function DesktopTab() {
             status={outboxStatus}
             flushing={flushingAll}
             onFlushAll={() => void handleFlushAll()}
+            onOpenVendasDetails={() => void handleOpenVendasErrorDetails()}
           />
         )}
+
+        <VendasSyncErrorDialog
+          open={vendasErroOpen}
+          onOpenChange={setVendasErroOpen}
+          items={vendasErroItems}
+          loading={vendasErroLoading}
+          selectedItem={selectedVendaErro}
+          onSelect={setVendaErroSelecionada}
+          onRetry={() => void handleRetryErrorsVendas()}
+        />
 
         {role !== "unset" && dbInfo && (
           <Card>
@@ -988,13 +1048,23 @@ export function DesktopTab() {
               </CardTitle>
               <div className="flex gap-2">
                 {outboxVendas.error > 0 && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void handleRetryErrorsVendas()}
-                  >
-                    Reenfileirar erros
-                  </Button>
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void handleOpenVendasErrorDetails()}
+                    >
+                      <Eye className="mr-2 h-4 w-4" />
+                      Ver detalhes
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void handleRetryErrorsVendas()}
+                    >
+                      Reenfileirar erros
+                    </Button>
+                  </>
                 )}
                 <Button
                   size="sm"
@@ -1020,7 +1090,17 @@ export function DesktopTab() {
                   value={`${outboxVendas.due_now} / ${outboxVendas.pending}`}
                 />
                 <Field label="Enviadas" value={String(outboxVendas.sent)} />
-                <Field label="Com erro" value={String(outboxVendas.error)} />
+                {outboxVendas.error > 0 ? (
+                  <button
+                    type="button"
+                    className="rounded-md text-left transition-colors hover:bg-destructive/10 focus:outline-none focus:ring-2 focus:ring-ring"
+                    onClick={() => void handleOpenVendasErrorDetails()}
+                  >
+                    <Field label="Com erro" value={String(outboxVendas.error)} />
+                  </button>
+                ) : (
+                  <Field label="Com erro" value={String(outboxVendas.error)} />
+                )}
                 <Field
                   label="Último envio"
                   value={
@@ -1067,6 +1147,15 @@ export function DesktopTab() {
                     <div className="mt-0.5 text-xs text-destructive">
                       {classifyOutboxError(outboxVendas.last_error).friendly}
                     </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-2"
+                      onClick={() => void handleOpenVendasErrorDetails()}
+                    >
+                      <Eye className="mr-2 h-4 w-4" />
+                      Ver detalhes
+                    </Button>
                     <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
                       {outboxVendas.last_error}
                     </div>
@@ -1798,10 +1887,12 @@ function OutboxStatusPanel({
   status,
   flushing,
   onFlushAll,
+  onOpenVendasDetails,
 }: {
   status: OutboxStatusResponse;
   flushing: boolean;
   onFlushAll: () => void;
+  onOpenVendasDetails?: () => void;
 }) {
   const firstError = status.domains.find((d) => d.last_error)?.last_error ?? null;
   const errorInfo = firstError ? classifyOutboxError(firstError) : null;
@@ -1865,13 +1956,21 @@ function OutboxStatusPanel({
               {status.domains.map((d) => {
                 const hasError = d.error > 0;
                 const hasPending = d.pending > 0 || d.sending > 0;
+                const canOpenDetails =
+                  d.domain === "vendas" && hasError && onOpenVendasDetails;
                 const badgeClass = hasError
                   ? "border-destructive/30 bg-destructive/10 text-destructive"
                   : hasPending
                     ? "border-warning/30 bg-warning/10 text-warning"
                     : "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
                 return (
-                  <tr key={d.domain} className="border-t border-border">
+                  <tr
+                    key={d.domain}
+                    className={`border-t border-border ${
+                      canOpenDetails ? "cursor-pointer hover:bg-muted/30" : ""
+                    }`}
+                    onClick={canOpenDetails ? onOpenVendasDetails : undefined}
+                  >
                     <td className="px-3 py-2">
                       <Badge variant="outline" className={badgeClass}>
                         {d.label}
@@ -1880,15 +1979,44 @@ function OutboxStatusPanel({
                     <td className="px-3 py-2 text-right tabular-nums">{d.pending}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{d.sending}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{d.sent}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{d.error}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {canOpenDetails ? (
+                        <button
+                          type="button"
+                          className="rounded px-2 py-1 text-destructive underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-ring"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            canOpenDetails();
+                          }}
+                        >
+                          {d.error}
+                        </button>
+                      ) : (
+                        d.error
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-muted-foreground">
                       {formatMs(d.last_attempt_at_ms)}
                     </td>
                     <td className="max-w-[260px] px-3 py-2">
                       {d.last_error ? (
-                        <span className="line-clamp-2 text-destructive">
-                          {classifyOutboxError(d.last_error).friendly}
-                        </span>
+                        <div className="space-y-1">
+                          <span className="line-clamp-2 text-destructive">
+                            {classifyOutboxError(d.last_error).friendly}
+                          </span>
+                          {canOpenDetails && (
+                            <button
+                              type="button"
+                              className="text-[11px] font-medium text-primary underline-offset-2 hover:underline"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                canOpenDetails();
+                              }}
+                            >
+                              Ver detalhes
+                            </button>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
@@ -1909,6 +2037,214 @@ function OutboxStatusPanel({
       </CardContent>
     </Card>
   );
+}
+
+function VendasSyncErrorDialog({
+  open,
+  onOpenChange,
+  items,
+  loading,
+  selectedItem,
+  onSelect,
+  onRetry,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  items: OutboxItem[];
+  loading: boolean;
+  selectedItem: OutboxItem | null;
+  onSelect: (localUuid: string) => void;
+  onRetry: () => void;
+}) {
+  const parsedPayload = selectedItem ? parseOutboxPayload(selectedItem.payload) : null;
+  const rpcPayload = selectedItem ? buildVendaRpcPayload(selectedItem) : null;
+  const errorInfo = classifyOutboxError(selectedItem?.last_error);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[88vh] max-w-5xl overflow-hidden">
+        <DialogHeader>
+          <DialogTitle>Detalhes do erro de venda</DialogTitle>
+          <DialogDescription>
+            Diagnostico da fila local de vendas. As acoes abaixo nao alteram a
+            regra de sincronizacao.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid min-h-0 gap-4 md:grid-cols-[280px_1fr]">
+          <div className="min-h-0 overflow-hidden rounded-lg border border-border">
+            <div className="border-b border-border bg-muted/30 px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Vendas com erro
+            </div>
+            <div className="max-h-[56vh] overflow-auto">
+              {loading ? (
+                <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Carregando detalhes...
+                </div>
+              ) : items.length === 0 ? (
+                <div className="p-3 text-sm text-muted-foreground">
+                  Nenhuma venda com erro na outbox local.
+                </div>
+              ) : (
+                items.map((item) => {
+                  const itemInfo = classifyOutboxError(item.last_error);
+                  const active = item.local_uuid === selectedItem?.local_uuid;
+                  return (
+                    <button
+                      key={item.local_uuid}
+                      type="button"
+                      className={`block w-full border-b border-border px-3 py-3 text-left text-xs transition-colors last:border-b-0 ${
+                        active ? "bg-primary/10" : "hover:bg-muted/30"
+                      }`}
+                      onClick={() => onSelect(item.local_uuid)}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-[11px]">
+                          {shortUuid(item.local_uuid)}
+                        </span>
+                        <Badge variant="destructive" className="text-[10px]">
+                          {itemInfo.label}
+                        </Badge>
+                      </div>
+                      <div className="mt-1 text-muted-foreground">
+                        {formatMs(item.created_at_ms)}
+                      </div>
+                      <div className="mt-2 flex items-center gap-1 font-medium text-primary">
+                        <Eye className="h-3.5 w-3.5" />
+                        Ver detalhes
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <div className="min-h-0 max-h-[56vh] overflow-auto rounded-lg border border-border p-4">
+            {selectedItem ? (
+              <div className="space-y-4 text-sm">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="ID local da venda" value={selectedItem.local_uuid} mono />
+                  <Field label="Data/hora" value={formatMs(selectedItem.created_at_ms)} />
+                  <Field
+                    label="Terminal"
+                    value={readPayloadField(parsedPayload, "terminal_id")}
+                    mono
+                  />
+                  <Field
+                    label="Operador"
+                    value={readPayloadField(parsedPayload, "operador_id")}
+                    mono
+                  />
+                  <Field label="Tentativas" value={String(selectedItem.attempts)} />
+                  <Field label="Status" value={selectedItem.status} />
+                </div>
+
+                <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-destructive">
+                  <div className="flex items-center gap-2 font-semibold">
+                    <AlertTriangle className="h-4 w-4" />
+                    {errorInfo.label}
+                  </div>
+                  <div className="mt-1">{errorInfo.friendly}</div>
+                  {selectedItem.last_error && (
+                    <pre className="mt-3 max-h-28 overflow-auto whitespace-pre-wrap break-words rounded bg-background/70 p-2 font-mono text-[11px] text-foreground">
+                      {selectedItem.last_error}
+                    </pre>
+                  )}
+                </div>
+
+                <JsonBlock
+                  title="Payload enviado ao Supabase (RPC finalizar_venda_pdv)"
+                  value={rpcPayload}
+                />
+                <JsonBlock title="Payload original da outbox_vendas" value={parsedPayload} />
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground">
+                Selecione uma venda para ver o payload e o erro real.
+              </div>
+            )}
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2 sm:justify-between">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Ignorar
+          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              disabled={!selectedItem}
+              onClick={() => selectedItem && onSelect(selectedItem.local_uuid)}
+            >
+              <Eye className="mr-2 h-4 w-4" />
+              Ver detalhes
+            </Button>
+            <Button disabled={items.length === 0 || loading} onClick={onRetry}>
+              <RotateCcw className="mr-2 h-4 w-4" />
+              Reenviar
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function JsonBlock({ title, value }: { title: string; value: unknown }) {
+  return (
+    <div>
+      <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {title}
+      </div>
+      <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-muted/30 p-3 font-mono text-[11px]">
+        {JSON.stringify(value, null, 2)}
+      </pre>
+    </div>
+  );
+}
+
+function parseOutboxPayload(payload: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(payload);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function buildVendaRpcPayload(item: OutboxItem) {
+  const payload = parseOutboxPayload(item.payload);
+  if (!payload) return null;
+  const pagamentos = Array.isArray(payload.pagamentos) ? payload.pagamentos : [];
+  return {
+    _cliente_id: payload.cliente_id ?? null,
+    _subtotal: payload.subtotal ?? null,
+    _desconto: payload.desconto ?? null,
+    _total: payload.total ?? null,
+    _forma: payload.forma_pagamento ?? null,
+    _status_pagamento: payload.status_pagamento ?? null,
+    _valor_recebido: payload.valor_recebido ?? null,
+    _troco: payload.troco ?? null,
+    _observacao: payload.observacao ?? null,
+    _itens: payload.itens ?? null,
+    _pagamentos: pagamentos.length > 0 ? pagamentos : null,
+    _gerar_financeiro: payload.gerar_financeiro ?? null,
+    _operador_id: payload.operador_id ?? null,
+    _terminal_id: payload.terminal_id ?? null,
+    _data_vencimento: payload.data_vencimento ?? null,
+    _client_uuid: item.local_uuid,
+  };
+}
+
+function readPayloadField(payload: Record<string, unknown> | null, field: string) {
+  const value = payload?.[field];
+  return typeof value === "string" && value ? value : "—";
+}
+
+function shortUuid(value: string) {
+  return value.length > 13 ? `${value.slice(0, 8)}...${value.slice(-4)}` : value;
 }
 
 function RoleSummary({
