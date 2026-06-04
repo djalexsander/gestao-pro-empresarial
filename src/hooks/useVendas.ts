@@ -2,6 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { dataClient } from "@/integrations/data";
+import { getDataMode } from "@/integrations/data/mode";
+import { getDesktopConfig } from "@/integrations/desktop/configStore";
+import { getBaseUrl } from "@/integrations/desktop/serverConnection";
 import type {
   CancelarVendaResumo as DataCancelarVendaResumo,
   FinalizarVendaInput as DataFinalizarVendaInput,
@@ -25,6 +28,42 @@ export type VendaStatus =
   | "faturada"
   | "cancelada"
   | string;
+
+function isLocalVendasMode(): boolean {
+  const mode = getDataMode();
+  return mode === "local-server" || mode === "local-terminal";
+}
+
+function getLocalVendasBaseUrl(): string | null {
+  const cfg = getDesktopConfig();
+  if (cfg.role === "server") {
+    const porta = cfg.terminal?.porta ?? 3333;
+    return `http://127.0.0.1:${porta}`;
+  }
+  return getBaseUrl(cfg.terminal);
+}
+
+async function fetchLocalVendasJson<T>(
+  path: string,
+  query?: Record<string, string | undefined>,
+): Promise<T> {
+  const baseUrl = getLocalVendasBaseUrl();
+  if (!baseUrl) throw new Error("Servidor local nao configurado");
+  const url = new URL(`${baseUrl}${path}`);
+  for (const [key, value] of Object.entries(query ?? {})) {
+    if (value != null && value !== "") url.searchParams.set(key, value);
+  }
+  const res = await fetch(url.toString(), {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const json = (await res.json()) as { data?: T } | T;
+  return json && typeof json === "object" && "data" in json
+    ? (json as { data: T }).data
+    : (json as T);
+}
 
 /**
  * Finaliza uma venda no PDV via camada `dataClient` (Fase 1 da arquitetura
@@ -56,6 +95,22 @@ export function useSaldosLote() {
   return useMutation({
     mutationFn: async (produtoIds: string[]) => {
       if (produtoIds.length === 0) return new Map<string, number>();
+      if (isLocalVendasMode()) {
+        const linhas = await dataClient.estoque.saldosLinhas();
+        const solicitados = new Set(produtoIds);
+        const map = new Map<string, number>();
+        for (const linha of linhas) {
+          if (!solicitados.has(linha.produto_id)) continue;
+          const qtd = Number(linha.quantidade) || 0;
+          const delta =
+            linha.tipo === "saida" || linha.tipo === "transferencia" ? -qtd : qtd;
+          map.set(
+            linha.produto_id,
+            (map.get(linha.produto_id) ?? 0) + delta,
+          );
+        }
+        return map;
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await (supabase as any).rpc("saldos_estoque_lote", {
         _produto_ids: produtoIds,
@@ -85,12 +140,20 @@ export interface VendaListItem {
   caixa_id: string | null;
   operador_id: string | null;
   terminal_id: string | null;
+  sync_status?: string | null;
+  outbox_status?: string | null;
+  remote_id?: string | null;
 }
 
 export function useVendas() {
   return useQuery({
     queryKey: ["vendas", "list"],
     queryFn: async (): Promise<VendaListItem[]> => {
+      if (isLocalVendasMode()) {
+        return fetchLocalVendasJson<VendaListItem[]>("/api/vendas/list", {
+          limit: "500",
+        });
+      }
       const { data, error } = await supabase
         .from("vendas")
         .select(
@@ -139,6 +202,9 @@ export interface VendaDetalhe {
   status_pagamento: string;
   forma_pagamento: FormaPagamento | null;
   observacoes: string | null;
+  sync_status?: string | null;
+  outbox_status?: string | null;
+  remote_id?: string | null;
   itens: Array<{
     id: string;
     produto_id: string;
@@ -167,6 +233,11 @@ export function useVendaDetalhe(vendaId: string | null) {
     enabled: !!vendaId,
     queryFn: async (): Promise<VendaDetalhe | null> => {
       if (!vendaId) return null;
+      if (isLocalVendasMode()) {
+        return fetchLocalVendasJson<VendaDetalhe | null>("/api/vendas/detalhe", {
+          venda_id: vendaId,
+        });
+      }
       const { data: v, error } = await supabase
         .from("vendas")
         .select(
@@ -268,6 +339,7 @@ export function useVendaStatusHistorico(vendaId: string | null) {
     enabled: !!vendaId,
     queryFn: async (): Promise<VendaStatusHistoricoItem[]> => {
       if (!vendaId) return [];
+      if (isLocalVendasMode()) return [];
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await (supabase as any)
         .from("vendas_status_historico")
@@ -347,6 +419,12 @@ export function useVendaMetricasPeriodo(dataInicio: string, dataFim: string) {
   return useQuery({
     queryKey: ["vendas", "metricas", dataInicio, dataFim],
     queryFn: async (): Promise<VendaMetricas> => {
+      if (isLocalVendasMode()) {
+        return fetchLocalVendasJson<VendaMetricas>("/api/vendas/resumo", {
+          data_inicio: dataInicio,
+          data_fim: dataFim,
+        });
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await (supabase as any).rpc("venda_metricas_periodo", {
         _data_inicio: dataInicio,
