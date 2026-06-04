@@ -27,6 +27,7 @@ import type {
   CancelarVendaInput,
   CancelarVendaResumo,
   FinalizarVendaInput,
+  ProdutoComVariacoes,
   RegistrarMovimentoEstoqueInput,
   RegistrarMovimentoEstoqueResult,
 } from "../types";
@@ -34,6 +35,7 @@ import type { ProdutoComCategoria } from "../types";
 import { cloudAdapter } from "./cloud";
 import { reportDataSource } from "../source-telemetry";
 import { getDesktopConfig } from "@/integrations/desktop/configStore";
+import type { TerminalConexaoConfig } from "@/integrations/desktop/types";
 import { isDesktop } from "../mode";
 import {
   cacheDesktopFuncionarios,
@@ -60,6 +62,22 @@ import type {
 } from "../types";
 
 const HTTP_TIMEOUT_MS = 4000;
+const DEFAULT_LOCAL_PORT = 3333;
+
+function getLocalConnectionConfig(): TerminalConexaoConfig | undefined {
+  const cfg = getDesktopConfig();
+  if (cfg.role === "server") {
+    const port = cfg.terminal?.porta ?? DEFAULT_LOCAL_PORT;
+    return {
+      host: "127.0.0.1",
+      porta: port,
+      terminalId: "self",
+      terminalNome: cfg.serverNome ?? "Servidor",
+      serverToken: cfg.serverAuthToken,
+    };
+  }
+  return cfg.terminal;
+}
 
 /**
  * Mensagem padronizada exibida ao operador quando o servidor local cai
@@ -68,12 +86,44 @@ const HTTP_TIMEOUT_MS = 4000;
 const MSG_LOCAL_INDISPONIVEL =
   "Servidor local indisponível. Esta operação não será enviada direto para a nuvem para evitar divergência de caixa/estoque. Reconecte ao servidor local ou altere o modo de operação nas configurações.";
 
+const MSG_BACKEND_LOCAL_INDISPONIVEL =
+  "Backend local do servidor não respondeu. Verifique se o servidor local está iniciado e tente novamente.";
+
 class LocalServerIndisponivelError extends Error {
   code = "LOCAL_SERVER_INDISPONIVEL" as const;
-  constructor(public operacao: string) {
-    super(MSG_LOCAL_INDISPONIVEL);
+  constructor(public operacao: string, public role: "server" | "terminal" = "terminal") {
+    super(role === "server" ? MSG_BACKEND_LOCAL_INDISPONIVEL : MSG_LOCAL_INDISPONIVEL);
     this.name = "LocalServerIndisponivelError";
   }
+}
+
+class LocalOfflineUnsupportedError extends Error {
+  code = "LOCAL_OFFLINE_UNSUPPORTED" as const;
+
+  constructor(operacao: string) {
+    super(
+      `${operacao} ainda nÃ£o tem gravaÃ§Ã£o local/offline implementada. ` +
+        "A operaÃ§Ã£o foi bloqueada para evitar divergÃªncia entre o banco local e a nuvem.",
+    );
+    this.name = "LocalOfflineUnsupportedError";
+  }
+}
+
+function unsupportedLocalWrite(operacao: string): never {
+  throw new LocalOfflineUnsupportedError(operacao);
+}
+
+function reportCloudOnly(domain: string, method: string): void {
+  reportDataSource({ source: "cloud", domain, method, fallback: true });
+}
+
+async function cloudOnly<T>(
+  domain: string,
+  method: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  reportCloudOnly(domain, method);
+  return fn();
 }
 
 /**
@@ -81,20 +131,26 @@ class LocalServerIndisponivelError extends Error {
  * uma operação crítica. Caso contrário, bloqueia com mensagem clara.
  */
 function requireLocalBaseUrl(operacao: string): string {
-  const cfg = getDesktopConfig().terminal;
+  const cfg = getLocalConnectionConfig();
   const baseUrl = getBaseUrl(cfg);
   if (!baseUrl) {
+    const role = getDesktopConfig().role === "server" ? "server" : "terminal";
     // Telemetria: registra a tentativa bloqueada (origem = local-terminal,
     // sem fallback — para o operador ver o badge correto).
     reportDataSource({
-      source: "local-terminal",
+      source: role === "server" ? "local-server" : "local-terminal",
       domain: "guard",
       method: operacao,
       fallback: false,
     });
-    throw new LocalServerIndisponivelError(operacao);
+    throw new LocalServerIndisponivelError(operacao, role);
   }
   return baseUrl;
+}
+
+function localUnavailable(operacao: string): LocalServerIndisponivelError {
+  const role = getDesktopConfig().role === "server" ? "server" : "terminal";
+  return new LocalServerIndisponivelError(operacao, role);
 }
 
 async function getAuthHeader(): Promise<Record<string, string>> {
@@ -108,8 +164,7 @@ async function getAuthHeader(): Promise<Record<string, string>> {
 }
 
 function getServerBaseUrl(): string | null {
-  const cfg = getDesktopConfig();
-  return getBaseUrl(cfg.terminal);
+  return getBaseUrl(getLocalConnectionConfig());
 }
 
 async function tryLocal<T>(
@@ -159,6 +214,43 @@ async function tryLocal<T>(
   } catch {
     clearTimeout(timer);
     return null;
+  }
+}
+
+async function postLocal<T>(
+  domain: string,
+  method: string,
+  path: string,
+  body: unknown,
+): Promise<T> {
+  const baseUrl = requireLocalBaseUrl(`${domain}.${method}`);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), HTTP_TIMEOUT_MS);
+  try {
+    const headers = await getAuthHeader();
+    const res = await fetch(`${baseUrl}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json", ...headers },
+      body: JSON.stringify(body ?? {}),
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || `HTTP ${res.status}`);
+    }
+    reportDataSource({
+      source: getDesktopConfig().role === "server" ? "local-server" : "local-terminal",
+      domain,
+      method,
+      fallback: false,
+    });
+    return (await res.json()) as T;
+  } catch (error) {
+    if (error instanceof Error) throw error;
+    throw localUnavailable(`${domain}.${method}`);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -279,6 +371,28 @@ function mapCaixaMovimentoLocalToDomain(
   };
 }
 
+function categoriasFromProdutos(
+  rows: ProdutoComCategoria[],
+): import("../types").CategoriaProdutoDomain[] {
+  const map = new Map<string, import("../types").CategoriaProdutoDomain>();
+  for (const row of rows) {
+    const raw = row as ProdutoComCategoria & {
+      categoria?: { id?: string | null; nome?: string | null } | null;
+      categoria_nome?: string | null;
+    };
+    const id = row.categoria_id ?? raw.categoria?.id ?? null;
+    if (!id || map.has(id)) continue;
+    map.set(id, {
+      id,
+      nome: raw.categoria?.nome ?? raw.categoria_nome ?? "Categoria",
+      parent_id: null,
+      ativo: true,
+      descricao: null,
+    });
+  }
+  return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome));
+}
+
 /**
  * Leituras seguras: podem cair para cloud sem risco de divergência
  * (apenas dados de tela, sem mutar caixa/estoque/financeiro).
@@ -350,7 +464,7 @@ export const localTerminalAdapter: DataAdapter = {
           "/api/produtos/list",
         );
         if (local !== null && local !== undefined) return local;
-        throw new LocalServerIndisponivelError("produtos.listar");
+        throw localUnavailable("produtos.listar");
       }
       return cloudAdapter.produtos.listar();
     },
@@ -373,6 +487,20 @@ export const localTerminalAdapter: DataAdapter = {
         () => cloudAdapter.produtos.list(input),
       ),
 
+    async get(produtoId) {
+      const local = await tryLocal<ProdutoComVariacoes[] | ProdutoComCategoria[]>(
+        "produtos",
+        "get",
+        "/api/produtos/list",
+      );
+      if (local) {
+        const found = local.find((produto) => produto.id === produtoId);
+        return found ? ({ ...found, variacoes: [] } as ProdutoComVariacoes) : null;
+      }
+      if (getServerBaseUrl()) throw localUnavailable("produtos.get");
+      return cloudAdapter.produtos.get(produtoId);
+    },
+
     buscarPorCodigo: async (codigo: string) => {
       const base = getServerBaseUrl();
       const valor = codigo.trim();
@@ -384,7 +512,7 @@ export const localTerminalAdapter: DataAdapter = {
           "/api/produtos/buscar",
           { codigo: valor },
         );
-        if (res === null) throw new LocalServerIndisponivelError("produtos.buscarPorCodigo");
+        if (res === null) throw localUnavailable("produtos.buscarPorCodigo");
         return res as import("../types").ProdutoBuscaResult | null;
       }
       return cloudAdapter.produtos.buscarPorCodigo(codigo);
@@ -401,11 +529,33 @@ export const localTerminalAdapter: DataAdapter = {
           "/api/produtos/buscar",
           { codigo: valor },
         );
-        if (res === null) throw new LocalServerIndisponivelError("produtos.buscarPorPlu");
+        if (res === null) throw localUnavailable("produtos.buscarPorPlu");
         return res as import("../types").ProdutoPluResult | null;
       }
       return cloudAdapter.produtos.buscarPorPlu(plu);
     },
+    criar: (input) => postLocal<Awaited<ReturnType<DataAdapter["produtos"]["criar"]>>>(
+      "produtos",
+      "criar",
+      "/api/produtos/registrar",
+      input,
+    ),
+    editar: (input) =>
+      cloudOnly("produtos", "editar", () => cloudAdapter.produtos.editar(input)),
+    alterarStatus: (input) =>
+      cloudOnly("produtos", "alterarStatus", () => cloudAdapter.produtos.alterarStatus(input)),
+    excluir: (produtoId) =>
+      cloudOnly("produtos", "excluir", () => cloudAdapter.produtos.excluir(produtoId)),
+    adicionarCodigo: (input) =>
+      cloudOnly("produtos", "adicionarCodigo", () => cloudAdapter.produtos.adicionarCodigo(input)),
+    excluirCodigo: (codigoId) =>
+      cloudOnly("produtos", "excluirCodigo", () => cloudAdapter.produtos.excluirCodigo(codigoId)),
+    criarVariacao: (input) =>
+      cloudOnly("produtos", "criarVariacao", () => cloudAdapter.produtos.criarVariacao(input)),
+    excluirVariacao: (variacaoId) =>
+      cloudOnly("produtos", "excluirVariacao", () => cloudAdapter.produtos.excluirVariacao(variacaoId)),
+    criarCategoria: (input) =>
+      cloudOnly("produtos", "criarCategoria", () => cloudAdapter.produtos.criarCategoria(input)),
   },
 
   estoque: {
@@ -447,7 +597,7 @@ export const localTerminalAdapter: DataAdapter = {
       input: RegistrarMovimentoEstoqueInput,
     ): Promise<RegistrarMovimentoEstoqueResult> => {
       requireLocalBaseUrl("estoque.registrarMovimento");
-      const cfg = getDesktopConfig().terminal;
+      const cfg = getLocalConnectionConfig();
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token ?? null;
       const local = await registrarMovimentoLocal(
@@ -465,7 +615,7 @@ export const localTerminalAdapter: DataAdapter = {
         token,
       );
       if (!local) {
-        throw new LocalServerIndisponivelError("estoque.registrarMovimento");
+        throw localUnavailable("estoque.registrarMovimento");
       }
       reportDataSource({
         source: "local-server",
@@ -493,7 +643,7 @@ export const localTerminalAdapter: DataAdapter = {
      */
     finalizar: async (input: FinalizarVendaInput): Promise<string> => {
       requireLocalBaseUrl("vendas.finalizar");
-      const cfg = getDesktopConfig().terminal;
+      const cfg = getLocalConnectionConfig();
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token ?? null;
       const local = await registrarVendaLocal(
@@ -519,7 +669,7 @@ export const localTerminalAdapter: DataAdapter = {
         token,
       );
       if (!local) {
-        throw new LocalServerIndisponivelError("vendas.finalizar");
+        throw localUnavailable("vendas.finalizar");
       }
       reportDataSource({
         source: "local-server",
@@ -536,7 +686,7 @@ export const localTerminalAdapter: DataAdapter = {
      */
     cancelar: async (input: CancelarVendaInput): Promise<CancelarVendaResumo> => {
       requireLocalBaseUrl("vendas.cancelar");
-      const cfg = getDesktopConfig().terminal;
+      const cfg = getLocalConnectionConfig();
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token ?? null;
       const local = await cancelarVendaLocal(
@@ -549,7 +699,7 @@ export const localTerminalAdapter: DataAdapter = {
         token,
       );
       if (!local) {
-        throw new LocalServerIndisponivelError("vendas.cancelar");
+        throw localUnavailable("vendas.cancelar");
       }
       reportDataSource({
         source: "local-server",
@@ -585,6 +735,26 @@ export const localTerminalAdapter: DataAdapter = {
 
   clientes: {
     ...cloudAdapter.clientes,
+    criar: (input) =>
+      postLocal<Awaited<ReturnType<DataAdapter["clientes"]["criar"]>>>(
+        "clientes",
+        "criar",
+        "/api/clientes/registrar",
+        input,
+      ),
+    async list(input) {
+      const local = await tryLocal<Awaited<ReturnType<DataAdapter["clientes"]["list"]>>>(
+        "clientes",
+        "list",
+        "/api/clientes/list",
+        {
+          status: input?.status ?? undefined,
+          busca: input?.busca ?? undefined,
+        },
+      );
+      if (local) return local;
+      throw localUnavailable("clientes.list");
+    },
     listLite: (input) =>
       withFallback(
         "clientes",
@@ -604,6 +774,50 @@ export const localTerminalAdapter: DataAdapter = {
             },
           ),
         () => cloudAdapter.clientes.listLite(input),
+      ),
+    async get(clienteId) {
+      const local = await tryLocal<Awaited<ReturnType<DataAdapter["clientes"]["get"]>>>(
+        "clientes",
+        "get",
+        "/api/clientes/get",
+        { cliente_id: clienteId },
+      );
+      if (local) return local;
+      throw localUnavailable("clientes.get");
+    },
+    metricas: async () => new Map(),
+    historico: async () => [],
+    async checkDocumentoDuplicado(documento, ignoreId) {
+      return tryLocal<Awaited<ReturnType<DataAdapter["clientes"]["checkDocumentoDuplicado"]>>>(
+        "clientes",
+        "checkDocumentoDuplicado",
+        "/api/clientes/documento",
+        { documento, ignore_id: ignoreId ?? undefined },
+      );
+    },
+    editar: (input) =>
+      cloudOnly("clientes", "editar", () => cloudAdapter.clientes.editar(input)),
+    alterarStatus: (input) =>
+      cloudOnly("clientes", "alterarStatus", () => cloudAdapter.clientes.alterarStatus(input)),
+    excluir: (clienteId) =>
+      cloudOnly("clientes", "excluir", () => cloudAdapter.clientes.excluir(clienteId)),
+  },
+
+  categoriasProduto: {
+    ...cloudAdapter.categoriasProduto,
+    async list() {
+      const rows = await localTerminalAdapter.produtos.listar();
+      return categoriasFromProdutos(rows);
+    },
+    editar: (input) =>
+      cloudOnly("categoriasProduto", "editar", () => cloudAdapter.categoriasProduto.editar(input)),
+    alterarStatus: (input) =>
+      cloudOnly("categoriasProduto", "alterarStatus", () =>
+        cloudAdapter.categoriasProduto.alterarStatus(input),
+      ),
+    excluir: (categoriaId) =>
+      cloudOnly("categoriasProduto", "excluir", () =>
+        cloudAdapter.categoriasProduto.excluir(categoriaId),
       ),
   },
 
@@ -747,7 +961,7 @@ export const localTerminalAdapter: DataAdapter = {
      */
     abrir: async (input: AbrirCaixaInput): Promise<string> => {
       requireLocalBaseUrl("caixa.abrir");
-      const cfg = getDesktopConfig().terminal;
+      const cfg = getLocalConnectionConfig();
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token ?? null;
       const local = await abrirCaixaLocal(
@@ -764,7 +978,7 @@ export const localTerminalAdapter: DataAdapter = {
         token,
       );
       if (!local) {
-        throw new LocalServerIndisponivelError("caixa.abrir");
+        throw localUnavailable("caixa.abrir");
       }
       reportDataSource({
         source: "local-server",
@@ -783,7 +997,7 @@ export const localTerminalAdapter: DataAdapter = {
       input: RegistrarMovimentoCaixaInput,
     ): Promise<string> => {
       requireLocalBaseUrl("caixa.registrarMovimento");
-      const cfg = getDesktopConfig().terminal;
+      const cfg = getLocalConnectionConfig();
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token ?? null;
       const local = await registrarMovCaixaLocal(
@@ -798,7 +1012,7 @@ export const localTerminalAdapter: DataAdapter = {
         token,
       );
       if (!local) {
-        throw new LocalServerIndisponivelError("caixa.registrarMovimento");
+        throw localUnavailable("caixa.registrarMovimento");
       }
       reportDataSource({
         source: "local-server",
@@ -815,7 +1029,7 @@ export const localTerminalAdapter: DataAdapter = {
      */
     fechar: async (input: FecharCaixaInput): Promise<FecharCaixaResult> => {
       requireLocalBaseUrl("caixa.fechar");
-      const cfg = getDesktopConfig().terminal;
+      const cfg = getLocalConnectionConfig();
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token ?? null;
       const local = await fecharCaixaLocal(
@@ -831,7 +1045,7 @@ export const localTerminalAdapter: DataAdapter = {
         token,
       );
       if (!local) {
-        throw new LocalServerIndisponivelError("caixa.fechar");
+        throw localUnavailable("caixa.fechar");
       }
       reportDataSource({
         source: "local-server",

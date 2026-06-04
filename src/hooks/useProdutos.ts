@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { dataClient } from "@/integrations/data";
+import { getDataMode } from "@/integrations/data/mode";
 import type { Produto, ProdutoComCategoria, TipoIdentificacao } from "@/integrations/data";
 
 // Re-exports para preservar a API pública anterior deste módulo.
@@ -40,6 +41,12 @@ export function useCreateCategoria() {
     mutationFn: async (nome: string): Promise<Categoria> => {
       const client_uuid = crypto.randomUUID();
       const r = await dataClient.produtos.criarCategoria({ nome, client_uuid });
+      const mode = getDataMode();
+      if (mode === "local-server" || mode === "local-terminal") {
+        const rows = await dataClient.categoriasProduto.list({ incluir_inativas: true });
+        const found = rows.find((categoria) => categoria.id === r.categoria_id);
+        if (found) return found as Categoria;
+      }
       const { data, error } = await supabase
         .from("categorias_produto")
         .select("id, nome, parent_id, ativo")
@@ -74,15 +81,8 @@ export function useProduto(id: string | undefined) {
   return useQuery({
     queryKey: ["produto", id],
     enabled: !!id,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("produtos")
-        .select("*, variacoes:produto_variacoes(*)")
-        .eq("id", id!)
-        .maybeSingle();
-      if (error) throw error;
-      return data as (Produto & { variacoes: Variacao[] }) | null;
-    },
+    queryFn: () =>
+      dataClient.produtos.get(id!) as Promise<(Produto & { variacoes: Variacao[] }) | null>,
   });
 }
 
@@ -142,6 +142,17 @@ export function useCreateProduto() {
       const client_uuid = crypto.randomUUID();
       try {
         const r = await dataClient.produtos.criar({ ...input, client_uuid });
+        // In local modes, prefer reading from local adapter instead of Supabase
+        const mode = getDataMode();
+        if (mode === "local-server" || mode === "local-terminal") {
+          try {
+            const list = (await dataClient.produtos.listar()) as ProdutoComCategoria[];
+            const found = list.find((p) => p.id === r.produto_id);
+            if (found) return found as unknown as Produto;
+          } catch {
+            // fallthrough to remote fetch as last resort
+          }
+        }
         return await fetchProdutoRow(r.produto_id);
       } catch (e) {
         throw mapProdutoErr(e);
@@ -165,6 +176,16 @@ export function useUpdateProduto() {
           produto_id: id,
           ...input,
         });
+        const mode = getDataMode();
+        if (mode === "local-server" || mode === "local-terminal") {
+          try {
+            const list = (await dataClient.produtos.listar()) as ProdutoComCategoria[];
+            const found = list.find((p) => p.id === r.produto_id);
+            if (found) return found as unknown as Produto;
+          } catch {
+            // fallthrough
+          }
+        }
         return await fetchProdutoRow(r.produto_id);
       } catch (e) {
         throw mapProdutoErr(e);

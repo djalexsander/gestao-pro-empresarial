@@ -25,8 +25,9 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::Instant;
 
-const SCHEMA_VERSION: i64 = 13;
+const SCHEMA_VERSION: i64 = 14;
 
 static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
 
@@ -158,11 +159,19 @@ pub fn init() -> DbResult<()> {
 
         CREATE TABLE IF NOT EXISTS clientes_local (
             id                   TEXT PRIMARY KEY,
+            remote_id            TEXT,
             nome                 TEXT,
             nome_fantasia        TEXT,
             documento            TEXT,
+            tipo                 TEXT,
+            email                TEXT,
+            telefone             TEXT,
+            celular              TEXT,
             status               TEXT,
             payload              TEXT NOT NULL,
+            sync_status          TEXT NOT NULL DEFAULT 'synced',
+            created_at_ms        INTEGER,
+            updated_at_ms        INTEGER,
             updated_at_remote_ms INTEGER,
             synced_at_ms         INTEGER NOT NULL,
             deleted_at_ms        INTEGER
@@ -170,6 +179,7 @@ pub fn init() -> DbResult<()> {
         CREATE INDEX IF NOT EXISTS idx_clientes_status ON clientes_local(status);
         CREATE INDEX IF NOT EXISTS idx_clientes_nome ON clientes_local(nome);
         CREATE INDEX IF NOT EXISTS idx_clientes_doc ON clientes_local(documento);
+        CREATE INDEX IF NOT EXISTS idx_clientes_remote_id ON clientes_local(remote_id);
 
         -- Saldos: agregados por (produto_id, variacao_id). A chave única
         -- evita duplicatas quando o snapshot é re-ingerido.
@@ -546,6 +556,19 @@ pub fn init() -> DbResult<()> {
         // v12: vínculo com upstream + sync state
         "ALTER TABLE lancamentos_financeiros_local ADD COLUMN remote_id TEXT",
         "ALTER TABLE lancamentos_financeiros_local ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'local_only'",
+        // v14: clientes offline-first basico.
+        "ALTER TABLE clientes_local ADD COLUMN remote_id TEXT",
+        "ALTER TABLE clientes_local ADD COLUMN tipo TEXT",
+        "ALTER TABLE clientes_local ADD COLUMN email TEXT",
+        "ALTER TABLE clientes_local ADD COLUMN telefone TEXT",
+        "ALTER TABLE clientes_local ADD COLUMN celular TEXT",
+        "ALTER TABLE clientes_local ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'synced'",
+        "ALTER TABLE clientes_local ADD COLUMN created_at_ms INTEGER",
+        "ALTER TABLE clientes_local ADD COLUMN updated_at_ms INTEGER",
+        "ALTER TABLE outbox_clientes ADD COLUMN cliente_local_id TEXT",
+        "ALTER TABLE outbox_clientes ADD COLUMN next_attempt_at_ms INTEGER",
+        "ALTER TABLE outbox_produtos ADD COLUMN produto_local_id TEXT",
+        "ALTER TABLE outbox_produtos ADD COLUMN next_attempt_at_ms INTEGER",
     ];
     for sql in alters {
         // Erro só ocorre quando a coluna já existe — seguro ignorar.
@@ -590,6 +613,66 @@ pub fn init() -> DbResult<()> {
             ON lancamentos_financeiros_local(client_uuid) WHERE client_uuid IS NOT NULL",
         [],
     );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_clientes_remote_id
+            ON clientes_local(remote_id)",
+        [],
+    );
+    // v14: outbox de clientes basicos.
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS outbox_clientes (
+            local_uuid          TEXT PRIMARY KEY,
+            client_uuid         TEXT,
+            cliente_local_id    TEXT NOT NULL,
+            payload             TEXT NOT NULL,
+            status              TEXT NOT NULL DEFAULT 'pending',
+            attempts            INTEGER NOT NULL DEFAULT 0,
+            last_error          TEXT,
+            remote_id           TEXT,
+            created_at_ms       INTEGER NOT NULL,
+            updated_at_ms       INTEGER NOT NULL,
+            sent_at_ms          INTEGER,
+            next_attempt_at_ms  INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_outbox_clientes_status
+            ON outbox_clientes(status, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_clientes_status_next
+            ON outbox_clientes(status, next_attempt_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_clientes_cliente
+            ON outbox_clientes(cliente_local_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_clientes_client_uuid
+            ON outbox_clientes(client_uuid) WHERE client_uuid IS NOT NULL;
+        "#,
+    )?;
+
+    // v15: outbox de produtos básicos (cadastro/edição offline)
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS outbox_produtos (
+            local_uuid          TEXT PRIMARY KEY,
+            client_uuid         TEXT,
+            produto_local_id    TEXT NOT NULL,
+            payload             TEXT NOT NULL,
+            status              TEXT NOT NULL DEFAULT 'pending',
+            attempts            INTEGER NOT NULL DEFAULT 0,
+            last_error          TEXT,
+            remote_id           TEXT,
+            created_at_ms       INTEGER NOT NULL,
+            updated_at_ms       INTEGER NOT NULL,
+            sent_at_ms          INTEGER,
+            next_attempt_at_ms  INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_outbox_produtos_status
+            ON outbox_produtos(status, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_produtos_status_next
+            ON outbox_produtos(status, next_attempt_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_produtos_produto
+            ON outbox_produtos(produto_local_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_produtos_client_uuid
+            ON outbox_produtos(client_uuid) WHERE client_uuid IS NOT NULL;
+        "#,
+    )?;
 
     // ------------------------------------------------------------------
     // v10 — Outbox de cancelamentos de venda.
@@ -742,9 +825,17 @@ fn with_conn<T>(f: impl FnOnce(&Connection) -> DbResult<T>) -> DbResult<T> {
     let cell = DB
         .get()
         .ok_or_else(|| DbError("DB não inicializado".into()))?;
+    let wait_start = Instant::now();
     let guard = cell
         .lock()
         .map_err(|e| DbError(format!("DB lock poisoned: {e}")))?;
+    let waited = wait_start.elapsed();
+    if waited.as_millis() >= 500 {
+        eprintln!(
+            "[gestao-pro] sqlite mutex aguardou {}ms; possivel contencao de scheduler/handler",
+            waited.as_millis()
+        );
+    }
     f(&guard)
 }
 
@@ -820,6 +911,27 @@ pub fn verify_authorized_user(email: &str, password: &str) -> DbResult<Option<Au
             }
         }
         Ok(None)
+    })
+}
+
+pub fn authorized_user_by_email(email: &str) -> DbResult<Option<AuthorizedUserRow>> {
+    with_conn(|conn| {
+        let row = conn
+            .query_row(
+                "SELECT user_id, email, synced_at_ms
+                 FROM desktop_authorized_users
+                 WHERE lower(email) = lower(?1)",
+                params![email],
+                |row| {
+                    Ok(AuthorizedUserRow {
+                        user_id: row.get(0)?,
+                        email: row.get(1)?,
+                        synced_at_ms: row.get(2)?,
+                    })
+                },
+            )
+            .optional()?;
+        Ok(row)
     })
 }
 
@@ -1447,6 +1559,7 @@ pub fn ingest_produtos_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize>
 }
 
 pub struct ProdutosFilter<'a> {
+    pub owner_id: Option<&'a str>,
     pub status: Option<&'a str>,
     pub categoria_id: Option<&'a str>,
     pub busca: Option<&'a str>,
@@ -1458,7 +1571,7 @@ pub struct ProdutosFilter<'a> {
 pub fn read_produtos(filter: ProdutosFilter<'_>) -> DbResult<String> {
     with_conn(|conn| {
         let mut sql = String::from(
-            "SELECT payload FROM produtos_local WHERE deleted_at_ms IS NULL",
+            "SELECT payload, estoque_atual FROM produtos_local WHERE deleted_at_ms IS NULL",
         );
         let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
         if let Some(s) = filter.status {
@@ -1479,19 +1592,40 @@ pub fn read_produtos(filter: ProdutosFilter<'_>) -> DbResult<String> {
 
         let params_dyn: Vec<&dyn rusqlite::ToSql> = args.iter().map(|b| &**b).collect();
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(params_dyn.as_slice(), |r| r.get::<_, String>(0))?;
-        let mut out = String::from("[");
-        let mut first = true;
+        let rows = stmt.query_map(params_dyn.as_slice(), |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, Option<f64>>(1)?))
+        })?;
+        let mut out: Vec<serde_json::Value> = Vec::new();
         for r in rows {
-            let payload = r?;
-            if !first {
-                out.push(',');
+            let (payload, estoque_atual) = r?;
+            let mut item: serde_json::Value =
+                serde_json::from_str(&payload).unwrap_or_else(|_| serde_json::json!({}));
+            if let Some(owner_id) = filter.owner_id {
+                let item_owner = item.get("owner_id").and_then(|v| v.as_str());
+                if item_owner != Some(owner_id) {
+                    continue;
+                }
             }
-            out.push_str(&payload);
-            first = false;
+            if item.get("categoria_nome").is_none() {
+                let categoria_nome = item
+                    .get("categoria")
+                    .and_then(|c| c.get("nome"))
+                    .and_then(|n| n.as_str())
+                    .map(|s| s.to_string());
+                if let Some(nome) = categoria_nome {
+                    if let Some(obj) = item.as_object_mut() {
+                        obj.insert("categoria_nome".into(), serde_json::Value::String(nome));
+                    }
+                }
+            }
+            if item.get("estoque_atual").is_none() {
+                if let (Some(obj), Some(v)) = (item.as_object_mut(), estoque_atual) {
+                    obj.insert("estoque_atual".into(), serde_json::json!(v));
+                }
+            }
+            out.push(item);
         }
-        out.push(']');
-        Ok(out)
+        serde_json::to_string(&out).map_err(|e| DbError(e.to_string()))
     })
 }
 
@@ -1515,15 +1649,27 @@ pub fn ingest_clientes(
         {
             let mut stmt = tx.prepare(
                 "INSERT INTO clientes_local(
-                    id, nome, nome_fantasia, documento, status, payload,
-                    updated_at_remote_ms, synced_at_ms, deleted_at_ms
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
+                    id, remote_id, nome, nome_fantasia, documento, tipo, email,
+                    telefone, celular, status, payload, sync_status,
+                    created_at_ms, updated_at_ms, updated_at_remote_ms,
+                    synced_at_ms, deleted_at_ms
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)
                  ON CONFLICT(id) DO UPDATE SET
+                    remote_id            = COALESCE(clientes_local.remote_id, excluded.remote_id),
                     nome                 = excluded.nome,
                     nome_fantasia        = excluded.nome_fantasia,
                     documento            = excluded.documento,
+                    tipo                 = excluded.tipo,
+                    email                = excluded.email,
+                    telefone             = excluded.telefone,
+                    celular              = excluded.celular,
                     status               = excluded.status,
                     payload              = excluded.payload,
+                    sync_status          = CASE
+                                             WHEN clientes_local.sync_status = 'local_only' THEN clientes_local.sync_status
+                                             ELSE excluded.sync_status
+                                           END,
+                    updated_at_ms        = excluded.updated_at_ms,
                     updated_at_remote_ms = COALESCE(excluded.updated_at_remote_ms, clientes_local.updated_at_remote_ms),
                     synced_at_ms         = excluded.synced_at_ms,
                     deleted_at_ms        = excluded.deleted_at_ms",
@@ -1548,11 +1694,19 @@ pub fn ingest_clientes(
                 let payload = serde_json::to_string(item).unwrap_or_else(|_| "{}".into());
                 stmt.execute(params![
                     id,
+                    id,
                     json_str(item, "nome"),
                     json_str(item, "nome_fantasia"),
                     json_str(item, "documento"),
+                    json_str(item, "tipo"),
+                    json_str(item, "email"),
+                    json_str(item, "telefone"),
+                    json_str(item, "celular"),
                     status,
                     payload,
+                    "synced",
+                    updated_ms,
+                    updated_ms,
                     updated_ms,
                     now_ms,
                     deleted_at_ms,
@@ -1573,6 +1727,77 @@ pub fn ingest_clientes(
         })?;
         tx.commit()?;
         Ok((count, max_remote_ms))
+    })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalClienteInput {
+    pub tipo: String,
+    pub nome: String,
+    pub nome_fantasia: Option<String>,
+    pub documento: Option<String>,
+    pub inscricao_estadual: Option<String>,
+    pub email: Option<String>,
+    pub telefone: Option<String>,
+    pub celular: Option<String>,
+    pub data_nascimento: Option<String>,
+    pub cep: Option<String>,
+    pub logradouro: Option<String>,
+    pub numero: Option<String>,
+    pub complemento: Option<String>,
+    pub bairro: Option<String>,
+    pub cidade: Option<String>,
+    pub estado: Option<String>,
+    pub observacoes: Option<String>,
+    pub status: Option<String>,
+    pub client_uuid: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LocalClienteResult {
+    pub cliente_id: String,
+    pub idempotente: bool,
+    pub outbox_status: String,
+    pub remote_id: Option<String>,
+}
+
+fn norm_opt_str(v: &Option<String>) -> Option<String> {
+    v.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
+fn doc_digits(v: &Option<String>) -> Option<String> {
+    let d: String = v.as_deref().unwrap_or("").chars().filter(|c| c.is_ascii_digit()).collect();
+    if d.is_empty() { None } else { Some(d) }
+}
+
+fn cliente_payload_json(input: &LocalClienteInput, id: &str, remote_id: Option<&str>, now_ms: i64, sync_status: &str) -> serde_json::Value {
+    let documento = doc_digits(&input.documento);
+    let status = input.status.clone().unwrap_or_else(|| "ativo".into());
+    serde_json::json!({
+        "id": id,
+        "remote_id": remote_id,
+        "owner_id": "",
+        "tipo": input.tipo,
+        "nome": input.nome.trim(),
+        "nome_fantasia": norm_opt_str(&input.nome_fantasia),
+        "documento": documento,
+        "inscricao_estadual": norm_opt_str(&input.inscricao_estadual),
+        "email": norm_opt_str(&input.email),
+        "telefone": norm_opt_str(&input.telefone),
+        "celular": norm_opt_str(&input.celular),
+        "data_nascimento": norm_opt_str(&input.data_nascimento),
+        "cep": norm_opt_str(&input.cep),
+        "logradouro": norm_opt_str(&input.logradouro),
+        "numero": norm_opt_str(&input.numero),
+        "complemento": norm_opt_str(&input.complemento),
+        "bairro": norm_opt_str(&input.bairro),
+        "cidade": norm_opt_str(&input.cidade),
+        "estado": norm_opt_str(&input.estado),
+        "observacoes": norm_opt_str(&input.observacoes),
+        "status": status,
+        "sync_status": sync_status,
+        "created_at": chrono::DateTime::<chrono::Utc>::from_timestamp_millis(now_ms).map(|d| d.to_rfc3339()),
+        "updated_at": chrono::DateTime::<chrono::Utc>::from_timestamp_millis(now_ms).map(|d| d.to_rfc3339()),
     })
 }
 
@@ -1872,6 +2097,725 @@ pub fn read_movimentacoes(produto_id: Option<&str>, limit: i64) -> DbResult<Stri
     })
 }
 
+
+pub fn clientes_local_list(status: Option<&str>, busca: Option<&str>, limit: i64) -> DbResult<Vec<serde_json::Value>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let mut sql = String::from("SELECT payload FROM clientes_local WHERE deleted_at_ms IS NULL");
+        let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        if let Some(s) = status.filter(|s| !s.is_empty()) {
+            sql.push_str(&format!(" AND status = ?{}", args.len() + 1));
+            args.push(Box::new(s.to_string()));
+        }
+        if let Some(b) = busca.map(str::trim).filter(|s| !s.is_empty()) {
+            let digits: String = b.chars().filter(|c| c.is_ascii_digit()).collect();
+            sql.push_str(&format!(
+                " AND (lower(COALESCE(nome,'')) LIKE ?{} OR lower(COALESCE(nome_fantasia,'')) LIKE ?{} OR COALESCE(documento,'') LIKE ?{} OR COALESCE(telefone,'') LIKE ?{} OR COALESCE(celular,'') LIKE ?{})",
+                args.len() + 1, args.len() + 2, args.len() + 3, args.len() + 4, args.len() + 5
+            ));
+            let like = format!("%{}%", b.to_lowercase());
+            let digit_like = format!("%{}%", digits);
+            args.push(Box::new(like.clone()));
+            args.push(Box::new(like));
+            args.push(Box::new(digit_like.clone()));
+            args.push(Box::new(digit_like.clone()));
+            args.push(Box::new(digit_like));
+        }
+        sql.push_str(&format!(" ORDER BY nome ASC LIMIT ?{}", args.len() + 1));
+        args.push(Box::new(limit));
+        let params_dyn: Vec<&dyn rusqlite::ToSql> = args.iter().map(|b| &**b).collect();
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_dyn.as_slice(), |r| r.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&row?) {
+                out.push(v);
+            }
+        }
+        Ok(out)
+    })
+}
+
+pub fn cliente_local_get(cliente_id: &str) -> DbResult<Option<serde_json::Value>> {
+    with_conn(|conn| {
+        let payload = conn.query_row(
+            "SELECT payload FROM clientes_local
+              WHERE deleted_at_ms IS NULL AND (id=?1 OR remote_id=?1)
+              LIMIT 1",
+            params![cliente_id],
+            |r| r.get::<_, String>(0),
+        ).optional()?;
+        Ok(payload.and_then(|p| serde_json::from_str(&p).ok()))
+    })
+}
+
+pub fn cliente_remote_id(cliente_id: &str) -> DbResult<Option<String>> {
+    with_conn(|conn| {
+        let v = conn.query_row(
+            "SELECT COALESCE(remote_id, CASE WHEN sync_status='synced' THEN id ELSE NULL END)
+               FROM clientes_local WHERE id=?1 OR remote_id=?1 LIMIT 1",
+            params![cliente_id],
+            |r| r.get::<_, Option<String>>(0),
+        ).optional()?;
+        Ok(v.flatten())
+    })
+}
+
+pub fn cliente_check_documento(documento: &str, ignore_id: Option<&str>) -> DbResult<Option<serde_json::Value>> {
+    let doc: String = documento.chars().filter(|c| c.is_ascii_digit()).collect();
+    if doc.is_empty() {
+        return Ok(None);
+    }
+    with_conn(|conn| {
+        let payload = if let Some(ignore) = ignore_id {
+            conn.query_row(
+                "SELECT payload FROM clientes_local
+                  WHERE documento=?1 AND deleted_at_ms IS NULL AND id<>?2 AND COALESCE(remote_id,'')<>?2
+                  LIMIT 1",
+                params![doc, ignore],
+                |r| r.get::<_, String>(0),
+            ).optional()?
+        } else {
+            conn.query_row(
+                "SELECT payload FROM clientes_local
+                  WHERE documento=?1 AND deleted_at_ms IS NULL LIMIT 1",
+                params![doc],
+                |r| r.get::<_, String>(0),
+            ).optional()?
+        };
+        Ok(payload.and_then(|p| serde_json::from_str(&p).ok()))
+    })
+}
+
+pub fn registrar_cliente_local(input: LocalClienteInput, now_ms: i64) -> DbResult<LocalClienteResult> {
+    if input.nome.trim().len() < 2 {
+        return Err(DbError("Informe o nome do cliente.".into()));
+    }
+    let documento = doc_digits(&input.documento);
+    let status = input.status.clone().unwrap_or_else(|| "ativo".into());
+    let nome = input.nome.trim().to_string();
+
+    with_conn(|conn| {
+        if let Some(cu) = input.client_uuid.as_deref().filter(|s| !s.is_empty()) {
+            let row = conn.query_row(
+                "SELECT c.id, o.status, o.remote_id
+                   FROM outbox_clientes o
+                   JOIN clientes_local c ON c.id=o.cliente_local_id
+                  WHERE o.client_uuid=?1 LIMIT 1",
+                params![cu],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?)),
+            ).optional()?;
+            if let Some((id, outbox_status, remote_id)) = row {
+                return Ok(LocalClienteResult { cliente_id: id, idempotente: true, outbox_status, remote_id });
+            }
+        }
+
+        if let Some(doc) = documento.as_deref() {
+            let existing = conn.query_row(
+                "SELECT id FROM clientes_local WHERE documento=?1 AND deleted_at_ms IS NULL LIMIT 1",
+                params![doc],
+                |r| r.get::<_, String>(0),
+            ).optional()?;
+            if existing.is_some() {
+                return Err(DbError("Ja existe um cliente com este CPF/CNPJ.".into()));
+            }
+        }
+
+        let local_id = random_uuid_v4();
+        let outbox_id = random_uuid_v4();
+        let payload = cliente_payload_json(&input, &local_id, None, now_ms, "pending");
+        let payload_text = payload.to_string();
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO clientes_local(
+                id, remote_id, nome, nome_fantasia, documento, tipo, email, telefone,
+                celular, status, payload, sync_status, created_at_ms, updated_at_ms,
+                updated_at_remote_ms, synced_at_ms, deleted_at_ms
+             ) VALUES (?1,NULL,?2,?3,?4,?5,?6,?7,?8,?9,?10,'pending',?11,?11,NULL,?11,NULL)",
+            params![
+                local_id, nome, norm_opt_str(&input.nome_fantasia), documento,
+                input.tipo, norm_opt_str(&input.email), norm_opt_str(&input.telefone),
+                norm_opt_str(&input.celular), status, payload_text, now_ms
+            ],
+        )?;
+        tx.execute(
+            "INSERT INTO outbox_clientes(
+                local_uuid, client_uuid, cliente_local_id, payload, status,
+                attempts, created_at_ms, updated_at_ms
+             ) VALUES (?1,?2,?3,?4,'pending',0,?5,?5)",
+            params![outbox_id, input.client_uuid, local_id, payload.to_string(), now_ms],
+        )?;
+        tx.commit()?;
+        Ok(LocalClienteResult {
+            cliente_id: local_id,
+            idempotente: false,
+            outbox_status: "pending".into(),
+            remote_id: None,
+        })
+    })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalProdutoInput {
+    pub sku: String,
+    pub codigo_barras: Option<String>,
+    pub qr_code: Option<String>,
+    pub codigo_interno: Option<String>,
+    pub tipo_identificacao_principal: Option<String>,
+    pub observacao_tecnica: Option<String>,
+    pub nome: String,
+    pub descricao: Option<String>,
+    pub marca: Option<String>,
+    pub unidade: String,
+    pub categoria_id: Option<String>,
+    pub preco_custo: Option<f64>,
+    pub preco_venda: Option<f64>,
+    pub estoque_minimo: Option<f64>,
+    pub estoque_inicial: Option<f64>,
+    pub status: Option<String>,
+    pub ncm: Option<String>,
+    pub vendido_por_peso: Option<bool>,
+    pub plu: Option<String>,
+    pub aceita_etiqueta_balanca: Option<bool>,
+    pub casas_decimais_quantidade: Option<i64>,
+    pub client_uuid: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LocalProdutoResult {
+    pub produto_id: String,
+    pub idempotente: bool,
+    pub outbox_status: String,
+    pub remote_id: Option<String>,
+}
+
+fn produto_payload_json(
+    input: &LocalProdutoInput,
+    id: &str,
+    remote_id: Option<&str>,
+    now_ms: i64,
+    sync_status: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "id": id,
+        "remote_id": remote_id,
+        "sku": input.sku.trim(),
+        "codigo_barras": input.codigo_barras.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()),
+        "qr_code": input.qr_code.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()),
+        "codigo_interno": input.codigo_interno.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()),
+        "tipo_identificacao_principal": input.tipo_identificacao_principal.clone(),
+        "observacao_tecnica": input.observacao_tecnica.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()),
+        "nome": input.nome.trim(),
+        "descricao": input.descricao.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()),
+        "marca": input.marca.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()),
+        "unidade": input.unidade,
+        "categoria_id": input.categoria_id.clone(),
+        "preco_custo": input.preco_custo,
+        "preco_venda": input.preco_venda,
+        "estoque_minimo": input.estoque_minimo,
+        "estoque_inicial": input.estoque_inicial,
+        "status": input.status.clone().unwrap_or_else(|| "ativo".into()),
+        "ncm": input.ncm.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()),
+        "vendido_por_peso": input.vendido_por_peso,
+        "plu": input.plu.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()),
+        "aceita_etiqueta_balanca": input.aceita_etiqueta_balanca,
+        "casas_decimais_quantidade": input.casas_decimais_quantidade,
+        "sync_status": sync_status,
+        "created_at": chrono::DateTime::<chrono::Utc>::from_timestamp_millis(now_ms).map(|d| d.to_rfc3339()),
+        "updated_at": chrono::DateTime::<chrono::Utc>::from_timestamp_millis(now_ms).map(|d| d.to_rfc3339()),
+    })
+}
+
+pub fn registrar_produto_local(input: LocalProdutoInput, now_ms: i64) -> DbResult<LocalProdutoResult> {
+    if input.nome.trim().len() < 2 {
+        return Err(DbError("Informe o nome do produto.".into()));
+    }
+    let status = input.status.clone().unwrap_or_else(|| "ativo".into());
+
+    with_conn(|conn| {
+        // Idempotência por client_uuid
+        if let Some(cu) = input.client_uuid.as_deref().filter(|s| !s.is_empty()) {
+            let row = conn.query_row(
+                "SELECT p.id, o.status, o.remote_id FROM outbox_produtos o JOIN produtos_local p ON p.id=o.produto_local_id WHERE o.client_uuid=?1 LIMIT 1",
+                params![cu],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?)),
+            ).optional()?;
+            if let Some((id, outbox_status, remote_id)) = row {
+                return Ok(LocalProdutoResult { produto_id: id, idempotente: true, outbox_status, remote_id });
+            }
+        }
+
+        // Basic SKU uniqueness check locally
+        let existing = conn.query_row(
+            "SELECT id FROM produtos_local WHERE sku=?1 AND deleted_at_ms IS NULL LIMIT 1",
+            params![input.sku.trim()],
+            |r| r.get::<_, String>(0),
+        ).optional()?;
+        if existing.is_some() {
+            return Err(DbError("Ja existe um produto com este SKU.".into()));
+        }
+
+        let local_id = random_uuid_v4();
+        let outbox_id = random_uuid_v4();
+        let payload = produto_payload_json(&input, &local_id, None, now_ms, "pending");
+        let payload_text = payload.to_string();
+
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO produtos_local(id, sku, nome, status, categoria_id, categoria_nome, preco_venda, estoque_atual, payload, updated_at_remote_ms, synced_at_ms, deleted_at_ms) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,NULL,?10,NULL)",
+            params![
+                local_id,
+                input.sku.trim(),
+                input.nome.trim(),
+                status,
+                input.categoria_id.clone(),
+                None::<String>,
+                input.preco_venda.unwrap_or(0.0),
+                input.estoque_inicial.unwrap_or(0.0),
+                payload_text,
+                now_ms,
+            ],
+        )?;
+
+        // Se houver estoque inicial, cria movimentação local e enfileira outbox de estoque
+        if let Some(ini) = input.estoque_inicial.filter(|v| *v > 0.0) {
+            let mov_local_uuid = random_uuid_v4();
+            let variacao_id = "".to_string();
+            let saldo_anterior = read_saldo_atual(&tx, &local_id, &variacao_id)?;
+            let delta = ini;
+            let saldo_posterior = saldo_anterior + delta;
+            let item_payload = serde_json::json!({
+                "id": mov_local_uuid,
+                "produto_id": local_id,
+                "variacao_id": serde_json::Value::String(variacao_id.clone()),
+                "tipo": "entrada",
+                "quantidade": delta,
+                "saldo_anterior": saldo_anterior,
+                "saldo_posterior": saldo_posterior,
+                "custo_unitario": serde_json::Value::Null,
+                "origem": "inicial_produto",
+                "observacoes": serde_json::Value::Null,
+                "data_movimentacao": chrono::DateTime::<chrono::Utc>::from_timestamp_millis(now_ms).map(|d| d.to_rfc3339()),
+                "_pending": true,
+            }).to_string();
+
+            tx.execute(
+                "INSERT OR IGNORE INTO estoque_movimentacoes_local(id, produto_id, variacao_id, tipo, quantidade, saldo_anterior, saldo_posterior, custo_unitario, origem, observacoes, data_movimentacao_ms, payload, synced_at_ms) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+                params![
+                    mov_local_uuid,
+                    local_id,
+                    variacao_id.clone(),
+                    "entrada",
+                    delta,
+                    saldo_anterior,
+                    saldo_posterior,
+                    Option::<f64>::None,
+                    "inicial_produto",
+                    Option::<String>::None,
+                    now_ms,
+                    item_payload,
+                    now_ms,
+                ],
+            )?;
+
+            apply_mov_to_saldo(&tx, &local_id, &variacao_id, Some("entrada"), delta, now_ms)?;
+
+            tx.execute(
+                "INSERT INTO outbox_estoque_movs(local_uuid, client_uuid, payload, status, attempts, last_error, remote_id, created_at_ms, updated_at_ms, sent_at_ms) VALUES (?1, ?2, ?3, 'pending', 0, NULL, NULL, ?4, ?4, NULL)",
+                params![mov_local_uuid, Option::<String>::None, serde_json::json!({"local_uuid": mov_local_uuid, "produto_id": local_id, "variacao_id": serde_json::Value::String(variacao_id), "tipo": "entrada", "quantidade": delta}).to_string(), now_ms],
+            )?;
+        }
+
+        tx.execute(
+            "INSERT INTO outbox_produtos(local_uuid, client_uuid, produto_local_id, payload, status, attempts, created_at_ms, updated_at_ms) VALUES (?1,?2,?3,?4,'pending',0,?5,?5)",
+            params![outbox_id, input.client_uuid, local_id, produto_payload_json(&input, &local_id, None, now_ms, "pending").to_string(), now_ms],
+        )?;
+
+        tx.commit()?;
+        Ok(LocalProdutoResult { produto_id: local_id, idempotente: false, outbox_status: "pending".into(), remote_id: None })
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct OutboxProdutoItem {
+    pub local_uuid: String,
+    pub client_uuid: Option<String>,
+    pub produto_local_id: String,
+    pub payload: String,
+    pub status: String,
+    pub attempts: i64,
+    pub last_error: Option<String>,
+    pub remote_id: Option<String>,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub sent_at_ms: Option<i64>,
+}
+
+fn map_outbox_produto(r: &rusqlite::Row<'_>) -> rusqlite::Result<OutboxProdutoItem> {
+    Ok(OutboxProdutoItem {
+        local_uuid: r.get(0)?,
+        client_uuid: r.get(1)?,
+        produto_local_id: r.get(2)?,
+        payload: r.get(3)?,
+        status: r.get(4)?,
+        attempts: r.get(5)?,
+        last_error: r.get(6)?,
+        remote_id: r.get(7)?,
+        created_at_ms: r.get(8)?,
+        updated_at_ms: r.get(9)?,
+        sent_at_ms: r.get(10)?,
+    })
+}
+
+const OUTBOX_PRODUTO_COLS: &str = "local_uuid, client_uuid, produto_local_id, payload, status, attempts, last_error, remote_id, created_at_ms, updated_at_ms, sent_at_ms";
+
+pub fn outbox_produtos_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxProdutoItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let sql = if only_status.is_some() {
+            format!("SELECT {OUTBOX_PRODUTO_COLS} FROM outbox_produtos WHERE status=?1 ORDER BY created_at_ms DESC LIMIT ?2")
+        } else {
+            format!("SELECT {OUTBOX_PRODUTO_COLS} FROM outbox_produtos ORDER BY created_at_ms DESC LIMIT ?1")
+        };
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = if let Some(st) = only_status {
+            stmt.query_map(params![st, limit], map_outbox_produto)?
+        } else {
+            stmt.query_map(params![limit], map_outbox_produto)?
+        };
+        let mut out = Vec::new();
+        for row in rows { out.push(row?); }
+        Ok(out)
+    })
+}
+
+pub fn outbox_produtos_pending_batch(limit: i64) -> DbResult<Vec<OutboxProdutoItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let now = chrono::Utc::now().timestamp_millis();
+        let sql = format!("SELECT {OUTBOX_PRODUTO_COLS} FROM outbox_produtos WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1 ORDER BY created_at_ms ASC LIMIT ?2");
+        let mut stmt = conn.prepare(&sql)?;
+        let mut out = Vec::new();
+        for row in stmt.query_map(params![now, limit], map_outbox_produto)? { out.push(row?); }
+        Ok(out)
+    })
+}
+
+pub fn outbox_produtos_pending_batch_all(limit: i64) -> DbResult<Vec<OutboxProdutoItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let sql = format!("SELECT {OUTBOX_PRODUTO_COLS} FROM outbox_produtos WHERE status='pending' ORDER BY created_at_ms ASC LIMIT ?1");
+        let mut stmt = conn.prepare(&sql)?;
+        let mut out = Vec::new();
+        for row in stmt.query_map(params![limit], map_outbox_produto)? { out.push(row?); }
+        Ok(out)
+    })
+}
+
+pub fn outbox_produtos_mark_sending(local_uuid: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        conn.execute(
+            "UPDATE outbox_produtos SET status='sending', updated_at_ms=?2, attempts=attempts+1 WHERE local_uuid=?1",
+            params![local_uuid, now_ms],
+        )?;
+        Ok(())
+    })
+}
+
+pub fn outbox_produtos_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        let attempts: i64 = conn.query_row(
+            "SELECT attempts FROM outbox_produtos WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).optional()?.unwrap_or(1);
+        if attempts >= MAX_AUTO_ATTEMPTS {
+            conn.execute(
+                "UPDATE outbox_produtos SET status='error', last_error=?2, updated_at_ms=?3, next_attempt_at_ms=NULL WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms],
+            )?;
+        } else {
+            let next = now_ms + backoff_ms_for_attempts(attempts);
+            conn.execute(
+                "UPDATE outbox_produtos SET status='pending', last_error=?2, updated_at_ms=?3, next_attempt_at_ms=?4 WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms, next],
+            )?;
+        }
+        Ok(())
+    })
+}
+
+pub fn outbox_produtos_mark_sent(local_uuid: &str, remote_id: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        let sql = format!("SELECT {OUTBOX_PRODUTO_COLS} FROM outbox_produtos WHERE local_uuid=?1");
+        let item = conn.query_row(&sql, params![local_uuid], map_outbox_produto)
+            .optional()? .ok_or_else(|| DbError("produto nao encontrado na outbox".into()))?;
+        let mut payload: serde_json::Value = serde_json::from_str(&item.payload).unwrap_or_else(|_| serde_json::json!({}));
+        if let Some(obj) = payload.as_object_mut() {
+            obj.insert("remote_id".into(), serde_json::Value::String(remote_id.to_string()));
+            obj.insert("sync_status".into(), serde_json::Value::String("synced".into()));
+        }
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            "UPDATE outbox_produtos SET status='sent', sent_at_ms=?2, updated_at_ms=?2, remote_id=?3, last_error=NULL, next_attempt_at_ms=NULL WHERE local_uuid=?1",
+            params![local_uuid, now_ms, remote_id],
+        )?;
+
+        // Atualiza produtos_local: tenta alterar PK para remote_id, caso falhe insere novo
+        let payload_text = payload.to_string();
+        let n = tx.execute(
+            "UPDATE produtos_local SET id=?2, payload=?3, updated_at_remote_ms=?4, synced_at_ms=?4 WHERE id=?1",
+            params![item.produto_local_id, remote_id, payload_text, now_ms],
+        )?;
+        if n == 0 {
+            // não existia linha local com este id — insere nova
+            tx.execute(
+                "INSERT INTO produtos_local(id, sku, nome, status, categoria_id, categoria_nome, preco_venda, estoque_atual, payload, updated_at_remote_ms, synced_at_ms) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+                params![
+                    remote_id,
+                    json_str(&payload, "sku"),
+                    json_str(&payload, "nome"),
+                    json_str(&payload, "status"),
+                    json_str(&payload, "categoria_id"),
+                    json_str(&payload, "categoria_nome"),
+                    json_f64(&payload, "preco_venda"),
+                    json_f64(&payload, "estoque_atual"),
+                    payload_text,
+                    now_ms,
+                    now_ms,
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    })
+}
+
+pub fn outbox_produtos_reset_errors(now_ms: i64) -> DbResult<i64> {
+    with_conn(|conn| {
+        let n = conn.execute(
+            "UPDATE outbox_produtos SET status='pending', updated_at_ms=?1, next_attempt_at_ms=NULL, last_error=NULL WHERE status='error'",
+            params![now_ms],
+        )?;
+        Ok(n as i64)
+    })
+}
+
+pub fn outbox_produtos_record_flush_round(kind: &str, now_ms: i64, attempted: i64, sent: i64, failed: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        let prefix = if kind == "auto" { "auto" } else { "manual" };
+        meta_set_i64(conn, &format!("outbox_produtos_last_{prefix}_flush_ms"), now_ms)?;
+        meta_set_i64(conn, &format!("outbox_produtos_last_{prefix}_attempted"), attempted)?;
+        meta_set_i64(conn, &format!("outbox_produtos_last_{prefix}_sent"), sent)?;
+        meta_set_i64(conn, &format!("outbox_produtos_last_{prefix}_failed"), failed)?;
+        Ok(())
+    })
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct OutboxClienteItem {
+    pub local_uuid: String,
+    pub client_uuid: Option<String>,
+    pub cliente_local_id: String,
+    pub payload: String,
+    pub status: String,
+    pub attempts: i64,
+    pub last_error: Option<String>,
+    pub remote_id: Option<String>,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub sent_at_ms: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Default)]
+pub struct OutboxClientesStats {
+    pub pending: i64,
+    pub sending: i64,
+    pub sent: i64,
+    pub error: i64,
+    pub last_sent_at_ms: Option<i64>,
+    pub last_error: Option<String>,
+    pub due_now: i64,
+    pub next_attempt_at_ms: Option<i64>,
+    pub last_auto_flush_ms: Option<i64>,
+    pub last_manual_flush_ms: Option<i64>,
+}
+
+fn map_outbox_cliente(r: &rusqlite::Row<'_>) -> rusqlite::Result<OutboxClienteItem> {
+    Ok(OutboxClienteItem {
+        local_uuid: r.get(0)?,
+        client_uuid: r.get(1)?,
+        cliente_local_id: r.get(2)?,
+        payload: r.get(3)?,
+        status: r.get(4)?,
+        attempts: r.get(5)?,
+        last_error: r.get(6)?,
+        remote_id: r.get(7)?,
+        created_at_ms: r.get(8)?,
+        updated_at_ms: r.get(9)?,
+        sent_at_ms: r.get(10)?,
+    })
+}
+
+const OUTBOX_CLIENTE_COLS: &str = "local_uuid, client_uuid, cliente_local_id, payload, status, attempts, last_error, remote_id, created_at_ms, updated_at_ms, sent_at_ms";
+
+pub fn outbox_clientes_stats() -> DbResult<OutboxClientesStats> {
+    with_conn(|conn| {
+        let mut s = OutboxClientesStats::default();
+        let mut stmt = conn.prepare("SELECT status, COUNT(*) FROM outbox_clientes GROUP BY status")?;
+        for row in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
+            let (st, n) = row?;
+            match st.as_str() {
+                "pending" => s.pending = n,
+                "sending" => s.sending = n,
+                "sent" => s.sent = n,
+                "error" => s.error = n,
+                _ => {}
+            }
+        }
+        s.last_sent_at_ms = conn.query_row(
+            "SELECT MAX(sent_at_ms) FROM outbox_clientes WHERE status='sent'",
+            [], |r| r.get::<_, Option<i64>>(0),
+        ).optional()?.flatten();
+        s.last_error = conn.query_row(
+            "SELECT last_error FROM outbox_clientes WHERE status='error' ORDER BY updated_at_ms DESC LIMIT 1",
+            [], |r| r.get::<_, Option<String>>(0),
+        ).optional()?.flatten();
+        let now = chrono::Utc::now().timestamp_millis();
+        s.due_now = conn.query_row(
+            "SELECT COUNT(*) FROM outbox_clientes WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1",
+            params![now], |r| r.get::<_, i64>(0),
+        ).optional()?.unwrap_or(0);
+        s.next_attempt_at_ms = conn.query_row(
+            "SELECT MIN(COALESCE(next_attempt_at_ms,0)) FROM outbox_clientes WHERE status='pending'",
+            [], |r| r.get::<_, Option<i64>>(0),
+        ).optional()?.flatten();
+        s.last_auto_flush_ms = meta_get_i64(conn, "outbox_clientes_last_auto_flush_ms")?;
+        s.last_manual_flush_ms = meta_get_i64(conn, "outbox_clientes_last_manual_flush_ms")?;
+        Ok(s)
+    })
+}
+
+pub fn outbox_clientes_record_flush_round(kind: &str, now_ms: i64, attempted: i64, sent: i64, failed: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        let prefix = if kind == "auto" { "auto" } else { "manual" };
+        meta_set_i64(conn, &format!("outbox_clientes_last_{prefix}_flush_ms"), now_ms)?;
+        meta_set_i64(conn, &format!("outbox_clientes_last_{prefix}_attempted"), attempted)?;
+        meta_set_i64(conn, &format!("outbox_clientes_last_{prefix}_sent"), sent)?;
+        meta_set_i64(conn, &format!("outbox_clientes_last_{prefix}_failed"), failed)?;
+        Ok(())
+    })
+}
+
+pub fn outbox_clientes_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxClienteItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let sql = if only_status.is_some() {
+            format!("SELECT {OUTBOX_CLIENTE_COLS} FROM outbox_clientes WHERE status=?1 ORDER BY created_at_ms DESC LIMIT ?2")
+        } else {
+            format!("SELECT {OUTBOX_CLIENTE_COLS} FROM outbox_clientes ORDER BY created_at_ms DESC LIMIT ?1")
+        };
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = if let Some(st) = only_status {
+            stmt.query_map(params![st, limit], map_outbox_cliente)?
+        } else {
+            stmt.query_map(params![limit], map_outbox_cliente)?
+        };
+        let mut out = Vec::new();
+        for row in rows { out.push(row?); }
+        Ok(out)
+    })
+}
+
+pub fn outbox_clientes_pending_batch(limit: i64) -> DbResult<Vec<OutboxClienteItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let now = chrono::Utc::now().timestamp_millis();
+        let sql = format!("SELECT {OUTBOX_CLIENTE_COLS} FROM outbox_clientes WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1 ORDER BY created_at_ms ASC LIMIT ?2");
+        let mut stmt = conn.prepare(&sql)?;
+        let mut out = Vec::new();
+        for row in stmt.query_map(params![now, limit], map_outbox_cliente)? { out.push(row?); }
+        Ok(out)
+    })
+}
+
+pub fn outbox_clientes_pending_batch_all(limit: i64) -> DbResult<Vec<OutboxClienteItem>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 1000);
+        let sql = format!("SELECT {OUTBOX_CLIENTE_COLS} FROM outbox_clientes WHERE status='pending' ORDER BY created_at_ms ASC LIMIT ?1");
+        let mut stmt = conn.prepare(&sql)?;
+        let mut out = Vec::new();
+        for row in stmt.query_map(params![limit], map_outbox_cliente)? { out.push(row?); }
+        Ok(out)
+    })
+}
+
+pub fn outbox_clientes_mark_sending(local_uuid: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        conn.execute(
+            "UPDATE outbox_clientes SET status='sending', updated_at_ms=?2, attempts=attempts+1 WHERE local_uuid=?1",
+            params![local_uuid, now_ms],
+        )?;
+        Ok(())
+    })
+}
+
+pub fn outbox_clientes_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        let attempts: i64 = conn.query_row(
+            "SELECT attempts FROM outbox_clientes WHERE local_uuid=?1",
+            params![local_uuid], |r| r.get(0),
+        ).optional()?.unwrap_or(1);
+        if attempts >= MAX_AUTO_ATTEMPTS {
+            conn.execute(
+                "UPDATE outbox_clientes SET status='error', last_error=?2, updated_at_ms=?3, next_attempt_at_ms=NULL WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms],
+            )?;
+        } else {
+            let next = now_ms + backoff_ms_for_attempts(attempts);
+            conn.execute(
+                "UPDATE outbox_clientes SET status='pending', last_error=?2, updated_at_ms=?3, next_attempt_at_ms=?4 WHERE local_uuid=?1",
+                params![local_uuid, err, now_ms, next],
+            )?;
+        }
+        Ok(())
+    })
+}
+
+pub fn outbox_clientes_mark_sent(local_uuid: &str, remote_id: &str, now_ms: i64) -> DbResult<()> {
+    with_conn(|conn| {
+        let sql = format!("SELECT {OUTBOX_CLIENTE_COLS} FROM outbox_clientes WHERE local_uuid=?1");
+        let item = conn.query_row(&sql, params![local_uuid], map_outbox_cliente)
+            .optional()?
+            .ok_or_else(|| DbError("cliente nao encontrado na outbox".into()))?;
+        let mut payload: serde_json::Value = serde_json::from_str(&item.payload)
+            .unwrap_or_else(|_| serde_json::json!({}));
+        if let Some(obj) = payload.as_object_mut() {
+            obj.insert("remote_id".into(), serde_json::Value::String(remote_id.to_string()));
+            obj.insert("sync_status".into(), serde_json::Value::String("synced".into()));
+        }
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            "UPDATE outbox_clientes SET status='sent', sent_at_ms=?2, updated_at_ms=?2, remote_id=?3, last_error=NULL, next_attempt_at_ms=NULL WHERE local_uuid=?1",
+            params![local_uuid, now_ms, remote_id],
+        )?;
+        tx.execute(
+            "UPDATE clientes_local SET remote_id=?2, sync_status='synced', payload=?3, updated_at_ms=?4, synced_at_ms=?4 WHERE id=?1",
+            params![item.cliente_local_id, remote_id, payload.to_string(), now_ms],
+        )?;
+        tx.commit()?;
+        Ok(())
+    })
+}
+
+pub fn outbox_clientes_reset_errors(now_ms: i64) -> DbResult<i64> {
+    with_conn(|conn| {
+        let n = conn.execute(
+            "UPDATE outbox_clientes SET status='pending', updated_at_ms=?1, next_attempt_at_ms=NULL, last_error=NULL WHERE status='error'",
+            params![now_ms],
+        )?;
+        Ok(n as i64)
+    })
+}
 
 // ---------- Stats por domínio ----------
 
@@ -2597,6 +3541,377 @@ pub struct LocalVendaInput {
     /// `_data_vencimento` no push da outbox.
     #[serde(default)]
     pub data_vencimento: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LocalVendaListItem {
+    pub id: String,
+    pub numero: String,
+    pub cliente_id: Option<String>,
+    pub cliente_nome: Option<String>,
+    pub data_emissao: String,
+    pub data_finalizacao: Option<String>,
+    pub total: f64,
+    pub status: String,
+    pub status_pagamento: String,
+    pub forma_pagamento: Option<String>,
+    pub caixa_id: Option<String>,
+    pub operador_id: Option<String>,
+    pub terminal_id: Option<String>,
+    pub sync_status: Option<String>,
+    pub sync_remote_id: Option<String>,
+    pub sync_error: Option<String>,
+    pub cancel_sync_status: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LocalVendaDetalheItem {
+    pub id: String,
+    pub produto_id: String,
+    pub descricao: Option<String>,
+    pub quantidade: f64,
+    pub preco_unitario: f64,
+    pub desconto: f64,
+    pub total: f64,
+    pub produto_nome: Option<String>,
+    pub sku: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LocalVendaDetalhePagamento {
+    pub id: String,
+    pub forma_pagamento: String,
+    pub valor: f64,
+    pub valor_recebido: Option<f64>,
+    pub troco: Option<f64>,
+    pub parcelas: Option<i64>,
+    pub observacao: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LocalVendaDetalhe {
+    pub id: String,
+    pub numero: String,
+    pub cliente_nome: Option<String>,
+    pub data_emissao: String,
+    pub data_finalizacao: Option<String>,
+    pub subtotal: f64,
+    pub desconto: f64,
+    pub total: f64,
+    pub valor_recebido: Option<f64>,
+    pub troco: Option<f64>,
+    pub valor_pago_total: f64,
+    pub valor_restante: f64,
+    pub status: String,
+    pub status_pagamento: String,
+    pub forma_pagamento: Option<String>,
+    pub observacoes: Option<String>,
+    pub itens: Vec<LocalVendaDetalheItem>,
+    pub pagamentos: Vec<LocalVendaDetalhePagamento>,
+    pub sync_status: Option<String>,
+    pub sync_remote_id: Option<String>,
+    pub sync_error: Option<String>,
+    pub cancel_sync_status: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LocalVendaResumo {
+    pub qtd_vendas: i64,
+    pub qtd_canceladas: i64,
+    pub total_vendido: f64,
+    pub ticket_medio: f64,
+    pub qtd_pendentes: i64,
+    pub valor_pendente: f64,
+}
+
+fn local_venda_numero(local_uuid: &str, remote_id: Option<&str>) -> String {
+    if let Some(rid) = remote_id.filter(|s| !s.is_empty()) {
+        return rid.to_string();
+    }
+    let short = local_uuid.chars().take(8).collect::<String>().to_uppercase();
+    format!("LOCAL-{short}")
+}
+
+fn local_date_from_ms(ms: i64) -> String {
+    iso_from_ms_z_pub(ms)
+        .split('T')
+        .next()
+        .unwrap_or("1970-01-01")
+        .to_string()
+}
+
+fn local_date_start_ms(date: &str) -> DbResult<i64> {
+    let d = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
+        .map_err(|e| DbError(format!("data inicial invalida: {e}")))?;
+    let dt = d
+        .and_hms_opt(0, 0, 0)
+        .ok_or_else(|| DbError("data inicial invalida".into()))?;
+    Ok(dt.and_utc().timestamp_millis())
+}
+
+fn local_date_end_exclusive_ms(date: &str) -> DbResult<i64> {
+    let d = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
+        .map_err(|e| DbError(format!("data final invalida: {e}")))?;
+    let next = d
+        .succ_opt()
+        .ok_or_else(|| DbError("data final invalida".into()))?;
+    let dt = next
+        .and_hms_opt(0, 0, 0)
+        .ok_or_else(|| DbError("data final invalida".into()))?;
+    Ok(dt.and_utc().timestamp_millis())
+}
+
+pub fn vendas_local_resumo(data_inicio: &str, data_fim: &str) -> DbResult<LocalVendaResumo> {
+    let inicio_ms = local_date_start_ms(data_inicio)?;
+    let fim_ms = local_date_end_exclusive_ms(data_fim)?;
+    if fim_ms <= inicio_ms {
+        return Err(DbError("periodo invalido para resumo de vendas".into()));
+    }
+
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "WITH vendas_periodo AS (
+                SELECT v.local_uuid,
+                       COALESCE(v.status,'ativa') AS status,
+                       COALESCE(v.status_pagamento,'pendente') AS status_pagamento,
+                       COALESCE(v.total,0) AS total,
+                       COALESCE(p.valor_pago,0) AS valor_pago
+                  FROM vendas_local v
+             LEFT JOIN (
+                    SELECT venda_local_uuid, SUM(COALESCE(valor,0)) AS valor_pago
+                      FROM venda_pagamentos_local
+                  GROUP BY venda_local_uuid
+                  ) p ON p.venda_local_uuid = v.local_uuid
+                 WHERE v.created_at_ms >= ?1
+                   AND v.created_at_ms < ?2
+            )
+            SELECT
+                COALESCE(SUM(CASE WHEN status <> 'cancelada' THEN 1 ELSE 0 END),0) AS qtd_vendas,
+                COALESCE(SUM(CASE WHEN status = 'cancelada' THEN 1 ELSE 0 END),0) AS qtd_canceladas,
+                COALESCE(SUM(CASE WHEN status <> 'cancelada' THEN total ELSE 0 END),0) AS total_vendido,
+                COALESCE(SUM(CASE
+                    WHEN status <> 'cancelada'
+                     AND status_pagamento IN ('pendente','parcial','vencido')
+                    THEN 1 ELSE 0 END),0) AS qtd_pendentes,
+                COALESCE(SUM(CASE
+                    WHEN status = 'cancelada' THEN 0
+                    WHEN status_pagamento IN ('pendente','vencido') THEN total
+                    WHEN status_pagamento = 'parcial' THEN MAX(total - valor_pago, 0)
+                    ELSE 0 END),0) AS valor_pendente
+              FROM vendas_periodo",
+        )?;
+        let (qtd_vendas, qtd_canceladas, total_vendido, qtd_pendentes, valor_pendente) =
+            stmt.query_row(params![inicio_ms, fim_ms], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, f64>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, f64>(4)?,
+                ))
+            })?;
+        let ticket_medio = if qtd_vendas > 0 {
+            total_vendido / qtd_vendas as f64
+        } else {
+            0.0
+        };
+        Ok(LocalVendaResumo {
+            qtd_vendas,
+            qtd_canceladas,
+            total_vendido,
+            ticket_medio,
+            qtd_pendentes,
+            valor_pendente,
+        })
+    })
+}
+
+pub fn vendas_local_list(limit: i64) -> DbResult<Vec<LocalVendaListItem>> {
+    let limit = limit.clamp(1, 1000);
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT v.local_uuid, v.cliente_id, c.nome, v.created_at_ms,
+                    v.total, COALESCE(v.status,'ativa'), v.status_pagamento,
+                    v.forma_pagamento, v.caixa_local_uuid, v.operador_id,
+                    v.terminal_id, ov.status, ov.remote_id, ov.last_error,
+                    oc.status
+               FROM vendas_local v
+          LEFT JOIN clientes_local c ON c.id = v.cliente_id
+          LEFT JOIN outbox_vendas ov ON ov.local_uuid = v.local_uuid
+          LEFT JOIN outbox_cancelamentos_venda oc ON oc.venda_local_uuid = v.local_uuid
+           ORDER BY v.created_at_ms DESC
+              LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit], |r| {
+            let id: String = r.get(0)?;
+            let created_at_ms: i64 = r.get(3)?;
+            let remote_id: Option<String> = r.get(12)?;
+            Ok(LocalVendaListItem {
+                numero: local_venda_numero(&id, remote_id.as_deref()),
+                id,
+                cliente_id: r.get(1)?,
+                cliente_nome: r.get(2)?,
+                data_emissao: local_date_from_ms(created_at_ms),
+                data_finalizacao: Some(local_date_from_ms(created_at_ms)),
+                total: r.get::<_, f64>(4)?,
+                status: r.get::<_, String>(5)?,
+                status_pagamento: r.get::<_, String>(6)?,
+                forma_pagamento: r.get(7)?,
+                caixa_id: r.get(8)?,
+                operador_id: r.get(9)?,
+                terminal_id: r.get(10)?,
+                sync_status: r.get(11)?,
+                sync_remote_id: remote_id,
+                sync_error: r.get(13)?,
+                cancel_sync_status: r.get(14)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    })
+}
+
+pub fn venda_local_detalhe(venda_id: &str) -> DbResult<Option<LocalVendaDetalhe>> {
+    with_conn(|conn| {
+        let header = conn
+            .query_row(
+                "SELECT v.local_uuid, c.nome, v.created_at_ms, v.subtotal,
+                        v.desconto, v.total, v.valor_recebido, v.troco,
+                        COALESCE(v.status,'ativa'), v.status_pagamento,
+                        v.forma_pagamento, v.observacao, ov.status,
+                        ov.remote_id, ov.last_error, oc.status
+                   FROM vendas_local v
+              LEFT JOIN clientes_local c ON c.id = v.cliente_id
+              LEFT JOIN outbox_vendas ov ON ov.local_uuid = v.local_uuid
+              LEFT JOIN outbox_cancelamentos_venda oc ON oc.venda_local_uuid = v.local_uuid
+                  WHERE v.local_uuid = ?1 OR v.client_uuid = ?1 OR ov.remote_id = ?1
+                  LIMIT 1",
+                params![venda_id],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, i64>(2)?,
+                        r.get::<_, f64>(3)?,
+                        r.get::<_, f64>(4)?,
+                        r.get::<_, f64>(5)?,
+                        r.get::<_, Option<f64>>(6)?,
+                        r.get::<_, Option<f64>>(7)?,
+                        r.get::<_, String>(8)?,
+                        r.get::<_, String>(9)?,
+                        r.get::<_, Option<String>>(10)?,
+                        r.get::<_, Option<String>>(11)?,
+                        r.get::<_, Option<String>>(12)?,
+                        r.get::<_, Option<String>>(13)?,
+                        r.get::<_, Option<String>>(14)?,
+                        r.get::<_, Option<String>>(15)?,
+                    ))
+                },
+            )
+            .optional()?;
+
+        let Some((
+            id,
+            cliente_nome,
+            created_at_ms,
+            subtotal,
+            desconto,
+            total,
+            valor_recebido,
+            troco,
+            status,
+            status_pagamento,
+            forma_pagamento,
+            observacoes,
+            sync_status,
+            sync_remote_id,
+            sync_error,
+            cancel_sync_status,
+        )) = header else {
+            return Ok(None);
+        };
+
+        let mut stmt_itens = conn.prepare(
+            "SELECT i.id, i.produto_id, i.descricao, i.quantidade,
+                    i.preco_unitario, i.desconto,
+                    ((i.quantidade * i.preco_unitario) - i.desconto) AS total,
+                    p.nome, p.sku
+               FROM venda_itens_local i
+          LEFT JOIN produtos_local p ON p.id = i.produto_id
+              WHERE i.venda_local_uuid = ?1
+           ORDER BY i.id ASC",
+        )?;
+        let itens_rows = stmt_itens.query_map(params![id], |r| {
+            Ok(LocalVendaDetalheItem {
+                id: r.get::<_, i64>(0)?.to_string(),
+                produto_id: r.get(1)?,
+                descricao: r.get(2)?,
+                quantidade: r.get::<_, f64>(3)?,
+                preco_unitario: r.get::<_, f64>(4)?,
+                desconto: r.get::<_, f64>(5)?,
+                total: r.get::<_, f64>(6)?,
+                produto_nome: r.get(7)?,
+                sku: r.get(8)?,
+            })
+        })?;
+        let mut itens = Vec::new();
+        for row in itens_rows {
+            itens.push(row?);
+        }
+
+        let mut stmt_pgtos = conn.prepare(
+            "SELECT id, forma_pagamento, valor, valor_recebido, troco,
+                    parcelas, observacao
+               FROM venda_pagamentos_local
+              WHERE venda_local_uuid = ?1
+           ORDER BY id ASC",
+        )?;
+        let pgtos_rows = stmt_pgtos.query_map(params![id], |r| {
+            Ok(LocalVendaDetalhePagamento {
+                id: r.get::<_, i64>(0)?.to_string(),
+                forma_pagamento: r.get(1)?,
+                valor: r.get::<_, f64>(2)?,
+                valor_recebido: r.get(3)?,
+                troco: r.get(4)?,
+                parcelas: r.get(5)?,
+                observacao: r.get(6)?,
+            })
+        })?;
+        let mut pagamentos = Vec::new();
+        for row in pgtos_rows {
+            pagamentos.push(row?);
+        }
+        let valor_pago_total = pagamentos.iter().map(|p| p.valor).sum::<f64>();
+        let valor_restante = (total - valor_pago_total).max(0.0);
+
+        Ok(Some(LocalVendaDetalhe {
+            numero: local_venda_numero(&id, sync_remote_id.as_deref()),
+            id,
+            cliente_nome,
+            data_emissao: local_date_from_ms(created_at_ms),
+            data_finalizacao: Some(local_date_from_ms(created_at_ms)),
+            subtotal,
+            desconto,
+            total,
+            valor_recebido,
+            troco,
+            valor_pago_total,
+            valor_restante,
+            status,
+            status_pagamento,
+            forma_pagamento,
+            observacoes,
+            itens,
+            pagamentos,
+            sync_status,
+            sync_remote_id,
+            sync_error,
+            cancel_sync_status,
+        }))
+    })
 }
 
 #[derive(Debug, Serialize)]

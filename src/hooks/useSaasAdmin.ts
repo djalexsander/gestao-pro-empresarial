@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { isDesktop } from "@/integrations/data/mode";
 
 /* =========================================================
  * Tipos
@@ -542,6 +543,64 @@ export type ModoDisponivel = {
   icone: string | null;
 };
 
+const MODOS_CACHE_KEY = "gp.desktop.modos_disponiveis.v1";
+const OFFLINE_USER_STORAGE_KEY = "gp.auth.offline_user.v1";
+
+type ModosDisponiveisCache = {
+  user_id: string | null;
+  email: string | null;
+  modos: ModoDisponivel[];
+  synced_at_ms: number;
+};
+
+function loadOfflineUserHint(): { id: string | null; email: string | null } {
+  if (typeof window === "undefined") return { id: null, email: null };
+  try {
+    const raw = window.localStorage.getItem(OFFLINE_USER_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return {
+      id: typeof parsed?.id === "string" ? parsed.id : null,
+      email: typeof parsed?.email === "string" ? parsed.email : null,
+    };
+  } catch {
+    return { id: null, email: null };
+  }
+}
+
+function loadCachedModosDisponiveis(): ModoDisponivel[] | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(MODOS_CACHE_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Partial<ModosDisponiveisCache>) : null;
+    if (!parsed || !Array.isArray(parsed.modos)) return null;
+    const offline = loadOfflineUserHint();
+    if (offline.id && parsed.user_id && offline.id !== parsed.user_id) return null;
+    if (offline.email && parsed.email && offline.email !== parsed.email) return null;
+    return parsed.modos as ModoDisponivel[];
+  } catch {
+    return null;
+  }
+}
+
+async function cacheModosDisponiveis(modos: ModoDisponivel[]) {
+  if (!isDesktop() || typeof window === "undefined") return;
+  try {
+    const { data } = await supabase.auth.getSession();
+    const user = data.session?.user;
+    window.localStorage.setItem(
+      MODOS_CACHE_KEY,
+      JSON.stringify({
+        user_id: user?.id ?? null,
+        email: user?.email ?? null,
+        modos,
+        synced_at_ms: Date.now(),
+      } satisfies ModosDisponiveisCache),
+    );
+  } catch {
+    /* cache best-effort */
+  }
+}
+
 /** Lista todos os modos (admin) com módulos vinculados. */
 export function useAdminModos() {
   return useQuery({
@@ -560,9 +619,19 @@ export function useModosDisponiveis() {
     queryKey: ["modos-disponiveis"],
     staleTime: 60_000,
     queryFn: async () => {
-      const { data, error } = await (supabase.rpc as any)("modos_disponiveis");
-      if (error) throw error;
-      return (data ?? []) as ModoDisponivel[];
+      try {
+        const { data, error } = await (supabase.rpc as any)("modos_disponiveis");
+        if (error) throw error;
+        const modos = (data ?? []) as ModoDisponivel[];
+        await cacheModosDisponiveis(modos);
+        return modos;
+      } catch (error) {
+        if (isDesktop()) {
+          const cached = loadCachedModosDisponiveis();
+          if (cached) return cached;
+        }
+        throw error;
+      }
     },
   });
 }

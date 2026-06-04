@@ -41,6 +41,20 @@ const STATUS_BADGE: Record<string, string> = {
   cancelado: "bg-destructive/15 text-destructive border-destructive/30",
 };
 
+const SYNC_LABEL: Record<string, string> = {
+  pending: "Pendente sync",
+  sending: "Sincronizando",
+  sent: "Sincronizada",
+  error: "Erro sync",
+};
+
+const SYNC_BADGE: Record<string, string> = {
+  pending: "bg-warning/15 text-warning border-warning/30",
+  sending: "bg-primary/15 text-primary border-primary/30",
+  sent: "bg-success/15 text-success border-success/30",
+  error: "bg-destructive/15 text-destructive border-destructive/30",
+};
+
 const ORIGEM_LABEL: Record<string, string> = {
   financeiro: "Financeiro",
   vendas: "Vendas",
@@ -65,6 +79,8 @@ export function DetalheVendaDialog({
   const [editando, setEditando] = useState(false);
   const [novoStatus, setNovoStatus] = useState<StatusVendaEditavel>("pago");
   const [motivo, setMotivo] = useState("");
+  const syncStatus = data?.cancel_sync_status ?? data?.sync_status ?? null;
+  const bloqueiaStatusLocal = Boolean(syncStatus && syncStatus !== "sent");
 
   const handleSalvar = async () => {
     if (!vendaId) return;
@@ -112,15 +128,26 @@ export function DetalheVendaDialog({
                 {data.forma_pagamento ?? "—"}
               </Info>
               <Info icon={Receipt} label="Status">
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    "capitalize",
-                    STATUS_BADGE[data.status_pagamento] ?? "",
+                <div className="flex flex-wrap gap-1.5">
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "capitalize",
+                      STATUS_BADGE[data.status_pagamento] ?? "",
+                    )}
+                  >
+                    {data.status_pagamento}
+                  </Badge>
+                  {syncStatus && (
+                    <Badge
+                      variant="outline"
+                      className={cn("whitespace-nowrap", SYNC_BADGE[syncStatus] ?? "")}
+                      title={data.sync_error ?? undefined}
+                    >
+                      {SYNC_LABEL[syncStatus] ?? syncStatus}
+                    </Badge>
                   )}
-                >
-                  {data.status_pagamento}
-                </Badge>
+                </div>
               </Info>
             </div>
 
@@ -128,6 +155,7 @@ export function DetalheVendaDialog({
             {data.status !== "cancelada" && (
               <div className="rounded-md border border-border bg-muted/10 p-3">
                 {!editando ? (
+                  <>
                   <div className="flex items-center justify-between gap-2">
                     <div className="text-sm text-muted-foreground">
                       Status atual: <strong className="capitalize text-foreground">{data.status_pagamento}</strong>
@@ -136,6 +164,7 @@ export function DetalheVendaDialog({
                       size="sm"
                       variant="outline"
                       className="gap-1.5"
+                      disabled={bloqueiaStatusLocal}
                       onClick={() => {
                         setNovoStatus(
                           (data.status_pagamento as StatusVendaEditavel) ?? "pendente",
@@ -147,6 +176,13 @@ export function DetalheVendaDialog({
                       Editar status
                     </Button>
                   </div>
+                  {bloqueiaStatusLocal && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      A edição de status fica bloqueada enquanto a venda local
+                      ainda não sincronizou.
+                    </p>
+                  )}
+                  </>
                 ) : (
                   <div className="space-y-2">
                     <div className="grid gap-2 sm:grid-cols-[1fr_auto]">

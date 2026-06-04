@@ -110,6 +110,12 @@ export interface DesktopAuthorizedUser {
   email: string;
 }
 
+export interface DesktopAuthorizedUserStatus {
+  exists: boolean;
+  user_id?: string | null;
+  email?: string | null;
+}
+
 export interface DesktopFuncionarioLocalRow {
   funcionario_id: string;
   nome: string;
@@ -146,6 +152,21 @@ export async function verifyDesktopAuthorizedUser(
     );
   } catch {
     return null;
+  }
+}
+
+export async function getDesktopAuthorizedUserStatus(
+  email: string,
+): Promise<DesktopAuthorizedUserStatus> {
+  const invoke = await getInvoke();
+  if (!invoke) return { exists: false };
+  try {
+    return await invoke<DesktopAuthorizedUserStatus>(
+      "desktop_authorized_user_status",
+      { email },
+    );
+  } catch {
+    return { exists: false };
   }
 }
 

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { getDataMode, isDesktop } from "@/integrations/data/mode";
 import {
   calcAbertoLanc,
   calcLucroBruto,
@@ -12,6 +13,9 @@ import {
 } from "@/lib/financeiro-canonico";
 
 export type DashboardData = {
+  indisponivel?: boolean;
+  indisponivelMotivo?: string;
+
   // KPIs
   vendasMes: number;
   vendasMesAnterior: number;
@@ -37,6 +41,58 @@ export type DashboardData = {
 };
 
 const MESES_PT = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+const LOCAL_DASHBOARD_TIMEOUT_MS = 2500;
+
+const EMPTY_DASHBOARD: DashboardData = {
+  indisponivel: false,
+  vendasMes: 0,
+  vendasMesAnterior: 0,
+  comprasMes: 0,
+  comprasMesAnterior: 0,
+  lucroMes: 0,
+  margem: 0,
+  contasPagar: 0,
+  qtdContasPagar: 0,
+  contasReceber: 0,
+  qtdContasReceber: 0,
+  estoqueBaixo: 0,
+  vendasPorMes: [],
+  fluxoCaixa: [],
+  ultimasVendas: [],
+  ultimasCompras: [],
+};
+
+function dashboardIndisponivel(motivo: string): DashboardData {
+  return {
+    ...EMPTY_DASHBOARD,
+    indisponivel: true,
+    indisponivelMotivo: motivo,
+  };
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error("Dashboard demorou para responder."));
+    }, timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+function isLocalDesktopMode() {
+  if (!isDesktop()) return false;
+  const mode = getDataMode();
+  return mode === "local-server" || mode === "local-terminal";
+}
 
 function inicioDoMes(d = new Date()) {
   return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -47,12 +103,16 @@ function inicioDoMesAnterior(d = new Date()) {
 
 export function useDashboard() {
   const { user } = useAuth();
+  const localDesktopMode = isLocalDesktopMode();
 
   return useQuery({
     queryKey: ["dashboard", user?.id],
     enabled: !!user,
     refetchInterval: 60_000,
+    placeholderData: EMPTY_DASHBOARD,
+    retry: localDesktopMode ? false : 1,
     queryFn: async (): Promise<DashboardData> => {
+      const load = async (): Promise<DashboardData> => {
       const hoje = new Date();
       const inicioMes = inicioDoMes(hoje);
       const inicioMesAnt = inicioDoMesAnterior(hoje);
@@ -277,6 +337,17 @@ export function useDashboard() {
         ultimasVendas,
         ultimasCompras,
       };
+      };
+
+      if (!localDesktopMode) return load();
+
+      try {
+        return await withTimeout(load(), LOCAL_DASHBOARD_TIMEOUT_MS);
+      } catch {
+        return dashboardIndisponivel(
+          "Dashboard em nuvem indisponível no momento. Os dados locais do servidor continuam acessíveis nos módulos operacionais.",
+        );
+      }
     },
   });
 }

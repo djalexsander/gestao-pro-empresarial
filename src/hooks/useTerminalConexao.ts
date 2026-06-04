@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { getDataMode } from "@/integrations/data/mode";
+import { getDesktopConfig } from "@/integrations/desktop/configStore";
+import { pingServidorLocal } from "@/integrations/desktop/serverConnection";
 
 /**
  * Estado de conexão do terminal cliente com o servidor (Lovable Cloud).
@@ -37,12 +40,34 @@ export function useTerminalConexao(): ConexaoInfo {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const ping = useCallback(async (): Promise<boolean> => {
-    if (typeof navigator !== "undefined" && !navigator.onLine) {
+    const mode = getDataMode();
+    const isLocalMode = mode === "local-server" || mode === "local-terminal";
+    if (!isLocalMode && typeof navigator !== "undefined" && !navigator.onLine) {
       setStatus("offline");
       return false;
     }
     const t0 = performance.now();
     try {
+      if (isLocalMode) {
+        const cfg = getDesktopConfig();
+        const terminalCfg =
+          cfg.role === "server"
+            ? {
+                host: "127.0.0.1",
+                porta: cfg.terminal?.porta ?? 3333,
+                terminalId: "self",
+                terminalNome: cfg.serverNome ?? "Servidor",
+                serverToken: cfg.serverAuthToken,
+              }
+            : cfg.terminal;
+        const local = await pingServidorLocal(terminalCfg);
+        if (local.status !== "online") throw new Error(local.mensagem ?? "Servidor local offline");
+        setLatenciaMs(local.latenciaMs);
+        setUltimoSync(new Date());
+        setStatus("online");
+        setTentativas(0);
+        return true;
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error } = await (supabase as any).rpc("terminal_ping");
       if (error) throw error;

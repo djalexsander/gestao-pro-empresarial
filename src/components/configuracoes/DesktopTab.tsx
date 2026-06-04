@@ -35,10 +35,12 @@ import {
   fetchOutboxCancelamentosStats,
   fetchOutboxFinanceiroStats,
   fetchOutboxStats,
+  fetchOutboxStatus,
   fetchOutboxVendasStats,
   flushOutbox,
   flushOutboxCaixa,
   flushOutboxCancelamentos,
+  flushOutboxClientes,
   flushOutboxFinanceiro,
   flushOutboxVendas,
   regenerarLancamentosCaixaLocal,
@@ -55,6 +57,7 @@ import {
   type LancamentoLocalRow,
   type OutboxCaixaStats,
   type OutboxCancelamentosStats,
+  type OutboxStatusResponse,
   type OutboxFinanceiroStats,
   type OutboxStats,
   type PersistedTerminal,
@@ -84,6 +87,8 @@ export function DesktopTab() {
   const [knownTerminals, setKnownTerminals] = useState<PersistedTerminal[]>([]);
   const [domainStats, setDomainStats] = useState<DomainStat[]>([]);
   const [syncingDomain, setSyncingDomain] = useState<string | null>(null);
+  const [outboxStatus, setOutboxStatus] = useState<OutboxStatusResponse | null>(null);
+  const [flushingAll, setFlushingAll] = useState(false);
   const [outbox, setOutbox] = useState<OutboxStats | null>(null);
   const [flushing, setFlushing] = useState(false);
   const [outboxVendas, setOutboxVendas] = useState<OutboxStats | null>(null);
@@ -123,6 +128,11 @@ export function DesktopTab() {
           }
         : undefined;
 
+  const recarregarOutboxStatus = async () => {
+    if (!localCfg) return;
+    setOutboxStatus(await fetchOutboxStatus(localCfg));
+  };
+
   const recarregarDomainStats = async () => {
     if (!localCfg) return;
     const stats = await fetchDomainStats(localCfg);
@@ -149,6 +159,7 @@ export function DesktopTab() {
       const { data } = await supabase.auth.getSession();
       await flushOutbox(localCfg, data.session?.access_token ?? null);
       setOutbox(await fetchOutboxStats(localCfg));
+      await recarregarOutboxStatus();
     } finally {
       setFlushing(false);
     }
@@ -158,6 +169,7 @@ export function DesktopTab() {
     if (!localCfg) return;
     await retryOutboxErrors(localCfg);
     setOutbox(await fetchOutboxStats(localCfg));
+    await recarregarOutboxStatus();
   };
 
   const handleFlushVendas = async () => {
@@ -167,6 +179,7 @@ export function DesktopTab() {
       const { data } = await supabase.auth.getSession();
       await flushOutboxVendas(localCfg, data.session?.access_token ?? null);
       setOutboxVendas(await fetchOutboxVendasStats(localCfg));
+      await recarregarOutboxStatus();
     } finally {
       setFlushingVendas(false);
     }
@@ -176,6 +189,7 @@ export function DesktopTab() {
     if (!localCfg) return;
     await retryOutboxVendasErrors(localCfg);
     setOutboxVendas(await fetchOutboxVendasStats(localCfg));
+    await recarregarOutboxStatus();
   };
 
   const handleFlushCaixa = async () => {
@@ -185,6 +199,7 @@ export function DesktopTab() {
       const { data } = await supabase.auth.getSession();
       await flushOutboxCaixa(localCfg, data.session?.access_token ?? null);
       setOutboxCaixa(await fetchOutboxCaixaStats(localCfg));
+      await recarregarOutboxStatus();
     } finally {
       setFlushingCaixa(false);
     }
@@ -194,6 +209,7 @@ export function DesktopTab() {
     if (!localCfg) return;
     await retryOutboxCaixaErrors(localCfg);
     setOutboxCaixa(await fetchOutboxCaixaStats(localCfg));
+    await recarregarOutboxStatus();
   };
 
   const handleFlushCancel = async () => {
@@ -203,6 +219,7 @@ export function DesktopTab() {
       const { data } = await supabase.auth.getSession();
       await flushOutboxCancelamentos(localCfg, data.session?.access_token ?? null);
       setOutboxCancel(await fetchOutboxCancelamentosStats(localCfg));
+      await recarregarOutboxStatus();
     } finally {
       setFlushingCancel(false);
     }
@@ -212,6 +229,7 @@ export function DesktopTab() {
     if (!localCfg) return;
     await retryOutboxCancelamentosErrors(localCfg);
     setOutboxCancel(await fetchOutboxCancelamentosStats(localCfg));
+    await recarregarOutboxStatus();
   };
 
   const handleFlushFin = async () => {
@@ -221,6 +239,7 @@ export function DesktopTab() {
       const { data } = await supabase.auth.getSession();
       await flushOutboxFinanceiro(localCfg, data.session?.access_token ?? null);
       setOutboxFin(await fetchOutboxFinanceiroStats(localCfg));
+      await recarregarOutboxStatus();
     } finally {
       setFlushingFin(false);
     }
@@ -230,6 +249,40 @@ export function DesktopTab() {
     if (!localCfg) return;
     await retryOutboxFinanceiroErrors(localCfg);
     setOutboxFin(await fetchOutboxFinanceiroStats(localCfg));
+    await recarregarOutboxStatus();
+  };
+
+  const handleFlushAll = async () => {
+    if (!localCfg) return;
+    setFlushingAll(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token ?? null;
+      await Promise.all([
+        flushOutboxVendas(localCfg, token),
+        flushOutboxClientes(localCfg, token),
+        flushOutbox(localCfg, token),
+        flushOutboxCaixa(localCfg, token),
+        flushOutboxCancelamentos(localCfg, token),
+        flushOutboxFinanceiro(localCfg, token),
+      ]);
+      const [obs, ob, obv, obc, occ, obf] = await Promise.all([
+        fetchOutboxStatus(localCfg),
+        fetchOutboxStats(localCfg),
+        fetchOutboxVendasStats(localCfg),
+        fetchOutboxCaixaStats(localCfg),
+        fetchOutboxCancelamentosStats(localCfg),
+        fetchOutboxFinanceiroStats(localCfg),
+      ]);
+      setOutboxStatus(obs);
+      setOutbox(ob);
+      setOutboxVendas(obv);
+      setOutboxCaixa(obc);
+      setOutboxCancel(occ);
+      setOutboxFin(obf);
+    } finally {
+      setFlushingAll(false);
+    }
   };
 
   const handleRegenerarLancamentos = async () => {
@@ -265,10 +318,11 @@ export function DesktopTab() {
 
     let alive = true;
     const carregar = async () => {
-      const [info, terms, stats, ob, obv, obc, occ, obf, ca] = await Promise.all([
+      const [info, terms, stats, obs, ob, obv, obc, occ, obf, ca] = await Promise.all([
         fetchDbInfo(cfg),
         fetchKnownTerminals(cfg),
         fetchDomainStats(cfg),
+        fetchOutboxStatus(cfg),
         fetchOutboxStats(cfg),
         fetchOutboxVendasStats(cfg),
         fetchOutboxCaixaStats(cfg),
@@ -280,6 +334,7 @@ export function DesktopTab() {
       setDbInfo(info);
       setKnownTerminals(terms);
       setDomainStats(stats);
+      setOutboxStatus(obs);
       setOutbox(ob);
       setOutboxVendas(obv);
       setOutboxCaixa(obc);
@@ -315,7 +370,8 @@ export function DesktopTab() {
     void carregar();
     const tFull = setInterval(() => void carregar(), 30_000);
     const tOutbox = setInterval(async () => {
-      const [ob, obv, obc, occ, obf] = await Promise.all([
+      const [obs, ob, obv, obc, occ, obf] = await Promise.all([
+        fetchOutboxStatus(cfg),
         fetchOutboxStats(cfg),
         fetchOutboxVendasStats(cfg),
         fetchOutboxCaixaStats(cfg),
@@ -323,6 +379,7 @@ export function DesktopTab() {
         fetchOutboxFinanceiroStats(cfg),
       ]);
       if (!alive) return;
+      setOutboxStatus(obs);
       setOutbox(ob);
       setOutboxVendas(obv);
       setOutboxCaixa(obc);
@@ -519,6 +576,14 @@ export function DesktopTab() {
               )}
             </CardContent>
           </Card>
+        )}
+
+        {role !== "unset" && outboxStatus && (
+          <OutboxStatusPanel
+            status={outboxStatus}
+            flushing={flushingAll}
+            onFlushAll={() => void handleFlushAll()}
+          />
         )}
 
         {role !== "unset" && dbInfo && (
@@ -1722,6 +1787,127 @@ function ConnStatusRow({
         {mensagem && <div className="mt-1 text-sm opacity-90">{mensagem}</div>}
       </div>
     </div>
+  );
+}
+
+function formatMs(ms: number | null) {
+  return ms ? new Date(ms).toLocaleString("pt-BR") : "—";
+}
+
+function OutboxStatusPanel({
+  status,
+  flushing,
+  onFlushAll,
+}: {
+  status: OutboxStatusResponse;
+  flushing: boolean;
+  onFlushAll: () => void;
+}) {
+  const firstError = status.domains.find((d) => d.last_error)?.last_error ?? null;
+  const errorInfo = firstError ? classifyOutboxError(firstError) : null;
+  const totalBlocking = status.total_pending + status.total_sending + status.total_error;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-4">
+        <CardTitle className="flex items-center gap-2">
+          <Database className="h-5 w-5" />
+          Status de sincronização offline
+        </CardTitle>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={flushing || status.total_pending === 0}
+          onClick={onFlushAll}
+        >
+          {flushing ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <RotateCcw className="mr-2 h-4 w-4" />
+          )}
+          Tentar sincronizar agora
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {status.total_error > 0 && errorInfo && (
+          <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+            <div>
+              <div className="font-semibold">
+                Há {status.total_error} item(ns) com erro de sincronização.
+              </div>
+              <div className="mt-1">{errorInfo.friendly}</div>
+            </div>
+          </div>
+        )}
+
+        <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 text-sm sm:grid-cols-4">
+          <Field label="Pendentes" value={String(status.total_pending)} />
+          <Field label="Processando" value={String(status.total_sending)} />
+          <Field label="Sincronizados" value={String(status.total_sent)} />
+          <Field label="Com erro" value={String(status.total_error)} />
+        </div>
+
+        <div className="overflow-hidden rounded-lg border border-border">
+          <table className="w-full text-xs">
+            <thead className="bg-muted/40 text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2 text-left font-medium">Domínio</th>
+                <th className="px-3 py-2 text-right font-medium">Pend.</th>
+                <th className="px-3 py-2 text-right font-medium">Proc.</th>
+                <th className="px-3 py-2 text-right font-medium">Sync</th>
+                <th className="px-3 py-2 text-right font-medium">Erro</th>
+                <th className="px-3 py-2 text-left font-medium">Última tentativa</th>
+                <th className="px-3 py-2 text-left font-medium">Último erro</th>
+              </tr>
+            </thead>
+            <tbody>
+              {status.domains.map((d) => {
+                const hasError = d.error > 0;
+                const hasPending = d.pending > 0 || d.sending > 0;
+                const badgeClass = hasError
+                  ? "border-destructive/30 bg-destructive/10 text-destructive"
+                  : hasPending
+                    ? "border-warning/30 bg-warning/10 text-warning"
+                    : "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
+                return (
+                  <tr key={d.domain} className="border-t border-border">
+                    <td className="px-3 py-2">
+                      <Badge variant="outline" className={badgeClass}>
+                        {d.label}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">{d.pending}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{d.sending}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{d.sent}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{d.error}</td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      {formatMs(d.last_attempt_at_ms)}
+                    </td>
+                    <td className="max-w-[260px] px-3 py-2">
+                      {d.last_error ? (
+                        <span className="line-clamp-2 text-destructive">
+                          {classifyOutboxError(d.last_error).friendly}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          Atualizado em {formatMs(status.generated_at_ms)}.{" "}
+          {totalBlocking === 0
+            ? "Todas as filas locais estão limpas."
+            : "As pendências continuam salvas localmente e podem ser reenviadas quando houver conexão e autenticação válidas."}
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 

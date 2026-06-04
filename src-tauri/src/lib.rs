@@ -43,6 +43,13 @@ pub struct DesktopAuthorizedUser {
     pub email: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct DesktopAuthorizedUserStatus {
+    pub exists: bool,
+    pub user_id: Option<String>,
+    pub email: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DesktopFuncionarioLocalRow {
     pub funcionario_id: String,
@@ -79,6 +86,16 @@ fn desktop_authorized_user_verify(
         user_id: u.user_id,
         email: u.email,
     }))
+}
+
+#[tauri::command]
+fn desktop_authorized_user_status(email: String) -> Result<DesktopAuthorizedUserStatus, String> {
+    let user = db::authorized_user_by_email(&email).map_err(|e| e.0)?;
+    Ok(DesktopAuthorizedUserStatus {
+        exists: user.is_some(),
+        user_id: user.as_ref().map(|u| u.user_id.clone()),
+        email: user.map(|u| u.email),
+    })
 }
 
 #[tauri::command]
@@ -278,6 +295,7 @@ pub fn run() {
             backup_cancel_restore,
             desktop_authorized_user_save,
             desktop_authorized_user_verify,
+            desktop_authorized_user_status,
             desktop_funcionario_pin_save,
             desktop_funcionarios_cache,
             desktop_funcionarios_ativos,

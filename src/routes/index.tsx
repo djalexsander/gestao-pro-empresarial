@@ -289,6 +289,7 @@ function DashboardPage() {
   const varCompras = variacao(data.comprasMes, data.comprasMesAnterior);
   const ultimasVendas = (data.ultimasVendas ?? []).filter((item) => inRange(item.data, inicio, fim));
   const ultimasCompras = (data.ultimasCompras ?? []).filter((item) => inRange(item.data, inicio, fim));
+  const dashboardIndisponivel = !!data.indisponivel;
   const totalDados =
     data.vendasMes +
     data.comprasMes +
@@ -329,7 +330,24 @@ function DashboardPage() {
         }
       />
 
-      {totalDados === 0 ? (
+      {dashboardIndisponivel ? (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-warning/10 text-warning">
+              <AlertTriangle className="h-6 w-6" />
+            </div>
+            <h3 className="text-lg font-semibold">Dashboard indisponível</h3>
+            <p className="max-w-xl text-sm text-muted-foreground">
+              {data.indisponivelMotivo ??
+                "Não foi possível carregar os indicadores agora."}
+            </p>
+            <Button variant="outline" onClick={() => window.location.reload()}>
+              <RotateCcw className="h-4 w-4" />
+              Tentar novamente
+            </Button>
+          </CardContent>
+        </Card>
+      ) : totalDados === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">

@@ -1195,7 +1195,7 @@ dependencies = [
 
 [[package]]
 name = "gestao-pro"
-version = "1.1.14"
+version = "1.1.15"
 dependencies = [
  "axum",
  "bcrypt",

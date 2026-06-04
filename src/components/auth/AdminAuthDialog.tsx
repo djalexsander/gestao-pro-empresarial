@@ -4,6 +4,7 @@ import { Eye, EyeOff, Lock, Loader2, ShieldCheck, Mail, Info } from "lucide-reac
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/components/auth/AuthProvider";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 import {
   Dialog,
   DialogContent,
@@ -15,6 +16,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { unlockErp } from "@/lib/erpUnlock";
+import { isDesktop } from "@/integrations/data/mode";
+import {
+  getDesktopAuthorizedUserStatus,
+  saveDesktopAuthorizedUser,
+  verifyDesktopAuthorizedUser,
+} from "@/integrations/desktop/tauriBridge";
 
 interface Props {
   open: boolean;
@@ -29,9 +36,53 @@ interface Props {
  * são bloqueados.
  */
 const REMEMBER_EMAIL_KEY = "erp_admin_remember_email";
+const ERP_OFFLINE_ALLOWED_KEY = "gp.erp.offline.allowed_admin_users";
+const OFFLINE_AUTH_UNAVAILABLE_MESSAGE =
+  "Este usuário ainda não foi sincronizado neste computador. Conecte à internet uma vez para liberar login offline.";
+
+function isNetworkAuthError(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" && error && "message" in error
+        ? String((error as { message?: unknown }).message)
+        : String(error ?? "");
+  return (
+    message === "Failed to fetch" ||
+    message.includes("Failed to fetch") ||
+    message.includes("NetworkError") ||
+    message.includes("Load failed") ||
+    message.includes("fetch failed")
+  );
+}
+
+function getOfflineAllowedAdmins(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(ERP_OFFLINE_ALLOWED_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((id) => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function markOfflineErpAllowed(userId: string) {
+  if (typeof window === "undefined") return;
+  try {
+    const next = Array.from(new Set([...getOfflineAllowedAdmins(), userId]));
+    localStorage.setItem(ERP_OFFLINE_ALLOWED_KEY, JSON.stringify(next));
+  } catch {
+    /* noop */
+  }
+}
+
+function isOfflineErpAllowed(userId: string): boolean {
+  return getOfflineAllowedAdmins().includes(userId);
+}
 
 export function AdminAuthDialog({ open, onOpenChange }: Props) {
-  const { user } = useAuth();
+  const { user, signInOffline } = useAuth();
   const navigate = useNavigate();
 
   const [email, setEmail] = useState("");
@@ -69,15 +120,70 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
 
     try {
       // 1) Reautenticação obrigatória (não confia na sessão existente).
-      const { data: signInData, error: signInError } =
-        await supabase.auth.signInWithPassword({
+      let signInData: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>["data"] | null = null;
+      let signInError: Error | null = null;
+      try {
+        const result = await supabase.auth.signInWithPassword({
           email: email.trim(),
           password,
         });
+        signInData = result.data;
+        signInError = result.error;
+      } catch (err) {
+        signInError = err as Error;
+      }
 
-      if (signInError || !signInData.user) {
+      if (signInError || !signInData?.user) {
+        const isInvalidCredentials =
+          signInError?.message === "Invalid login credentials";
+        if (isDesktop() && !isInvalidCredentials) {
+          const local = await verifyDesktopAuthorizedUser(email.trim(), password);
+          const allowedAdmins = getOfflineAllowedAdmins();
+          const allowedByMigration =
+            allowedAdmins.length === 0 && local?.user_id === user?.id;
+          if (local && (isOfflineErpAllowed(local.user_id) || allowedByMigration)) {
+            signInOffline({
+              id: local.user_id,
+              email: email.trim(),
+              aud: "authenticated",
+              app_metadata: {},
+              user_metadata: {},
+              created_at: new Date().toISOString(),
+            } as SupabaseUser);
+            try {
+              localStorage.setItem(REMEMBER_EMAIL_KEY, email.trim());
+            } catch {
+              /* noop */
+            }
+            setPassword("");
+            markOfflineErpAllowed(local.user_id);
+            unlockErp(local.user_id);
+            toast.success("Acesso autorizado. (modo offline)");
+            onOpenChange(false);
+            navigate({ to: "/" });
+            return;
+          }
+
+          if (local) {
+            toast.error(
+              "Este usuário ainda não foi autorizado para acesso ERP offline neste computador. Conecte uma vez à internet e entre no ERP para liberar o cache seguro.",
+            );
+            setBusy(false);
+            return;
+          }
+          if (isNetworkAuthError(signInError)) {
+            const status = await getDesktopAuthorizedUserStatus(email.trim());
+            toast.error(
+              status.exists
+                ? "E-mail ou senha inválidos."
+                : OFFLINE_AUTH_UNAVAILABLE_MESSAGE,
+            );
+            setBusy(false);
+            return;
+          }
+        }
         toast.error(
-          signInError?.message === "Invalid login credentials"
+          isInvalidCredentials
             ? "E-mail ou senha inválidos."
             : signInError?.message ?? "Não foi possível autenticar.",
         );
@@ -126,6 +232,12 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
       }
       // Garante que a senha digitada não permanece em memória após sucesso.
       setPassword("");
+      if (isDesktop()) {
+        saveDesktopAuthorizedUser(email.trim(), authedUserId, password).catch(() => {
+          /* ignore local cache failures */
+        });
+        markOfflineErpAllowed(authedUserId);
+      }
       unlockErp(authedUserId);
       toast.success("Acesso autorizado.");
       onOpenChange(false);

@@ -3,6 +3,58 @@ import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { registrarAuditLog } from "@/hooks/useAdmin";
 import { lockErp } from "@/lib/erpUnlock";
+import { isDesktop } from "@/integrations/data/mode";
+import { getDesktopAuthorizedUserStatus } from "@/integrations/desktop/tauriBridge";
+
+const OFFLINE_USER_STORAGE_KEY = "gp.auth.offline_user.v1";
+
+type StoredOfflineUser = {
+  id?: unknown;
+  email?: unknown;
+};
+
+function devAuthLog(message: string, meta?: unknown) {
+  if (import.meta.env.DEV) {
+    console.info(`[auth-offline] ${message}`, meta ?? "");
+  }
+}
+
+function readStoredOfflineUser(): Pick<User, "id" | "email"> | null {
+  try {
+    const raw = window.localStorage.getItem(OFFLINE_USER_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredOfflineUser;
+    const id = typeof parsed.id === "string" ? parsed.id.trim() : "";
+    const email = typeof parsed.email === "string" ? parsed.email.trim() : "";
+    if (!id || !email) return null;
+    return { id, email };
+  } catch {
+    return null;
+  }
+}
+
+function toOfflineSupabaseUser(stored: Pick<User, "id" | "email">): User {
+  return {
+    id: stored.id,
+    email: stored.email ?? undefined,
+    aud: "authenticated",
+    app_metadata: {},
+    user_metadata: {},
+    created_at: new Date().toISOString(),
+  } as User;
+}
+
+function persistOfflineUserPointer(user: User) {
+  if (!isDesktop() || !user.email) return;
+  try {
+    window.localStorage.setItem(
+      OFFLINE_USER_STORAGE_KEY,
+      JSON.stringify({ id: user.id, email: user.email }),
+    );
+  } catch {
+    /* noop */
+  }
+}
 
 interface AuthContextValue {
   user: User | null;
@@ -30,6 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Registra eventos de auditoria (apenas eventos significativos, evita duplicar)
       if (event === "SIGNED_IN" && sess?.user && lastEventUserRef.current !== sess.user.id) {
         lastEventUserRef.current = sess.user.id;
+        persistOfflineUserPointer(sess.user);
         // garante registro de empresa do usuário no primeiro acesso
         supabase.rpc("garantir_empresa_atual").then(() => {
           registrarAuditLog("auth.login", {
@@ -44,14 +97,79 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    supabase.auth.getSession().then(({ data: { session: sess } }) => {
+    let alive = true;
+    supabase.auth.getSession().then(async ({ data: { session: sess } }) => {
+      if (!alive) return;
       setSession(sess);
-      setUser(sess?.user ?? offlineUserRef.current ?? null);
+      if (sess?.user) {
+        persistOfflineUserPointer(sess.user);
+        setUser(sess.user);
+        setLoading(false);
+        lastEventUserRef.current = sess.user.id;
+        return;
+      }
+
+      if (isDesktop()) {
+        const stored = readStoredOfflineUser();
+        if (stored?.email) {
+          const status = await getDesktopAuthorizedUserStatus(stored.email);
+          if (!alive) return;
+          if (status.exists && status.user_id === stored.id) {
+            const restored = toOfflineSupabaseUser(stored);
+            offlineUserRef.current = restored;
+            setOfflineUser(restored);
+            setUser(restored);
+            lastEventUserRef.current = restored.id;
+            devAuthLog("sessao offline restaurada", { email: restored.email });
+          } else {
+            try {
+              window.localStorage.removeItem(OFFLINE_USER_STORAGE_KEY);
+            } catch {
+              /* noop */
+            }
+            devAuthLog("sessao offline descartada: usuario nao autorizado", {
+              email: stored.email,
+              userId: stored.id,
+            });
+            setUser(null);
+          }
+          setLoading(false);
+          return;
+        }
+      }
+
+      setUser(offlineUserRef.current ?? null);
       setLoading(false);
-      if (sess?.user) lastEventUserRef.current = sess.user.id;
+    }).catch(async (err) => {
+      if (!alive) return;
+      devAuthLog("getSession falhou no boot", err);
+      if (isDesktop()) {
+        const stored = readStoredOfflineUser();
+        if (stored?.email) {
+          const status = await getDesktopAuthorizedUserStatus(stored.email);
+          if (!alive) return;
+          if (status.exists && status.user_id === stored.id) {
+            const restored = toOfflineSupabaseUser(stored);
+            offlineUserRef.current = restored;
+            setOfflineUser(restored);
+            setUser(restored);
+            lastEventUserRef.current = restored.id;
+            setLoading(false);
+            devAuthLog("sessao offline restaurada apos falha do getSession", {
+              email: restored.email,
+            });
+            return;
+          }
+        }
+      }
+      setUser(offlineUserRef.current ?? null);
+      setLoading(false);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      alive = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signOut = async () => {
@@ -60,11 +178,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (uid) {
       await registrarAuditLog("auth.logout", {
         target_type: "user", target_id: uid, metadata: { email },
+      }).catch(() => {
+        /* Ignore audit failures when offline */
       });
     }
     lockErp();
     setOfflineUser(null);
     offlineUserRef.current = null;
+    try {
+      window.localStorage.removeItem(OFFLINE_USER_STORAGE_KEY);
+    } catch {
+      /* noop */
+    }
     await supabase.auth.signOut().catch(() => {
       /* Ignore logout failures when offline */
     });
@@ -76,6 +201,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(offline);
     setSession(null);
     lastEventUserRef.current = offline.id;
+    try {
+      persistOfflineUserPointer(offline);
+    } catch {
+      /* noop */
+    }
   };
 
   useEffect(() => {

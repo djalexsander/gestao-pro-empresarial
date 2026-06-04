@@ -44,6 +44,7 @@ import {
 import { useClientesFull } from "@/hooks/useClientes";
 import { CancelarVendaDialog } from "@/components/vendas/CancelarVendaDialog";
 import { DetalheVendaDialog } from "@/components/vendas/DetalheVendaDialog";
+import { getDataMode } from "@/integrations/data/mode";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -85,6 +86,20 @@ const FORMA_LABEL: Record<string, string> = {
   outro: "Fiado",
 };
 
+const SYNC_LABEL: Record<string, string> = {
+  pending: "Pendente sync",
+  sending: "Sincronizando",
+  sent: "Sincronizada",
+  error: "Erro sync",
+};
+
+const SYNC_BADGE: Record<string, string> = {
+  pending: "bg-warning/15 text-warning border-warning/30",
+  sending: "bg-primary/15 text-primary border-primary/30",
+  sent: "bg-success/15 text-success border-success/30",
+  error: "bg-destructive/15 text-destructive border-destructive/30",
+};
+
 type Periodo = "hoje" | "7d" | "30d" | "mes" | "todos";
 
 function rangeFromPeriodo(p: Periodo): { inicio: string; fim: string } {
@@ -107,6 +122,8 @@ function rangeFromPeriodo(p: Periodo): { inicio: string; fim: string } {
 
 function SalesPage() {
   const navigate = useNavigate();
+  const dataMode = getDataMode();
+  const isLocalMode = dataMode === "local-server" || dataMode === "local-terminal";
   const { data: vendas = [], isLoading } = useVendas();
   const { data: clientes = [] } = useClientesFull();
   const [query, setQuery] = useState("");
@@ -160,7 +177,9 @@ function SalesPage() {
 
   return (
     <div className="space-y-6">
-      <CloudDependencyNotice title="Lista de vendas vem da nuvem" message="A listagem de vendas ainda lê da nuvem. Vendas registradas neste terminal e ainda não sincronizadas podem aparecer com atraso. Após a sincronização a lista é atualizada." />
+      {!isLocalMode && (
+        <CloudDependencyNotice title="Lista de vendas vem da nuvem" message="A listagem de vendas ainda lê da nuvem. Vendas registradas neste terminal e ainda não sincronizadas podem aparecer com atraso. Após a sincronização a lista é atualizada." />
+      )}
       <PageHeader
         title="Vendas"
         description="Pedidos de venda registrados no sistema."
@@ -321,6 +340,7 @@ function SalesPage() {
               <TableBody>
                 {filtered.map((v) => {
                   const cancelada = v.status === "cancelada";
+                  const syncStatus = v.cancel_sync_status ?? v.sync_status ?? null;
                   return (
                     <TableRow
                       key={v.id}
@@ -355,15 +375,29 @@ function SalesPage() {
                         {formatBRL(v.total)}
                       </TableCell>
                       <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={cn(
-                            "capitalize",
-                            STATUS_BADGE[v.status_pagamento] ?? "",
+                        <div className="flex flex-wrap gap-1.5">
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "capitalize",
+                              STATUS_BADGE[v.status_pagamento] ?? "",
+                            )}
+                          >
+                            {v.status_pagamento}
+                          </Badge>
+                          {syncStatus && (
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "whitespace-nowrap",
+                                SYNC_BADGE[syncStatus] ?? "",
+                              )}
+                              title={v.sync_error ?? undefined}
+                            >
+                              {SYNC_LABEL[syncStatus] ?? syncStatus}
+                            </Badge>
                           )}
-                        >
-                          {v.status_pagamento}
-                        </Badge>
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center justify-end gap-1">
@@ -387,7 +421,7 @@ function SalesPage() {
                               <X className="h-3.5 w-3.5" />
                             </Button>
                           )}
-                          {cancelada && (
+                          {cancelada && !isLocalMode && (
                             <Button
                               variant="ghost"
                               size="icon"

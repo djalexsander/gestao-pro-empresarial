@@ -28,6 +28,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable";
 import { useAuth } from "@/components/auth/AuthProvider";
 import {
+  getDesktopAuthorizedUserStatus,
   saveDesktopAuthorizedUser,
   verifyDesktopAuthorizedUser,
 } from "@/integrations/desktop/tauriBridge";
@@ -297,6 +298,24 @@ const inputCls =
 /* ---------- Sign in ---------- */
 
 const REMEMBER_LOGIN_KEY = "auth_remember_email";
+const OFFLINE_AUTH_UNAVAILABLE_MESSAGE =
+  "Este usuário ainda não foi sincronizado neste computador. Conecte à internet uma vez para liberar login offline.";
+
+function isNetworkAuthError(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" && error && "message" in error
+        ? String((error as { message?: unknown }).message)
+        : String(error ?? "");
+  return (
+    message === "Failed to fetch" ||
+    message.includes("Failed to fetch") ||
+    message.includes("NetworkError") ||
+    message.includes("Load failed") ||
+    message.includes("fetch failed")
+  );
+}
 
 function SignInForm({ redirect }: { redirect: string }) {
   const navigate = useNavigate();
@@ -361,7 +380,9 @@ function SignInForm({ redirect }: { redirect: string }) {
       result = { error: error as Error };
     }
     if (result.error) {
-      if (isDesktop()) {
+      const isInvalidCredentials =
+        result.error.message === "Invalid login credentials";
+      if (isDesktop() && !isInvalidCredentials && isNetworkAuthError(result.error)) {
         const local = await verifyDesktopAuthorizedUser(email.trim(), password);
         if (local) {
           auth.signInOffline({
@@ -387,12 +408,22 @@ function SignInForm({ redirect }: { redirect: string }) {
           navigate({ to: redirect });
           return;
         }
+        const status = await getDesktopAuthorizedUserStatus(email.trim());
+        setBusy(false);
+        toast.error(
+          status.exists
+            ? "E-mail ou senha inválidos."
+            : OFFLINE_AUTH_UNAVAILABLE_MESSAGE,
+        );
+        return;
       }
       setBusy(false);
       toast.error(
-        result.error.message === "Invalid login credentials"
+        isInvalidCredentials
           ? "E-mail ou senha inválidos."
-          : result.error.message,
+          : isNetworkAuthError(result.error)
+            ? "Não foi possível conectar ao serviço de login. Verifique a internet e tente novamente."
+            : result.error.message,
       );
       return;
     }

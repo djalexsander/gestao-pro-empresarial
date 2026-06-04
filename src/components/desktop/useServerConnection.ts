@@ -27,6 +27,8 @@ import type { TerminalConexaoConfig } from "@/integrations/desktop/types";
 import { APP_VERSION } from "@/lib/version";
 
 const POLL_MS = 20_000;
+const OFFLINE_FAILURE_THRESHOLD = 3;
+const KEEP_LAST_ONLINE_MS = 60_000;
 
 const INITIAL: ServerConnInfo = {
   status: "unknown",
@@ -57,6 +59,9 @@ export function useServerConnection(): UseServerConnectionResult {
   const [serverMatch, setServerMatch] = useState<boolean | null>(null);
   const [testando, setTestando] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const inFlight = useRef(false);
+  const consecutiveFailures = useRef(0);
+  const lastOnline = useRef<ServerConnInfo | null>(null);
 
   const cfgTerminal: TerminalConexaoConfig | undefined =
     role === "terminal" ? config.terminal : undefined;
@@ -74,6 +79,8 @@ export function useServerConnection(): UseServerConnectionResult {
   const cfgPing = cfgTerminal ?? cfgServer;
 
   const ping = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setTestando(true);
     try {
       // Atualiza status do daemon (só faz algo no desktop server).
@@ -86,10 +93,12 @@ export function useServerConnection(): UseServerConnectionResult {
         }
       }
       const result = await pingServidorLocal(cfgPing);
-      setConn(result);
 
       // Quando online, enriquece com /server-info.
       if (result.status === "online") {
+        consecutiveFailures.current = 0;
+        lastOnline.current = result;
+        setConn(result);
         const si = await fetchServerInfo(cfgPing);
         setInfo(si);
 
@@ -107,16 +116,46 @@ export function useServerConnection(): UseServerConnectionResult {
           if (hb) setServerMatch(hb.serverMatch ?? null);
         }
       } else {
-        setInfo(null);
-        setServerMatch(null);
+        consecutiveFailures.current += 1;
+        const last = lastOnline.current;
+        const lastIsFresh =
+          !!last?.ultimoSync &&
+          Date.now() - last.ultimoSync.getTime() <= KEEP_LAST_ONLINE_MS;
+
+        if (
+          last &&
+          lastIsFresh &&
+          consecutiveFailures.current < OFFLINE_FAILURE_THRESHOLD
+        ) {
+          setConn({
+            ...last,
+            ultimoSync: new Date(),
+            mensagem: null,
+          });
+        } else if (!last && consecutiveFailures.current < OFFLINE_FAILURE_THRESHOLD) {
+          setConn({
+            status: "unknown",
+            latenciaMs: null,
+            ultimoSync: new Date(),
+            baseUrl: result.baseUrl,
+            mensagem: "Verificando servidor local...",
+          });
+        } else {
+          setConn(result);
+          setInfo(null);
+          setServerMatch(null);
+        }
       }
     } finally {
+      inFlight.current = false;
       setTestando(false);
     }
   }, [isDesktop, role, cfgPing, cfgTerminal, config.machineId]);
 
   useEffect(() => {
     if (!isDesktop || role === "unset") {
+      consecutiveFailures.current = 0;
+      lastOnline.current = null;
       setConn({
         status: "cloud-fallback",
         latenciaMs: null,

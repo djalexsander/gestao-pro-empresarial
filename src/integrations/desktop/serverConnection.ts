@@ -42,8 +42,26 @@ export interface ServerConnInfo {
 }
 
 const TIMEOUT_MS = 3000;
+const LOCAL_REQUEST_TIMEOUT_MS = 5000;
 /** Marcador esperado no payload de /health para validar que é um Gestão Pro. */
 const APP_MARKER = "Gestao Pro";
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = LOCAL_REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: init.signal ?? ctrl.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export function getBaseUrl(cfg?: TerminalConexaoConfig): string | null {
   if (!cfg?.host || !cfg?.porta) return null;
@@ -443,6 +461,70 @@ export interface OutboxStats {
   last_manual_flush_ms: number | null;
 }
 
+export interface OutboxDomainStatus {
+  domain: "clientes" | "vendas" | "estoque" | "caixa" | "cancelamentos" | "financeiro" | string;
+  label: string;
+  pending: number;
+  sending: number;
+  sent: number;
+  error: number;
+  due_now: number;
+  next_attempt_at_ms: number | null;
+  last_attempt_at_ms: number | null;
+  last_sent_at_ms: number | null;
+  last_error: string | null;
+}
+
+export async function flushOutboxClientes(
+  cfg: TerminalConexaoConfig | undefined,
+  accessToken?: string | null,
+): Promise<number> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return 0;
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  try {
+    const res = await fetchWithTimeout(`${baseUrl}/db/outbox/clientes/flush`, {
+      method: "POST",
+      headers,
+      cache: "no-store",
+    });
+    if (!res.ok) return 0;
+    const json = (await res.json()) as { sent?: number };
+    return json.sent ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+export async function retryOutboxClientesErrors(
+  cfg: TerminalConexaoConfig | undefined,
+): Promise<number> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return 0;
+  try {
+    const res = await fetchWithTimeout(`${baseUrl}/db/outbox/clientes/retry-errors`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return 0;
+    const json = (await res.json()) as { requeued?: number };
+    return json.requeued ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+export interface OutboxStatusResponse {
+  generated_at_ms: number;
+  total_pending: number;
+  total_sending: number;
+  total_sent: number;
+  total_error: number;
+  domains: OutboxDomainStatus[];
+}
+
 export interface OutboxItem {
   local_uuid: string;
   client_uuid: string | null;
@@ -505,6 +587,23 @@ export async function fetchOutboxStats(
   }
 }
 
+export async function fetchOutboxStatus(
+  cfg?: TerminalConexaoConfig,
+): Promise<OutboxStatusResponse | null> {
+  const baseUrl = getBaseUrl(cfg);
+  if (!baseUrl) return null;
+  try {
+    const res = await fetchWithTimeout(`${baseUrl}/api/db/outbox/status`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as OutboxStatusResponse;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchOutboxList(
   cfg: TerminalConexaoConfig | undefined,
   opts?: { status?: OutboxItem["status"]; limit?: number },
@@ -515,7 +614,7 @@ export async function fetchOutboxList(
   if (opts?.status) url.searchParams.set("status", opts.status);
   if (opts?.limit) url.searchParams.set("limit", String(opts.limit));
   try {
-    const res = await fetch(url.toString(), {
+    const res = await fetchWithTimeout(url.toString(), {
       headers: { Accept: "application/json" },
       cache: "no-store",
     });
@@ -559,7 +658,7 @@ export async function retryOutboxErrors(
   const baseUrl = getBaseUrl(cfg);
   if (!baseUrl) return 0;
   try {
-    const res = await fetch(`${baseUrl}/db/outbox/retry-errors`, {
+    const res = await fetchWithTimeout(`${baseUrl}/db/outbox/retry-errors`, {
       method: "POST",
       headers: { Accept: "application/json" },
       cache: "no-store",
@@ -707,7 +806,7 @@ export async function fetchOutboxVendasList(
   if (opts?.status) url.searchParams.set("status", opts.status);
   if (opts?.limit) url.searchParams.set("limit", String(opts.limit));
   try {
-    const res = await fetch(url.toString(), {
+    const res = await fetchWithTimeout(url.toString(), {
       headers: { Accept: "application/json" },
       cache: "no-store",
     });
@@ -751,7 +850,7 @@ export async function retryOutboxVendasErrors(
   const baseUrl = getBaseUrl(cfg);
   if (!baseUrl) return 0;
   try {
-    const res = await fetch(`${baseUrl}/db/outbox/vendas/retry-errors`, {
+    const res = await fetchWithTimeout(`${baseUrl}/db/outbox/vendas/retry-errors`, {
       method: "POST",
       headers: { Accept: "application/json" },
       cache: "no-store",
@@ -912,7 +1011,7 @@ export async function fetchCaixaLocalAberto(
   const url = new URL(`${baseUrl}/api/caixa/aberto`);
   if (operadorId) url.searchParams.set("operador_id", operadorId);
   try {
-    const res = await fetch(url.toString(), {
+    const res = await fetchWithTimeout(url.toString(), {
       headers: { Accept: "application/json" },
       cache: "no-store",
     });
@@ -992,7 +1091,7 @@ async function getLocalJson<T>(
     }
   }
   try {
-    const res = await fetch(url.toString(), {
+    const res = await fetchWithTimeout(url.toString(), {
       headers: { Accept: "application/json" },
       cache: "no-store",
     });
@@ -1032,7 +1131,7 @@ export async function regenerarLancamentosCaixaLocal(
   const url = new URL(`${baseUrl}/api/caixa/regenerar-lancamentos`);
   url.searchParams.set("caixa_id", caixaId);
   try {
-    const res = await fetch(url.toString(), {
+    const res = await fetchWithTimeout(url.toString(), {
       method: "POST",
       headers: { Accept: "application/json" },
       cache: "no-store",
@@ -1049,7 +1148,7 @@ export async function fetchOutboxCaixaStats(
   const baseUrl = getBaseUrl(cfg);
   if (!baseUrl) return null;
   try {
-    const res = await fetch(`${baseUrl}/db/outbox/caixa/stats`, {
+    const res = await fetchWithTimeout(`${baseUrl}/db/outbox/caixa/stats`, {
       headers: { Accept: "application/json" },
       cache: "no-store",
     });
@@ -1070,7 +1169,7 @@ export async function fetchOutboxCaixaList(
   if (opts?.status) url.searchParams.set("status", opts.status);
   if (opts?.limit) url.searchParams.set("limit", String(opts.limit));
   try {
-    const res = await fetch(url.toString(), {
+    const res = await fetchWithTimeout(url.toString(), {
       headers: { Accept: "application/json" },
       cache: "no-store",
     });
@@ -1114,7 +1213,7 @@ export async function retryOutboxCaixaErrors(
   const baseUrl = getBaseUrl(cfg);
   if (!baseUrl) return 0;
   try {
-    const res = await fetch(`${baseUrl}/db/outbox/caixa/retry-errors`, {
+    const res = await fetchWithTimeout(`${baseUrl}/db/outbox/caixa/retry-errors`, {
       method: "POST",
       headers: { Accept: "application/json" },
       cache: "no-store",
@@ -1238,7 +1337,7 @@ export async function fetchOutboxCancelamentosStats(
   const baseUrl = getBaseUrl(cfg);
   if (!baseUrl) return null;
   try {
-    const res = await fetch(`${baseUrl}/db/outbox/cancelamentos/stats`, {
+    const res = await fetchWithTimeout(`${baseUrl}/db/outbox/cancelamentos/stats`, {
       headers: { Accept: "application/json" },
       cache: "no-store",
     });
@@ -1259,7 +1358,7 @@ export async function fetchOutboxCancelamentosList(
   if (opts?.status) url.searchParams.set("status", opts.status);
   if (opts?.limit) url.searchParams.set("limit", String(opts.limit));
   try {
-    const res = await fetch(url.toString(), {
+    const res = await fetchWithTimeout(url.toString(), {
       headers: { Accept: "application/json" },
       cache: "no-store",
     });
@@ -1303,7 +1402,7 @@ export async function retryOutboxCancelamentosErrors(
   const baseUrl = getBaseUrl(cfg);
   if (!baseUrl) return 0;
   try {
-    const res = await fetch(`${baseUrl}/db/outbox/cancelamentos/retry-errors`, {
+    const res = await fetchWithTimeout(`${baseUrl}/db/outbox/cancelamentos/retry-errors`, {
       method: "POST",
       headers: { Accept: "application/json" },
       cache: "no-store",
@@ -1418,7 +1517,7 @@ export async function inserirLancamentoManualLocal(
   const baseUrl = getBaseUrl(cfg);
   if (!baseUrl) return null;
   try {
-    const res = await fetch(`${baseUrl}/api/financeiro/manual`, {
+    const res = await fetchWithTimeout(`${baseUrl}/api/financeiro/manual`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify(input),
@@ -1442,7 +1541,7 @@ export async function cancelarLancamentoLocal(
   url.searchParams.set("local_uuid", localUuid);
   if (motivo) url.searchParams.set("motivo", motivo);
   try {
-    const res = await fetch(url.toString(), {
+    const res = await fetchWithTimeout(url.toString(), {
       method: "POST",
       headers: { Accept: "application/json" },
       cache: "no-store",
@@ -1471,7 +1570,7 @@ export async function fetchOutboxFinanceiroStats(
   const baseUrl = getBaseUrl(cfg);
   if (!baseUrl) return null;
   try {
-    const res = await fetch(`${baseUrl}/db/outbox/financeiro/stats`, {
+    const res = await fetchWithTimeout(`${baseUrl}/db/outbox/financeiro/stats`, {
       headers: { Accept: "application/json" },
       cache: "no-store",
     });
@@ -1492,7 +1591,7 @@ export async function fetchOutboxFinanceiroList(
   if (opts?.status) url.searchParams.set("status", opts.status);
   if (opts?.limit) url.searchParams.set("limit", String(opts.limit));
   try {
-    const res = await fetch(url.toString(), {
+    const res = await fetchWithTimeout(url.toString(), {
       headers: { Accept: "application/json" },
       cache: "no-store",
     });
@@ -1536,7 +1635,7 @@ export async function retryOutboxFinanceiroErrors(
   const baseUrl = getBaseUrl(cfg);
   if (!baseUrl) return 0;
   try {
-    const res = await fetch(`${baseUrl}/db/outbox/financeiro/retry-errors`, {
+    const res = await fetchWithTimeout(`${baseUrl}/db/outbox/financeiro/retry-errors`, {
       method: "POST",
       headers: { Accept: "application/json" },
       cache: "no-store",
@@ -1591,7 +1690,7 @@ async function getJson<T>(
   const baseUrl = getBaseUrl(cfg);
   if (!baseUrl) return null;
   try {
-    const res = await fetch(`${baseUrl}${path}`, {
+    const res = await fetchWithTimeout(`${baseUrl}${path}`, {
       headers: { Accept: "application/json" },
       cache: "no-store",
     });
@@ -1610,7 +1709,7 @@ async function postJson<T>(
   const baseUrl = getBaseUrl(cfg);
   if (!baseUrl) return null;
   try {
-    const res = await fetch(`${baseUrl}${path}`, {
+    const res = await fetchWithTimeout(`${baseUrl}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: body ? JSON.stringify(body) : "{}",
@@ -1691,7 +1790,7 @@ export async function agendarRestauracao(
   if (!baseUrl) {
     throw new Error("Servidor local indisponível.");
   }
-  const res = await fetch(`${baseUrl}/backup/restore/schedule`, {
+  const res = await fetchWithTimeout(`${baseUrl}/backup/restore/schedule`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ source_path, force: options?.force ?? false }),

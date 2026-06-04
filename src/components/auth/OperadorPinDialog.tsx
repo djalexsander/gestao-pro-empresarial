@@ -15,7 +15,12 @@ interface Props {
 export function OperadorPinSelector({ onSuccess }: Props) {
   const { setOperador } = useOperador();
   const { terminal } = useTerminal();
-  const { data: funcionarios = [], isLoading } = useFuncionariosAtivos();
+  const {
+    data: funcionarios = [],
+    isLoading,
+    isError,
+    error,
+  } = useFuncionariosAtivos();
   const [selecionado, setSelecionado] = useState<Funcionario | null>(null);
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
@@ -81,6 +86,20 @@ export function OperadorPinSelector({ onSuccess }: Props) {
       <div className="flex items-center justify-center py-12">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card className="p-6 text-center">
+        <p className="text-sm text-muted-foreground">
+          Não foi possível carregar os operadores salvos neste computador.
+          Conecte uma vez à nuvem para sincronizar os operadores do PDV.
+        </p>
+        {error instanceof Error && (
+          <p className="mt-2 text-xs text-muted-foreground">{error.message}</p>
+        )}
+      </Card>
     );
   }
 
