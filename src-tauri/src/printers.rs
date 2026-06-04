@@ -231,6 +231,7 @@ pub fn print_raw(printer_name: &str, _doc_name: &str, data: &[u8]) -> Result<Str
 
 // ---------------------------------------------------------------------------
 // PRINT — IMAGEM/ETIQUETA via GDI (Windows spooler "normal")
+<<<<<<< HEAD
 // ---------------------------------------------------------------------------
 //
 // Caminho dedicado a impressoras de etiqueta que NÃO aceitam RAW/ESC-POS
@@ -307,7 +308,83 @@ pub fn print_image_png(
 
 // ---------------------------------------------------------------------------
 // ESC/POS — construtor de cupom de texto
+=======
+>>>>>>> be2072a9 (Changes)
 // ---------------------------------------------------------------------------
+//
+// Caminho dedicado a impressoras de etiqueta que NÃO aceitam RAW/ESC-POS
+// (ex.: PT260, Argox OS-214, Elgin L42, Zebra GK420 em modo Windows).
+// Decodifica um PNG vindo do frontend e desenha via GDI (StretchDIBits) no
+// DC da impressora. Compatível com qualquer driver Windows que aceite
+// impressão GDI/bitmap, sem depender de SumatraPDF nem de handler PDF.
+
+#[cfg(target_os = "windows")]
+pub fn print_image_png(
+    printer_name: &str,
+    doc_name: &str,
+    png_bytes: &[u8],
+    copies: u32,
+) -> Result<String, String> {
+    eprintln!(
+        "[printers] print_image_png printer={} bytes={} copies={}",
+        printer_name,
+        png_bytes.len(),
+        copies
+    );
+    let img = image::load_from_memory(png_bytes)
+        .map_err(|e| format!("Falha ao decodificar PNG da etiqueta: {e}"))?;
+    let rgba = img.to_rgba8();
+    let (w, h) = rgba.dimensions();
+    // Converte para BGRA (ordem que o GDI espera em BI_RGB 32bpp).
+    let mut bgra = Vec::with_capacity((w * h * 4) as usize);
+    for px in rgba.pixels() {
+        bgra.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
+    }
+    win_raw::gdi_print_bitmap(printer_name, doc_name, &bgra, w as i32, h as i32, copies.max(1))?;
+    Ok(format!(
+        "Etiqueta enviada para '{}' ({}x{} px)",
+        printer_name, w, h
+    ))
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn print_image_png(
+    printer_name: &str,
+    _doc_name: &str,
+    png_bytes: &[u8],
+    copies: u32,
+) -> Result<String, String> {
+    // Em Unix CUPS aceita PNG nativamente via `lp`.
+    eprintln!(
+        "[printers] print_image_png (cups) printer={} bytes={} copies={}",
+        printer_name,
+        png_bytes.len(),
+        copies
+    );
+    let mut path = std::env::temp_dir();
+    path.push(format!(
+        "gestao-pro-etiqueta-{}.png",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    ));
+    std::fs::write(&path, png_bytes).map_err(|e| format!("temp png: {e}"))?;
+    let n = copies.max(1).to_string();
+    let out = Command::new("lp")
+        .args(["-d", printer_name, "-n", &n, path.to_string_lossy().as_ref()])
+        .output()
+        .map_err(|e| format!("lp indisponível: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "Falha lp: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
+    }
+    Ok(format!("Etiqueta enviada para '{}'", printer_name))
+}
+
+
 
 
 /// Constrói um buffer ESC/POS para o texto informado.
