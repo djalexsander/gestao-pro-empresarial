@@ -36,10 +36,29 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { ModuloGate } from "@/components/saas/ModuloGate";
 import { supabase } from "@/integrations/supabase/client";
 import { formatBRL } from "@/lib/mock-data";
 import { exportRowsToCSV, type CsvColumn } from "@/lib/export-csv";
 import { cn } from "@/lib/utils";
+
+export const Route = createFileRoute("/relatorios/fluxo-caixa")({
+  head: () => ({
+    meta: [
+      { title: "Fluxo de Caixa - Gestao Pro" },
+      {
+        name: "description",
+        content:
+          "Movimentacoes de caixa: aberturas, vendas, sangrias, suprimentos e fechamentos.",
+      },
+    ],
+  }),
+  component: () => (
+    <ModuloGate chave="relatorios" titulo="Fluxo de Caixa">
+      <Conteudo />
+    </ModuloGate>
+  ),
+});
 
 type PeriodoPreset = "hoje" | "7d" | "30d" | "mes" | "ano" | "personalizado";
 type TipoMov = "abertura" | "venda" | "suprimento" | "sangria" | "fechamento";
