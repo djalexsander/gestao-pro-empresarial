@@ -4546,6 +4546,34 @@ pub fn outbox_vendas_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbR
     })
 }
 
+pub fn venda_caixa_local_uuid(venda_local_uuid: &str) -> DbResult<Option<String>> {
+    with_conn(|conn| {
+        conn.query_row(
+            "SELECT caixa_local_uuid FROM vendas_local WHERE local_uuid=?1",
+            params![venda_local_uuid],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .map(|row| row.flatten())
+        .map_err(Into::into)
+    })
+}
+
+pub fn count_unsynced_vendas_for_caixa(caixa_local_uuid: &str) -> DbResult<i64> {
+    with_conn(|conn| {
+        conn.query_row(
+            "SELECT COUNT(*)
+               FROM outbox_vendas ov
+               JOIN vendas_local vl ON vl.local_uuid = ov.local_uuid
+              WHERE vl.caixa_local_uuid = ?1
+                AND ov.status <> 'sent'",
+            params![caixa_local_uuid],
+            |r| r.get::<_, i64>(0),
+        )
+        .map_err(Into::into)
+    })
+}
+
 pub fn outbox_vendas_reset_errors(now_ms: i64) -> DbResult<i64> {
     with_conn(|conn| {
         let n = conn.execute(
@@ -6042,6 +6070,40 @@ pub fn outbox_caixa_get(local_uuid: &str) -> DbResult<Option<OutboxCaixaItem>> {
             params![local_uuid], map_caixa_item,
         ).optional()?;
         Ok(r)
+    })
+}
+
+pub fn caixa_remote_id(caixa_local_uuid: &str) -> DbResult<Option<String>> {
+    with_conn(|conn| {
+        conn.query_row(
+            "SELECT remote_id FROM caixa_local WHERE local_uuid=?1",
+            params![caixa_local_uuid],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .map(|row| row.flatten())
+        .map_err(Into::into)
+    })
+}
+
+pub fn outbox_caixa_item_for_action(
+    caixa_local_uuid: &str,
+    action: &str,
+) -> DbResult<Option<OutboxCaixaItem>> {
+    with_conn(|conn| {
+        conn.query_row(
+            "SELECT local_uuid, client_uuid, action, caixa_local_uuid, payload,
+                    status, attempts, last_error, remote_id,
+                    created_at_ms, updated_at_ms, sent_at_ms
+               FROM outbox_caixa
+              WHERE caixa_local_uuid=?1 AND action=?2
+           ORDER BY created_at_ms ASC
+              LIMIT 1",
+            params![caixa_local_uuid, action],
+            map_caixa_item,
+        )
+        .optional()
+        .map_err(Into::into)
     })
 }
 

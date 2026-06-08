@@ -96,6 +96,9 @@ export function useFinalizarVendaPDV() {
       qc.invalidateQueries({ queryKey: ["estoque-saldos"] });
       qc.invalidateQueries({ queryKey: ["movimentacoes"] });
       qc.invalidateQueries({ queryKey: ["financeiro"] });
+      if (isLocalVendasMode()) {
+        toast.success("Venda salva localmente e será sincronizada quando a conexão estiver disponível.");
+      }
     },
     onError: (e: Error) => toast.error(vendasErrorMessage(e)),
   });

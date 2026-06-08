@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, PowerOff, AlertTriangle } from "lucide-react";
-import { useFecharCaixa, type CaixaResumo } from "@/hooks/useCaixa";
+import { useCaixaResumo, useFecharCaixa, type CaixaResumo } from "@/hooks/useCaixa";
 import { formatBRL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { useHotkeys } from "@/hooks/useHotkeys";
@@ -56,13 +56,22 @@ function Row({
 export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props) {
   const [valorInformado, setValorInformado] = useState("");
   const [observacao, setObservacao] = useState("");
+  const [resumoAtual, setResumoAtual] = useState<CaixaResumo | null>(null);
   const fechar = useFecharCaixa();
+  const {
+    refetch: refetchResumo,
+    isFetching: resumoFetching,
+  } = useCaixaResumo(open ? caixaId : null);
   const valorRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (open) {
       setValorInformado("");
       setObservacao("");
+      setResumoAtual(null);
+      void refetchResumo().then((result) => {
+        setResumoAtual(result.data ?? null);
+      });
       // Foca + seleciona após o Dialog terminar a animação de abertura,
       // sempre que reabrir (não só na 1ª montagem). Dois rAFs garantem que
       // o conteúdo já esteja no DOM e o portal do Radix tenha se estabilizado.
@@ -75,9 +84,11 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
         });
       });
     }
-  }, [open]);
+  }, [caixaId, open, refetchResumo]);
 
-  const valorEsperado = resumo?.valor_esperado ?? 0;
+  const resumoVisivel = open ? resumoAtual : resumo;
+  const resumoCarregando = open && !resumoAtual && resumoFetching;
+  const valorEsperado = resumoVisivel?.valor_esperado ?? 0;
   const informadoNum = Number(valorInformado.replace(",", "."));
   const diferenca = useMemo(() => {
     if (Number.isNaN(informadoNum) || valorInformado === "") return null;
@@ -92,6 +103,7 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
     if (valorInformado === "") return;
     if (exigeJustificativa) return;
     if (fechar.isPending) return;
+    if (open && !resumoAtual) return;
     await fechar.mutateAsync({
       caixa_id: caixaId,
       valor_informado: informadoNum,
@@ -146,11 +158,16 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
             <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Movimentação do turno
             </p>
+            {resumoCarregando && (
+              <p className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" /> Atualizando resumo do caixa...
+              </p>
+            )}
             <div className="space-y-1.5">
-              <Row label="Valor inicial (fundo de troco)" value={formatBRL(resumo?.valor_inicial ?? 0)} tone="muted" />
-              <Row label={`Vendas (${resumo?.qtd_vendas ?? 0})`} value={formatBRL(resumo?.total_vendas ?? 0)} />
-              <Row label="Suprimento de caixa (entrou)" value={`+ ${formatBRL(resumo?.total_suprimentos ?? 0)}`} tone="success" />
-              <Row label="Sangria de caixa (saiu)" value={`- ${formatBRL(resumo?.total_sangrias ?? 0)}`} tone="danger" />
+              <Row label="Valor inicial (fundo de troco)" value={formatBRL(resumoVisivel?.valor_inicial ?? 0)} tone="muted" />
+              <Row label={`Vendas (${resumoVisivel?.qtd_vendas ?? 0})`} value={formatBRL(resumoVisivel?.total_vendas ?? 0)} />
+              <Row label="Suprimento de caixa (entrou)" value={`+ ${formatBRL(resumoVisivel?.total_suprimentos ?? 0)}`} tone="success" />
+              <Row label="Sangria de caixa (saiu)" value={`- ${formatBRL(resumoVisivel?.total_sangrias ?? 0)}`} tone="danger" />
             </div>
 
             <div className="my-3 h-px bg-border" />
@@ -159,22 +176,22 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
               Recebido por forma de pagamento
             </p>
             <div className="space-y-1.5">
-              <Row label="Dinheiro" value={formatBRL(resumo?.total_dinheiro ?? 0)} />
-              <Row label="PIX" value={formatBRL(resumo?.total_pix ?? 0)} tone="muted" />
-              <Row label="Cartão débito" value={formatBRL(resumo?.total_debito ?? 0)} tone="muted" />
-              <Row label="Cartão crédito" value={formatBRL(resumo?.total_credito ?? 0)} tone="muted" />
-              <Row label="Boleto" value={formatBRL(resumo?.total_boleto ?? 0)} tone="muted" />
-              {(resumo?.total_ifood ?? 0) > 0 && (
-                <Row label="iFood (a receber)" value={formatBRL(resumo?.total_ifood ?? 0)} tone="muted" />
+              <Row label="Dinheiro" value={formatBRL(resumoVisivel?.total_dinheiro ?? 0)} />
+              <Row label="PIX" value={formatBRL(resumoVisivel?.total_pix ?? 0)} tone="muted" />
+              <Row label="Cartão débito" value={formatBRL(resumoVisivel?.total_debito ?? 0)} tone="muted" />
+              <Row label="Cartão crédito" value={formatBRL(resumoVisivel?.total_credito ?? 0)} tone="muted" />
+              <Row label="Boleto" value={formatBRL(resumoVisivel?.total_boleto ?? 0)} tone="muted" />
+              {(resumoVisivel?.total_ifood ?? 0) > 0 && (
+                <Row label="iFood (a receber)" value={formatBRL(resumoVisivel?.total_ifood ?? 0)} tone="muted" />
               )}
-              {(resumo?.total_fiado ?? 0) > 0 && (
-                <Row label="Fiado (a receber)" value={formatBRL(resumo?.total_fiado ?? 0)} tone="muted" />
+              {(resumoVisivel?.total_fiado ?? 0) > 0 && (
+                <Row label="Fiado (a receber)" value={formatBRL(resumoVisivel?.total_fiado ?? 0)} tone="muted" />
               )}
-              {(resumo?.total_outros ?? 0) > 0 && (
-                <Row label="Outros" value={formatBRL(resumo?.total_outros ?? 0)} tone="muted" />
+              {(resumoVisivel?.total_outros ?? 0) > 0 && (
+                <Row label="Outros" value={formatBRL(resumoVisivel?.total_outros ?? 0)} tone="muted" />
               )}
             </div>
-            {((resumo?.total_ifood ?? 0) > 0 || (resumo?.total_fiado ?? 0) > 0) && (
+            {((resumoVisivel?.total_ifood ?? 0) > 0 || (resumoVisivel?.total_fiado ?? 0) > 0) && (
               <p className="mt-2 text-[11px] text-muted-foreground">
                 iFood e Fiado não somam no dinheiro físico esperado — viram contas a receber no Financeiro.
               </p>
@@ -276,7 +293,7 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
             <Button
               type="submit"
               variant="destructive"
-              disabled={fechar.isPending || exigeJustificativa || valorInformado === ""}
+              disabled={fechar.isPending || resumoCarregando || !resumoAtual || exigeJustificativa || valorInformado === ""}
             >
               {fechar.isPending ? (
                 <><Loader2 className="h-4 w-4 animate-spin" /> Fechando...</>

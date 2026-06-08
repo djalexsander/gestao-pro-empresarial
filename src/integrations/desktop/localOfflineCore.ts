@@ -233,7 +233,7 @@ export async function registrarVendaLocal(
   const baseUrl = getBaseUrl(cfg);
   if (!baseUrl) return null;
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 12_000);
+  const timer = setTimeout(() => ctrl.abort(), 30_000);
   try {
     const headers: Record<string, string> = {
       Accept: "application/json",
@@ -447,7 +447,7 @@ export function fecharCaixaLocal(
   payload: FecharCaixaLocalRequest,
   authToken?: string | null,
 ): Promise<FecharCaixaLocalResponse | null> {
-  return postLocalJson(cfg, "/api/caixa/fechar", payload, authToken);
+  return postLocalJson(cfg, "/api/caixa/fechar", payload, authToken, 30_000);
 }
 
 export async function fetchCaixaLocalAberto(

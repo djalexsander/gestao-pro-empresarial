@@ -243,7 +243,12 @@ export function useFecharCaixa() {
       qc.invalidateQueries({ queryKey: ["caixa"] });
       qc.invalidateQueries({ queryKey: ["vendas"] });
       qc.invalidateQueries({ queryKey: ["financeiro_lancamentos"] });
-      toast.success("Caixa fechado. Movimentos enviados ao Financeiro.");
+      const mode = getDataMode();
+      toast.success(
+        mode === "local-server" || mode === "local-terminal"
+          ? "Caixa fechado localmente. A sincronização continuará em segundo plano."
+          : "Caixa fechado. Movimentos enviados ao Financeiro.",
+      );
     },
     onError: (e: Error) => toast.error(caixaErrorMessage(e)),
   });

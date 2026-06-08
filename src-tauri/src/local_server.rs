@@ -2055,6 +2055,38 @@ async fn run_outbox_clientes_scheduler(
 
 /// Empurra UMA venda da outbox para o upstream via RPC `finalizar_venda_pdv`.
 /// `_client_uuid = local_uuid` garante idempotência cross-runs.
+async fn ensure_caixa_aberto_remoto(
+    ctx: &AppCtx,
+    headers: &HeaderMap,
+    caixa_local_uuid: &str,
+) -> Result<String, String> {
+    if let Some(remote_id) = db::caixa_remote_id(caixa_local_uuid).map_err(|e| e.to_string())? {
+        if !remote_id.trim().is_empty() {
+            return Ok(remote_id);
+        }
+    }
+
+    let abertura = db::outbox_caixa_item_for_action(caixa_local_uuid, "abrir")
+        .map_err(|e| e.to_string())?;
+    let Some(abertura) = abertura else {
+        return Err(
+            "CAIXA_PENDENTE_SYNC: venda aguarda abertura de caixa local, mas a abertura nao foi encontrada na outbox"
+                .to_string(),
+        );
+    };
+
+    match push_one_outbox_caixa(ctx, headers, &abertura.local_uuid).await {
+        Ok(remote_id) if !remote_id.trim().is_empty() => Ok(remote_id),
+        Ok(_) => Err(
+            "CAIXA_PENDENTE_SYNC: abertura de caixa sincronizada sem remote_id; venda mantida pendente"
+                .to_string(),
+        ),
+        Err(e) => Err(format!(
+            "CAIXA_PENDENTE_SYNC: venda aguarda sincronizacao da abertura do caixa local ({e})"
+        )),
+    }
+}
+
 async fn push_one_outbox_venda(
     ctx: &AppCtx,
     headers: &HeaderMap,
@@ -2084,6 +2116,22 @@ async fn push_one_outbox_venda(
             return Err(msg);
         }
     };
+
+    let caixa_local_uuid = match db::venda_caixa_local_uuid(local_uuid).map_err(|e| e.to_string())? {
+        Some(id) if !id.trim().is_empty() => id,
+        _ => {
+            let msg =
+                "CAIXA_LOCAL_INDEFINIDO: venda antiga sem vinculo de caixa local; corrija manualmente antes de sincronizar"
+                    .to_string();
+            let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
+
+    if let Err(e) = ensure_caixa_aberto_remoto(ctx, headers, &caixa_local_uuid).await {
+        let _ = db::outbox_vendas_mark_error(local_uuid, &e, now);
+        return Err(e);
+    }
 
     db::outbox_vendas_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
 
@@ -3183,7 +3231,37 @@ async fn push_one_outbox_caixa(
         }
     };
 
+    let caixa_remote_id = db::caixa_remote_id(&item.caixa_local_uuid)
+        .map_err(|e| e.to_string())?
+        .filter(|id| !id.trim().is_empty());
+
+    if item.action != "abrir" && caixa_remote_id.is_none() {
+        let msg =
+            "CAIXA_PENDENTE_SYNC: item de caixa aguarda sincronizacao da abertura local"
+                .to_string();
+        let _ = db::outbox_caixa_mark_error(local_uuid, &msg, now);
+        return Err(msg);
+    }
+
+    if item.action == "fechar" {
+        let vendas_pendentes = db::count_unsynced_vendas_for_caixa(&item.caixa_local_uuid)
+            .map_err(|e| e.to_string())?;
+        if vendas_pendentes > 0 {
+            let msg = format!(
+                "CAIXA_AGUARDA_VENDAS_SYNC: fechamento aguarda {vendas_pendentes} venda(s) do caixa sincronizar"
+            );
+            let _ = db::outbox_caixa_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    }
+
     db::outbox_caixa_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
+
+    let caixa_id_remoto = caixa_remote_id
+        .as_deref()
+        .or_else(|| payload.get("caixa_remote_id").and_then(|v| v.as_str()))
+        .or_else(|| payload.get("caixa_local_uuid").and_then(|v| v.as_str()))
+        .unwrap_or("");
 
     let (rpc, body) = match item.action.as_str() {
         "abrir" => (
@@ -3201,10 +3279,7 @@ async fn push_one_outbox_caixa(
                 // Para resolver o caixa do lado da nuvem, preferimos o
                 // remote_id (quando a `abrir` já foi sincronizada) e caímos
                 // para o local_uuid quando ainda é a primeira sincronização.
-                "_caixa_id":    payload.get("caixa_remote_id")
-                                       .and_then(|v| v.as_str())
-                                       .or_else(|| payload.get("caixa_local_uuid").and_then(|v| v.as_str()))
-                                       .unwrap_or(""),
+                "_caixa_id":    caixa_id_remoto,
                 "_tipo":        payload.get("tipo"),
                 "_valor":       payload.get("valor"),
                 "_motivo":      payload.get("motivo"),
@@ -3214,10 +3289,7 @@ async fn push_one_outbox_caixa(
         "fechar" => (
             "fechar_caixa",
             serde_json::json!({
-                "_caixa_id":        payload.get("caixa_remote_id")
-                                            .and_then(|v| v.as_str())
-                                            .or_else(|| payload.get("caixa_local_uuid").and_then(|v| v.as_str()))
-                                            .unwrap_or(""),
+                "_caixa_id":        caixa_id_remoto,
                 "_valor_informado": payload.get("valor_informado"),
                 "_observacao":      payload.get("observacao"),
             }),

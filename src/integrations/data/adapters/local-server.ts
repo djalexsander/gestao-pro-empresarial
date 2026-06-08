@@ -20,7 +20,7 @@ import { getDesktopConfig } from "@/integrations/desktop/configStore";
 const LOCAL_READ_DOMAINS = ["produtos", "estoque", "clientes"] as const;
 const DEFAULT_LOCAL_PORT = 3333;
 const HTTP_TIMEOUT_MS = 4000;
-const HTTP_WRITE_TIMEOUT_MS = 15_000;
+const HTTP_WRITE_TIMEOUT_MS = 30_000;
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
