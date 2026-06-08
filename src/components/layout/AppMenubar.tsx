@@ -44,19 +44,19 @@ export function AppMenubar({ activeModule, onModuleSelect }: AppMenubarProps) {
   };
 
   return (
-    <header className="sticky top-0 z-40 flex h-11 items-center gap-1 border-b border-sidebar-border bg-sidebar px-2 text-sidebar-foreground shadow-sm">
+    <header className="sticky top-0 z-40 flex h-12 items-center gap-1 border-b border-sidebar-border bg-sidebar px-3 text-sidebar-foreground shadow-sm">
       {/* Brand */}
       <Link
         to="/"
-        className="flex h-8 items-center gap-2 rounded-md px-2 text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
+        className="flex h-9 items-center gap-2 rounded-md px-2.5 text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
       >
-        <div className="flex h-6 w-6 items-center justify-center rounded bg-sidebar-primary text-sidebar-primary-foreground">
+        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground shadow-sm">
           <Sparkles className="h-3.5 w-3.5" />
         </div>
         <span className="hidden text-sm font-semibold sm:inline">Gestão Pro</span>
       </Link>
 
-      <div className="mx-1 hidden h-5 w-px bg-sidebar-border sm:block" />
+      <div className="mx-2 hidden h-6 w-px bg-sidebar-border sm:block" />
 
       {/* Nova Venda — atalho de PDV */}
       <Link
@@ -65,7 +65,7 @@ export function AppMenubar({ activeModule, onModuleSelect }: AppMenubarProps) {
           "ml-1 flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[13px] font-medium transition-colors",
           location.pathname === "/pdv"
             ? "bg-primary text-primary-foreground hover:bg-primary/90"
-            : "bg-primary/15 text-primary hover:bg-primary/25",
+            : "bg-primary/12 text-primary hover:bg-primary/20",
         )}
         title="Abrir frente de caixa (PDV)"
       >
@@ -73,10 +73,10 @@ export function AppMenubar({ activeModule, onModuleSelect }: AppMenubarProps) {
         Nova Venda
       </Link>
 
-      <div className="mx-1 hidden h-5 w-px bg-sidebar-border sm:block" />
+      <div className="mx-2 hidden h-6 w-px bg-sidebar-border sm:block" />
 
       {/* Module tabs */}
-      <nav className="flex items-center gap-0.5">
+      <nav className="flex min-w-0 items-center gap-1 overflow-hidden">
         {modules.map((mod) => {
           const active = activeModule === mod.key;
           return (
@@ -86,10 +86,10 @@ export function AppMenubar({ activeModule, onModuleSelect }: AppMenubarProps) {
               onMouseEnter={() => handleModuleHover(mod.key)}
               onFocus={() => handleModuleHover(mod.key)}
               className={cn(
-                "relative flex h-8 items-center rounded-md px-3 text-[13px] font-medium transition-colors",
+                "relative flex h-9 items-center rounded-md px-3 text-[13px] font-semibold transition-colors",
                 active
-                  ? "bg-sidebar-accent text-sidebar-foreground"
-                  : "text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+                  ? "bg-sidebar-accent text-sidebar-foreground shadow-sm"
+                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
               )}
             >
               {mod.label}

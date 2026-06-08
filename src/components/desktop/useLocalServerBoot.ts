@@ -115,6 +115,8 @@ async function doStart(opts: {
 export function useLocalServerBoot() {
   const { isDesktop: desk, role, config } = useDesktopRole();
   const startedRef = useRef(false);
+  const serverConfigured =
+    config.role === "server" || !!config.serverId || !!config.serverAuthToken;
 
   // Mantém o registro de token sempre alinhado com a config persistida.
   // - server: registra token para 127.0.0.1:porta
@@ -161,20 +163,31 @@ export function useLocalServerBoot() {
         // Reaproveita o token persistido — backend NÃO gera um novo nesse caso.
         authToken: config.serverAuthToken ?? null,
       });
-    } else if (startedRef.current) {
+    } else if (startedRef.current && role !== "unset") {
+      console.warn("[boot] parando backend local porque o papel mudou", {
+        role,
+        configRole: config.role,
+      });
       void stopLocalServer().catch(() => {});
       clearLocalServerAuth();
       startedRef.current = false;
+    } else if (startedRef.current && serverConfigured) {
+      console.warn(
+        "[boot] papel desktop temporariamente indefinido; mantendo backend local em execução",
+        { role, configRole: config.role },
+      );
     }
   }, [
     desk,
     role,
+    config.role,
     config.terminal?.porta,
     config.serverNome,
     config.serverId,
+    config.serverAuthToken,
     config.terminal?.terminalNome,
-    // Propositalmente NÃO incluímos config.serverAuthToken aqui — não queremos
-    // reiniciar o servidor (nem trocar token) só porque o token mudou via UI.
+    // O token fica nas deps apenas para detectar config de servidor hidratada;
+    // se o backend já iniciou, o efeito retorna antes de reiniciar.
   ]);
 }
 

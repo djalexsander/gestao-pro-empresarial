@@ -3,11 +3,11 @@ import { cn } from "@/lib/utils";
 type Tone = "success" | "warning" | "danger" | "info" | "neutral";
 
 const toneClass: Record<Tone, string> = {
-  success: "bg-success/10 text-success border-success/20",
-  warning: "bg-warning/15 text-warning-foreground border-warning/30",
-  danger: "bg-destructive/10 text-destructive border-destructive/20",
-  info: "bg-info/10 text-info border-info/20",
-  neutral: "bg-muted text-muted-foreground border-border",
+  success: "bg-success/10 text-success border-success/25",
+  warning: "bg-warning/15 text-warning-foreground border-warning/35",
+  danger: "bg-destructive/10 text-destructive border-destructive/25",
+  info: "bg-info/10 text-info border-info/25",
+  neutral: "bg-muted/70 text-muted-foreground border-border",
 };
 
 const statusMap: Record<string, Tone> = {
@@ -63,6 +63,7 @@ export function StatusBadge({ status, tone, className }: StatusBadgeProps) {
     <span
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
+        "whitespace-nowrap",
         toneClass[resolved],
         className
       )}

@@ -44,6 +44,7 @@ const STATUS_OFF: LocalServerStatus = {
 type TauriInvoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 
 let cachedInvoke: TauriInvoke | null = null;
+let lastLocalServerStatus: LocalServerStatus | null = null;
 
 async function getInvoke(): Promise<TauriInvoke | null> {
   if (!isDesktop()) return null;
@@ -79,7 +80,7 @@ export async function startLocalServer(
 ): Promise<LocalServerStatus> {
   const invoke = await getInvoke();
   if (!invoke) return STATUS_OFF;
-  return invoke<LocalServerStatus>("start_local_server", {
+  const status = await invoke<LocalServerStatus>("start_local_server", {
     port: opts.port,
     serverName: opts.serverName,
     serverId: opts.serverId ?? null,
@@ -87,21 +88,28 @@ export async function startLocalServer(
     upstreamAnonKey: opts.upstreamAnonKey ?? null,
     authToken: opts.authToken ?? null,
   });
+  lastLocalServerStatus = status;
+  return status;
 }
 
 export async function stopLocalServer(): Promise<LocalServerStatus> {
   const invoke = await getInvoke();
   if (!invoke) return STATUS_OFF;
-  return invoke<LocalServerStatus>("stop_local_server");
+  const status = await invoke<LocalServerStatus>("stop_local_server");
+  lastLocalServerStatus = status;
+  return status;
 }
 
 export async function getLocalServerStatus(): Promise<LocalServerStatus> {
   const invoke = await getInvoke();
   if (!invoke) return STATUS_OFF;
   try {
-    return await invoke<LocalServerStatus>("local_server_status");
-  } catch {
-    return STATUS_OFF;
+    const status = await invoke<LocalServerStatus>("local_server_status");
+    lastLocalServerStatus = status;
+    return status;
+  } catch (error) {
+    console.warn("[tauriBridge] local_server_status falhou; preservando ultimo status conhecido", error);
+    return lastLocalServerStatus ?? STATUS_OFF;
   }
 }
 

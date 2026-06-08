@@ -89,12 +89,12 @@ export function CloudDependencyNotice({
     <Alert
       variant="default"
       className={
-        "border-warning/40 bg-warning/10 text-warning-foreground" +
+        "rounded-lg border-warning/35 bg-warning/10 text-warning-foreground shadow-sm" +
         (className ? ` ${className}` : "")
       }
     >
       <AlertTriangle className="h-4 w-4" />
-      <AlertTitle>{title}</AlertTitle>
+      <AlertTitle className="text-sm font-semibold">{title}</AlertTitle>
       <AlertDescription className="text-sm opacity-90">
         {message}
       </AlertDescription>

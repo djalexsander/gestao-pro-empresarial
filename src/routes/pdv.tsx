@@ -1285,11 +1285,11 @@ function PDVPage() {
       </div>
 
       {/* Body: 2 colunas */}
-      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
         {/* ============ LADO ESQUERDO ============ */}
         <div className="flex min-h-0 flex-col gap-3">
           {/* Campo de leitura grande */}
-          <Card className="border-primary/30 bg-gradient-to-br from-primary/10 via-card to-card p-4 shadow-lg">
+          <Card className="border-primary/25 bg-card p-4 shadow-sm ring-1 ring-primary/10">
             {multiplicador > 1 && (
               <div className="mb-3 flex items-center justify-between gap-3 rounded-md border border-warning/40 bg-warning/15 px-3 py-2 text-sm">
                 <div className="flex items-center gap-2">
@@ -1327,7 +1327,7 @@ function PDVPage() {
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
                   placeholder="Escaneie ou digite o código de barras / QR Code…"
-                  className="h-14 border-primary/40 bg-background/60 pl-12 pr-12 font-mono text-lg tracking-wider focus-visible:ring-primary"
+                  className="h-16 border-primary/35 bg-background pl-12 pr-12 font-mono text-xl font-semibold tracking-wider focus-visible:ring-primary"
                   autoComplete="off"
                   spellCheck={false}
                 />
@@ -1339,13 +1339,13 @@ function PDVPage() {
                 type="button"
                 variant="outline"
                 size="icon"
-                className="h-14 w-14"
+                className="h-16 w-14"
                 onClick={() => setScannerOpen(true)}
                 title="Abrir câmera"
               >
                 <Camera className="h-5 w-5" />
               </Button>
-              <Button type="submit" size="lg" className="h-14 px-6" disabled={busy || !code.trim()}>
+              <Button type="submit" size="lg" className="h-16 px-6 font-semibold" disabled={busy || !code.trim()}>
                 Adicionar
               </Button>
             </form>
@@ -1439,7 +1439,7 @@ function PDVPage() {
 
           {/* Tabela de itens */}
           <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div className="grid grid-cols-[1fr_120px_140px_140px_44px] items-center gap-2 border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="grid grid-cols-[1fr_120px_140px_140px_44px] items-center gap-2 border-b border-border/70 bg-muted/45 px-4 py-2.5 text-[11px] font-semibold uppercase text-muted-foreground">
               <span>Produto</span>
               <span className="text-center">Quantidade</span>
               <span className="text-right">Unitário</span>
@@ -1537,8 +1537,8 @@ function PDVPage() {
 
         {/* ============ LADO DIREITO — RESUMO ============ */}
         <aside className="flex min-h-0 flex-col gap-3">
-          <Card className="flex-1 overflow-hidden">
-            <div className="flex items-center justify-between border-b border-border bg-muted/30 px-4 py-3">
+          <Card className="flex-1 overflow-hidden ring-1 ring-border/50">
+            <div className="flex items-center justify-between border-b border-border/70 bg-muted/35 px-4 py-3">
               <h3 className="text-sm font-semibold">Resumo da venda</h3>
               <Receipt className="h-4 w-4 text-muted-foreground" />
             </div>
@@ -1569,9 +1569,9 @@ function PDVPage() {
                 </Row>
               </div>
 
-              <div className="border-t border-border pt-4">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Total</p>
-                <p className="font-mono text-3xl font-bold tabular-nums text-primary">
+              <div className="rounded-lg border border-primary/20 bg-primary/10 p-4">
+                <p className="text-xs font-semibold uppercase text-primary/80">Total</p>
+                <p className="font-mono text-4xl font-bold tabular-nums text-primary">
                   {formatBRL(totals.total)}
                 </p>
               </div>
@@ -1596,7 +1596,7 @@ function PDVPage() {
             <Button
               size="lg"
               className={cn(
-                "h-14 w-full text-base font-semibold",
+                "h-16 w-full text-base font-semibold shadow-sm",
                 hotkeyFlash === "F10" && "ring-2 ring-primary ring-offset-2 ring-offset-background",
               )}
               onClick={finalizarVenda}

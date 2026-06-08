@@ -29,6 +29,7 @@ async fn start_local_server(
 
 #[tauri::command]
 async fn stop_local_server() -> Result<LocalServerStatus, String> {
+    eprintln!("[gestao-pro] stop_local_server invoked");
     local_server::stop()
 }
 

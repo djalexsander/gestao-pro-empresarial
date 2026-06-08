@@ -232,7 +232,7 @@ function CaixaPage() {
       ) : (
         <>
           {/* Cabeçalho do turno */}
-          <Card>
+          <Card className="border-primary/20 ring-1 ring-primary/10">
             <CardContent className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
               <InfoCol label="Operador" value={operadorNome} icon={CircleDollarSign} />
               <InfoCol
@@ -289,7 +289,7 @@ function CaixaPage() {
           <div className="grid gap-4 lg:grid-cols-3">
             <Card className="lg:col-span-2">
               <CardContent className="p-5">
-                <div className="mb-4 flex items-center justify-between">
+                <div className="mb-4 flex items-center justify-between border-b border-border/60 pb-3">
                   <h3 className="text-sm font-semibold text-foreground">
                     Recebido por forma de pagamento
                   </h3>
@@ -318,7 +318,7 @@ function CaixaPage() {
                 </p>
                 <Button
                   variant="outline"
-                  className="w-full justify-start"
+                  className="w-full justify-start border-success/25 hover:bg-success/10"
                   onClick={() => setMovDialog("suprimento")}
                   title="Suprimento de caixa — entrada de dinheiro físico na gaveta (não é venda nem receita)"
                 >
@@ -327,7 +327,7 @@ function CaixaPage() {
                 </Button>
                 <Button
                   variant="outline"
-                  className="w-full justify-start"
+                  className="w-full justify-start border-destructive/25 hover:bg-destructive/10"
                   onClick={() => setMovDialog("sangria")}
                   title="Sangria de caixa — retirada de dinheiro físico da gaveta (não é despesa nem prejuízo)"
                 >
@@ -347,7 +347,7 @@ function CaixaPage() {
           {/* Movimentos do turno */}
           <Card>
             <CardContent className="p-0">
-              <div className="flex items-center justify-between border-b border-border p-4">
+              <div className="flex items-center justify-between border-b border-border/70 bg-muted/30 p-4">
                 <h3 className="text-sm font-semibold text-foreground">
                   Movimentos do turno ({movimentos.length})
                 </h3>

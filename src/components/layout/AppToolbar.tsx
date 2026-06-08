@@ -24,7 +24,7 @@ export function AppToolbar({ activeModule, onMobileMenuClick }: AppToolbarProps)
   const mod = modules.find((m) => m.key === activeModule) ?? modules[0];
 
   return (
-    <div className="flex h-12 items-center gap-3 border-b border-border bg-background/85 px-4 backdrop-blur-sm sm:px-6">
+    <div className="flex h-12 items-center gap-3 border-b border-border/80 bg-background/90 px-4 backdrop-blur-sm sm:px-6">
       <Button
         variant="ghost"
         size="icon"
@@ -35,7 +35,7 @@ export function AppToolbar({ activeModule, onMobileMenuClick }: AppToolbarProps)
       </Button>
 
       <div className="hidden items-center gap-2 sm:flex">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <span className="rounded-md border border-border/70 bg-muted/30 px-2 py-1 text-[11px] font-semibold uppercase text-muted-foreground">
           {mod.label}
         </span>
       </div>
@@ -67,7 +67,7 @@ function UserMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary transition-colors hover:bg-primary/15">
+        <button className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-xs font-semibold text-primary ring-1 ring-primary/15 transition-colors hover:bg-primary/15">
           {initials}
         </button>
       </DropdownMenuTrigger>

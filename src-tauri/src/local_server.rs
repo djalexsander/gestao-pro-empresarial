@@ -1814,7 +1814,15 @@ async fn registrar_venda_local_handler(
     let input: db::LocalVendaInput = serde_json::from_value(req.raw)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("payload inválido: {e}")))?;
 
-    let result = db::registrar_venda_local(input, now)
+    let result = tokio::task::spawn_blocking(move || db::registrar_venda_local(input, now))
+        .await
+        .map_err(|e| {
+            eprintln!("[gestao-pro] /api/vendas/registrar: tarefa SQLite falhou: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Erro interno ao gravar venda local.".to_string(),
+            )
+        })?
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     eprintln!(
         "[gestao-pro] venda local registrada local_uuid={} idempotente={}",
@@ -2670,7 +2678,15 @@ async fn registrar_caixa_fechar_handler(
     let input: db::LocalFecharCaixaInput = serde_json::from_value(req.raw)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("payload inválido: {e}")))?;
 
-    let result = db::fechar_caixa_local(input, now)
+    let result = tokio::task::spawn_blocking(move || db::fechar_caixa_local(input, now))
+        .await
+        .map_err(|e| {
+            eprintln!("[gestao-pro] /api/caixa/fechar: tarefa SQLite falhou: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Erro interno ao fechar caixa local.".to_string(),
+            )
+        })?
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     eprintln!(
         "[gestao-pro] caixa fechado localmente fechamento_id={} idempotente={}",
@@ -2679,7 +2695,7 @@ async fn registrar_caixa_fechar_handler(
     );
 
     let caixa_para_lancamentos = result.caixa_local_uuid.clone();
-    tokio::spawn(async move {
+    tokio::task::spawn_blocking(move || {
         eprintln!(
             "[gestao-pro] caixa fechamento background: regenerando lancamentos caixa_local_uuid={}",
             caixa_para_lancamentos,
@@ -3755,11 +3771,13 @@ async fn probe_local_health(port: u16) -> bool {
 }
 
 pub async fn current_status_checked() -> LocalServerStatus {
-    let mut status = current_status();
+    let status = current_status();
     if status.running {
         if let Some(port) = status.port {
             if !probe_local_health(port).await {
-                status.running = false;
+                eprintln!(
+                    "[gestao-pro] local_server_status: probe /health falhou na porta {port}; mantendo estado do daemon como running"
+                );
             }
         }
     }
@@ -3988,6 +4006,7 @@ pub async fn start(
 }
 
 pub fn stop() -> Result<LocalServerStatus, String> {
+    eprintln!("[gestao-pro] local_server::stop: encerrando backend local");
     let (tx_opt, sched_opt, clientes_sched_opt, vendas_sched_opt, caixa_sched_opt, cancel_sched_opt, fin_sched_opt, backup_sched_opt) = {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = false;
