@@ -27,6 +27,7 @@ interface Props {
   serverNome?: string | null;
   serverId?: string | null;
   preferredPort?: number | null;
+  networkHost?: string | null;
 }
 
 /**
@@ -42,6 +43,7 @@ export function ServerReadinessCard({
   serverNome,
   serverId,
   preferredPort,
+  networkHost,
 }: Props) {
   const porta = daemon?.port ?? info?.port ?? preferredPort ?? null;
   const backendOk = !!daemon?.running || info?.backend_running === true;
@@ -77,7 +79,8 @@ export function ServerReadinessCard({
   ];
 
   const pronto = checagens.every((c) => c.ok);
-  const hostname = info?.host ?? daemon?.hostname ?? info?.hostname ?? null;
+  const hostname =
+    info?.host ?? networkHost ?? daemon?.hostname ?? info?.hostname ?? null;
 
   function copiar(texto: string, label: string) {
     navigator.clipboard
@@ -178,8 +181,8 @@ export function ServerReadinessCard({
 function ServerControlActions({ backendOk }: { backendOk: boolean }) {
   const boot = useBootController();
   const { reverificar } = useServerConnection();
-  const starting = boot.action === "start";
-  const restarting = boot.action === "restart";
+  const starting = boot.starting && boot.action === "start";
+  const restarting = boot.starting && boot.action === "restart";
 
   async function handleStart() {
     const st = await boot.start();

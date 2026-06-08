@@ -594,6 +594,7 @@ export function DesktopTab() {
             serverNome={config.serverNome}
             serverId={config.serverId}
             preferredPort={visibleServerPort}
+            networkHost={config.networkHost}
           />
         )}
 

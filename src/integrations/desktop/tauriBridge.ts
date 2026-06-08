@@ -46,6 +46,24 @@ type TauriInvoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T
 let cachedInvoke: TauriInvoke | null = null;
 let lastLocalServerStatus: LocalServerStatus | null = null;
 
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(`${label} demorou para responder (${timeoutMs}ms).`));
+      }, timeoutMs);
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 async function getInvoke(): Promise<TauriInvoke | null> {
   if (!isDesktop()) return null;
   if (cachedInvoke) return cachedInvoke;
@@ -79,15 +97,26 @@ export async function startLocalServer(
   opts: StartLocalServerOptions,
 ): Promise<LocalServerStatus> {
   const invoke = await getInvoke();
-  if (!invoke) return STATUS_OFF;
-  const status = await invoke<LocalServerStatus>("start_local_server", {
-    port: opts.port,
-    serverName: opts.serverName,
-    serverId: opts.serverId ?? null,
-    upstreamUrl: opts.upstreamUrl ?? null,
-    upstreamAnonKey: opts.upstreamAnonKey ?? null,
-    authToken: opts.authToken ?? null,
-  });
+  if (!invoke) {
+    if (isDesktop()) {
+      console.error("[tauriBridge] start_local_server indisponivel: invoke Tauri nao carregou");
+      throw new Error("API Tauri indisponível para iniciar o servidor local.");
+    }
+    return STATUS_OFF;
+  }
+  console.info("[tauriBridge] start_local_server", { port: opts.port });
+  const status = await withTimeout(
+    invoke<LocalServerStatus>("start_local_server", {
+      port: opts.port,
+      serverName: opts.serverName,
+      serverId: opts.serverId ?? null,
+      upstreamUrl: opts.upstreamUrl ?? null,
+      upstreamAnonKey: opts.upstreamAnonKey ?? null,
+      authToken: opts.authToken ?? null,
+    }),
+    12_000,
+    "start_local_server",
+  );
   lastLocalServerStatus = status;
   return status;
 }
@@ -97,8 +126,18 @@ export async function stopLocalServer(): Promise<LocalServerStatus> {
     stack: new Error().stack,
   });
   const invoke = await getInvoke();
-  if (!invoke) return STATUS_OFF;
-  const status = await invoke<LocalServerStatus>("stop_local_server");
+  if (!invoke) {
+    if (isDesktop()) {
+      console.error("[tauriBridge] stop_local_server indisponivel: invoke Tauri nao carregou");
+      throw new Error("API Tauri indisponível para parar o servidor local.");
+    }
+    return STATUS_OFF;
+  }
+  const status = await withTimeout(
+    invoke<LocalServerStatus>("stop_local_server"),
+    5_000,
+    "stop_local_server",
+  );
   lastLocalServerStatus = status;
   return status;
 }
@@ -107,7 +146,11 @@ export async function getLocalServerStatus(): Promise<LocalServerStatus> {
   const invoke = await getInvoke();
   if (!invoke) return STATUS_OFF;
   try {
-    const status = await invoke<LocalServerStatus>("local_server_status");
+    const status = await withTimeout(
+      invoke<LocalServerStatus>("local_server_status"),
+      3_000,
+      "local_server_status",
+    );
     const normalized =
       !status.running && status.port == null && lastLocalServerStatus?.port != null
         ? { ...status, port: lastLocalServerStatus.port }
