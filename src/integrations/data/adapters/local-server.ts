@@ -16,6 +16,7 @@ import { cloudAdapter } from "./cloud";
 import { localTerminalAdapter } from "./local-terminal";
 import { reportDataSource } from "../source-telemetry";
 import { getDesktopConfig } from "@/integrations/desktop/configStore";
+import { resolveTokenForUrl } from "@/integrations/desktop/localHttpClient";
 
 const LOCAL_READ_DOMAINS = ["produtos", "estoque", "clientes"] as const;
 const DEFAULT_LOCAL_PORT = 3333;
@@ -56,9 +57,12 @@ async function localGet<T>(
   const timer = setTimeout(() => ctrl.abort(), HTTP_TIMEOUT_MS);
   try {
     const headers = await getAuthHeader();
+    const localToken = resolveTokenForUrl(getSelfServerBaseUrl());
+    const requestHeaders: Record<string, string> = { Accept: "application/json", ...headers };
+    if (localToken) requestHeaders["X-Gestao-Token"] = localToken;
     const res = await fetch(url.toString(), {
       method: "GET",
-      headers: { Accept: "application/json", ...headers },
+      headers: requestHeaders,
       signal: ctrl.signal,
       cache: "no-store",
     });
@@ -83,21 +87,44 @@ async function localPost<T>(
 ): Promise<T> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), HTTP_WRITE_TIMEOUT_MS);
+  const baseUrl = getSelfServerBaseUrl();
+  const url = `${baseUrl}${path}`;
   try {
     const headers = await getAuthHeader();
-    const res = await fetch(`${getSelfServerBaseUrl()}${path}`, {
+    const localToken = resolveTokenForUrl(baseUrl);
+    const requestHeaders: Record<string, string> = {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...headers,
+    };
+    if (localToken) requestHeaders["X-Gestao-Token"] = localToken;
+    console.info("[local-server-adapter] POST", {
+      domain,
+      method,
+      url,
+      timeoutMs: HTTP_WRITE_TIMEOUT_MS,
+      hasLocalToken: Boolean(localToken),
+      hasAuth: Boolean(headers.Authorization),
+    });
+    const res = await fetch(url, {
       method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        ...headers,
-      },
+      headers: requestHeaders,
       signal: ctrl.signal,
       cache: "no-store",
       body: JSON.stringify(body),
     });
     clearTimeout(timer);
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) {
+      const text = await res.text();
+      console.warn("[local-server-adapter] POST failed", {
+        domain,
+        method,
+        url,
+        status: res.status,
+        body: text,
+      });
+      throw new Error(`Servidor local retornou HTTP ${res.status} em ${path}: ${text || res.statusText}`);
+    }
     const json = (await res.json()) as { data?: T } | T;
     reportDataSource({ source: "local-server", domain, method, fallback: false });
     return json && typeof json === "object" && "data" in (json as any)
@@ -105,6 +132,7 @@ async function localPost<T>(
       : (json as T);
   } catch (error) {
     clearTimeout(timer);
+    console.error("[local-server-adapter] POST error", { domain, method, url, error });
     if (isAbortError(error)) {
       throw new Error(
         "Servidor local demorou para responder. A operação não foi confirmada; tente novamente.",

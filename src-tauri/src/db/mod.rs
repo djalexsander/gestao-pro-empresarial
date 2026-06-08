@@ -4566,7 +4566,7 @@ pub fn count_unsynced_vendas_for_caixa(caixa_local_uuid: &str) -> DbResult<i64> 
                FROM outbox_vendas ov
                JOIN vendas_local vl ON vl.local_uuid = ov.local_uuid
               WHERE vl.caixa_local_uuid = ?1
-                AND ov.status <> 'sent'",
+                AND ov.status IN ('pending','sending')",
             params![caixa_local_uuid],
             |r| r.get::<_, i64>(0),
         )
@@ -6070,6 +6070,30 @@ pub fn outbox_caixa_get(local_uuid: &str) -> DbResult<Option<OutboxCaixaItem>> {
             params![local_uuid], map_caixa_item,
         ).optional()?;
         Ok(r)
+    })
+}
+
+pub fn outbox_vendas_archive_error(
+    local_uuid: &str,
+    motivo: Option<&str>,
+    now_ms: i64,
+) -> DbResult<bool> {
+    with_conn(|conn| {
+        let msg = motivo
+            .map(|m| m.trim())
+            .filter(|m| !m.is_empty())
+            .unwrap_or("Erro antigo arquivado manualmente; venda local preservada.");
+        let n = conn.execute(
+            "UPDATE outbox_vendas
+                SET status='archived',
+                    last_error=?2,
+                    updated_at_ms=?3,
+                    next_attempt_at_ms=NULL
+              WHERE local_uuid=?1
+                AND status='error'",
+            params![local_uuid, msg, now_ms],
+        )?;
+        Ok(n > 0)
     })
 }
 

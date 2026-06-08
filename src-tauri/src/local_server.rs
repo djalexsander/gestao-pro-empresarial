@@ -1808,11 +1808,17 @@ async fn registrar_venda_local_handler(
     Json(req): Json<RegistrarVendaLocalRequest>,
 ) -> Result<Json<RegistrarVendaLocalResponse>, (StatusCode, String)> {
     let now = now_ms();
+    eprintln!("[gestao-pro] HTTP POST /api/vendas/registrar recebido");
     let input: db::LocalVendaInput = serde_json::from_value(req.raw)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("payload inválido: {e}")))?;
 
     let result = db::registrar_venda_local(input, now)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    eprintln!(
+        "[gestao-pro] venda local registrada local_uuid={} idempotente={}",
+        result.local_uuid,
+        result.idempotente,
+    );
 
     let mut outbox_status = "pending".to_string();
     let mut remote_id: Option<String> = None;
@@ -2299,6 +2305,31 @@ async fn outbox_vendas_retry_errors_handler() -> Result<Json<RetryErrorsResponse
 }
 
 /// Scheduler de background da outbox de vendas — espelha o de estoque.
+#[derive(Deserialize)]
+struct ArchiveOutboxVendaRequest {
+    local_uuid: String,
+    motivo: Option<String>,
+}
+
+async fn outbox_vendas_archive_error_handler(
+    Json(req): Json<ArchiveOutboxVendaRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if req.local_uuid.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "local_uuid e obrigatorio".into()));
+    }
+    let archived = db::outbox_vendas_archive_error(
+        req.local_uuid.trim(),
+        req.motivo.as_deref(),
+        now_ms(),
+    )
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(serde_json::json!({
+        "ok": archived,
+        "local_uuid": req.local_uuid,
+        "status": if archived { "archived" } else { "unchanged" },
+    })))
+}
+
 async fn run_outbox_vendas_scheduler(
     ctx: AppCtx,
     mut shutdown_rx: oneshot::Receiver<()>,
@@ -2628,11 +2659,17 @@ async fn registrar_caixa_fechar_handler(
     Json(req): Json<FecharCaixaLocalRequest>,
 ) -> Result<Json<FecharCaixaLocalResponse>, (StatusCode, String)> {
     let now = now_ms();
+    eprintln!("[gestao-pro] HTTP POST /api/caixa/fechar recebido");
     let input: db::LocalFecharCaixaInput = serde_json::from_value(req.raw)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("payload inválido: {e}")))?;
 
     let result = db::fechar_caixa_local(input, now)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    eprintln!(
+        "[gestao-pro] caixa fechado localmente fechamento_id={} idempotente={}",
+        result.local_uuid,
+        result.idempotente,
+    );
 
     let mut outbox_status = "pending".to_string();
     let mut remote_id: Option<String> = None;
@@ -3510,6 +3547,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/db/outbox/vendas/stats", get(outbox_vendas_stats_handler))
         .route("/db/outbox/vendas/flush", post(outbox_vendas_flush_handler))
         .route("/db/outbox/vendas/retry-errors", post(outbox_vendas_retry_errors_handler))
+        .route("/db/outbox/vendas/archive-error", post(outbox_vendas_archive_error_handler))
         .route("/db/outbox/clientes/flush", post(outbox_clientes_flush_handler))
         .route("/db/outbox/clientes/retry-errors", post(outbox_clientes_retry_errors_handler))
         .route("/api/produtos/list", get(produtos_list_handler))

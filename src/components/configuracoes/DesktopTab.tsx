@@ -20,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -32,6 +33,7 @@ import { useDesktopRole } from "@/components/desktop/DesktopRoleProvider";
 import { DesktopSetupWizard } from "@/components/desktop/DesktopSetupWizard";
 import { useServerConnection } from "@/components/desktop/useServerConnection";
 import {
+  archiveOutboxVendaError,
   fetchCaixaLancamentosLocal,
   fetchCaixaLocalAberto,
   fetchCaixaResumoLocal,
@@ -107,6 +109,7 @@ export function DesktopTab() {
   const [vendasErroOpen, setVendasErroOpen] = useState(false);
   const [vendasErroItems, setVendasErroItems] = useState<OutboxItem[]>([]);
   const [vendasErroLoading, setVendasErroLoading] = useState(false);
+  const [arquivandoVendaErro, setArquivandoVendaErro] = useState(false);
   const [vendaErroSelecionada, setVendaErroSelecionada] = useState<string | null>(null);
   const [outboxCaixa, setOutboxCaixa] = useState<OutboxCaixaStats | null>(null);
   const [flushingCaixa, setFlushingCaixa] = useState(false);
@@ -238,6 +241,28 @@ export function DesktopTab() {
     await recarregarOutboxStatus();
     if (vendasErroOpen) {
       await carregarDetalhesErrosVendas();
+    }
+  };
+
+  const handleArchiveVendaError = async (localUuid: string) => {
+    if (!localCfg) return;
+    setArquivandoVendaErro(true);
+    try {
+      const ok = await archiveOutboxVendaError(
+        localCfg,
+        localUuid,
+        "Erro antigo arquivado manualmente; venda local preservada.",
+      );
+      if (ok) {
+        toast.success("Erro antigo arquivado. A venda local foi preservada.");
+      } else {
+        toast.info("Nenhum erro foi arquivado para esta venda.");
+      }
+      setOutboxVendas(await fetchOutboxVendasStats(localCfg));
+      await recarregarOutboxStatus();
+      await carregarDetalhesErrosVendas();
+    } finally {
+      setArquivandoVendaErro(false);
     }
   };
 
@@ -644,6 +669,8 @@ export function DesktopTab() {
           selectedItem={selectedVendaErro}
           onSelect={setVendaErroSelecionada}
           onRetry={() => void handleRetryErrorsVendas()}
+          archiving={arquivandoVendaErro}
+          onArchive={(localUuid) => void handleArchiveVendaError(localUuid)}
         />
 
         {role !== "unset" && dbInfo && (
@@ -2047,6 +2074,8 @@ function VendasSyncErrorDialog({
   selectedItem,
   onSelect,
   onRetry,
+  archiving,
+  onArchive,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -2055,6 +2084,8 @@ function VendasSyncErrorDialog({
   selectedItem: OutboxItem | null;
   onSelect: (localUuid: string) => void;
   onRetry: () => void;
+  archiving: boolean;
+  onArchive: (localUuid: string) => void;
 }) {
   const parsedPayload = selectedItem ? parseOutboxPayload(selectedItem.payload) : null;
   const rpcPayload = selectedItem ? buildVendaRpcPayload(selectedItem) : null;
@@ -2184,6 +2215,18 @@ function VendasSyncErrorDialog({
             <Button disabled={items.length === 0 || loading} onClick={onRetry}>
               <RotateCcw className="mr-2 h-4 w-4" />
               Reenviar
+            </Button>
+            <Button
+              variant="outline"
+              disabled={!selectedItem || loading || archiving}
+              onClick={() => selectedItem && onArchive(selectedItem.local_uuid)}
+            >
+              {archiving ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+              )}
+              Arquivar erro antigo
             </Button>
           </div>
         </DialogFooter>

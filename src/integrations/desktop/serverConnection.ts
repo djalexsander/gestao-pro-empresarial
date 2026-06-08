@@ -53,6 +53,7 @@ import type {
 } from "./localOfflineCore";
 export {
   abrirCaixaLocal,
+  archiveOutboxVendaError,
   cancelarVendaLocal,
   fecharCaixaLocal,
   fetchCaixaLancamentosLocal,

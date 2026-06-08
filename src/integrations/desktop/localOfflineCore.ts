@@ -4,6 +4,7 @@ import {
   getBaseUrl,
   getLocalJson,
   postLocalJson,
+  resolveTokenForUrl,
 } from "./localHttpClient";
 
 const TIMEOUT_MS = 3000;
@@ -234,13 +235,22 @@ export async function registrarVendaLocal(
   if (!baseUrl) return null;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 30_000);
+  const url = `${baseUrl}/api/vendas/registrar`;
   try {
     const headers: Record<string, string> = {
       Accept: "application/json",
       "Content-Type": "application/json",
     };
+    const localToken = resolveTokenForUrl(baseUrl);
+    if (localToken) headers["X-Gestao-Token"] = localToken;
     if (authToken) headers.Authorization = `Bearer ${authToken}`;
-    const res = await fetch(`${baseUrl}/api/vendas/registrar`, {
+    console.info("[local-offline-core] POST venda local", {
+      url,
+      hasLocalToken: Boolean(localToken),
+      hasAuth: Boolean(authToken),
+      timeoutMs: 30_000,
+    });
+    const res = await fetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify(payload),
@@ -248,11 +258,24 @@ export async function registrarVendaLocal(
       cache: "no-store",
     });
     clearTimeout(timer);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.warn("[local-offline-core] POST venda local failed", {
+        url,
+        status: res.status,
+        body: text,
+      });
+      throw new Error(`Servidor local retornou HTTP ${res.status} em /api/vendas/registrar: ${text || res.statusText}`);
+    }
     return (await res.json()) as RegistrarVendaLocalResponse;
-  } catch {
+  } catch (error) {
     clearTimeout(timer);
-    return null;
+    const isAbort = error instanceof DOMException && error.name === "AbortError";
+    console.error("[local-offline-core] POST venda local error", { url, error });
+    if (isAbort) {
+      throw new Error("Servidor local demorou para responder em /api/vendas/registrar. A venda não foi confirmada; tente novamente.");
+    }
+    throw error instanceof Error ? error : new Error(String(error));
   }
 }
 
@@ -343,6 +366,27 @@ export async function retryOutboxVendasErrors(
   } catch {
     return 0;
   }
+}
+
+export async function archiveOutboxVendaError(
+  cfg: TerminalConexaoConfig | undefined,
+  localUuid: string,
+  motivo?: string | null,
+): Promise<boolean> {
+  const result = await postLocalJson<
+    { local_uuid: string; motivo?: string | null },
+    { ok?: boolean }
+  >(
+    cfg,
+    "/db/outbox/vendas/archive-error",
+    {
+      local_uuid: localUuid,
+      motivo: motivo ?? "Erro antigo arquivado manualmente; venda local preservada.",
+    },
+    null,
+    10_000,
+  );
+  return Boolean(result?.ok);
 }
 
 export interface OutboxCaixaStats extends OutboxStats {
