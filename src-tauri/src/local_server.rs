@@ -32,6 +32,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use tokio::sync::oneshot;
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
@@ -1807,6 +1808,7 @@ async fn registrar_venda_local_handler(
     headers: HeaderMap,
     Json(req): Json<RegistrarVendaLocalRequest>,
 ) -> Result<Json<RegistrarVendaLocalResponse>, (StatusCode, String)> {
+    let started = Instant::now();
     let now = now_ms();
     eprintln!("[gestao-pro] HTTP POST /api/vendas/registrar recebido");
     let input: db::LocalVendaInput = serde_json::from_value(req.raw)
@@ -1855,6 +1857,10 @@ async fn registrar_venda_local_handler(
         });
     }
 
+    eprintln!(
+        "[gestao-pro] HTTP POST /api/vendas/registrar respondendo em {}ms",
+        started.elapsed().as_millis(),
+    );
     Ok(Json(RegistrarVendaLocalResponse {
         venda_id: result.local_uuid,
         idempotente: result.idempotente,
@@ -2658,6 +2664,7 @@ async fn registrar_caixa_fechar_handler(
     headers: HeaderMap,
     Json(req): Json<FecharCaixaLocalRequest>,
 ) -> Result<Json<FecharCaixaLocalResponse>, (StatusCode, String)> {
+    let started = Instant::now();
     let now = now_ms();
     eprintln!("[gestao-pro] HTTP POST /api/caixa/fechar recebido");
     let input: db::LocalFecharCaixaInput = serde_json::from_value(req.raw)
@@ -2670,6 +2677,25 @@ async fn registrar_caixa_fechar_handler(
         result.local_uuid,
         result.idempotente,
     );
+
+    let caixa_para_lancamentos = result.caixa_local_uuid.clone();
+    tokio::spawn(async move {
+        eprintln!(
+            "[gestao-pro] caixa fechamento background: regenerando lancamentos caixa_local_uuid={}",
+            caixa_para_lancamentos,
+        );
+        match db::regenerar_lancamentos_locais_caixa(&caixa_para_lancamentos) {
+            Ok(_) => eprintln!(
+                "[gestao-pro] caixa fechamento background: lancamentos regenerados caixa_local_uuid={}",
+                caixa_para_lancamentos,
+            ),
+            Err(err) => eprintln!(
+                "[gestao-pro] caixa fechamento background: erro ao regenerar lancamentos caixa_local_uuid={} err={}",
+                caixa_para_lancamentos,
+                err,
+            ),
+        }
+    });
 
     let mut outbox_status = "pending".to_string();
     let mut remote_id: Option<String> = None;
@@ -2702,6 +2728,10 @@ async fn registrar_caixa_fechar_handler(
         });
     }
 
+    eprintln!(
+        "[gestao-pro] HTTP POST /api/caixa/fechar respondendo em {}ms",
+        started.elapsed().as_millis(),
+    );
     Ok(Json(FecharCaixaLocalResponse {
         fechamento_id: result.local_uuid,
         idempotente: result.idempotente,

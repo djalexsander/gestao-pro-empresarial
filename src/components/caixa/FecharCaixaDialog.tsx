@@ -57,10 +57,10 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
   const [valorInformado, setValorInformado] = useState("");
   const [observacao, setObservacao] = useState("");
   const [resumoAtual, setResumoAtual] = useState<CaixaResumo | null>(null);
+  const [resumoErro, setResumoErro] = useState<string | null>(null);
   const fechar = useFecharCaixa();
   const {
     refetch: refetchResumo,
-    isFetching: resumoFetching,
   } = useCaixaResumo(open ? caixaId : null);
   const valorRef = useRef<HTMLInputElement | null>(null);
 
@@ -69,9 +69,15 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
       setValorInformado("");
       setObservacao("");
       setResumoAtual(null);
-      void refetchResumo().then((result) => {
-        setResumoAtual(result.data ?? null);
-      });
+      setResumoErro(null);
+      void refetchResumo()
+        .then((result) => {
+          setResumoAtual(result.data ?? null);
+          if (!result.data) setResumoErro("Resumo atual do caixa não disponível.");
+        })
+        .catch((error) => {
+          setResumoErro(error instanceof Error ? error.message : String(error));
+        });
       // Foca + seleciona após o Dialog terminar a animação de abertura,
       // sempre que reabrir (não só na 1ª montagem). Dois rAFs garantem que
       // o conteúdo já esteja no DOM e o portal do Radix tenha se estabilizado.
@@ -87,7 +93,7 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
   }, [caixaId, open, refetchResumo]);
 
   const resumoVisivel = open ? resumoAtual : resumo;
-  const resumoCarregando = open && !resumoAtual && resumoFetching;
+  const resumoCarregando = open && !resumoAtual && !resumoErro;
   const valorEsperado = resumoVisivel?.valor_esperado ?? 0;
   const informadoNum = Number(valorInformado.replace(",", "."));
   const diferenca = useMemo(() => {
@@ -163,19 +169,24 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
                 <Loader2 className="h-3 w-3 animate-spin" /> Atualizando resumo do caixa...
               </p>
             )}
-            <div className="space-y-1.5">
+            {resumoErro && (
+              <p className="mb-3 flex items-center gap-2 text-xs text-destructive">
+                <AlertTriangle className="h-3 w-3" /> {resumoErro}
+              </p>
+            )}
+            <div className={cn("space-y-1.5", !resumoVisivel && "hidden")}>
               <Row label="Valor inicial (fundo de troco)" value={formatBRL(resumoVisivel?.valor_inicial ?? 0)} tone="muted" />
               <Row label={`Vendas (${resumoVisivel?.qtd_vendas ?? 0})`} value={formatBRL(resumoVisivel?.total_vendas ?? 0)} />
               <Row label="Suprimento de caixa (entrou)" value={`+ ${formatBRL(resumoVisivel?.total_suprimentos ?? 0)}`} tone="success" />
               <Row label="Sangria de caixa (saiu)" value={`- ${formatBRL(resumoVisivel?.total_sangrias ?? 0)}`} tone="danger" />
             </div>
 
-            <div className="my-3 h-px bg-border" />
+            <div className={cn("my-3 h-px bg-border", !resumoVisivel && "hidden")} />
 
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <p className={cn("mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground", !resumoVisivel && "hidden")}>
               Recebido por forma de pagamento
             </p>
-            <div className="space-y-1.5">
+            <div className={cn("space-y-1.5", !resumoVisivel && "hidden")}>
               <Row label="Dinheiro" value={formatBRL(resumoVisivel?.total_dinheiro ?? 0)} />
               <Row label="PIX" value={formatBRL(resumoVisivel?.total_pix ?? 0)} tone="muted" />
               <Row label="Cartão débito" value={formatBRL(resumoVisivel?.total_debito ?? 0)} tone="muted" />
@@ -204,7 +215,7 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
               Esperado em dinheiro na gaveta
             </p>
             <p className="font-mono text-2xl font-bold tabular-nums text-primary">
-              {formatBRL(valorEsperado)}
+              {resumoVisivel ? formatBRL(valorEsperado) : "Atualizando..."}
             </p>
             <p className="mt-1 text-[11px] text-muted-foreground">
               inicial + dinheiro recebido + suprimentos − sangrias
@@ -234,7 +245,7 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
           </div>
 
           {/* Diferença */}
-          {diferenca !== null && (
+          {diferenca !== null && resumoVisivel && (
             <div
               className={cn(
                 "rounded-md border p-3 text-sm",

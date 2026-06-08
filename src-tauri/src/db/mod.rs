@@ -4923,6 +4923,7 @@ pub struct LocalFecharCaixaInput {
 #[derive(Debug, Serialize)]
 pub struct LocalFecharCaixaResult {
     pub local_uuid: String,
+    pub caixa_local_uuid: String,
     pub idempotente: bool,
     pub valor_informado: f64,
 }
@@ -4954,6 +4955,7 @@ pub fn fechar_caixa_local(
             })? {
                 return Ok(LocalFecharCaixaResult {
                     local_uuid,
+                    caixa_local_uuid,
                     idempotente: true,
                     valor_informado: input.valor_informado,
                 });
@@ -5019,13 +5021,10 @@ pub fn fechar_caixa_local(
             ],
         )?;
 
-        // Lançamentos financeiros locais derivados.
-        // Idempotente: limpa e reinsere sempre que o caixa é fechado.
-        gerar_lancamentos_locais_para_caixa(&tx, &caixa_local_uuid, now_ms)?;
-
         tx.commit()?;
         Ok(LocalFecharCaixaResult {
             local_uuid,
+            caixa_local_uuid,
             idempotente: false,
             valor_informado: input.valor_informado,
         })
