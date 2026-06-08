@@ -36,7 +36,9 @@ import {
   abrirCaixaLocal,
   cancelarVendaLocal,
   fecharCaixaLocal,
+  fetchCaixaHistoricoLocal,
   fetchCaixaLocalAberto,
+  fetchCaixaMovimentosLocal,
   fetchCaixaResumoLocal,
   getBaseUrl,
   registrarMovCaixaLocal,
@@ -233,6 +235,69 @@ function categoriasFromProdutos(produtos: ProdutoComVariacoes[]) {
     }
   }
   return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome));
+}
+
+type CaixaLocalRow = Awaited<ReturnType<typeof fetchCaixaHistoricoLocal>>[number];
+type CaixaResumoLocalRow = NonNullable<Awaited<ReturnType<typeof fetchCaixaResumoLocal>>>;
+type CaixaMovimentoLocal = Awaited<ReturnType<typeof fetchCaixaMovimentosLocal>>[number];
+
+function caixaLocalToDomain(
+  local: CaixaLocalRow,
+  resumo?: CaixaResumoLocalRow | null,
+): Awaited<ReturnType<DataAdapter["caixa"]["historico"]>>[number] {
+  const dataAbertura = new Date(local.data_abertura_ms).toISOString();
+  const dataFechamento =
+    local.data_fechamento_ms != null
+      ? new Date(local.data_fechamento_ms).toISOString()
+      : null;
+  const porForma = new Map(
+    (resumo?.por_forma ?? []).map((row) => [row.forma_pagamento, Number(row.total) || 0]),
+  );
+  return {
+    id: local.remote_id ?? local.local_uuid,
+    owner_id: "",
+    usuario_id: "",
+    operador_id: local.operador_id,
+    data_abertura: dataAbertura,
+    data_fechamento: dataFechamento,
+    valor_inicial: Number(local.valor_inicial) || 0,
+    total_vendas: Number(resumo?.total_vendido) || 0,
+    qtd_vendas: Number(resumo?.qtd_vendas) || 0,
+    total_dinheiro: porForma.get("dinheiro") ?? 0,
+    total_pix: porForma.get("pix") ?? 0,
+    total_debito: porForma.get("debito") ?? 0,
+    total_credito: porForma.get("credito") ?? 0,
+    total_boleto: porForma.get("boleto") ?? 0,
+    total_ifood: porForma.get("ifood") ?? 0,
+    total_fiado: porForma.get("fiado") ?? 0,
+    total_outros: porForma.get("outros") ?? 0,
+    total_sangrias: Number(local.total_sangrias) || 0,
+    total_suprimentos: Number(local.total_suprimentos) || 0,
+    valor_esperado: resumo?.valor_esperado_dinheiro ?? local.valor_esperado,
+    valor_informado: local.valor_informado,
+    diferenca: local.diferenca,
+    status: local.status,
+    observacao: local.observacao_abertura,
+    observacao_fechamento: local.observacao_fechamento,
+    created_at: dataAbertura,
+    updated_at: dataFechamento ?? dataAbertura,
+  };
+}
+
+function caixaMovimentoLocalToDomain(
+  local: CaixaMovimentoLocal,
+): Awaited<ReturnType<DataAdapter["caixa"]["movimentos"]>>[number] {
+  return {
+    id: local.remote_id ?? local.local_uuid,
+    caixa_id: local.caixa_local_uuid,
+    tipo: local.tipo,
+    valor: Number(local.valor) || 0,
+    motivo: local.motivo,
+    venda_id: null,
+    usuario_id: null,
+    operador_id: local.operador_id,
+    created_at: new Date(local.created_at_ms).toISOString(),
+  };
 }
 
 // ----------------------------------------------------------------------------
@@ -791,40 +856,8 @@ export const localTerminalAdapter: DataAdapter = {
         method: "aberto",
         fallback: false,
       });
-      const dataAbertura = new Date(local.data_abertura_ms).toISOString();
-      const dataFechamento =
-        local.data_fechamento_ms != null
-          ? new Date(local.data_fechamento_ms).toISOString()
-          : null;
-      return {
-        id: local.remote_id ?? local.local_uuid,
-        owner_id: "",
-        usuario_id: "",
-        operador_id: local.operador_id,
-        data_abertura: dataAbertura,
-        data_fechamento: dataFechamento,
-        valor_inicial: Number(local.valor_inicial) || 0,
-        total_vendas: 0,
-        qtd_vendas: 0,
-        total_dinheiro: 0,
-        total_pix: 0,
-        total_debito: 0,
-        total_credito: 0,
-        total_boleto: 0,
-        total_ifood: 0,
-        total_fiado: 0,
-        total_outros: 0,
-        total_sangrias: Number(local.total_sangrias) || 0,
-        total_suprimentos: Number(local.total_suprimentos) || 0,
-        valor_esperado: local.valor_esperado,
-        valor_informado: local.valor_informado,
-        diferenca: local.diferenca,
-        status: local.status,
-        observacao: local.observacao_abertura,
-        observacao_fechamento: local.observacao_fechamento,
-        created_at: dataAbertura,
-        updated_at: dataFechamento ?? dataAbertura,
-      };
+      const resumo = await fetchCaixaResumoLocal(cfg, { caixaId: local.local_uuid });
+      return caixaLocalToDomain(local, resumo);
     },
     resumo: async (caixaId) => {
       const cfg = getLocalConnectionConfig();
@@ -864,6 +897,33 @@ export const localTerminalAdapter: DataAdapter = {
         valor_informado: local.valor_informado,
         diferenca: local.diferenca,
       };
+    },
+    historico: async (input) => {
+      const cfg = getLocalConnectionConfig();
+      const rows = await fetchCaixaHistoricoLocal(cfg, input?.limit);
+      reportDataSource({
+        source: "local-server",
+        domain: "caixa",
+        method: "historico",
+        fallback: false,
+      });
+      return Promise.all(
+        rows.map(async (row) => {
+          const resumo = await fetchCaixaResumoLocal(cfg, { caixaId: row.local_uuid });
+          return caixaLocalToDomain(row, resumo);
+        }),
+      );
+    },
+    movimentos: async (caixaId) => {
+      const cfg = getLocalConnectionConfig();
+      const rows = await fetchCaixaMovimentosLocal(cfg, caixaId);
+      reportDataSource({
+        source: "local-server",
+        domain: "caixa",
+        method: "movimentos",
+        fallback: false,
+      });
+      return rows.map(caixaMovimentoLocalToDomain);
     },
   },
 };

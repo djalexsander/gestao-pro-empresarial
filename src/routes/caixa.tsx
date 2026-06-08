@@ -104,15 +104,12 @@ function CaixaPage() {
   const { data: funcionarios = [] } = useFuncionarios();
   const excluirCaixaMutation = useExcluirCaixa();
 
-  const caixaAbertoHistorico = useMemo(
-    () =>
-      historico
-        .filter((c) => c.status === "aberto")
-        .sort((a, b) => (a.data_abertura < b.data_abertura ? 1 : -1))[0] ?? null,
+  const caixasAbertosNoHistorico = useMemo(
+    () => historico.filter((c) => c.status === "aberto"),
     [historico],
   );
-  const caixaAtual = caixaAberto ?? caixaAbertoHistorico;
-  const caixaAbertoSomenteNoHistorico = !caixaAberto && !!caixaAbertoHistorico;
+  const caixaAtual = caixaAberto;
+  const historicoDivergente = !caixaAtual && caixasAbertosNoHistorico.length > 0;
   const [fecharOpen, setFecharOpen] = useState(false);
   const [fecharCaixaAlvo, setFecharCaixaAlvo] = useState<Caixa | null>(null);
   const caixaParaFechar = fecharCaixaAlvo ?? caixaAtual;
@@ -224,15 +221,15 @@ function CaixaPage() {
         }
       />
 
-      {caixaAbertoSomenteNoHistorico && (
+      {historicoDivergente && (
         <div className="rounded-lg border border-warning/35 bg-warning/10 p-4 text-sm text-warning-foreground">
           <div className="flex items-start gap-3">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <div>
-              <p className="font-semibold">Caixa aberto localizado no histórico.</p>
+              <p className="font-semibold">Histórico mostra caixa aberto, mas a consulta atual não confirmou.</p>
               <p className="mt-1 text-muted-foreground">
-                A consulta principal não retornou caixa atual, mas o histórico tem uma sessão em aberto.
-                A tela vai usar esse caixa para permitir o fechamento sem abrir uma nova sessão.
+                A tela não vai tratar esse registro como caixa operacional para evitar fechamento duplicado.
+                Atualize a tela ou abra o PDV para conferir o caixa ativo antes de operar.
               </p>
             </div>
           </div>
@@ -597,7 +594,7 @@ function CaixaPage() {
                                       formatBRL(c.diferenca)}
                                 </TableCell>
                                 <TableCell className="text-right">
-                                  {c.status === "aberto" && (
+                                  {c.status === "aberto" && caixaAtual?.id === c.id && (
                                     <Button
                                       variant="outline"
                                       size="sm"
@@ -697,25 +694,23 @@ function CaixaPage() {
       </AlertDialog>
 
       {caixaParaFechar && (
-        <>
-          <FecharCaixaDialog
-            open={fecharOpen}
-            onOpenChange={(open) => {
-              setFecharOpen(open);
-              if (!open) setFecharCaixaAlvo(null);
-            }}
-            caixaId={caixaParaFechar.id}
-            resumo={resumo ?? null}
-          />
-          {movDialog && (
-            <MovimentoCaixaDialog
-              open={!!movDialog}
-              onOpenChange={(o) => !o && setMovDialog(null)}
-              caixaId={caixaAtual.id}
-              tipo={movDialog}
-            />
-          )}
-        </>
+        <FecharCaixaDialog
+          open={fecharOpen}
+          onOpenChange={(open) => {
+            setFecharOpen(open);
+            if (!open) setFecharCaixaAlvo(null);
+          }}
+          caixaId={caixaParaFechar.id}
+          resumo={resumo ?? null}
+        />
+      )}
+      {caixaAtual && movDialog && (
+        <MovimentoCaixaDialog
+          open={!!movDialog}
+          onOpenChange={(o) => !o && setMovDialog(null)}
+          caixaId={caixaAtual.id}
+          tipo={movDialog}
+        />
       )}
     </div>
   );

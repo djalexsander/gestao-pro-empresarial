@@ -420,6 +420,19 @@ export interface CaixaLocalAbertoRow {
   total_sangrias: number;
 }
 
+export type CaixaLocalHistoricoRow = CaixaLocalAbertoRow;
+
+export interface CaixaMovimentoLocalRow {
+  local_uuid: string;
+  caixa_local_uuid: string;
+  tipo: "abertura" | "venda" | "sangria" | "suprimento" | "fechamento";
+  valor: number;
+  motivo: string | null;
+  operador_id: string | null;
+  remote_id: string | null;
+  created_at_ms: number;
+}
+
 export interface AbrirCaixaLocalRequest {
   valor_inicial: number;
   observacao?: string | null;
@@ -512,6 +525,24 @@ export async function fetchCaixaLocalAberto(
   } catch {
     return null;
   }
+}
+
+export function fetchCaixaHistoricoLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  limit?: number | null,
+): Promise<CaixaLocalHistoricoRow[]> {
+  return getLocalJson<CaixaLocalHistoricoRow[]>(cfg, "/api/caixa/historico", {
+    limit: limit != null ? String(limit) : undefined,
+  }).then((v) => v ?? []);
+}
+
+export function fetchCaixaMovimentosLocal(
+  cfg: TerminalConexaoConfig | undefined,
+  caixaId: string,
+): Promise<CaixaMovimentoLocalRow[]> {
+  return getLocalJson<CaixaMovimentoLocalRow[]>(cfg, "/api/caixa/movimentos", {
+    caixa_id: caixaId,
+  }).then((v) => v ?? []);
 }
 
 export interface CaixaResumoFormaRow {

@@ -418,6 +418,8 @@ export const localServerAdapter: DataAdapter = {
     },
     aberto: (filtro) => localTerminalAdapter.caixa.aberto(filtro),
     resumo: (caixaId) => localTerminalAdapter.caixa.resumo(caixaId),
+    historico: (input) => localTerminalAdapter.caixa.historico(input),
+    movimentos: (caixaId) => localTerminalAdapter.caixa.movimentos(caixaId),
   },
 };
 
