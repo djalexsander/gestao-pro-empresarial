@@ -52,6 +52,14 @@ export interface DesktopConfig {
   serverId?: string;
   /** Nome amigável do servidor (ex.: "Servidor Loja Centro"). */
   serverNome?: string;
+  /** Porta fixa/persistida do backend local quando role = "server". */
+  serverPort?: number;
+  /** Base local loopback usada pela própria máquina servidor. */
+  localBaseUrl?: string;
+  /** Host/IP da rede usado pelos terminais para conectar ao servidor. */
+  networkHost?: string;
+  /** Base URL de rede usada pelos terminais. */
+  networkBaseUrl?: string;
   /** Quando o papel é `terminal`, a config de conexão com o servidor local. */
   terminal?: TerminalConexaoConfig;
   /**

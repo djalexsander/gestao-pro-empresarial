@@ -28,6 +28,7 @@ export interface BootState {
   lastError: string | null;
   lastStatus: LocalServerStatus | null;
   start: () => Promise<LocalServerStatus | null>;
+  restart: () => Promise<LocalServerStatus | null>;
 }
 
 const STATE: BootState & { listeners: Set<() => void> } = {
@@ -35,11 +36,29 @@ const STATE: BootState & { listeners: Set<() => void> } = {
   lastError: null,
   lastStatus: null,
   start: async () => null,
+  restart: async () => null,
   listeners: new Set(),
 };
 
 function notify() {
   STATE.listeners.forEach((l) => l());
+}
+
+function friendlyStartError(err: unknown): string {
+  const msg = String(err);
+  const lower = msg.toLowerCase();
+  if (
+    lower.includes("address already in use") ||
+    lower.includes("os error 10048") ||
+    (lower.includes("porta") && lower.includes("uso"))
+  ) {
+    return "A porta 3333 já está em uso. Feche o outro processo ou altere a porta do servidor local.";
+  }
+  return msg;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function doStart(opts: {
@@ -100,7 +119,7 @@ async function doStart(opts: {
     }
     return st;
   } catch (err) {
-    const msg = String(err);
+    const msg = friendlyStartError(err);
     STATE.lastError = msg;
     console.error("[boot] start_local_server falhou", err);
     toast.error(`Não foi possível iniciar o backend local: ${msg}`);
@@ -124,7 +143,7 @@ export function useLocalServerBoot() {
   useEffect(() => {
     if (!desk) return;
     if (role === "server" && config.serverAuthToken) {
-      const port = config.terminal?.porta ?? DEFAULT_LOCAL_PORT;
+      const port = config.serverPort ?? config.terminal?.porta ?? DEFAULT_LOCAL_PORT;
       registerLocalServerAuth(`http://127.0.0.1:${port}`, config.serverAuthToken);
     } else if (role === "terminal" && config.terminal?.serverToken) {
       const host = config.terminal.host?.replace(/^https?:\/\//, "").replace(/\/+$/, "");
@@ -141,6 +160,7 @@ export function useLocalServerBoot() {
     config.serverAuthToken,
     config.terminal?.serverToken,
     config.terminal?.host,
+    config.serverPort,
     config.terminal?.porta,
   ]);
 
@@ -151,7 +171,7 @@ export function useLocalServerBoot() {
     if (role === "server") {
       if (startedRef.current) return;
       startedRef.current = true;
-      const port = config.terminal?.porta ?? DEFAULT_LOCAL_PORT;
+      const port = config.serverPort ?? config.terminal?.porta ?? DEFAULT_LOCAL_PORT;
       const nome =
         config.serverNome ??
         config.terminal?.terminalNome ??
@@ -163,7 +183,7 @@ export function useLocalServerBoot() {
         // Reaproveita o token persistido — backend NÃO gera um novo nesse caso.
         authToken: config.serverAuthToken ?? null,
       });
-    } else if (startedRef.current && role !== "unset") {
+    } else if (startedRef.current && role !== "unset" && config.role !== "server") {
       console.warn("[boot] parando backend local porque o papel mudou", {
         role,
         configRole: config.role,
@@ -173,7 +193,7 @@ export function useLocalServerBoot() {
       startedRef.current = false;
     } else if (startedRef.current && serverConfigured) {
       console.warn(
-        "[boot] papel desktop temporariamente indefinido; mantendo backend local em execução",
+        "[boot] papel desktop oscilou, mas config persistida ainda é servidor; mantendo backend local em execução",
         { role, configRole: config.role },
       );
     }
@@ -181,6 +201,7 @@ export function useLocalServerBoot() {
     desk,
     role,
     config.role,
+    config.serverPort,
     config.terminal?.porta,
     config.serverNome,
     config.serverId,
@@ -205,7 +226,7 @@ export function useBootController(): BootState {
   }, []);
 
   const start = useCallback(async () => {
-    const port = config.terminal?.porta ?? DEFAULT_LOCAL_PORT;
+    const port = config.serverPort ?? config.terminal?.porta ?? DEFAULT_LOCAL_PORT;
     const nome =
       config.serverNome ??
       config.terminal?.terminalNome ??
@@ -217,6 +238,7 @@ export function useBootController(): BootState {
       authToken: config.serverAuthToken ?? null,
     });
   }, [
+    config.serverPort,
     config.terminal?.porta,
     config.serverNome,
     config.serverId,
@@ -224,10 +246,37 @@ export function useBootController(): BootState {
     config.serverAuthToken,
   ]);
 
+  const restart = useCallback(async () => {
+    const port = config.serverPort ?? config.terminal?.porta ?? DEFAULT_LOCAL_PORT;
+    console.warn("[boot] restart_local_server solicitado", {
+      port,
+      localBaseUrl: config.localBaseUrl ?? `http://127.0.0.1:${port}`,
+    });
+    STATE.starting = true;
+    STATE.lastError = null;
+    notify();
+    try {
+      await stopLocalServer();
+      await delay(2_000);
+    } catch (error) {
+      console.warn("[boot] stop antes do restart falhou; tentando iniciar mesmo assim", error);
+    } finally {
+      STATE.starting = false;
+      notify();
+    }
+    return start();
+  }, [
+    start,
+    config.serverPort,
+    config.terminal?.porta,
+    config.localBaseUrl,
+  ]);
+
   return {
     starting: STATE.starting,
     lastError: STATE.lastError,
     lastStatus: STATE.lastStatus,
     start,
+    restart,
   };
 }

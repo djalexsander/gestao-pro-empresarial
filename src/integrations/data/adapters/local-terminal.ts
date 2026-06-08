@@ -41,6 +41,7 @@ import {
   fetchCaixaMovimentosLocal,
   fetchCaixaResumoLocal,
   getBaseUrl,
+  pingServidorLocal,
   registrarMovCaixaLocal,
   registrarMovimentoLocal,
   registrarVendaLocal,
@@ -235,6 +236,26 @@ function categoriasFromProdutos(produtos: ProdutoComVariacoes[]) {
     }
   }
   return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome));
+}
+
+async function assertLocalServerReady(
+  cfg: TerminalConexaoConfig | undefined,
+  operation: string,
+): Promise<void> {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const health = await pingServidorLocal(cfg);
+    if (health.status === "online") return;
+    console.warn("[local-terminal-adapter] health fail before critical operation", {
+      operation,
+      attempt,
+      status: health.status,
+      baseUrl: health.baseUrl,
+      message: health.mensagem ?? null,
+    });
+  }
+  throw new Error(
+    "Servidor local não está pronto. Reinicie o servidor local em Configurações → Desktop.",
+  );
 }
 
 type CaixaLocalRow = Awaited<ReturnType<typeof fetchCaixaHistoricoLocal>>[number];
@@ -467,6 +488,7 @@ export const localTerminalAdapter: DataAdapter = {
     ): Promise<RegistrarMovimentoEstoqueResult> => {
       const cfg = getLocalConnectionConfig();
       if (getBaseUrl(cfg)) {
+        await assertLocalServerReady(cfg, "vendas.finalizar");
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token ?? null;
         const local = await registrarMovimentoLocal(
@@ -537,6 +559,7 @@ export const localTerminalAdapter: DataAdapter = {
     finalizar: async (input: FinalizarVendaInput): Promise<string> => {
       const cfg = getLocalConnectionConfig();
       if (getBaseUrl(cfg)) {
+        await assertLocalServerReady(cfg, "caixa.fechar");
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token ?? null;
         const local = await registrarVendaLocal(

@@ -39,6 +39,27 @@ export function SuporteDiagnosticoCard({
   outboxes,
 }: Props) {
   const [aberto, setAberto] = useState(false);
+  const serverPort = config.serverPort ?? config.terminal?.porta ?? 3333;
+  const localBaseUrl = config.localBaseUrl ?? `http://127.0.0.1:${serverPort}`;
+  const effectiveBaseUrl =
+    config.role === "server" ? conn.baseUrl ?? localBaseUrl : conn.baseUrl;
+  const effectiveDaemon =
+    daemon ??
+    (config.role === "server"
+      ? {
+          running: false,
+          port: serverPort,
+          started_at: null,
+          server_name: config.serverNome ?? "Servidor Gestão Pro",
+          server_id: config.serverId ?? null,
+          hostname: null,
+          app: "Gestao Pro",
+          version: APP_VERSION,
+          upstream_configured: false,
+          terminals_conectados: 0,
+          auth_token: null,
+        }
+      : null);
 
   const snapshot = {
     gerado_em: new Date().toISOString(),
@@ -48,6 +69,10 @@ export function SuporteDiagnosticoCard({
       machine_id: config.machineId,
       server_id: config.serverId ?? null,
       server_nome: config.serverNome ?? null,
+      server_port: config.serverPort ?? null,
+      local_base_url: config.localBaseUrl ?? null,
+      network_host: config.networkHost ?? null,
+      network_base_url: config.networkBaseUrl ?? null,
       terminal: config.terminal
         ? {
             terminal_id: config.terminal.terminalId,
@@ -60,7 +85,7 @@ export function SuporteDiagnosticoCard({
     conexao: {
       status: conn.status,
       latencia_ms: conn.latenciaMs,
-      base_url: conn.baseUrl,
+      base_url: effectiveBaseUrl,
       server_name: conn.serverName ?? null,
       server_id_remoto: conn.serverId ?? null,
       server_version: conn.serverVersion ?? null,
@@ -76,12 +101,12 @@ export function SuporteDiagnosticoCard({
           started_at_iso: info.started_at_iso ?? null,
         }
       : null,
-    daemon: daemon
+    daemon: effectiveDaemon
       ? {
-          running: daemon.running,
-          port: daemon.port,
-          version: daemon.version,
-          hostname: daemon.hostname ?? null,
+          running: effectiveDaemon.running,
+          port: effectiveDaemon.port,
+          version: effectiveDaemon.version,
+          hostname: effectiveDaemon.hostname ?? null,
         }
       : null,
     banco: dbInfo

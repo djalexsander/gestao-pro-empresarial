@@ -26,6 +26,7 @@ interface Props {
   dbInfo: DbInfoPayload | null;
   serverNome?: string | null;
   serverId?: string | null;
+  preferredPort?: number | null;
 }
 
 /**
@@ -40,8 +41,9 @@ export function ServerReadinessCard({
   dbInfo,
   serverNome,
   serverId,
+  preferredPort,
 }: Props) {
-  const porta = daemon?.port ?? info?.port ?? null;
+  const porta = daemon?.port ?? info?.port ?? preferredPort ?? null;
   const backendOk = !!daemon?.running || info?.backend_running === true;
   const dbOk = !!dbInfo || info?.database_ready === true;
   const portaOk = typeof porta === "number" && porta > 0 && porta < 65536;
@@ -167,13 +169,13 @@ export function ServerReadinessCard({
           </p>
         </div>
 
-        {!backendOk && <StartServerAction />}
+        <ServerControlActions backendOk={backendOk} />
       </CardContent>
     </Card>
   );
 }
 
-function StartServerAction() {
+function ServerControlActions({ backendOk }: { backendOk: boolean }) {
   const boot = useBootController();
   const { reverificar } = useServerConnection();
 
@@ -185,8 +187,16 @@ function StartServerAction() {
     }
   }
 
+  async function handleRestart() {
+    const st = await boot.restart();
+    if (st?.running) {
+      await reverificar();
+    }
+  }
+
   return (
     <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-800 dark:text-amber-300">
+      {!backendOk && (
       <div className="flex items-start gap-2">
         <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <span>
@@ -194,6 +204,9 @@ function StartServerAction() {
           conseguirão se conectar até que ele seja iniciado.
         </span>
       </div>
+      )}
+      <div className="flex flex-wrap gap-2">
+      {!backendOk && (
       <Button
         size="sm"
         onClick={handleStart}
@@ -210,6 +223,32 @@ function StartServerAction() {
           </>
         )}
       </Button>
+      )}
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => void reverificar()}
+        disabled={boot.starting}
+        className="w-full sm:w-auto"
+      >
+        Testar conexão
+      </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={handleRestart}
+        disabled={boot.starting}
+        className="w-full sm:w-auto"
+      >
+        {boot.starting ? (
+          <>
+            <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Reiniciando...
+          </>
+        ) : (
+          "Reiniciar servidor local"
+        )}
+      </Button>
+      </div>
       {boot.lastError && (
         <div className="text-[11px] text-destructive">
           Erro: {boot.lastError}

@@ -21,14 +21,17 @@ import {
 } from "@/integrations/desktop/serverConnection";
 import {
   getLocalServerStatus,
+  startLocalServer,
   type LocalServerStatus,
 } from "@/integrations/desktop/tauriBridge";
 import type { TerminalConexaoConfig } from "@/integrations/desktop/types";
+import { setDesktopConfig } from "@/integrations/desktop/configStore";
 import { APP_VERSION } from "@/lib/version";
 
 const POLL_MS = 20_000;
 const OFFLINE_FAILURE_THRESHOLD = 3;
 const KEEP_LAST_ONLINE_MS = 60_000;
+const DEFAULT_LOCAL_PORT = 3333;
 
 const INITIAL: ServerConnInfo = {
   status: "unknown",
@@ -62,6 +65,7 @@ export function useServerConnection(): UseServerConnectionResult {
   const inFlight = useRef(false);
   const consecutiveFailures = useRef(0);
   const lastOnline = useRef<ServerConnInfo | null>(null);
+  const restartInFlight = useRef(false);
 
   const cfgTerminal: TerminalConexaoConfig | undefined =
     role === "terminal" ? config.terminal : undefined;
@@ -70,7 +74,7 @@ export function useServerConnection(): UseServerConnectionResult {
     role === "server"
       ? {
           host: "127.0.0.1",
-          porta: daemon?.port ?? config.terminal?.porta ?? 3333,
+          porta: daemon?.port ?? config.serverPort ?? config.terminal?.porta ?? DEFAULT_LOCAL_PORT,
           terminalId: "self",
           terminalNome: daemon?.server_name ?? config.serverNome ?? "Servidor",
         }
@@ -87,7 +91,35 @@ export function useServerConnection(): UseServerConnectionResult {
       if (isDesktop && role === "server") {
         try {
           const st = await getLocalServerStatus();
-          setDaemon(st);
+          let currentStatus = st;
+          if (!st.running && !restartInFlight.current) {
+            restartInFlight.current = true;
+            const port = st.port ?? config.serverPort ?? config.terminal?.porta ?? DEFAULT_LOCAL_PORT;
+            console.warn("[useServerConnection] backend local parado; tentando reiniciar automaticamente", {
+              port,
+              serverId: config.serverId ?? null,
+            });
+            try {
+              currentStatus = await startLocalServer({
+                port,
+                serverName:
+                  config.serverNome ??
+                  config.terminal?.terminalNome ??
+                  "Servidor Gestão Pro",
+                serverId: config.serverId ?? null,
+                upstreamUrl:
+                  (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? null,
+                upstreamAnonKey:
+                  (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ?? null,
+                authToken: config.serverAuthToken ?? null,
+              });
+            } catch (error) {
+              console.error("[useServerConnection] reinicio automatico do backend local falhou", error);
+            } finally {
+              restartInFlight.current = false;
+            }
+          }
+          setDaemon(currentStatus);
         } catch {
           /* ignore */
         }
@@ -96,11 +128,33 @@ export function useServerConnection(): UseServerConnectionResult {
 
       // Quando online, enriquece com /server-info.
       if (result.status === "online") {
+        if (consecutiveFailures.current > 0) {
+          console.info("[useServerConnection] health recover", {
+            baseUrl: result.baseUrl,
+            failures: consecutiveFailures.current,
+          });
+        }
         consecutiveFailures.current = 0;
         lastOnline.current = result;
         setConn(result);
         const si = await fetchServerInfo(cfgPing);
         setInfo(si);
+        if (role === "server" && si?.host) {
+          const port = si.port ?? config.serverPort ?? config.terminal?.porta ?? DEFAULT_LOCAL_PORT;
+          const networkBaseUrl = `http://${si.host}:${port}`;
+          if (config.networkHost !== si.host || config.networkBaseUrl !== networkBaseUrl) {
+            console.info("[useServerConnection] persistindo host de rede do servidor", {
+              networkHost: si.host,
+              networkBaseUrl,
+            });
+            setDesktopConfig({
+              ...config,
+              networkHost: si.host,
+              networkBaseUrl,
+              serverPort: port,
+            });
+          }
+        }
 
         // Heartbeat do terminal — leva a identidade ao servidor.
         if (role === "terminal" && cfgTerminal) {
@@ -117,10 +171,54 @@ export function useServerConnection(): UseServerConnectionResult {
         }
       } else {
         consecutiveFailures.current += 1;
+        console.warn("[useServerConnection] health fail", {
+          status: result.status,
+          baseUrl: result.baseUrl,
+          failures: consecutiveFailures.current,
+          message: result.mensagem ?? null,
+        });
         const last = lastOnline.current;
         const lastIsFresh =
           !!last?.ultimoSync &&
           Date.now() - last.ultimoSync.getTime() <= KEEP_LAST_ONLINE_MS;
+
+        if (
+          role === "server" &&
+          consecutiveFailures.current >= OFFLINE_FAILURE_THRESHOLD &&
+          !restartInFlight.current
+        ) {
+          restartInFlight.current = true;
+          const port = config.serverPort ?? config.terminal?.porta ?? DEFAULT_LOCAL_PORT;
+          console.warn("[useServerConnection] 3 falhas seguidas de /health; reiniciando backend local", {
+            port,
+            baseUrl: result.baseUrl,
+            lastMessage: result.mensagem ?? null,
+          });
+          try {
+            const restarted = await startLocalServer({
+              port,
+              serverName:
+                config.serverNome ??
+                config.terminal?.terminalNome ??
+                "Servidor Gestão Pro",
+              serverId: config.serverId ?? null,
+              upstreamUrl:
+                (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? null,
+              upstreamAnonKey:
+                (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ?? null,
+              authToken: config.serverAuthToken ?? null,
+            });
+            setDaemon(restarted);
+          } catch (error) {
+            console.error("[useServerConnection] restart por health falhou", error);
+            setConn({
+              ...result,
+              mensagem: `Servidor local não está pronto. Erro ao reiniciar: ${String(error)}`,
+            });
+          } finally {
+            restartInFlight.current = false;
+          }
+        }
 
         if (
           last &&
@@ -150,7 +248,21 @@ export function useServerConnection(): UseServerConnectionResult {
       inFlight.current = false;
       setTestando(false);
     }
-  }, [isDesktop, role, cfgPing, cfgTerminal, config.machineId]);
+  }, [
+    isDesktop,
+    role,
+    cfgPing,
+    cfgTerminal,
+    config.machineId,
+    config.serverPort,
+    config.networkHost,
+    config.networkBaseUrl,
+    config.terminal?.porta,
+    config.terminal?.terminalNome,
+    config.serverNome,
+    config.serverId,
+    config.serverAuthToken,
+  ]);
 
   useEffect(() => {
     if (!isDesktop || role === "unset") {
@@ -166,12 +278,27 @@ export function useServerConnection(): UseServerConnectionResult {
       return;
     }
 
+    if (role === "server" && cfgServer) {
+      const baseUrl = `http://${cfgServer.host}:${cfgServer.porta}`;
+      console.info("[useServerConnection] baseUrl server resolvida", {
+        baseUrl,
+        port: cfgServer.porta,
+      });
+      setConn((prev) => ({
+        ...prev,
+        status: prev.status === "online" ? prev.status : "unknown",
+        baseUrl,
+        ultimoSync: prev.ultimoSync ?? new Date(),
+        mensagem: prev.status === "online" ? prev.mensagem : "Verificando servidor local...",
+      }));
+    }
+
     void ping();
     timer.current = setInterval(() => void ping(), POLL_MS);
     return () => {
       if (timer.current) clearInterval(timer.current);
     };
-  }, [isDesktop, role, ping]);
+  }, [isDesktop, role, ping, cfgServer]);
 
   return { conn, info, daemon, serverMatch, reverificar: ping, testando };
 }

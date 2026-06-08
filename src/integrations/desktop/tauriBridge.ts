@@ -93,6 +93,9 @@ export async function startLocalServer(
 }
 
 export async function stopLocalServer(): Promise<LocalServerStatus> {
+  console.warn("[tauriBridge] stopLocalServer chamado", {
+    stack: new Error().stack,
+  });
   const invoke = await getInvoke();
   if (!invoke) return STATUS_OFF;
   const status = await invoke<LocalServerStatus>("stop_local_server");
@@ -105,8 +108,12 @@ export async function getLocalServerStatus(): Promise<LocalServerStatus> {
   if (!invoke) return STATUS_OFF;
   try {
     const status = await invoke<LocalServerStatus>("local_server_status");
-    lastLocalServerStatus = status;
-    return status;
+    const normalized =
+      !status.running && status.port == null && lastLocalServerStatus?.port != null
+        ? { ...status, port: lastLocalServerStatus.port }
+        : status;
+    lastLocalServerStatus = normalized;
+    return normalized;
   } catch (error) {
     console.warn("[tauriBridge] local_server_status falhou; preservando ultimo status conhecido", error);
     return lastLocalServerStatus ?? STATUS_OFF;

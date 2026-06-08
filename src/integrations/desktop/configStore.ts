@@ -34,6 +34,19 @@ import { isDesktop } from "@/integrations/data/mode";
 const STORAGE_KEY = "gp.desktop.config.v1";
 const TAURI_STORE_FILE = "gp-desktop-config.json";
 const TAURI_STORE_KEY = "config";
+const DEFAULT_SERVER_PORT = 3333;
+const DEFAULT_LOCAL_HOST = "127.0.0.1";
+const DEFAULT_SERVER_NAME = "Servidor Gestão Pro";
+
+function normalizePort(value: unknown): number {
+  const parsed = Number(value);
+  if (Number.isInteger(parsed) && parsed > 0 && parsed < 65536) return parsed;
+  return DEFAULT_SERVER_PORT;
+}
+
+function buildBaseUrl(host: string, port: number): string {
+  return `http://${host}:${port}`;
+}
 
 interface ConfigStorageAdapter {
   /** Leitura síncrona (a partir de cache em memória). */
@@ -75,6 +88,30 @@ function normalizar(parsed: Partial<DesktopConfig> | null | undefined): DesktopC
   // Garante machineId estável (gerado uma vez e nunca mais alterado).
   if (!base.machineId) {
     base.machineId = criarDesktopConfigInicial().machineId;
+  }
+  if (base.role === "server") {
+    const port = normalizePort(base.serverPort ?? base.terminal?.porta);
+    const networkHost = base.networkHost ?? "";
+    base.serverId = base.serverId ?? novoServerId();
+    base.serverNome = base.serverNome ?? DEFAULT_SERVER_NAME;
+    base.serverPort = port;
+    base.localBaseUrl = buildBaseUrl(DEFAULT_LOCAL_HOST, port);
+    base.networkHost = networkHost || undefined;
+    base.networkBaseUrl = networkHost ? buildBaseUrl(networkHost, port) : undefined;
+    base.terminal = {
+      host: DEFAULT_LOCAL_HOST,
+      porta: port,
+      terminalId: base.terminal?.terminalId ?? "self",
+      terminalNome: base.terminal?.terminalNome ?? "Servidor",
+      serverToken: base.terminal?.serverToken,
+    };
+    console.info("[desktopConfigStore] config server normalizada", {
+      port,
+      localBaseUrl: base.localBaseUrl,
+      networkHost: base.networkHost ?? null,
+      networkBaseUrl: base.networkBaseUrl ?? null,
+      serverId: base.serverId,
+    });
   }
   return base;
 }
@@ -282,7 +319,7 @@ export function getDesktopConfig(): DesktopConfig {
 }
 
 export function setDesktopConfig(cfg: DesktopConfig): void {
-  adapter.write({ ...cfg, atualizadoEm: Date.now(), schemaVersion: 1 });
+  adapter.write(normalizar({ ...cfg, atualizadoEm: Date.now(), schemaVersion: 1 }));
 }
 
 export function setDesktopRole(
@@ -297,9 +334,18 @@ export function setDesktopRole(
     serverId: role === "server" ? atual.serverId ?? novoServerId() : atual.serverId,
     serverNome:
       role === "server"
-        ? atual.serverNome ?? "Servidor Gestão Pro"
+        ? atual.serverNome ?? DEFAULT_SERVER_NAME
         : atual.serverNome,
-    terminal: role === "terminal" ? terminal ?? atual.terminal : undefined,
+    serverPort:
+      role === "server"
+        ? normalizePort(atual.serverPort ?? atual.terminal?.porta)
+        : atual.serverPort,
+    terminal:
+      role === "terminal"
+        ? terminal ?? atual.terminal
+        : role === "server"
+          ? atual.terminal
+          : undefined,
   };
   setDesktopConfig(novo);
 }

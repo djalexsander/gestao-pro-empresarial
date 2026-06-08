@@ -137,10 +137,10 @@ export function DesktopTab() {
   const localCfg =
     role === "terminal"
       ? config.terminal
-      : daemon?.running && daemon.port
+      : role === "server"
         ? {
             host: "127.0.0.1",
-            porta: daemon.port,
+            porta: daemon?.port ?? config.serverPort ?? config.terminal?.porta ?? 3333,
             terminalId: "self",
             terminalNome: "self",
           }
@@ -380,10 +380,10 @@ export function DesktopTab() {
     const cfg =
       role === "terminal"
         ? config.terminal
-        : daemon?.running && daemon.port
+        : role === "server"
           ? {
               host: "127.0.0.1",
-              porta: daemon.port,
+              porta: daemon?.port ?? config.serverPort ?? config.terminal?.porta ?? 3333,
               terminalId: "self",
               terminalNome: "self",
             }
@@ -490,6 +490,9 @@ export function DesktopTab() {
 
   const isServer = role === "server";
   const isTerminal = role === "terminal";
+  const persistedServerPort = config.serverPort ?? config.terminal?.porta ?? 3333;
+  const visibleServerPort = daemon?.port ?? persistedServerPort;
+  const localBaseUrl = config.localBaseUrl ?? `http://127.0.0.1:${visibleServerPort}`;
 
   return (
     <>
@@ -537,6 +540,10 @@ export function DesktopTab() {
                       value={String(daemon.terminals_conectados)}
                     />
                   )}
+                  <Field label="Host local" value="127.0.0.1" mono />
+                  <Field label="Base local" value={localBaseUrl} mono />
+                  <Field label="Host de rede" value={config.networkHost ?? "—"} mono />
+                  <Field label="Base de rede" value={config.networkBaseUrl ?? "—"} mono />
                 </div>
               </>
             )}
@@ -586,6 +593,7 @@ export function DesktopTab() {
             dbInfo={dbInfo}
             serverNome={config.serverNome}
             serverId={config.serverId}
+            preferredPort={visibleServerPort}
           />
         )}
 
@@ -624,7 +632,8 @@ export function DesktopTab() {
                       : "—"
                   }
                 />
-                <Field label="Endereço" value={conn.baseUrl ?? "—"} mono />
+                <Field label="Endereço" value={conn.baseUrl ?? (isServer ? localBaseUrl : "—")} mono />
+                <Field label="Último erro" value={conn.mensagem ?? "—"} />
                 {conn.serverVersion && (
                   <Field label="Versão do servidor" value={conn.serverVersion} />
                 )}
@@ -643,7 +652,7 @@ export function DesktopTab() {
                     {daemon.running ? "ativo" : "parado"}
                   </div>
                   <div className="grid gap-2 text-muted-foreground sm:grid-cols-2">
-                    <Field label="Porta" value={daemon.port?.toString() ?? "—"} />
+                    <Field label="Porta" value={String(visibleServerPort)} />
                     <Field label="Versão" value={daemon.version} />
                   </div>
                 </div>
