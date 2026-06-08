@@ -33,8 +33,8 @@ async fn stop_local_server() -> Result<LocalServerStatus, String> {
 }
 
 #[tauri::command]
-fn local_server_status() -> LocalServerStatus {
-    local_server::current_status()
+async fn local_server_status() -> LocalServerStatus {
+    local_server::current_status_checked().await
 }
 
 #[derive(Debug, Serialize)]

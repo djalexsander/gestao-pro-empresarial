@@ -1,6 +1,7 @@
 import { createFileRoute, useSearch } from "@tanstack/react-router";
 import { useEffect, useRef, type ReactNode } from "react";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { CloudDependencyNotice } from "@/components/shared/CloudDependencyNotice";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
@@ -47,6 +48,7 @@ function SettingsPage() {
 
   return (
     <div className="space-y-6">
+      <CloudDependencyNotice />
       <PageHeader
         title="Configurações"
         description="Personalize o sistema de acordo com sua operação."

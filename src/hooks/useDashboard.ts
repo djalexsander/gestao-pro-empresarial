@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { getDataMode, isDesktop } from "@/integrations/data/mode";
 import { getDesktopConfig } from "@/integrations/desktop/configStore";
 import { getBaseUrl } from "@/integrations/desktop/serverConnection";
 import {
@@ -104,71 +103,6 @@ function dashboardIndisponivel(motivo: string): DashboardData {
   };
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error("Dashboard demorou para responder."));
-    }, timeoutMs);
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
-}
-
-function getLocalDashboardBaseUrl(): string | null {
-  const cfg = getDesktopConfig();
-  if (cfg.role === "server") {
-    const porta = cfg.terminal?.porta ?? 3333;
-    return `http://127.0.0.1:${porta}`;
-  }
-  return getBaseUrl(cfg.terminal);
-}
-
-async function fetchLocalDashboardJson<T>(
-  baseUrl: string,
-  path: string,
-  query?: Record<string, string | undefined>,
-): Promise<T> {
-  const url = new URL(`${baseUrl}${path}`);
-  for (const [key, value] of Object.entries(query ?? {})) {
-    if (value != null && value !== "") url.searchParams.set(key, value);
-  }
-  const res = await fetch(url.toString(), {
-    method: "GET",
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(await res.text());
-  const json = (await res.json()) as { data?: T } | T;
-  return json && typeof json === "object" && "data" in json
-    ? (json as { data: T }).data
-    : (json as T);
-}
-
-function localFinanceiroAsCanonico(l: LocalFinanceiroRow) {
-  return {
-    ...l,
-    tipo: l.tipo === "entrada" ? "receber" : l.tipo === "saida" ? "pagar" : l.tipo,
-    status: l.cancelado_em_ms ? "cancelado" : (l.status ?? "pago"),
-    data_pagamento: l.data_pagamento_ms ? new Date(l.data_pagamento_ms).toISOString() : null,
-    data_vencimento: l.data_vencimento_ms ? new Date(l.data_vencimento_ms).toISOString() : null,
-    valor_pago: l.status === "pendente" ? 0 : l.valor,
-  };
-}
-
-function isLocalDesktopMode() {
-  if (!isDesktop()) return false;
-  const mode = getDataMode();
-  return mode === "local-server" || mode === "local-terminal";
-}
-
 function inicioDoMes(d = new Date()) {
   return new Date(d.getFullYear(), d.getMonth(), 1);
 }
@@ -176,136 +110,15 @@ function inicioDoMesAnterior(d = new Date()) {
   return new Date(d.getFullYear(), d.getMonth() - 1, 1);
 }
 
-async function loadLocalDashboard(): Promise<DashboardData> {
-  const baseUrl = getLocalDashboardBaseUrl();
-  if (!baseUrl) {
-    return dashboardIndisponivel("Servidor local nao configurado para o Dashboard.");
-  }
-
-  const hoje = new Date();
-  const inicioMes = inicioDoMes(hoje);
-  const inicioMesAnt = inicioDoMesAnterior(hoje);
-  const inicio6Meses = new Date(hoje.getFullYear(), hoje.getMonth() - 5, 1);
-
-  const [vendas, produtos, saldos, lancamentos] = await Promise.all([
-    fetchLocalDashboardJson<LocalVendaRow[]>(baseUrl, "/api/vendas/list", { limit: "500" }),
-    fetchLocalDashboardJson<LocalProdutoRow[]>(baseUrl, "/api/produtos/list", { status: "ativo" }),
-    fetchLocalDashboardJson<LocalEstoqueSaldoRow[]>(baseUrl, "/api/estoque/saldos"),
-    fetchLocalDashboardJson<LocalFinanceiroRow[]>(baseUrl, "/api/financeiro/lancamentos", {
-      desde_ms: String(inicio6Meses.getTime()),
-      limit: "5000",
-    }),
-  ]);
-
-  const vendasValidas = (vendas ?? []).filter((v) => v.status !== "cancelada");
-  const dataVenda = (v: LocalVendaRow) => new Date(v.data_finalizacao ?? v.data_emissao);
-
-  const vendasMes = vendasValidas
-    .filter((v) => dataVenda(v) >= inicioMes)
-    .reduce((s, v) => s + Number(v.total ?? 0), 0);
-
-  const vendasMesAnterior = vendasValidas
-    .filter((v) => {
-      const d = dataVenda(v);
-      return d >= inicioMesAnt && d < inicioMes;
-    })
-    .reduce((s, v) => s + Number(v.total ?? 0), 0);
-
-  const seriesMap = new Map<string, { vendas: number; compras: number }>();
-  for (let i = 0; i < 6; i++) {
-    const d = new Date(hoje.getFullYear(), hoje.getMonth() - 5 + i, 1);
-    const key = `${d.getFullYear()}-${d.getMonth()}`;
-    seriesMap.set(key, { vendas: 0, compras: 0 });
-  }
-  for (const v of vendasValidas) {
-    const d = dataVenda(v);
-    const key = `${d.getFullYear()}-${d.getMonth()}`;
-    const ref = seriesMap.get(key);
-    if (ref) ref.vendas += Number(v.total ?? 0);
-  }
-
-  const saldosMap = new Map<string, number>();
-  for (const m of saldos ?? []) {
-    const sinal =
-      m.tipo === "entrada" || m.tipo === "devolucao"
-        ? 1
-        : m.tipo === "saida" || m.tipo === "transferencia"
-          ? -1
-          : 1;
-    saldosMap.set(m.produto_id, (saldosMap.get(m.produto_id) ?? 0) + sinal * Number(m.quantidade));
-  }
-  const estoqueBaixo = (produtos ?? []).filter((p) => {
-    const minimo = Number(p.estoque_minimo ?? 0);
-    return minimo > 0 && (saldosMap.get(p.id) ?? 0) <= minimo;
-  }).length;
-
-  const lancsCanonicos = (lancamentos ?? []).map(localFinanceiroAsCanonico);
-  const contasPagarLancs = lancsCanonicos.filter(
-    (l) => isLancPagar(l) && !isLancRealizado(l) && !isLancCancelado(l),
-  );
-  const contasReceberLancs = lancsCanonicos.filter(
-    (l) => isLancReceber(l) && !isLancRealizado(l) && !isLancCancelado(l),
-  );
-
-  const fluxoMap = new Map<number, { entrada: number; saida: number }>();
-  const diasNoMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
-  for (let d = 1; d <= diasNoMes; d++) fluxoMap.set(d, { entrada: 0, saida: 0 });
-
-  for (const l of lancsCanonicos) {
-    if (!l.data_pagamento) continue;
-    if (!isLancRealizado(l)) continue;
-    const dp = new Date(l.data_pagamento);
-    if (dp < inicioMes) continue;
-    const ref = fluxoMap.get(dp.getDate());
-    if (!ref) continue;
-    const valor = Number(l.valor_pago ?? l.valor) || 0;
-    if (isLancReceber(l)) ref.entrada += valor;
-    else if (isLancPagar(l)) ref.saida += valor;
-  }
-
-  return {
-    vendasMes,
-    vendasMesAnterior,
-    comprasMes: 0,
-    comprasMesAnterior: 0,
-    lucroMes: 0,
-    margem: 0,
-    contasPagar: contasPagarLancs.reduce((s, l) => s + calcAbertoLanc(l), 0),
-    qtdContasPagar: contasPagarLancs.length,
-    contasReceber: contasReceberLancs.reduce((s, l) => s + calcAbertoLanc(l), 0),
-    qtdContasReceber: contasReceberLancs.length,
-    estoqueBaixo,
-    vendasPorMes: Array.from(seriesMap.entries()).map(([key, val]) => {
-      const [, m] = key.split("-").map(Number);
-      return { month: MESES_PT[m], vendas: val.vendas, compras: val.compras };
-    }),
-    fluxoCaixa: Array.from(fluxoMap.entries()).map(([dia, val]) => ({
-      day: String(dia).padStart(2, "0"),
-      entrada: val.entrada,
-      saida: val.saida,
-    })),
-    ultimasVendas: vendasValidas.slice(0, 5).map((v) => ({
-      id: v.id,
-      numero: v.numero,
-      cliente: v.cliente_nome ?? (v.cliente_id ? "Cliente" : "Consumidor"),
-      valor: Number(v.total ?? 0),
-      status: v.status,
-      data: v.data_finalizacao ?? v.data_emissao,
-    })),
-    ultimasCompras: [],
-  };
-}
-
 export function useDashboard() {
   const { user } = useAuth();
-  const localDesktopMode = isLocalDesktopMode();
 
   return useQuery({
     queryKey: ["dashboard", user?.id],
     enabled: !!user,
     refetchInterval: 60_000,
     placeholderData: EMPTY_DASHBOARD,
-    retry: localDesktopMode ? false : 1,
+    retry: 1,
     queryFn: async (): Promise<DashboardData> => {
       const load = async (): Promise<DashboardData> => {
       const hoje = new Date();
@@ -534,13 +347,11 @@ export function useDashboard() {
       };
       };
 
-      if (!localDesktopMode) return load();
-
       try {
-        return await withTimeout(loadLocalDashboard(), LOCAL_DASHBOARD_TIMEOUT_MS);
+        return await load();
       } catch {
         return dashboardIndisponivel(
-          "Dashboard local indisponivel no momento. Os modulos operacionais locais continuam acessiveis.",
+          "Este módulo precisa de internet. O PDV continua funcionando offline.",
         );
       }
     },

@@ -82,13 +82,7 @@ import { exportarBlocoCSV, exportarBlocoPDF } from "@/lib/export-bloco";
 import { ExportFormatDialog } from "@/components/shared/ExportFormatDialog";
 import { exportarRelatorioCard, type ExportFormato } from "@/lib/export-relatorio-card";
 import { toast } from "sonner";
-import {
-  dateTimeFromMs,
-  fetchLocalFinanceiroJson,
-  isFinanceiroLocalDesktopMode,
-  mapLocalLancamentoToDetalhe,
-  type LocalFinanceiroLancamento,
-} from "@/lib/financeiro-local";
+import { dateTimeFromMs } from "@/lib/financeiro-local";
 
 type FinTab = "receber" | "pagar" | "fluxo" | "fiados";
 
@@ -215,14 +209,6 @@ function FinanceContent() {
   const { data: lancamentos = [], isLoading } = useQuery({
     queryKey: ["financeiro_lancamentos"],
     queryFn: async () => {
-      if (isFinanceiroLocalDesktopMode()) {
-        const rows = await fetchLocalFinanceiroJson<LocalFinanceiroLancamento[]>(
-          "/api/financeiro/lancamentos",
-          { limit: 5000 },
-        );
-        return rows.map(mapLocalLancamentoToDetalhe);
-      }
-
       const { data, error } = await supabase
         .from("financeiro_lancamentos")
         .select(
@@ -1210,25 +1196,7 @@ function FluxoCaixaPanel() {
       const inicioTs = `${inicio}T00:00:00`;
       const fimTs = `${fim}T23:59:59.999`;
 
-      if (isFinanceiroLocalDesktopMode()) {
-        const payload = await fetchLocalFinanceiroJson<LocalFinanceiroFluxoPayload>(
-          "/api/financeiro/fluxo-caixa",
-          {
-            desde_ms: new Date(inicioTs).getTime(),
-            ate_ms: new Date(fimTs).getTime(),
-            limit: 5000,
-          },
-        );
-        return payload.por_forma
-          .map((f) => ({
-            forma: f.forma,
-            recebido: Number(f.total) || 0,
-            aReceber: 0,
-          }))
-          .filter((e) => e.recebido > 0)
-          .sort((a, b) => b.recebido - a.recebido);
-      }
-
+      
       // 1) Buscar vendas finalizadas no período (não canceladas)
       const { data: vendasData, error: errVendas } = await supabase
         .from("vendas")
@@ -1330,27 +1298,7 @@ function FluxoCaixaPanel() {
       const inicioTs = `${inicio}T00:00:00`;
       const fimTs = `${fim}T23:59:59.999`;
 
-      if (isFinanceiroLocalDesktopMode()) {
-        const payload = await fetchLocalFinanceiroJson<LocalFinanceiroFluxoPayload>(
-          "/api/financeiro/fluxo-caixa",
-          {
-            desde_ms: new Date(inicioTs).getTime(),
-            ate_ms: new Date(fimTs).getTime(),
-            limit: 5000,
-          },
-        );
-        return payload.rows.map((r) => ({
-          id: r.id,
-          data: dateTimeFromMs(r.data_ms) ?? inicioTs,
-          tipo: r.tipo,
-          origem: r.origem,
-          descricao: r.descricao,
-          valor: Number(r.valor) || 0,
-          status: r.status,
-          operacional: r.operacional,
-        }));
-      }
-
+      
       // 1) Movimentos do caixa (abertura, sangria, suprimento, fechamento, venda)
       const { data: movs, error: errMovs } = await supabase
         .from("caixa_movimentos")
@@ -1834,7 +1782,7 @@ function FluxoCaixaPanel() {
         </CardContent>
       </Card>
 
-      {fluxoError && isFinanceiroLocalDesktopMode() && (
+      {fluxoError && (
         <Card>
           <CardContent className="py-4 text-sm text-muted-foreground">
             Dados locais de fluxo de caixa indisponiveis:{" "}

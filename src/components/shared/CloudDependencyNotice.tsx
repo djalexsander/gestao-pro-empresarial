@@ -57,9 +57,9 @@ export interface CloudDependencyNoticeProps {
   className?: string;
 }
 
-const DEFAULT_TITLE = "Dados deste relatório vêm da nuvem";
+const DEFAULT_TITLE = "Este módulo precisa de internet";
 const DEFAULT_MESSAGE =
-  "Este relatório ainda depende da nuvem e pode não incluir vendas, caixa ou movimentos locais pendentes de sincronização. Quando a conexão for restabelecida, os números convergem automaticamente.";
+  "Este módulo precisa de internet. O PDV continua funcionando offline.";
 
 export function CloudDependencyNotice({
   message = DEFAULT_MESSAGE,
@@ -67,7 +67,7 @@ export function CloudDependencyNotice({
   className,
 }: CloudDependencyNoticeProps) {
   const mode = useDataMode();
-  if (mode !== "local-terminal") return null;
+  if (mode === "cloud") return null;
 
   return (
     <Alert

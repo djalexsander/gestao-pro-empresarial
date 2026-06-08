@@ -28,6 +28,7 @@ use axum::{
 };
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -2448,17 +2449,34 @@ async fn registrar_caixa_abrir_handler(
 
     let mut outbox_status = "pending".to_string();
     let mut remote_id: Option<String> = None;
-    if !result.idempotente && ctx.upstream.is_some() {
-        if let Ok(rid) = push_one_outbox_caixa(&ctx, &headers, &result.local_uuid).await {
-            outbox_status = "sent".into();
-            remote_id = Some(rid);
-        }
-    } else if result.idempotente {
+    if result.idempotente {
         // Item idempotente já pode estar sent — devolve o que houver.
         if let Ok(Some(it)) = db::outbox_caixa_get(&result.local_uuid) {
             outbox_status = it.status.clone();
             remote_id = it.remote_id.clone();
         }
+    } else if ctx.upstream.is_some() {
+        let ctx = ctx.clone();
+        let headers = headers.clone();
+        let local_uuid = result.local_uuid.clone();
+        tokio::spawn(async move {
+            match push_one_outbox_caixa(&ctx, &headers, &local_uuid).await {
+                Ok(remote_id) => {
+                    eprintln!(
+                        "[gestao-pro] outbox_caixa sync background success local_uuid={} remote_id={}",
+                        local_uuid,
+                        remote_id,
+                    );
+                }
+                Err(err) => {
+                    eprintln!(
+                        "[gestao-pro] outbox_caixa sync background failed local_uuid={} err={}",
+                        local_uuid,
+                        err,
+                    );
+                }
+            }
+        });
     }
 
     Ok(Json(AbrirCaixaLocalResponse {
@@ -2501,16 +2519,33 @@ async fn registrar_caixa_movimento_handler(
 
     let mut outbox_status = "pending".to_string();
     let mut remote_id: Option<String> = None;
-    if !result.idempotente && ctx.upstream.is_some() {
-        if let Ok(rid) = push_one_outbox_caixa(&ctx, &headers, &result.local_uuid).await {
-            outbox_status = "sent".into();
-            remote_id = Some(rid);
-        }
-    } else if result.idempotente {
+    if result.idempotente {
         if let Ok(Some(it)) = db::outbox_caixa_get(&result.local_uuid) {
             outbox_status = it.status.clone();
             remote_id = it.remote_id.clone();
         }
+    } else if ctx.upstream.is_some() {
+        let ctx = ctx.clone();
+        let headers = headers.clone();
+        let local_uuid = result.local_uuid.clone();
+        tokio::spawn(async move {
+            match push_one_outbox_caixa(&ctx, &headers, &local_uuid).await {
+                Ok(remote_id) => {
+                    eprintln!(
+                        "[gestao-pro] outbox_caixa sync background success local_uuid={} remote_id={}",
+                        local_uuid,
+                        remote_id,
+                    );
+                }
+                Err(err) => {
+                    eprintln!(
+                        "[gestao-pro] outbox_caixa sync background failed local_uuid={} err={}",
+                        local_uuid,
+                        err,
+                    );
+                }
+            }
+        });
     }
 
     Ok(Json(MovimentoCaixaLocalResponse {
@@ -2553,16 +2588,33 @@ async fn registrar_caixa_fechar_handler(
 
     let mut outbox_status = "pending".to_string();
     let mut remote_id: Option<String> = None;
-    if !result.idempotente && ctx.upstream.is_some() {
-        if let Ok(rid) = push_one_outbox_caixa(&ctx, &headers, &result.local_uuid).await {
-            outbox_status = "sent".into();
-            remote_id = Some(rid);
-        }
-    } else if result.idempotente {
+    if result.idempotente {
         if let Ok(Some(it)) = db::outbox_caixa_get(&result.local_uuid) {
             outbox_status = it.status.clone();
             remote_id = it.remote_id.clone();
         }
+    } else if ctx.upstream.is_some() {
+        let ctx = ctx.clone();
+        let headers = headers.clone();
+        let local_uuid = result.local_uuid.clone();
+        tokio::spawn(async move {
+            match push_one_outbox_caixa(&ctx, &headers, &local_uuid).await {
+                Ok(remote_id) => {
+                    eprintln!(
+                        "[gestao-pro] outbox_caixa sync background success local_uuid={} remote_id={}",
+                        local_uuid,
+                        remote_id,
+                    );
+                }
+                Err(err) => {
+                    eprintln!(
+                        "[gestao-pro] outbox_caixa sync background failed local_uuid={} err={}",
+                        local_uuid,
+                        err,
+                    );
+                }
+            }
+        });
     }
 
     Ok(Json(FecharCaixaLocalResponse {
@@ -3538,6 +3590,40 @@ pub fn current_status() -> LocalServerStatus {
         terminals_conectados: s.terminals.len(),
         auth_token: s.auth_token.clone(),
     }
+}
+
+async fn probe_local_health(port: u16) -> bool {
+    let url = format!("http://127.0.0.1:{port}/health");
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(1))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+
+    match client.get(url).header("Accept", "application/json").send().await {
+        Ok(res) if res.status().is_success() => match res.json::<Value>().await {
+            Ok(payload) => {
+                payload.get("status").and_then(Value::as_str) == Some("ok")
+                    && payload.get("app").and_then(Value::as_str) == Some(APP_NAME)
+            }
+            Err(_) => false,
+        },
+        _ => false,
+    }
+}
+
+pub async fn current_status_checked() -> LocalServerStatus {
+    let mut status = current_status();
+    if status.running {
+        if let Some(port) = status.port {
+            if !probe_local_health(port).await {
+                status.running = false;
+            }
+        }
+    }
+    status
 }
 
 pub async fn start(

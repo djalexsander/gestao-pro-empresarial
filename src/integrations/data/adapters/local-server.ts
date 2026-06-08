@@ -178,19 +178,7 @@ export const localServerAdapter: DataAdapter = {
         () => cloudAdapter.produtos.list(input),
       ),
     get: (produtoId) =>
-      withFallback(
-        "produtos",
-        "get",
-        async () => {
-          const produtos = await localGet<ProdutoComVariacoes[]>(
-            "produtos",
-            "get",
-            "/api/produtos/list",
-          );
-          return produtos?.find((p) => p.id === produtoId) ?? null;
-        },
-        () => cloudAdapter.produtos.get(produtoId),
-      ),
+      cloudOnly("produtos", "get", () => cloudAdapter.produtos.get(produtoId)),
     buscarPorCodigo: (codigo) =>
       withFallback(
         "produtos",
@@ -218,12 +206,7 @@ export const localServerAdapter: DataAdapter = {
         () => cloudAdapter.produtos.buscarPorPlu(plu),
       ),
     criar: (input) =>
-      localPost<Awaited<ReturnType<DataAdapter["produtos"]["criar"]>>>(
-        "produtos",
-        "criar",
-        "/api/produtos/criar",
-        input,
-      ),
+      cloudOnly("produtos", "criar", () => cloudAdapter.produtos.criar(input)),
     editar: (input) =>
       cloudOnly("produtos", "editar", () => cloudAdapter.produtos.editar(input)),
     alterarStatus: (input) =>
@@ -330,26 +313,6 @@ export const localServerAdapter: DataAdapter = {
       ),
     excluir: (clienteId) =>
       cloudOnly("clientes", "excluir", () => cloudAdapter.clientes.excluir(clienteId)),
-    list: (input) =>
-      withFallback(
-        "clientes",
-        "list",
-        () =>
-          localGet<Awaited<ReturnType<DataAdapter["clientes"]["list"]>>>(
-            "clientes",
-            "list",
-            "/api/clientes/list",
-            {
-              status:
-                input && "status" in input
-                  ? input.status === null
-                    ? ""
-                    : (input.status ?? undefined)
-                  : undefined,
-            },
-          ),
-        () => cloudAdapter.clientes.list(input),
-      ),
     listLite: (input) =>
       withFallback(
         "clientes",
@@ -370,24 +333,10 @@ export const localServerAdapter: DataAdapter = {
           ),
         () => cloudAdapter.clientes.listLite(input),
       ),
-    get: (clienteId) =>
-      withFallback(
-        "clientes",
-        "get",
-        async () => {
-          const clientes = await localGet<Awaited<ReturnType<DataAdapter["clientes"]["list"]>>>(
-            "clientes",
-            "get",
-            "/api/clientes/list",
-          );
-          return clientes?.find((c) => c.id === clienteId) ?? null;
-        },
-        () => cloudAdapter.clientes.get(clienteId),
-      ),
     metricas: async () => new Map(),
     historico: async () => [],
     checkDocumentoDuplicado: async (documento, ignoreId) => {
-      const clientes = await localServerAdapter.clientes.list({ status: null });
+      const clientes = await cloudAdapter.clientes.list({ status: null });
       const normalizado = documento.replace(/\D/g, "");
       return (
         clientes.find((cliente) => {

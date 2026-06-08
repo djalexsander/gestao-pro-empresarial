@@ -2,6 +2,7 @@ import { Outlet } from "@tanstack/react-router";
 import { MasterSidebar, useMasterSidebarState } from "./MasterSidebar";
 import { MasterTopbar } from "./MasterTopbar";
 import { RequireSuperAdmin } from "./RequireSuperAdmin";
+import { CloudDependencyNotice } from "@/components/shared/CloudDependencyNotice";
 import { cn } from "@/lib/utils";
 
 export function MasterLayout() {
@@ -23,6 +24,7 @@ export function MasterLayout() {
         >
           <MasterTopbar onMobileMenuClick={sidebar.openMobile} />
           <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
+            <CloudDependencyNotice />
             <Outlet />
           </main>
         </div>

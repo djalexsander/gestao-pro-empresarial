@@ -228,14 +228,16 @@ export async function pingServidorLocal(
   } catch (err) {
     clearTimeout(timer);
     const isAbort = (err as Error)?.name === "AbortError";
+    const baseMessage = isAbort
+      ? "Tempo de resposta esgotado (timeout)."
+      : "Não foi possível alcançar o servidor local — usando nuvem como fallback.";
+    const detail = baseUrl ? ` Verifique se o servidor local está aceitando conexões em ${baseUrl}.` : "";
     return {
       status: "offline",
       latenciaMs: null,
       ultimoSync: new Date(),
       baseUrl,
-      mensagem: isAbort
-        ? "Tempo de resposta esgotado (timeout)."
-        : "Não foi possível alcançar o servidor local — usando nuvem como fallback.",
+      mensagem: `${baseMessage}${detail}`,
     };
   }
 }

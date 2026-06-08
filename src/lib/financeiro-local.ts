@@ -28,9 +28,10 @@ export interface LocalFinanceiroLancamento {
 }
 
 export function isFinanceiroLocalDesktopMode() {
-  if (!isDesktop()) return false;
-  const mode = getDataMode();
-  return mode === "local-server" || mode === "local-terminal";
+  // Financeiro is now cloud-first and local finance mode is disabled
+  // for desktop terminals. Keep the helper available for legacy utility
+  // functions, but prevent any local finance UI path from running.
+  return false;
 }
 
 export function getLocalFinanceiroBaseUrl(): string | null {

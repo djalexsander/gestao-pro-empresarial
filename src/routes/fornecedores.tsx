@@ -4,6 +4,7 @@ import { Plus, Search, Pencil, Trash2, Users, ShoppingCart, CircleDollarSign, Cl
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { StatCard } from "@/components/shared/StatCard";
+import { CloudDependencyNotice } from "@/components/shared/CloudDependencyNotice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -80,6 +81,7 @@ function SuppliersPage() {
 
   return (
     <div className="space-y-6">
+      <CloudDependencyNotice />
       <PageHeader
         title="Fornecedores"
         description="Cadastre e acompanhe seus parceiros comerciais — com histórico de compras."

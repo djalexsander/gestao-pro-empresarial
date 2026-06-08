@@ -15,7 +15,7 @@ import {
   Shield,
   ShieldCheck,
 } from "lucide-react";
-import { useState } from "react";
+import React, { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useIsSuperAdmin } from "@/hooks/useAdmin";
@@ -162,7 +162,7 @@ export function AppSidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: A
                     <li key={item.to}>
                       <Link
                         to={item.to}
-                        onClick={(e) => {
+                        onClick={(e: React.MouseEvent) => {
                           if (isMasterEntry) {
                             e.preventDefault();
                             enterMasterMode();

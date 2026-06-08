@@ -17,6 +17,7 @@ import {
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { StatCard } from "@/components/shared/StatCard";
+import { CloudDependencyNotice } from "@/components/shared/CloudDependencyNotice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -153,6 +154,7 @@ export function PurchasesPage() {
 
   return (
     <div className="space-y-6">
+      <CloudDependencyNotice />
       <PageHeader
         title="Compras"
         description="Pedidos de compra, recebimento parcial e atualização automática de estoque."

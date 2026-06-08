@@ -32,7 +32,6 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as RelatoriosVendasRouteImport } from './routes/relatorios.vendas'
 import { Route as RelatoriosProdutosVendidosRouteImport } from './routes/relatorios.produtos-vendidos'
-import { Route as RelatoriosFluxoCaixaRouteImport } from './routes/relatorios.fluxo-caixa'
 import { Route as RelatoriosFiscalRouteImport } from './routes/relatorios.fiscal'
 import { Route as RelatoriosFinanceiroRouteImport } from './routes/relatorios.financeiro'
 import { Route as RelatoriosEstoqueRouteImport } from './routes/relatorios.estoque'
@@ -169,11 +168,6 @@ const RelatoriosProdutosVendidosRoute =
     path: '/produtos-vendidos',
     getParentRoute: () => RelatoriosRoute,
   } as any)
-const RelatoriosFluxoCaixaRoute = RelatoriosFluxoCaixaRouteImport.update({
-  id: '/fluxo-caixa',
-  path: '/fluxo-caixa',
-  getParentRoute: () => RelatoriosRoute,
-} as any)
 const RelatoriosFiscalRoute = RelatoriosFiscalRouteImport.update({
   id: '/fiscal',
   path: '/fiscal',
@@ -309,7 +303,6 @@ export interface FileRoutesByFullPath {
   '/relatorios/estoque': typeof RelatoriosEstoqueRoute
   '/relatorios/financeiro': typeof RelatoriosFinanceiroRoute
   '/relatorios/fiscal': typeof RelatoriosFiscalRoute
-  '/relatorios/fluxo-caixa': typeof RelatoriosFluxoCaixaRoute
   '/relatorios/produtos-vendidos': typeof RelatoriosProdutosVendidosRoute
   '/relatorios/vendas': typeof RelatoriosVendasRoute
   '/admin/': typeof AdminIndexRoute
@@ -353,7 +346,6 @@ export interface FileRoutesByTo {
   '/relatorios/estoque': typeof RelatoriosEstoqueRoute
   '/relatorios/financeiro': typeof RelatoriosFinanceiroRoute
   '/relatorios/fiscal': typeof RelatoriosFiscalRoute
-  '/relatorios/fluxo-caixa': typeof RelatoriosFluxoCaixaRoute
   '/relatorios/produtos-vendidos': typeof RelatoriosProdutosVendidosRoute
   '/relatorios/vendas': typeof RelatoriosVendasRoute
   '/admin': typeof AdminIndexRoute
@@ -399,7 +391,6 @@ export interface FileRoutesById {
   '/relatorios/estoque': typeof RelatoriosEstoqueRoute
   '/relatorios/financeiro': typeof RelatoriosFinanceiroRoute
   '/relatorios/fiscal': typeof RelatoriosFiscalRoute
-  '/relatorios/fluxo-caixa': typeof RelatoriosFluxoCaixaRoute
   '/relatorios/produtos-vendidos': typeof RelatoriosProdutosVendidosRoute
   '/relatorios/vendas': typeof RelatoriosVendasRoute
   '/admin/': typeof AdminIndexRoute
@@ -446,7 +437,6 @@ export interface FileRouteTypes {
     | '/relatorios/estoque'
     | '/relatorios/financeiro'
     | '/relatorios/fiscal'
-    | '/relatorios/fluxo-caixa'
     | '/relatorios/produtos-vendidos'
     | '/relatorios/vendas'
     | '/admin/'
@@ -490,7 +480,6 @@ export interface FileRouteTypes {
     | '/relatorios/estoque'
     | '/relatorios/financeiro'
     | '/relatorios/fiscal'
-    | '/relatorios/fluxo-caixa'
     | '/relatorios/produtos-vendidos'
     | '/relatorios/vendas'
     | '/admin'
@@ -535,7 +524,6 @@ export interface FileRouteTypes {
     | '/relatorios/estoque'
     | '/relatorios/financeiro'
     | '/relatorios/fiscal'
-    | '/relatorios/fluxo-caixa'
     | '/relatorios/produtos-vendidos'
     | '/relatorios/vendas'
     | '/admin/'
@@ -729,13 +717,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RelatoriosProdutosVendidosRouteImport
       parentRoute: typeof RelatoriosRoute
     }
-    '/relatorios/fluxo-caixa': {
-      id: '/relatorios/fluxo-caixa'
-      path: '/fluxo-caixa'
-      fullPath: '/relatorios/fluxo-caixa'
-      preLoaderRoute: typeof RelatoriosFluxoCaixaRouteImport
-      parentRoute: typeof RelatoriosRoute
-    }
     '/relatorios/fiscal': {
       id: '/relatorios/fiscal'
       path: '/fiscal'
@@ -912,7 +893,6 @@ interface RelatoriosRouteChildren {
   RelatoriosEstoqueRoute: typeof RelatoriosEstoqueRoute
   RelatoriosFinanceiroRoute: typeof RelatoriosFinanceiroRoute
   RelatoriosFiscalRoute: typeof RelatoriosFiscalRoute
-  RelatoriosFluxoCaixaRoute: typeof RelatoriosFluxoCaixaRoute
   RelatoriosProdutosVendidosRoute: typeof RelatoriosProdutosVendidosRoute
   RelatoriosVendasRoute: typeof RelatoriosVendasRoute
 }
@@ -925,7 +905,6 @@ const RelatoriosRouteChildren: RelatoriosRouteChildren = {
   RelatoriosEstoqueRoute: RelatoriosEstoqueRoute,
   RelatoriosFinanceiroRoute: RelatoriosFinanceiroRoute,
   RelatoriosFiscalRoute: RelatoriosFiscalRoute,
-  RelatoriosFluxoCaixaRoute: RelatoriosFluxoCaixaRoute,
   RelatoriosProdutosVendidosRoute: RelatoriosProdutosVendidosRoute,
   RelatoriosVendasRoute: RelatoriosVendasRoute,
 }
