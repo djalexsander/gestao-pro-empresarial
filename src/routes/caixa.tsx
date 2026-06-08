@@ -49,7 +49,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { AbrirCaixaDialog } from "@/components/caixa/AbrirCaixaDialog";
 import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
 import { MovimentoCaixaDialog } from "@/components/caixa/MovimentoCaixaDialog";
 import {
@@ -101,18 +100,29 @@ const MOVIMENTO_LABEL = {
 function CaixaPage() {
   const { user } = useAuth();
   const { data: caixaAberto, isLoading: loadingCaixa } = useQualquerCaixaAberto();
-  const { data: resumo } = useCaixaResumo(caixaAberto?.id);
   const { data: historico = [] } = useCaixasHistorico(500);
-  const { data: movimentos = [] } = useCaixaMovimentos(caixaAberto?.id);
   const { data: funcionarios = [] } = useFuncionarios();
   const excluirCaixaMutation = useExcluirCaixa();
 
-  const operadorNome = caixaAberto?.operador_id
-    ? funcionarios.find((f) => f.id === caixaAberto.operador_id)?.nome ?? "Operador"
+  const caixaAbertoHistorico = useMemo(
+    () =>
+      historico
+        .filter((c) => c.status === "aberto")
+        .sort((a, b) => (a.data_abertura < b.data_abertura ? 1 : -1))[0] ?? null,
+    [historico],
+  );
+  const caixaAtual = caixaAberto ?? caixaAbertoHistorico;
+  const caixaAbertoSomenteNoHistorico = !caixaAberto && !!caixaAbertoHistorico;
+  const [fecharOpen, setFecharOpen] = useState(false);
+  const [fecharCaixaAlvo, setFecharCaixaAlvo] = useState<Caixa | null>(null);
+  const caixaParaFechar = fecharCaixaAlvo ?? caixaAtual;
+  const { data: resumo } = useCaixaResumo((fecharOpen ? caixaParaFechar : caixaAtual)?.id);
+  const { data: movimentos = [] } = useCaixaMovimentos(caixaAtual?.id);
+
+  const operadorNome = caixaAtual?.operador_id
+    ? funcionarios.find((f) => f.id === caixaAtual.operador_id)?.nome ?? "Operador"
     : user?.email ?? "—";
 
-  const [abrirOpen, setAbrirOpen] = useState(false);
-  const [fecharOpen, setFecharOpen] = useState(false);
   const [movDialog, setMovDialog] = useState<null | "sangria" | "suprimento">(null);
   const [excluirCaixa, setExcluirCaixa] = useState<Caixa | null>(null);
   const [buscaHist, setBuscaHist] = useState("");
@@ -184,7 +194,7 @@ function CaixaPage() {
         title="Caixa"
         description="Controle de abertura, operação e fechamento do caixa."
         actions={
-          caixaAberto ? (
+          caixaAtual ? (
             <>
               <Badge className="border-success/30 bg-success/15 text-success">
                 <CheckCircle2 className="mr-1 h-3 w-3" /> Caixa aberto
@@ -196,7 +206,10 @@ function CaixaPage() {
               </Button>
               <Button
                 variant="destructive"
-                onClick={() => setFecharOpen(true)}
+                onClick={() => {
+                  setFecharCaixaAlvo(caixaAtual);
+                  setFecharOpen(true);
+                }}
               >
                 <PowerOff className="h-4 w-4" /> Fechar caixa
               </Button>
@@ -206,24 +219,38 @@ function CaixaPage() {
               <Badge variant="outline" className="text-muted-foreground">
                 <Circle className="mr-1 h-3 w-3" /> Nenhum caixa aberto
               </Badge>
-              <Button onClick={() => setAbrirOpen(true)}>
-                <Power className="h-4 w-4" /> Abrir caixa
-              </Button>
             </>
           )
         }
       />
 
-      {!caixaAberto ? (
+      {caixaAbertoSomenteNoHistorico && (
+        <div className="rounded-lg border border-warning/35 bg-warning/10 p-4 text-sm text-warning-foreground">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <p className="font-semibold">Caixa aberto localizado no histórico.</p>
+              <p className="mt-1 text-muted-foreground">
+                A consulta principal não retornou caixa atual, mas o histórico tem uma sessão em aberto.
+                A tela vai usar esse caixa para permitir o fechamento sem abrir uma nova sessão.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!caixaAtual ? (
         <Card>
           <CardContent className="p-0">
             <EmptyState
               icon={Wallet}
               title="Nenhum caixa aberto"
-              description="Você precisa abrir o caixa antes de iniciar as vendas no PDV. O sistema vai bloquear a finalização de vendas enquanto não houver um caixa aberto."
+              description="Abra o caixa pelo fluxo do PDV, com operador selecionado. Esta tela fica apenas para consulta, conferência e fechamento."
               action={
-                <Button onClick={() => setAbrirOpen(true)}>
-                  <Power className="h-4 w-4" /> Abrir caixa agora
+                <Button asChild>
+                  <Link to="/pdv">
+                    <Receipt className="h-4 w-4" /> Ir para o PDV
+                  </Link>
                 </Button>
               }
             />
@@ -237,12 +264,12 @@ function CaixaPage() {
               <InfoCol label="Operador" value={operadorNome} icon={CircleDollarSign} />
               <InfoCol
                 label="Aberto em"
-                value={formatDateTime(caixaAberto.data_abertura)}
+                value={formatDateTime(caixaAtual.data_abertura)}
                 icon={Power}
               />
               <InfoCol
                 label="Valor inicial"
-                value={formatBRL(caixaAberto.valor_inicial)}
+                value={formatBRL(caixaAtual.valor_inicial)}
                 icon={Banknote}
               />
               <InfoCol
@@ -570,6 +597,21 @@ function CaixaPage() {
                                       formatBRL(c.diferenca)}
                                 </TableCell>
                                 <TableCell className="text-right">
+                                  {c.status === "aberto" && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-8 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                      onClick={() => {
+                                        setFecharCaixaAlvo(c);
+                                        setFecharOpen(true);
+                                      }}
+                                      title="Fechar este caixa aberto"
+                                    >
+                                      <PowerOff className="mr-1 h-3.5 w-3.5" />
+                                      Fechar
+                                    </Button>
+                                  )}
                                   {c.status === "fechado" && (
                                     <Button
                                       variant="ghost"
@@ -654,20 +696,22 @@ function CaixaPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AbrirCaixaDialog open={abrirOpen} onOpenChange={setAbrirOpen} />
-      {caixaAberto && (
+      {caixaParaFechar && (
         <>
           <FecharCaixaDialog
             open={fecharOpen}
-            onOpenChange={setFecharOpen}
-            caixaId={caixaAberto.id}
+            onOpenChange={(open) => {
+              setFecharOpen(open);
+              if (!open) setFecharCaixaAlvo(null);
+            }}
+            caixaId={caixaParaFechar.id}
             resumo={resumo ?? null}
           />
           {movDialog && (
             <MovimentoCaixaDialog
               open={!!movDialog}
               onOpenChange={(o) => !o && setMovDialog(null)}
-              caixaId={caixaAberto.id}
+              caixaId={caixaAtual.id}
               tipo={movDialog}
             />
           )}
