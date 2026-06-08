@@ -25,6 +25,7 @@ export const DEFAULT_LOCAL_PORT = 3333;
 
 export interface BootState {
   starting: boolean;
+  action: "start" | "restart" | null;
   lastError: string | null;
   lastStatus: LocalServerStatus | null;
   start: () => Promise<LocalServerStatus | null>;
@@ -33,6 +34,7 @@ export interface BootState {
 
 const STATE: BootState & { listeners: Set<() => void> } = {
   starting: false,
+  action: null,
   lastError: null,
   lastStatus: null,
   start: async () => null,
@@ -66,7 +68,7 @@ async function doStart(opts: {
   serverName: string | null;
   serverId: string | null;
   authToken: string | null;
-}): Promise<LocalServerStatus | null> {
+}, action: "start" | "restart" = "start"): Promise<LocalServerStatus | null> {
   if (!isDesktop()) {
     console.warn("[boot] doStart ignorado — não está em Tauri");
     return null;
@@ -76,6 +78,7 @@ async function doStart(opts: {
     return STATE.lastStatus;
   }
   STATE.starting = true;
+  STATE.action = action;
   STATE.lastError = null;
   notify();
   const upstreamUrl =
@@ -126,6 +129,7 @@ async function doStart(opts: {
     return null;
   } finally {
     STATE.starting = false;
+    STATE.action = null;
     notify();
   }
 }
@@ -248,11 +252,16 @@ export function useBootController(): BootState {
 
   const restart = useCallback(async () => {
     const port = config.serverPort ?? config.terminal?.porta ?? DEFAULT_LOCAL_PORT;
+    const nome =
+      config.serverNome ??
+      config.terminal?.terminalNome ??
+      "Servidor Gestão Pro";
     console.warn("[boot] restart_local_server solicitado", {
       port,
       localBaseUrl: config.localBaseUrl ?? `http://127.0.0.1:${port}`,
     });
     STATE.starting = true;
+    STATE.action = "restart";
     STATE.lastError = null;
     notify();
     try {
@@ -264,16 +273,28 @@ export function useBootController(): BootState {
       STATE.starting = false;
       notify();
     }
-    return start();
+    return doStart(
+      {
+        port,
+        serverName: nome,
+        serverId: config.serverId ?? null,
+        authToken: config.serverAuthToken ?? null,
+      },
+      "restart",
+    );
   }, [
-    start,
     config.serverPort,
     config.terminal?.porta,
+    config.serverNome,
+    config.terminal?.terminalNome,
+    config.serverId,
+    config.serverAuthToken,
     config.localBaseUrl,
   ]);
 
   return {
     starting: STATE.starting,
+    action: STATE.action,
     lastError: STATE.lastError,
     lastStatus: STATE.lastStatus,
     start,

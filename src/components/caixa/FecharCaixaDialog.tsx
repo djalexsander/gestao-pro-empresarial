@@ -103,6 +103,26 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
 
   const temDiferenca = diferenca !== null && Math.abs(diferenca) > 0.009;
   const exigeJustificativa = temDiferenca && observacao.trim().length === 0;
+  const valorInvalido =
+    valorInformado !== "" && (Number.isNaN(informadoNum) || informadoNum < 0);
+  const motivoBloqueio = resumoCarregando
+    ? "Aguardando o resumo atual do caixa."
+    : !resumoAtual
+      ? "Resumo atual do caixa ainda não disponível."
+      : valorInformado === ""
+        ? "Informe o valor contado em dinheiro físico para fechar."
+        : valorInvalido
+          ? "Informe um valor contado válido."
+          : exigeJustificativa
+            ? "Informe uma observação para justificar a diferença."
+            : null;
+  const fechamentoBloqueado =
+    fechar.isPending ||
+    resumoCarregando ||
+    !resumoAtual ||
+    exigeJustificativa ||
+    valorInformado === "" ||
+    valorInvalido;
 
   async function confirmar() {
     if (Number.isNaN(informadoNum) || informadoNum < 0) return;
@@ -157,7 +177,7 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
           {/* Alerta de pendências/erros nas filas offline (não bloqueia o fechamento) */}
           <OutboxPendenciasAlert
-            contexto="Confira antes de encerrar o turno — vendas, caixa, estoque e financeiro do dia podem estar aguardando envio para a nuvem."
+            contexto="Pendências de sincronização não bloqueiam o fechamento local. Confira apenas para ciência antes de encerrar o turno."
           />
           {/* Resumo do caixa */}
           <div className="rounded-lg border border-border bg-muted/30 p-4">
@@ -293,6 +313,11 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
           </div>
 
           <DialogFooter className="shrink-0 border-t border-border bg-background px-6 py-4">
+            {motivoBloqueio && !fechar.isPending && (
+              <p className="mr-auto max-w-[260px] text-left text-xs text-muted-foreground">
+                {motivoBloqueio}
+              </p>
+            )}
             <Button
               type="button"
               variant="outline"
@@ -304,7 +329,7 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
             <Button
               type="submit"
               variant="destructive"
-              disabled={fechar.isPending || resumoCarregando || !resumoAtual || exigeJustificativa || valorInformado === ""}
+              disabled={fechamentoBloqueado}
             >
               {fechar.isPending ? (
                 <><Loader2 className="h-4 w-4 animate-spin" /> Fechando...</>

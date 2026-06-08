@@ -178,6 +178,8 @@ export function ServerReadinessCard({
 function ServerControlActions({ backendOk }: { backendOk: boolean }) {
   const boot = useBootController();
   const { reverificar } = useServerConnection();
+  const starting = boot.action === "start";
+  const restarting = boot.action === "restart";
 
   async function handleStart() {
     const st = await boot.start();
@@ -213,7 +215,7 @@ function ServerControlActions({ backendOk }: { backendOk: boolean }) {
         disabled={boot.starting}
         className="w-full sm:w-auto"
       >
-        {boot.starting ? (
+        {starting ? (
           <>
             <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Iniciando…
           </>
@@ -240,7 +242,7 @@ function ServerControlActions({ backendOk }: { backendOk: boolean }) {
         disabled={boot.starting}
         className="w-full sm:w-auto"
       >
-        {boot.starting ? (
+        {restarting ? (
           <>
             <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Reiniciando...
           </>
