@@ -34,7 +34,13 @@ import { getDataMode } from "@/integrations/data/mode";
 function subscribe(callback: () => void) {
   if (typeof window === "undefined") return () => {};
   window.addEventListener("storage", callback);
-  return () => window.removeEventListener("storage", callback);
+  window.addEventListener("online", callback);
+  window.addEventListener("offline", callback);
+  return () => {
+    window.removeEventListener("storage", callback);
+    window.removeEventListener("online", callback);
+    window.removeEventListener("offline", callback);
+  };
 }
 
 function useDataMode() {
@@ -42,6 +48,14 @@ function useDataMode() {
     subscribe,
     () => getDataMode(),
     () => "cloud" as const,
+  );
+}
+
+function useIsOnline() {
+  return useSyncExternalStore(
+    subscribe,
+    () => (typeof navigator === "undefined" ? true : navigator.onLine),
+    () => true,
   );
 }
 
@@ -67,7 +81,9 @@ export function CloudDependencyNotice({
   className,
 }: CloudDependencyNoticeProps) {
   const mode = useDataMode();
+  const isOnline = useIsOnline();
   if (mode === "cloud") return null;
+  if (isOnline) return null;
 
   return (
     <Alert

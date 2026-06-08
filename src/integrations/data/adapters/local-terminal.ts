@@ -492,6 +492,7 @@ export const localTerminalAdapter: DataAdapter = {
             operador_id: input.operador_id ?? null,
             terminal_id: input.terminal_id ?? null,
             client_uuid: input.client_uuid ?? null,
+            data_vencimento: input.data_vencimento ?? null,
           },
           token,
         );

@@ -43,6 +43,18 @@ function getLocalVendasBaseUrl(): string | null {
   return getBaseUrl(cfg.terminal);
 }
 
+function vendasErrorMessage(error: Error): string {
+  const message = error.message || "";
+  if (
+    error.name === "AbortError" ||
+    message.toLowerCase().includes("signal is aborted") ||
+    message.toLowerCase().includes("abort")
+  ) {
+    return "Servidor local demorou para responder. Verifique a conexão local e tente novamente.";
+  }
+  return message || "Não foi possível concluir a venda.";
+}
+
 async function fetchLocalVendasJson<T>(
   path: string,
   query?: Record<string, string | undefined>,
@@ -85,7 +97,7 @@ export function useFinalizarVendaPDV() {
       qc.invalidateQueries({ queryKey: ["movimentacoes"] });
       qc.invalidateQueries({ queryKey: ["financeiro"] });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(vendasErrorMessage(e)),
   });
 }
 

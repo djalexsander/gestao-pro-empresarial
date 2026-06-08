@@ -79,6 +79,18 @@ export interface CaixaMovimento {
   created_at: string;
 }
 
+function caixaErrorMessage(error: Error): string {
+  const message = error.message || "";
+  if (
+    error.name === "AbortError" ||
+    message.toLowerCase().includes("signal is aborted") ||
+    message.toLowerCase().includes("abort")
+  ) {
+    return "Servidor local demorou para responder. Verifique a conexão local e tente novamente.";
+  }
+  return message || "Não foi possível concluir a operação de caixa.";
+}
+
 /**
  * Caixa aberto do operador atual (ou do admin se sem operador).
  * Quando _operador_id é null, busca o caixa aberto sem operador (admin direto).
@@ -188,7 +200,7 @@ export function useAbrirCaixa() {
       qc.invalidateQueries({ queryKey: ["terminais"] });
       toast.success("Caixa aberto com sucesso.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(caixaErrorMessage(e)),
   });
 }
 
@@ -215,7 +227,7 @@ export function useRegistrarMovimentoCaixa() {
           : "Suprimento registrado.",
       );
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(caixaErrorMessage(e)),
   });
 }
 
@@ -233,7 +245,7 @@ export function useFecharCaixa() {
       qc.invalidateQueries({ queryKey: ["financeiro_lancamentos"] });
       toast.success("Caixa fechado. Movimentos enviados ao Financeiro.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(caixaErrorMessage(e)),
   });
 }
 
@@ -246,6 +258,6 @@ export function useExcluirCaixa() {
       qc.invalidateQueries({ queryKey: ["vendas"] });
       toast.success("Caixa excluído.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(caixaErrorMessage(e)),
   });
 }

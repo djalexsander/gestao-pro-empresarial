@@ -20,6 +20,11 @@ import { getDesktopConfig } from "@/integrations/desktop/configStore";
 const LOCAL_READ_DOMAINS = ["produtos", "estoque", "clientes"] as const;
 const DEFAULT_LOCAL_PORT = 3333;
 const HTTP_TIMEOUT_MS = 4000;
+const HTTP_WRITE_TIMEOUT_MS = 15_000;
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
 
 function getSelfServerBaseUrl(): string {
   const cfg = getDesktopConfig();
@@ -77,7 +82,7 @@ async function localPost<T>(
   body: unknown,
 ): Promise<T> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), HTTP_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), HTTP_WRITE_TIMEOUT_MS);
   try {
     const headers = await getAuthHeader();
     const res = await fetch(`${getSelfServerBaseUrl()}${path}`, {
@@ -100,6 +105,11 @@ async function localPost<T>(
       : (json as T);
   } catch (error) {
     clearTimeout(timer);
+    if (isAbortError(error)) {
+      throw new Error(
+        "Servidor local demorou para responder. A operação não foi confirmada; tente novamente.",
+      );
+    }
     throw error instanceof Error ? error : new Error(String(error));
   }
 }

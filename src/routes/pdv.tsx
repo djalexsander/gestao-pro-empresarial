@@ -145,6 +145,19 @@ interface VendaItem {
 
 const DEFAULT_FOCUS_DELAY = 30;
 
+function friendlyPdvError(error: unknown): string {
+  const err = error as Error | undefined;
+  const message = err?.message ?? String(error ?? "");
+  if (
+    err?.name === "AbortError" ||
+    message.toLowerCase().includes("signal is aborted") ||
+    message.toLowerCase().includes("abort")
+  ) {
+    return "Servidor local demorou para responder. Verifique a conexão local e tente novamente.";
+  }
+  return message || "Falha inesperada.";
+}
+
 function PDVPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -926,7 +939,7 @@ function PDVPage() {
         toast.warning("Atenção: venda gerará estoque negativo.");
       }
     } catch (e) {
-      toast.error(`Falha ao validar estoque: ${(e as Error).message}`);
+      toast.error(`Falha ao validar estoque: ${friendlyPdvError(e)}`);
       return;
     }
 
