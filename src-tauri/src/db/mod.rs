@@ -1595,17 +1595,12 @@ pub fn read_produtos(filter: ProdutosFilter<'_>) -> DbResult<String> {
         let rows = stmt.query_map(params_dyn.as_slice(), |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, Option<f64>>(1)?))
         })?;
-        let mut out: Vec<serde_json::Value> = Vec::new();
+        let mut out_all: Vec<serde_json::Value> = Vec::new();
+        let mut out_owner: Vec<serde_json::Value> = Vec::new();
         for r in rows {
             let (payload, estoque_atual) = r?;
             let mut item: serde_json::Value =
                 serde_json::from_str(&payload).unwrap_or_else(|_| serde_json::json!({}));
-            if let Some(owner_id) = filter.owner_id {
-                let item_owner = item.get("owner_id").and_then(|v| v.as_str());
-                if item_owner != Some(owner_id) {
-                    continue;
-                }
-            }
             if item.get("categoria_nome").is_none() {
                 let categoria_nome = item
                     .get("categoria")
@@ -1623,8 +1618,23 @@ pub fn read_produtos(filter: ProdutosFilter<'_>) -> DbResult<String> {
                     obj.insert("estoque_atual".into(), serde_json::json!(v));
                 }
             }
-            out.push(item);
+            if let Some(owner_id) = filter.owner_id {
+                let item_owner = item.get("owner_id").and_then(|v| v.as_str());
+                if item_owner == Some(owner_id) {
+                    out_owner.push(item.clone());
+                }
+            }
+            out_all.push(item);
         }
+        // Em desktop offline, o usuário pode estar usando sessão restaurada sem
+        // JWT cloud válido ou payloads locais antigos sem owner_id compatível.
+        // Se nenhum registro bater no owner do JWT, servimos a tabela local
+        // completa em vez de esconder o catálogo já persistido no SQLite.
+        let out = if filter.owner_id.is_some() && !out_owner.is_empty() {
+            out_owner
+        } else {
+            out_all
+        };
         serde_json::to_string(&out).map_err(|e| DbError(e.to_string()))
     })
 }

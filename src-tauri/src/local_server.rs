@@ -1820,11 +1820,32 @@ async fn registrar_venda_local_handler(
             outbox_status = item.status.clone();
             remote_id = item.remote_id.clone();
         }
-    } else if ctx.upstream.is_some() {
-        if let Ok(rid) = push_one_outbox_venda(&ctx, &headers, &result.local_uuid).await {
-            outbox_status = "sent".into();
-            remote_id = Some(rid);
-        }
+    }
+
+    // Persistir localmente primeiro. O PDV não deve bloquear aguardando
+    // a sincronização com o upstream.
+    let local_uuid = result.local_uuid.clone();
+    if ctx.upstream.is_some() {
+        let ctx = ctx.clone();
+        let headers = headers.clone();
+        tokio::spawn(async move {
+            match push_one_outbox_venda(&ctx, &headers, &local_uuid).await {
+                Ok(remote_id) => {
+                    eprintln!(
+                        "[gestao-pro] outbox_venda sync background success local_uuid={} remote_id={}",
+                        local_uuid,
+                        remote_id,
+                    );
+                }
+                Err(err) => {
+                    eprintln!(
+                        "[gestao-pro] outbox_venda sync background failed local_uuid={} err={}",
+                        local_uuid,
+                        err,
+                    );
+                }
+            }
+        });
     }
 
     Ok(Json(RegistrarVendaLocalResponse {
@@ -2654,6 +2675,367 @@ fn parse_i64(q: &HashMap<String, String>, k: &str) -> Option<i64> {
     q.get(k).and_then(|v| v.parse::<i64>().ok())
 }
 
+#[derive(Serialize)]
+struct RelatorioCaixaLocalRow {
+    id: String,
+    operador_id: Option<String>,
+    terminal_id: Option<String>,
+    data_abertura_ms: i64,
+    data_fechamento_ms: Option<i64>,
+    valor_inicial: f64,
+    total_vendas: f64,
+    total_sangrias: f64,
+    total_suprimentos: f64,
+    total_dinheiro: f64,
+    total_pix: f64,
+    total_debito: f64,
+    total_credito: f64,
+    total_boleto: f64,
+    total_ifood: f64,
+    total_fiado: f64,
+    total_outros: f64,
+    valor_esperado: Option<f64>,
+    valor_informado: Option<f64>,
+    diferenca: Option<f64>,
+    status: String,
+    observacao: Option<String>,
+    observacao_fechamento: Option<String>,
+    qtd_vendas: i64,
+}
+
+#[derive(Serialize, Clone)]
+struct RelatorioFluxoMovLocalRow {
+    id: String,
+    caixa_id: String,
+    tipo: String,
+    valor: f64,
+    motivo: Option<String>,
+    venda_id: Option<String>,
+    operador_id: Option<String>,
+    terminal_id: Option<String>,
+    created_at_ms: i64,
+}
+
+#[derive(Serialize, Clone)]
+struct RelatorioFormaLocalRow {
+    forma: String,
+    total: f64,
+    qtd_vendas: i64,
+}
+
+#[derive(Serialize)]
+struct RelatorioFluxoLocalPayload {
+    caixas: Vec<RelatorioCaixaLocalRow>,
+    movimentos: Vec<RelatorioFluxoMovLocalRow>,
+    por_forma: Vec<RelatorioFormaLocalRow>,
+}
+
+#[derive(Serialize)]
+struct FinanceiroFluxoLocalRow {
+    id: String,
+    data_ms: i64,
+    tipo: String,
+    origem: String,
+    descricao: String,
+    valor: f64,
+    status: Option<String>,
+    operacional: bool,
+}
+
+#[derive(Serialize)]
+struct FinanceiroFluxoLocalPayload {
+    rows: Vec<FinanceiroFluxoLocalRow>,
+    por_forma: Vec<RelatorioFormaLocalRow>,
+}
+
+fn query_range_ms(q: &HashMap<String, String>) -> (Option<i64>, Option<i64>) {
+    (parse_i64(q, "desde_ms"), parse_i64(q, "ate_ms"))
+}
+
+fn in_range_ms(value: i64, desde_ms: Option<i64>, ate_ms: Option<i64>) -> bool {
+    desde_ms.map_or(true, |desde| value >= desde) && ate_ms.map_or(true, |ate| value <= ate)
+}
+
+fn forma_key(raw: &str) -> String {
+    match raw.trim().to_lowercase().as_str() {
+        "cartao_debito" | "cartao_debito_maquininha" | "debito" | "débito" => "debito".into(),
+        "cartao_credito" | "cartao_credito_maquininha" | "credito" | "crédito" => "credito".into(),
+        "dinheiro" | "cash" | "money" => "dinheiro".into(),
+        "pix" => "pix".into(),
+        "boleto" => "boleto".into(),
+        "ifood" | "i_food" => "ifood".into(),
+        "fiado" | "crediario" | "crediário" => "fiado".into(),
+        "" | "indefinido" | "outro" | "outros" => "outros".into(),
+        other => other.to_string(),
+    }
+}
+
+fn relatorio_caixa_row(caixa: &db::CaixaLocalRow, resumo: &db::CaixaResumoLocal) -> RelatorioCaixaLocalRow {
+    let mut total_dinheiro = 0.0;
+    let mut total_pix = 0.0;
+    let mut total_debito = 0.0;
+    let mut total_credito = 0.0;
+    let mut total_boleto = 0.0;
+    let mut total_ifood = 0.0;
+    let mut total_fiado = 0.0;
+    let mut total_outros = 0.0;
+
+    for f in &resumo.por_forma {
+        match forma_key(&f.forma_pagamento).as_str() {
+            "dinheiro" => total_dinheiro += f.total,
+            "pix" => total_pix += f.total,
+            "debito" => total_debito += f.total,
+            "credito" => total_credito += f.total,
+            "boleto" => total_boleto += f.total,
+            "ifood" => total_ifood += f.total,
+            "fiado" => total_fiado += f.total,
+            _ => total_outros += f.total,
+        }
+    }
+
+    RelatorioCaixaLocalRow {
+        id: caixa.local_uuid.clone(),
+        operador_id: caixa.operador_id.clone(),
+        terminal_id: caixa.terminal_id.clone(),
+        data_abertura_ms: caixa.data_abertura_ms,
+        data_fechamento_ms: caixa.data_fechamento_ms,
+        valor_inicial: caixa.valor_inicial,
+        total_vendas: resumo.total_vendido,
+        total_sangrias: resumo.total_sangrias,
+        total_suprimentos: resumo.total_suprimentos,
+        total_dinheiro,
+        total_pix,
+        total_debito,
+        total_credito,
+        total_boleto,
+        total_ifood,
+        total_fiado,
+        total_outros,
+        valor_esperado: Some(resumo.valor_esperado_dinheiro),
+        valor_informado: caixa.valor_informado,
+        diferenca: resumo.diferenca.or(caixa.diferenca),
+        status: caixa.status.clone(),
+        observacao: caixa.observacao_abertura.clone(),
+        observacao_fechamento: caixa.observacao_fechamento.clone(),
+        qtd_vendas: resumo.qtd_vendas,
+    }
+}
+
+fn relatorios_caixa_rows(
+    q: &HashMap<String, String>,
+) -> Result<Vec<RelatorioCaixaLocalRow>, (StatusCode, String)> {
+    let limit = parse_i64(q, "limit").or(Some(500));
+    let (desde_ms, ate_ms) = query_range_ms(q);
+    let operador = q.get("operador_id").filter(|v| !v.is_empty() && *v != "todos");
+    let terminal = q.get("terminal_id").filter(|v| !v.is_empty() && *v != "todos");
+    let status = q.get("status").filter(|v| !v.is_empty() && *v != "todos");
+
+    let caixas = db::caixa_local_historico(limit)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let mut rows = Vec::new();
+    for caixa in caixas {
+        if !in_range_ms(caixa.data_abertura_ms, desde_ms, ate_ms) {
+            continue;
+        }
+        if operador.map_or(false, |op| caixa.operador_id.as_deref() != Some(op.as_str())) {
+            continue;
+        }
+        if terminal.map_or(false, |term| caixa.terminal_id.as_deref() != Some(term.as_str())) {
+            continue;
+        }
+        if let Some(st) = status {
+            if st == "divergencia" {
+                if caixa.status != "fechado" || caixa.diferenca.map_or(true, |d| d.abs() <= 0.009) {
+                    continue;
+                }
+            } else if caixa.status != *st {
+                continue;
+            }
+        }
+
+        let Some(resumo) = db::caixa_resumo_local(&caixa.local_uuid)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))? else {
+            continue;
+        };
+        rows.push(relatorio_caixa_row(&caixa, &resumo));
+    }
+    Ok(rows)
+}
+
+fn relatorios_fluxo_payload(
+    q: &HashMap<String, String>,
+) -> Result<RelatorioFluxoLocalPayload, (StatusCode, String)> {
+    let caixas = relatorios_caixa_rows(q)?;
+    let caixa_filter = q.get("caixa_id").filter(|v| !v.is_empty() && *v != "todos");
+    let mut movimentos = Vec::new();
+    let mut formas = std::collections::BTreeMap::<String, (f64, i64)>::new();
+
+    for caixa in &caixas {
+        if caixa_filter.map_or(false, |cid| caixa.id != *cid) {
+            continue;
+        }
+        movimentos.push(RelatorioFluxoMovLocalRow {
+            id: format!("abertura-{}", caixa.id),
+            caixa_id: caixa.id.clone(),
+            tipo: "abertura".into(),
+            valor: caixa.valor_inicial,
+            motivo: Some("Abertura de caixa".into()),
+            venda_id: None,
+            operador_id: caixa.operador_id.clone(),
+            terminal_id: caixa.terminal_id.clone(),
+            created_at_ms: caixa.data_abertura_ms,
+        });
+        if caixa.total_vendas.abs() > 0.009 {
+            movimentos.push(RelatorioFluxoMovLocalRow {
+                id: format!("vendas-{}", caixa.id),
+                caixa_id: caixa.id.clone(),
+                tipo: "venda".into(),
+                valor: caixa.total_vendas,
+                motivo: Some("Vendas do caixa".into()),
+                venda_id: None,
+                operador_id: caixa.operador_id.clone(),
+                terminal_id: caixa.terminal_id.clone(),
+                created_at_ms: caixa.data_fechamento_ms.unwrap_or(caixa.data_abertura_ms),
+            });
+        }
+        for mov in db::caixa_movimentos_local(&caixa.id)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        {
+            movimentos.push(RelatorioFluxoMovLocalRow {
+                id: mov.local_uuid,
+                caixa_id: mov.caixa_local_uuid,
+                tipo: mov.tipo,
+                valor: mov.valor,
+                motivo: mov.motivo,
+                venda_id: None,
+                operador_id: mov.operador_id.or_else(|| caixa.operador_id.clone()),
+                terminal_id: caixa.terminal_id.clone(),
+                created_at_ms: mov.created_at_ms,
+            });
+        }
+        if let Some(fechado_ms) = caixa.data_fechamento_ms {
+            movimentos.push(RelatorioFluxoMovLocalRow {
+                id: format!("fechamento-{}", caixa.id),
+                caixa_id: caixa.id.clone(),
+                tipo: "fechamento".into(),
+                valor: caixa.valor_informado.unwrap_or(caixa.valor_esperado.unwrap_or(0.0)),
+                motivo: Some("Fechamento de caixa".into()),
+                venda_id: None,
+                operador_id: caixa.operador_id.clone(),
+                terminal_id: caixa.terminal_id.clone(),
+                created_at_ms: fechado_ms,
+            });
+        }
+
+        let entries = [
+            ("dinheiro", caixa.total_dinheiro),
+            ("pix", caixa.total_pix),
+            ("debito", caixa.total_debito),
+            ("credito", caixa.total_credito),
+            ("boleto", caixa.total_boleto),
+            ("ifood", caixa.total_ifood),
+            ("fiado", caixa.total_fiado),
+            ("outros", caixa.total_outros),
+        ];
+        for (forma, total) in entries {
+            if total.abs() <= 0.009 {
+                continue;
+            }
+            let item = formas.entry(forma.to_string()).or_insert((0.0, 0));
+            item.0 += total;
+            item.1 += caixa.qtd_vendas;
+        }
+    }
+
+    movimentos.sort_by(|a, b| b.created_at_ms.cmp(&a.created_at_ms));
+    let por_forma = formas
+        .into_iter()
+        .map(|(forma, (total, qtd_vendas))| RelatorioFormaLocalRow {
+            forma,
+            total: (total * 100.0).round() / 100.0,
+            qtd_vendas,
+        })
+        .collect();
+    Ok(RelatorioFluxoLocalPayload { caixas, movimentos, por_forma })
+}
+
+async fn relatorios_caixa_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<RelatorioCaixaLocalRow>>, (StatusCode, String)> {
+    Ok(Json(relatorios_caixa_rows(&q)?))
+}
+
+async fn relatorios_fluxo_caixa_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<RelatorioFluxoLocalPayload>, (StatusCode, String)> {
+    Ok(Json(relatorios_fluxo_payload(&q)?))
+}
+
+async fn financeiro_fluxo_caixa_handler(
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<FinanceiroFluxoLocalPayload>, (StatusCode, String)> {
+    let fluxo = relatorios_fluxo_payload(&q)?;
+    let mut rows: Vec<FinanceiroFluxoLocalRow> = fluxo.movimentos.iter().map(|m| {
+        let bruto = m.valor.abs();
+        let (valor, operacional) = match m.tipo.as_str() {
+            "sangria" => (-bruto, false),
+            "fechamento" => (-bruto, true),
+            "abertura" => (bruto, true),
+            _ => (bruto, false),
+        };
+        FinanceiroFluxoLocalRow {
+            id: format!("caixa-{}", m.id),
+            data_ms: m.created_at_ms,
+            tipo: m.tipo.clone(),
+            origem: "caixa".into(),
+            descricao: m.motivo.clone().unwrap_or_else(|| "Movimento de caixa".into()),
+            valor,
+            status: None,
+            operacional,
+        }
+    }).collect();
+
+    let f = db::FinanceiroFiltro {
+        tipo: None,
+        categoria: None,
+        origem: None,
+        status: None,
+        caixa_local_uuid: None,
+        venda_local_uuid: None,
+        desde_ms: parse_i64(&q, "desde_ms"),
+        ate_ms: parse_i64(&q, "ate_ms"),
+        limit: parse_i64(&q, "limit").or(Some(5000)),
+    };
+    let lancs = db::lancamentos_local_listar(&f)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    for l in lancs {
+        if l.cancelado_em_ms.is_some() || l.status == "cancelado" {
+            continue;
+        }
+        if !l.caixa_local_uuid.trim().is_empty() || l.venda_local_uuid.is_some() {
+            continue;
+        }
+        if !matches!(l.status.as_str(), "pago" | "recebido" | "confirmado") {
+            continue;
+        }
+        let data_ms = l.data_pagamento_ms.or(l.data_competencia_ms).unwrap_or(l.created_at_ms);
+        let is_saida = l.tipo == "saida" || l.tipo == "pagar" || l.tipo == "despesa";
+        rows.push(FinanceiroFluxoLocalRow {
+            id: format!("lanc-{}", l.local_uuid),
+            data_ms,
+            tipo: if is_saida { "despesa".into() } else { "receita".into() },
+            origem: "financeiro".into(),
+            descricao: l.descricao.unwrap_or(l.categoria),
+            valor: if is_saida { -l.valor.abs() } else { l.valor.abs() },
+            status: Some(l.status),
+            operacional: false,
+        });
+    }
+
+    rows.sort_by(|a, b| b.data_ms.cmp(&a.data_ms));
+    Ok(Json(FinanceiroFluxoLocalPayload { rows, por_forma: fluxo.por_forma }))
+}
+
 fn build_financeiro_filtro(q: &HashMap<String, String>) -> db::FinanceiroFiltro {
     db::FinanceiroFiltro {
         tipo: q.get("tipo").cloned(),
@@ -3030,8 +3412,11 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/caixa/regenerar-lancamentos", post(caixa_regenerar_lancamentos_handler))
         .route("/api/financeiro/lancamentos", get(financeiro_listar_handler))
         .route("/api/financeiro/resumo", get(financeiro_resumo_handler))
+        .route("/api/financeiro/fluxo-caixa", get(financeiro_fluxo_caixa_handler))
         .route("/api/financeiro/manual", post(financeiro_manual_handler))
         .route("/api/financeiro/cancelar", post(financeiro_cancelar_handler))
+        .route("/api/relatorios/caixa", get(relatorios_caixa_handler))
+        .route("/api/relatorios/fluxo-caixa", get(relatorios_fluxo_caixa_handler))
         .route("/db/outbox/caixa", get(outbox_caixa_list_handler))
         .route("/db/outbox/caixa/stats", get(outbox_caixa_stats_handler))
         .route("/db/outbox/caixa/flush", post(outbox_caixa_flush_handler))

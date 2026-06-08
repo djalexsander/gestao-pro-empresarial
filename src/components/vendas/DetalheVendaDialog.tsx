@@ -81,6 +81,7 @@ export function DetalheVendaDialog({
   const [motivo, setMotivo] = useState("");
   const syncStatus = data?.cancel_sync_status ?? data?.sync_status ?? null;
   const bloqueiaStatusLocal = Boolean(syncStatus && syncStatus !== "sent");
+  const vendaCancelada = data?.status === "cancelada";
 
   const handleSalvar = async () => {
     if (!vendaId) return;
@@ -249,25 +250,48 @@ export function DetalheVendaDialog({
                 </thead>
                 <tbody>
                   {data.itens.map((it) => (
-                    <tr key={it.id} className="border-t border-border/60">
+                    <tr
+                      key={it.id}
+                      className={cn(
+                        "border-t border-border/60",
+                        vendaCancelada && "bg-destructive/5 text-muted-foreground",
+                      )}
+                    >
                       <td className="px-3 py-2">
-                        <div className="font-medium">
+                        <div className="flex min-w-0 items-center gap-2">
                           {it.produto_nome ?? it.descricao ?? "—"}
                         </div>
+                        {vendaCancelada && (
+                          <div className="mt-1">
+                            <Badge variant="destructive" className="text-[10px]">
+                              CANCELADO
+                            </Badge>
+                          </div>
+                        )}
                         {it.sku && (
                           <div className="font-mono text-xs text-muted-foreground">
                             {it.sku}
                           </div>
                         )}
+                        {vendaCancelada && (
+                          <div className="mt-1 font-mono text-xs font-semibold text-destructive">
+                            Estorno da venda: -{formatBRL(it.total)}
+                          </div>
+                        )}
                       </td>
-                      <td className="px-3 py-2 text-center tabular-nums">
+                      <td className={cn("px-3 py-2 text-center tabular-nums", vendaCancelada && "line-through")}>
                         {it.quantidade}
                       </td>
-                      <td className="px-3 py-2 text-right tabular-nums">
+                      <td className={cn("px-3 py-2 text-right tabular-nums", vendaCancelada && "line-through")}>
                         {formatBRL(it.preco_unitario)}
                       </td>
-                      <td className="px-3 py-2 text-right font-medium tabular-nums">
-                        {formatBRL(it.total)}
+                      <td
+                        className={cn(
+                          "px-3 py-2 text-right font-medium tabular-nums",
+                          vendaCancelada && "text-destructive",
+                        )}
+                      >
+                        {vendaCancelada ? `-${formatBRL(it.total)}` : formatBRL(it.total)}
                       </td>
                     </tr>
                   ))}

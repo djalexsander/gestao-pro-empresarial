@@ -38,6 +38,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { ModuloGate } from "@/components/saas/ModuloGate";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  dateTimeFromMs,
+  fetchLocalFinanceiroJson,
+  isFinanceiroLocalDesktopMode,
+} from "@/lib/financeiro-local";
 import { formatBRL } from "@/lib/mock-data";
 import { exportRowsToCSV, type CsvColumn } from "@/lib/export-csv";
 import { cn } from "@/lib/utils";
@@ -97,6 +102,44 @@ interface CaixaSessao {
   total_sangrias: number;
   total_suprimentos: number;
   valor_inicial: number;
+}
+
+interface LocalFluxoCaixaPayload {
+  caixas: LocalFluxoCaixaRow[];
+  movimentos: LocalFluxoMovRow[];
+}
+
+interface LocalFluxoCaixaRow {
+  id: string;
+  operador_id: string | null;
+  terminal_id: string | null;
+  data_abertura_ms: number;
+  data_fechamento_ms: number | null;
+  status: string;
+  total_dinheiro: number;
+  total_pix: number;
+  total_debito: number;
+  total_credito: number;
+  total_boleto: number;
+  total_ifood: number;
+  total_fiado: number;
+  total_outros: number;
+  total_vendas: number;
+  total_sangrias: number;
+  total_suprimentos: number;
+  valor_inicial: number;
+}
+
+interface LocalFluxoMovRow {
+  id: string;
+  caixa_id: string;
+  tipo: TipoMov;
+  valor: number;
+  motivo: string | null;
+  venda_id: string | null;
+  operador_id: string | null;
+  terminal_id: string | null;
+  created_at_ms: number;
 }
 
 type FormaKey =
@@ -212,11 +255,19 @@ function Conteudo() {
   const [movs, setMovs] = useState<MovRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   // Lookups operadores + terminais (uma vez)
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      if (isFinanceiroLocalDesktopMode()) {
+        if (!cancelled) {
+          setOperadores([]);
+          setTerminais([]);
+        }
+        return;
+      }
       const [{ data: funcs }, { data: terms }] = await Promise.all([
         supabase.from("funcionarios").select("id, nome").eq("ativo", true).order("nome"),
         supabase.from("terminais").select("id, nome").eq("ativo", true).order("nome"),
@@ -235,6 +286,7 @@ function Conteudo() {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setLocalError(null);
       const { iniIso, fimIso } = calcRange(
         aplicado.periodo,
         aplicado.customIni,
@@ -242,6 +294,73 @@ function Conteudo() {
       );
 
       // Sessões de caixa abertas no período
+      if (isFinanceiroLocalDesktopMode()) {
+        try {
+          const payload = await fetchLocalFinanceiroJson<LocalFluxoCaixaPayload>(
+            "/api/relatorios/fluxo-caixa",
+            {
+              desde_ms: new Date(iniIso).getTime(),
+              ate_ms: new Date(fimIso).getTime(),
+              operador_id: aplicado.operador !== "todos" ? aplicado.operador : undefined,
+              terminal_id: aplicado.terminal !== "todos" ? aplicado.terminal : undefined,
+              caixa_id: aplicado.caixaSel !== "todos" ? aplicado.caixaSel : undefined,
+              limit: 500,
+            },
+          );
+          if (cancelled) return;
+          const caixaList = payload.caixas.map((c) => ({
+            id: c.id,
+            data_abertura: dateTimeFromMs(c.data_abertura_ms) ?? "",
+            data_fechamento: dateTimeFromMs(c.data_fechamento_ms),
+            operador_id: c.operador_id,
+            terminal_id: c.terminal_id,
+            status: c.status,
+            total_dinheiro: Number(c.total_dinheiro) || 0,
+            total_pix: Number(c.total_pix) || 0,
+            total_debito: Number(c.total_debito) || 0,
+            total_credito: Number(c.total_credito) || 0,
+            total_boleto: Number(c.total_boleto) || 0,
+            total_ifood: Number(c.total_ifood) || 0,
+            total_fiado: Number(c.total_fiado) || 0,
+            total_outros: Number(c.total_outros) || 0,
+            total_vendas: Number(c.total_vendas) || 0,
+            total_sangrias: Number(c.total_sangrias) || 0,
+            total_suprimentos: Number(c.total_suprimentos) || 0,
+            valor_inicial: Number(c.valor_inicial) || 0,
+          })) as CaixaSessao[];
+          setCaixas(caixaList);
+          setMovs(
+            payload.movimentos.map((m) => ({
+              id: m.id,
+              caixa_id: m.caixa_id,
+              tipo: m.tipo,
+              valor: Number(m.valor) || 0,
+              motivo: m.motivo,
+              venda_id: m.venda_id,
+              operador_id: m.operador_id,
+              terminal_id: m.terminal_id,
+              created_at: dateTimeFromMs(m.created_at_ms) ?? "",
+              operador_nome: m.operador_id ?? "—",
+              terminal_nome: m.terminal_id ?? "—",
+            })),
+          );
+        } catch (e) {
+          const msg =
+            e instanceof Error
+              ? e.message
+              : "Dados locais de fluxo de caixa ainda nao disponiveis.";
+          if (!cancelled) {
+            toast.error(msg);
+            setLocalError(msg);
+            setCaixas([]);
+            setMovs([]);
+          }
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+        return;
+      }
+
       let qc = supabase
         .from("caixas")
         .select(
@@ -688,6 +807,14 @@ function Conteudo() {
           </div>
         </CardContent>
       </Card>
+
+      {localError && (
+        <Card>
+          <CardContent className="py-4 text-sm text-muted-foreground">
+            Dados locais de fluxo de caixa indisponiveis: {localError}
+          </CardContent>
+        </Card>
+      )}
 
       {/* ---- Totais ---- */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

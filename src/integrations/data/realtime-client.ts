@@ -10,18 +10,29 @@
 
 import { getDataMode } from "./mode";
 import { supabaseRealtimeAdapter } from "./adapters/cloud-realtime";
-import type { RealtimeAdapter } from "./realtime-adapter";
+import { defaultSubscribeDomain, type RealtimeAdapter } from "./realtime-adapter";
 
-let cached: RealtimeAdapter | null = null;
+let cached: { mode: ReturnType<typeof getDataMode>; adapter: RealtimeAdapter } | null = null;
+
+const localNoopRealtimeAdapter: RealtimeAdapter = {
+  source: "local-emitter",
+  start: () => () => {},
+  subscribeDomain: defaultSubscribeDomain,
+};
 
 export function getRealtimeAdapter(): RealtimeAdapter {
-  if (cached) return cached;
-
   const mode = getDataMode();
+  if (cached?.mode === mode) return cached.adapter;
+
+  let adapter: RealtimeAdapter;
   switch (mode) {
     case "cloud":
-      cached = supabaseRealtimeAdapter;
-      return cached;
+      adapter = supabaseRealtimeAdapter;
+      break;
+    case "local-server":
+    case "local-terminal":
+      adapter = localNoopRealtimeAdapter;
+      break;
     // Futuro:
     // case "local-server":
     //   cached = new LanWebSocketRealtimeAdapter(); break;
@@ -31,9 +42,11 @@ export function getRealtimeAdapter(): RealtimeAdapter {
     //     new LanWebSocketRealtimeAdapter(),
     //   ]); break;
     default:
-      cached = supabaseRealtimeAdapter;
-      return cached;
+      adapter = supabaseRealtimeAdapter;
+      break;
   }
+  cached = { mode, adapter };
+  return adapter;
 }
 
 /** Atalho ergonômico, espelhando `dataClient`. */

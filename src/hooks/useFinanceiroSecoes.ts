@@ -2,6 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { computePeriodo, type PeriodoRange } from "@/lib/dateRange";
 import type { SecaoFiltroValue, FormaFiltro } from "@/components/financeiro/SecaoFiltro";
+import {
+  fetchLocalFinanceiroJson,
+  isFinanceiroLocalDesktopMode,
+  localLancamentoStatus,
+  localLancamentoTipo,
+  type LocalFinanceiroLancamento,
+} from "@/lib/financeiro-local";
 
 function toRange(v: SecaoFiltroValue): PeriodoRange {
   return computePeriodo(v.preset, v.custom);
@@ -24,6 +31,37 @@ export function usePosicaoFinanceira(filtro: SecaoFiltroValue) {
     queryKey: ["fin_posicao", periodo.inicio, periodo.fim],
     staleTime: 30_000,
     queryFn: async (): Promise<PosicaoFinanceiraData> => {
+      if (isFinanceiroLocalDesktopMode()) {
+        const { desde_ms, ate_ms } = periodoMs(periodo);
+        const rows = await fetchLocalFinanceiroJson<LocalFinanceiroLancamento[]>(
+          "/api/financeiro/lancamentos",
+          { desde_ms, ate_ms, limit: 5000 },
+        );
+        let totalReceber = 0;
+        let qtdReceber = 0;
+        let totalPagar = 0;
+        let qtdPagar = 0;
+        for (const l of rows) {
+          const aberto = abertoLocal(l);
+          if (aberto <= 0) continue;
+          if (localLancamentoTipo(l) === "receber") {
+            totalReceber += aberto;
+            qtdReceber += 1;
+          } else {
+            totalPagar += aberto;
+            qtdPagar += 1;
+          }
+        }
+        return {
+          totalReceber,
+          qtdReceber,
+          totalPagar,
+          qtdPagar,
+          saldo: totalReceber - totalPagar,
+          periodo,
+        };
+      }
+
       const { data, error } = await supabase
         .from("financeiro_lancamentos")
         .select("id, tipo, valor, valor_pago, status, data_vencimento")
@@ -69,6 +107,8 @@ export function usePosicaoFinanceira(filtro: SecaoFiltroValue) {
 // ============ Performance (vendido / custo / lucro) ============
 
 export interface PerformanceData {
+  indisponivel?: boolean;
+  indisponivelMotivo?: string;
   totalVendido: number;
   qtdVendas: number;
   custoTotal: number;
@@ -79,12 +119,46 @@ export interface PerformanceData {
   periodo: PeriodoRange;
 }
 
+function periodoMs(periodo: PeriodoRange) {
+  return {
+    desde_ms: new Date(`${periodo.inicio}T00:00:00`).getTime(),
+    ate_ms: new Date(`${periodo.fim}T23:59:59.999`).getTime(),
+  };
+}
+
+function abertoLocal(l: LocalFinanceiroLancamento) {
+  const status = localLancamentoStatus(l);
+  if (status === "pago" || status === "recebido" || status === "cancelado") return 0;
+  return Math.max(0, Number(l.valor) || 0);
+}
+
+function matchFormaLocal(formaFiltro: FormaFiltro, lanc: string | null): boolean {
+  if (formaFiltro === "todos") return true;
+  return lanc === formaFiltro;
+}
+
 export function usePerformancePeriodo(filtro: SecaoFiltroValue) {
   const periodo = toRange(filtro);
   return useQuery({
     queryKey: ["fin_performance", periodo.inicio, periodo.fim],
     staleTime: 30_000,
     queryFn: async (): Promise<PerformanceData> => {
+      if (isFinanceiroLocalDesktopMode()) {
+        return {
+          indisponivel: true,
+          indisponivelMotivo:
+            "Dados locais de itens de venda e custo ainda nao disponiveis para lucro bruto.",
+          totalVendido: 0,
+          qtdVendas: 0,
+          custoTotal: 0,
+          qtdItens: 0,
+          qtdItensSemCusto: 0,
+          lucroBruto: 0,
+          margemPct: 0,
+          periodo,
+        };
+      }
+
       const { data: vendasData, error } = await supabase
         .from("vendas")
         .select("id, total")
@@ -162,6 +236,66 @@ export function useReceberOrigem(filtro: SecaoFiltroValue) {
     queryKey: ["fin_receber_origem", periodo.inicio, periodo.fim, forma],
     staleTime: 30_000,
     queryFn: async (): Promise<ReceberOrigemData> => {
+      if (isFinanceiroLocalDesktopMode()) {
+        const { desde_ms, ate_ms } = periodoMs(periodo);
+        const periodoRows = await fetchLocalFinanceiroJson<LocalFinanceiroLancamento[]>("/api/financeiro/lancamentos", {
+          desde_ms,
+          ate_ms,
+          limit: 5000,
+        });
+        const todosRows = await fetchLocalFinanceiroJson<LocalFinanceiroLancamento[]>("/api/financeiro/lancamentos", {
+          limit: 5000,
+        });
+        const hoje = new Date().toISOString().slice(0, 10);
+        let fiadoEmAberto = 0;
+        let qtdFiado = 0;
+        let ifoodAReceber = 0;
+        let qtdIfood = 0;
+        let recebidoPeriodo = 0;
+        let qtdRecebimentos = 0;
+        let vencidosTotal = 0;
+        let qtdVencidos = 0;
+
+        for (const l of todosRows) {
+          if (localLancamentoTipo(l) !== "receber") continue;
+          if (!matchFormaLocal(forma, l.forma_pagamento)) continue;
+          const aberto = abertoLocal(l);
+          if (aberto > 0 && l.forma_pagamento === "fiado") {
+            fiadoEmAberto += aberto;
+            qtdFiado += 1;
+          } else if (aberto > 0 && l.forma_pagamento === "ifood") {
+            ifoodAReceber += aberto;
+            qtdIfood += 1;
+          }
+          const venc = l.data_vencimento_ms ? new Date(l.data_vencimento_ms).toISOString().slice(0, 10) : null;
+          if (aberto > 0 && venc && venc < hoje && venc >= periodo.inicio && venc <= periodo.fim) {
+            vencidosTotal += aberto;
+            qtdVencidos += 1;
+          }
+        }
+
+        for (const l of periodoRows) {
+          if (localLancamentoTipo(l) !== "receber") continue;
+          if (!matchFormaLocal(forma, l.forma_pagamento)) continue;
+          const status = localLancamentoStatus(l);
+          if (status !== "pago" && status !== "recebido") continue;
+          recebidoPeriodo += Number(l.valor) || 0;
+          qtdRecebimentos += 1;
+        }
+
+        return {
+          fiadoEmAberto,
+          qtdFiado,
+          ifoodAReceber,
+          qtdIfood,
+          recebidoPeriodo,
+          qtdRecebimentos,
+          vencidosTotal,
+          qtdVencidos,
+          periodo,
+          forma,
+        };
+      }
       // Em aberto (fiado / ifood) — pendentes não conciliados
       const { data: abertos } = await supabase
         .from("financeiro_lancamentos")

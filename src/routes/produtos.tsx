@@ -65,9 +65,6 @@ const formatBRL = (v: number) =>
 
 export function ProductsPage() {
   const { data: produtos = [], isLoading } = useProdutos();
-  // DEBUG: log produtos raw from dataClient (temporary)
-  // eslint-disable-next-line no-console
-  console.log("PRODUTOS API", produtos);
   const { data: categorias = [] } = useCategorias();
   const { data: saldos } = useEstoqueSaldos();
   const deleteMut = useDeleteProduto();
@@ -93,9 +90,6 @@ export function ProductsPage() {
       return true;
     });
   }, [produtos, search, categoriaFilter, statusFilter]);
-  // DEBUG: log filtered produtos (temporary)
-  // eslint-disable-next-line no-console
-  console.log("PRODUTOS FILTRADOS", filtered);
 
   const gruposPorCategoria = useMemo(() => {
     const mapa = new Map<string, { nome: string; produtos: typeof filtered }>();
@@ -116,14 +110,6 @@ export function ProductsPage() {
 
   function openNew() { setEditingId(null); setOpen(true); }
   function openEdit(id: string) { setEditingId(id); setOpen(true); }
-
-  // DEBUG RENDER: log counts right before render
-  // eslint-disable-next-line no-console
-  console.log("RENDER PRODUTOS", {
-    produtosLength: produtos.length,
-    filteredLength: filtered.length,
-    isLoading,
-  });
 
   return (
     <div className="space-y-6">

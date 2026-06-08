@@ -56,6 +56,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { formatBRL } from "@/lib/mock-data";
 import { exportRowsToCSV, type CsvColumn } from "@/lib/export-csv";
 import { cn } from "@/lib/utils";
+import {
+  dateFromMs,
+  fetchLocalFinanceiroJson,
+  isFinanceiroLocalDesktopMode,
+  localLancamentoStatus,
+  localLancamentoTipo,
+  type LocalFinanceiroLancamento,
+} from "@/lib/financeiro-local";
 
 export const Route = createFileRoute("/relatorios/financeiro")({
   head: () => ({
@@ -192,6 +200,10 @@ function Conteudo() {
   // Carrega categorias uma vez
   useEffect(() => {
     (async () => {
+      if (isFinanceiroLocalDesktopMode()) {
+        setCategorias([]);
+        return;
+      }
       const { data } = await supabase
         .from("categorias_financeiras")
         .select("id, nome, tipo")
@@ -211,6 +223,84 @@ function Conteudo() {
         aplicado.customIni,
         aplicado.customFim,
       );
+
+      if (isFinanceiroLocalDesktopMode()) {
+        try {
+          const inicioMs = new Date(`${inicio}T00:00:00`).getTime();
+          const fimMs = new Date(`${fim}T23:59:59.999`).getTime();
+          const [periodoRows, todasRows] = await Promise.all([
+            fetchLocalFinanceiroJson<LocalFinanceiroLancamento[]>("/api/financeiro/lancamentos", {
+              desde_ms: inicioMs,
+              ate_ms: fimMs,
+              limit: 5000,
+            }),
+            fetchLocalFinanceiroJson<LocalFinanceiroLancamento[]>("/api/financeiro/lancamentos", {
+              limit: 5000,
+            }),
+          ]);
+          if (cancelled) return;
+
+          const mapped: Lancamento[] = periodoRows.map((l) => {
+            const tipo = localLancamentoTipo(l);
+            const status = localLancamentoStatus(l);
+            return {
+              id: l.local_uuid,
+              descricao: l.descricao ?? l.categoria ?? "Lancamento local",
+              tipo: tipo === "receber" ? "receita" : "despesa",
+              valor: Number(l.valor) || 0,
+              valor_pago: status === "pendente" || status === "vencido" ? 0 : Number(l.valor) || 0,
+              data_emissao: dateFromMs(l.created_at_ms) ?? inicio,
+              data_vencimento: dateFromMs(l.data_vencimento_ms ?? l.data_competencia_ms ?? l.created_at_ms) ?? inicio,
+              data_pagamento: dateFromMs(l.data_pagamento_ms),
+              status:
+                status === "cancelado"
+                  ? "cancelado"
+                  : status === "pendente" || status === "vencido"
+                    ? "pendente"
+                    : "pago",
+              forma_pagamento: l.forma_pagamento,
+              categoria_id: l.categoria,
+              categoria_nome: l.categoria,
+              cliente_id: l.cliente_id,
+              cliente_nome: null,
+              fornecedor_id: l.fornecedor_id,
+              fornecedor_nome: null,
+            };
+          });
+          setRows(mapped);
+          setCategorias(
+            Array.from(
+              new Map(
+                mapped.map((l) => [
+                  `${l.tipo}:${l.categoria_nome ?? "Sem categoria"}`,
+                  {
+                    id: l.categoria_id ?? l.categoria_nome ?? "sem-categoria",
+                    nome: l.categoria_nome ?? "Sem categoria",
+                    tipo: l.tipo,
+                  } satisfies Categoria,
+                ]),
+              ).values(),
+            ),
+          );
+
+          let rec = 0;
+          let desp = 0;
+          for (const l of todasRows) {
+            const status = localLancamentoStatus(l);
+            if (status !== "pago" && status !== "recebido") continue;
+            if (localLancamentoTipo(l) === "receber") rec += Number(l.valor) || 0;
+            else desp += Number(l.valor) || 0;
+          }
+          setSaldoAcumulado(rec - desp);
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : "Dados locais ainda nao disponiveis.");
+          setRows([]);
+          setSaldoAcumulado(0);
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+        return;
+      }
 
       // 1) lançamentos do período (por data de vencimento — visão gerencial)
       const { data, error } = await supabase

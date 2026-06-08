@@ -82,6 +82,13 @@ import { exportarBlocoCSV, exportarBlocoPDF } from "@/lib/export-bloco";
 import { ExportFormatDialog } from "@/components/shared/ExportFormatDialog";
 import { exportarRelatorioCard, type ExportFormato } from "@/lib/export-relatorio-card";
 import { toast } from "sonner";
+import {
+  dateTimeFromMs,
+  fetchLocalFinanceiroJson,
+  isFinanceiroLocalDesktopMode,
+  mapLocalLancamentoToDetalhe,
+  type LocalFinanceiroLancamento,
+} from "@/lib/financeiro-local";
 
 type FinTab = "receber" | "pagar" | "fluxo" | "fiados";
 
@@ -165,13 +172,17 @@ function buildConsolidado(args: {
   if (ind) {
     rows.push(
       { indicador: "Total vendido (mês)", quantidade: ind.qtdVendas, valor: ind.totalVendido },
-      { indicador: "Custo dos produtos vendidos", quantidade: ind.qtdItens, valor: ind.custoTotal },
-      { indicador: "Lucro bruto", quantidade: 0, valor: ind.lucroBruto },
       { indicador: "Fiado em aberto", quantidade: ind.qtdFiado, valor: ind.fiadoEmAberto },
       { indicador: "iFood a repassar", quantidade: ind.qtdIfood, valor: ind.ifoodAReceber },
       { indicador: "Recebido hoje", quantidade: ind.qtdRecebimentosHoje, valor: ind.recebidoHoje },
       { indicador: "Vencidos", quantidade: ind.qtdVencidos, valor: ind.vencidosTotal },
     );
+    if (!ind.custoIndisponivel) {
+      rows.push(
+        { indicador: "Custo dos produtos vendidos", quantidade: ind.qtdItens, valor: ind.custoTotal },
+        { indicador: "Lucro bruto", quantidade: 0, valor: ind.lucroBruto },
+      );
+    }
   }
   return rows;
 }
@@ -204,6 +215,14 @@ function FinanceContent() {
   const { data: lancamentos = [], isLoading } = useQuery({
     queryKey: ["financeiro_lancamentos"],
     queryFn: async () => {
+      if (isFinanceiroLocalDesktopMode()) {
+        const rows = await fetchLocalFinanceiroJson<LocalFinanceiroLancamento[]>(
+          "/api/financeiro/lancamentos",
+          { limit: 5000 },
+        );
+        return rows.map(mapLocalLancamentoToDetalhe);
+      }
+
       const { data, error } = await supabase
         .from("financeiro_lancamentos")
         .select(
@@ -504,10 +523,18 @@ function FinanceContent() {
                   filtro: performance ? formatPeriodoBR(performance.periodo) : null,
                 },
               ]}
-              disabled={!performance}
+              disabled={!performance || performance.indisponivel}
             />
           </div>
         </div>
+        {performance?.indisponivel ? (
+          <Card>
+            <CardContent className="py-4 text-sm text-muted-foreground">
+              Dados locais ainda nao disponiveis para lucro bruto/custo do periodo.
+              Endpoint local necessario: /api/dashboard/venda-itens-resumo.
+            </CardContent>
+          </Card>
+        ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <StatCard
             label="Total vendido"
@@ -538,6 +565,7 @@ function FinanceContent() {
             onClick={() => setBlocoAberto("lucro")}
           />
         </div>
+        )}
       </div>
 
       {/* Bloco 3: A receber por origem + operacional */}
@@ -1105,6 +1133,27 @@ interface FluxoRow {
   operacional?: boolean;
 }
 
+interface LocalFinanceiroFluxoPayload {
+  rows: LocalFinanceiroFluxoRow[];
+  por_forma: LocalFinanceiroFluxoForma[];
+}
+
+interface LocalFinanceiroFluxoRow {
+  id: string;
+  data_ms: number;
+  tipo: FluxoTipo;
+  origem: "caixa" | "financeiro";
+  descricao: string;
+  valor: number;
+  status: string | null;
+  operacional: boolean;
+}
+
+interface LocalFinanceiroFluxoForma {
+  forma: string;
+  total: number;
+}
+
 function calcRangeFluxo(p: FluxoPeriodo): { inicio: string; fim: string } {
   const today = new Date();
   const fim = today.toISOString().slice(0, 10);
@@ -1155,11 +1204,30 @@ function FluxoCaixaPanel() {
   const { inicio, fim } = useMemo(() => calcRangeFluxo(periodo), [periodo]);
 
   // Breakdown por forma de pagamento das vendas no período
-  const { data: porForma = [] } = useQuery({
+  const { data: porForma = [], error: porFormaError } = useQuery({
     queryKey: ["financeiro", "fluxo-por-forma", inicio, fim],
     queryFn: async () => {
       const inicioTs = `${inicio}T00:00:00`;
       const fimTs = `${fim}T23:59:59.999`;
+
+      if (isFinanceiroLocalDesktopMode()) {
+        const payload = await fetchLocalFinanceiroJson<LocalFinanceiroFluxoPayload>(
+          "/api/financeiro/fluxo-caixa",
+          {
+            desde_ms: new Date(inicioTs).getTime(),
+            ate_ms: new Date(fimTs).getTime(),
+            limit: 5000,
+          },
+        );
+        return payload.por_forma
+          .map((f) => ({
+            forma: f.forma,
+            recebido: Number(f.total) || 0,
+            aReceber: 0,
+          }))
+          .filter((e) => e.recebido > 0)
+          .sort((a, b) => b.recebido - a.recebido);
+      }
 
       // 1) Buscar vendas finalizadas no período (não canceladas)
       const { data: vendasData, error: errVendas } = await supabase
@@ -1255,12 +1323,33 @@ function FluxoCaixaPanel() {
     staleTime: 15_000,
   });
 
-  const { data: rows = [], isLoading } = useQuery({
+  const { data: rows = [], isLoading, error: rowsError } = useQuery({
     queryKey: ["financeiro", "fluxo-caixa", inicio, fim],
     queryFn: async (): Promise<FluxoRow[]> => {
       // Range em timestamp para cobrir o dia inteiro do "fim".
       const inicioTs = `${inicio}T00:00:00`;
       const fimTs = `${fim}T23:59:59.999`;
+
+      if (isFinanceiroLocalDesktopMode()) {
+        const payload = await fetchLocalFinanceiroJson<LocalFinanceiroFluxoPayload>(
+          "/api/financeiro/fluxo-caixa",
+          {
+            desde_ms: new Date(inicioTs).getTime(),
+            ate_ms: new Date(fimTs).getTime(),
+            limit: 5000,
+          },
+        );
+        return payload.rows.map((r) => ({
+          id: r.id,
+          data: dateTimeFromMs(r.data_ms) ?? inicioTs,
+          tipo: r.tipo,
+          origem: r.origem,
+          descricao: r.descricao,
+          valor: Number(r.valor) || 0,
+          status: r.status,
+          operacional: r.operacional,
+        }));
+      }
 
       // 1) Movimentos do caixa (abertura, sangria, suprimento, fechamento, venda)
       const { data: movs, error: errMovs } = await supabase
@@ -1363,6 +1452,7 @@ function FluxoCaixaPanel() {
   const [filtroRapido, setFiltroRapido] = useState<FluxoFiltroRapido>("todos");
   const [filtroTipo, setFiltroTipo] = useState<"todos" | FluxoTipo>("todos");
   const [filtroOrigem, setFiltroOrigem] = useState<"todos" | "caixa" | "financeiro">("todos");
+  const fluxoError = rowsError || porFormaError;
 
   const filteredRows = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -1743,6 +1833,15 @@ function FluxoCaixaPanel() {
           </div>
         </CardContent>
       </Card>
+
+      {fluxoError && isFinanceiroLocalDesktopMode() && (
+        <Card>
+          <CardContent className="py-4 text-sm text-muted-foreground">
+            Dados locais de fluxo de caixa indisponiveis:{" "}
+            {fluxoError instanceof Error ? fluxoError.message : "falha ao consultar o servidor local."}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardContent className="p-0">

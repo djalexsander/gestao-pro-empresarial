@@ -70,6 +70,7 @@ import {
   type ClienteLite,
 } from "@/hooks/useClientes";
 import { useSaldosLote, type FormaPagamento, type StatusPagamento } from "@/hooks/useVendas";
+import { getDataMode } from "@/integrations/data/mode";
 import { useSomPDV } from "@/hooks/useSomPDV";
 import { ClienteDialog } from "@/components/clientes/ClienteDialog";
 import { UserPlus, IdCard, AlertCircle } from "lucide-react";
@@ -138,6 +139,8 @@ interface VendaItem {
   peso_extraido?: number;
   valor_extraido?: number;
   tipo_interpretacao?: "peso" | "valor" | "manual";
+  cancelado?: boolean;
+  cancelado_em?: number;
 }
 
 const DEFAULT_FOCUS_DELAY = 30;
@@ -225,6 +228,7 @@ function PDVPage() {
   const [quickView, setQuickView] = useState<PdvQuickViewKey | null>(null);
   const { isCaixa, isAdminLike } = useUserRole();
   const podeAcessarRapido = isCaixa || isAdminLike;
+  const isLocalMode = getDataMode() === "local-server" || getDataMode() === "local-terminal";
   const [vendaConcluida, setVendaConcluida] = useState<null | {
     id: string;
     numero: string | null;
@@ -478,16 +482,19 @@ function PDVPage() {
   }, [focusScanInput, hasPriorityOverlay]);
 
   // ============ Totais ============
+  const activeItems = useMemo(() => items.filter((it) => !it.cancelado), [items]);
+  const canceledItems = useMemo(() => items.filter((it) => it.cancelado), [items]);
+
   const totals = useMemo(() => {
-    const subtotal = items.reduce(
+    const subtotal = activeItems.reduce(
       (acc, it) => acc + it.preco_unitario * it.quantidade,
       0,
     );
-    const descontoTotal = items.reduce((acc, it) => acc + it.desconto, 0);
+    const descontoTotal = activeItems.reduce((acc, it) => acc + it.desconto, 0);
     const total = Math.max(0, subtotal - descontoTotal);
-    const totalItens = items.reduce((acc, it) => acc + it.quantidade, 0);
+    const totalItens = activeItems.reduce((acc, it) => acc + it.quantidade, 0);
     return { subtotal, descontoTotal, total, totalItens };
-  }, [items]);
+  }, [activeItems]);
 
   // ============ Adicionar item ============
   function addItemFromProduto(
@@ -793,7 +800,7 @@ function PDVPage() {
         allowInInputs: true,
         handler: () => {
           flashHotkey("F10");
-          if (items.length > 0 && !finalizarOpen) finalizarVenda();
+          if (activeItems.length > 0 && !finalizarOpen) finalizarVenda();
         },
       },
       {
@@ -853,10 +860,15 @@ function PDVPage() {
     handleScanCode(code);
   }
 
-  // ============ Remover linha ============
-  // Cada bipagem cria uma nova linha; a única ação por linha é excluir.
+  // ============ Cancelar linha ============
+  // Cada bipagem cria uma nova linha; remover preserva auditoria visual local.
   function removeItem(key: string) {
-    setItems((prev) => prev.filter((it) => it.key !== key));
+    setItems((prev) =>
+      prev.map((it) =>
+        it.key === key ? { ...it, cancelado: true, cancelado_em: Date.now() } : it,
+      ),
+    );
+    if (lastAddedKey === key) setLastAddedKey(null);
   }
 
   function clearVenda() {
@@ -879,24 +891,24 @@ function PDVPage() {
       toast.error("Abra o caixa antes de finalizar a venda.");
       return;
     }
-    if (items.length === 0) {
+    if (activeItems.length === 0) {
       toast.warning("Adicione ao menos um item à venda.");
       return;
     }
 
     // ============ Validação de estoque ============
     try {
-      const ids = Array.from(new Set(items.map((it) => it.produto_id)));
+      const ids = Array.from(new Set(activeItems.map((it) => it.produto_id)));
       const saldos = await saldosLote.mutateAsync(ids);
       const req = new Map<string, number>();
-      for (const it of items) {
+      for (const it of activeItems) {
         req.set(it.produto_id, (req.get(it.produto_id) ?? 0) + it.quantidade);
       }
       const insuficientes: string[] = [];
       for (const [pid, qty] of req.entries()) {
         const saldo = saldos.get(pid) ?? 0;
         if (saldo < qty) {
-          const it = items.find((i) => i.produto_id === pid);
+          const it = activeItems.find((i) => i.produto_id === pid);
           insuficientes.push(
             `${it?.nome ?? pid} (saldo ${saldo}, pedido ${qty})`,
           );
@@ -1429,16 +1441,27 @@ function PDVPage() {
                 <ul>
                   {items.map((it) => {
                     const sub = it.preco_unitario * it.quantidade - it.desconto;
+                    const lineTotal = Math.max(0, sub);
                     return (
                       <li
                         key={it.key}
                         className={cn(
                           "grid grid-cols-[1fr_120px_140px_140px_44px] items-center gap-2 border-b border-border/60 px-4 py-3 transition-colors",
                           lastAddedKey === it.key && "bg-success/10 animate-in fade-in",
+                          it.cancelado && "bg-destructive/5 text-muted-foreground",
                         )}
                       >
                         <div className="min-w-0">
-                          <p className="truncate font-medium">{it.nome}</p>
+                          <div className="flex min-w-0 items-center gap-2">
+                            <p className={cn("truncate font-medium", it.cancelado && "line-through")}>
+                              {it.nome}
+                            </p>
+                            {it.cancelado && (
+                              <Badge variant="destructive" className="shrink-0 text-[10px]">
+                                CANCELADO
+                              </Badge>
+                            )}
+                          </div>
                           <p className="font-mono text-xs text-muted-foreground">
                             {it.sku} · {it.unidade}
                             {it.desconto > 0 && (
@@ -1453,32 +1476,42 @@ function PDVPage() {
                               {" × "}
                               {formatBRL(it.preco_por_kg ?? it.preco_unitario)}/{it.unidade || "KG"}
                               {" = "}
-                              {formatBRL(
-                                Math.max(0, it.preco_unitario * it.quantidade - it.desconto),
-                              )}
+                              {formatBRL(lineTotal)}
+                            </p>
+                          )}
+                          {it.cancelado && (
+                            <p className="mt-1 font-mono text-xs font-semibold text-destructive">
+                              Estorno visual: -{formatBRL(lineTotal)}
                             </p>
                           )}
                         </div>
-                        <div className="text-center font-mono text-sm tabular-nums">
+                        <div className={cn("text-center font-mono text-sm tabular-nums", it.cancelado && "line-through")}>
                           {it.vendido_por_peso
                             ? `${it.quantidade.toFixed(it.casas_decimais ?? 3)} ${it.unidade || "KG"}`
                             : `${it.quantidade} ${it.unidade || "un."}`}
                         </div>
-                        <div className="text-right tabular-nums">
+                        <div className={cn("text-right tabular-nums", it.cancelado && "line-through")}>
                           {formatBRL(it.preco_unitario)}
                         </div>
-                        <div className="text-right font-semibold tabular-nums">
-                          {formatBRL(Math.max(0, sub))}
+                        <div
+                          className={cn(
+                            "text-right font-semibold tabular-nums",
+                            it.cancelado && "text-destructive",
+                          )}
+                        >
+                          {it.cancelado ? `-${formatBRL(lineTotal)}` : formatBRL(lineTotal)}
                         </div>
                         <div className="flex justify-end">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                            onClick={() => removeItem(it.key)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                          {!it.cancelado && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                              onClick={() => removeItem(it.key)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                         </div>
                       </li>
                     );
@@ -1499,12 +1532,17 @@ function PDVPage() {
             <div className="space-y-4 p-4">
               <div className="space-y-2 text-sm">
                 <Row label="Linhas">
-                  <span className="tabular-nums">{items.length}</span>
+                  <span className="tabular-nums">
+                    {activeItems.length}
+                    {canceledItems.length > 0 && (
+                      <span className="ml-1 text-destructive">(+{canceledItems.length} cancel.)</span>
+                    )}
+                  </span>
                 </Row>
                 <Row label="Unidades">
                   <span className="tabular-nums text-muted-foreground">
                     {totals.totalItens.toFixed(
-                      items.some((it) => it.vendido_por_peso) ? 3 : 0,
+                      activeItems.some((it) => it.vendido_por_peso) ? 3 : 0,
                     )}
                   </span>
                 </Row>
@@ -1549,7 +1587,7 @@ function PDVPage() {
                 hotkeyFlash === "F10" && "ring-2 ring-primary ring-offset-2 ring-offset-background",
               )}
               onClick={finalizarVenda}
-              disabled={!caixaAberto || items.length === 0}
+              disabled={!caixaAberto || activeItems.length === 0}
             >
               <CheckCircle2 className="h-5 w-5" />
               Finalizar venda · {formatBRL(totals.total)}
@@ -1597,7 +1635,7 @@ function PDVPage() {
       <FinalizarVendaDialog
         open={finalizarOpen}
         onOpenChange={setFinalizarOpen}
-        itens={items.map((it) => ({
+        itens={activeItems.map((it) => ({
           produto_id: it.produto_id,
           quantidade: it.quantidade,
           preco_unitario: it.preco_unitario,
@@ -1640,7 +1678,7 @@ function PDVPage() {
               : null,
             operador: operador?.nome ?? user?.email ?? null,
             observacao: observacao || null,
-            itens: items.map((it) => ({
+            itens: activeItems.map((it) => ({
               descricao: it.nome,
               sku: it.sku,
               quantidade: it.quantidade,
@@ -1651,6 +1689,11 @@ function PDVPage() {
             })),
             data: new Date(),
           });
+          if (isLocalMode) {
+            toast.success(
+              "Venda salva localmente e será sincronizada quando a internet voltar.",
+            );
+          }
           setSucessoOpen(true);
           // Limpa o carrinho mas mantém cliente para próxima venda rápida
           clearVenda();

@@ -51,6 +51,11 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { ModuloGate } from "@/components/saas/ModuloGate";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  dateTimeFromMs,
+  fetchLocalFinanceiroJson,
+  isFinanceiroLocalDesktopMode,
+} from "@/lib/financeiro-local";
 import { formatBRL } from "@/lib/mock-data";
 import { exportRowsToCSV, type CsvColumn } from "@/lib/export-csv";
 import { cn } from "@/lib/utils";
@@ -111,6 +116,46 @@ interface MovimentoRow {
   valor: number;
   motivo: string | null;
   created_at: string;
+}
+
+interface LocalRelatorioCaixaRow {
+  id: string;
+  operador_id: string | null;
+  terminal_id: string | null;
+  data_abertura_ms: number;
+  data_fechamento_ms: number | null;
+  valor_inicial: number;
+  total_vendas: number;
+  total_sangrias: number;
+  total_suprimentos: number;
+  total_dinheiro: number;
+  total_pix: number;
+  total_debito: number;
+  total_credito: number;
+  total_boleto: number;
+  total_ifood: number;
+  total_fiado: number;
+  total_outros: number;
+  valor_esperado: number | null;
+  valor_informado: number | null;
+  diferenca: number | null;
+  status: "aberto" | "fechado";
+  observacao: string | null;
+  observacao_fechamento: string | null;
+  qtd_vendas: number;
+}
+
+interface LocalCaixaMovimentoRow {
+  local_uuid: string;
+  caixa_local_uuid: string;
+  tipo: string;
+  valor: number;
+  motivo: string | null;
+  created_at_ms: number;
+}
+
+function localDateTime(ms: number | null | undefined) {
+  return dateTimeFromMs(ms) ?? "";
 }
 
 /* =========================================================
@@ -188,11 +233,19 @@ function Conteudo() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [detalhe, setDetalhe] = useState<CaixaRow | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   // Carrega operadores e terminais (uma vez)
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      if (isFinanceiroLocalDesktopMode()) {
+        if (!cancelled) {
+          setOperadores([]);
+          setTerminais([]);
+        }
+        return;
+      }
       const [{ data: funcs }, { data: terms }] = await Promise.all([
         supabase.from("funcionarios").select("id, nome").eq("ativo", true).order("nome"),
         supabase.from("terminais").select("id, nome").eq("ativo", true).order("nome"),
@@ -211,7 +264,67 @@ function Conteudo() {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setLocalError(null);
       const { ini, fim } = calcRange(filtros.periodo, filtros.customIni, filtros.customFim);
+
+      if (isFinanceiroLocalDesktopMode()) {
+        try {
+          const data = await fetchLocalFinanceiroJson<LocalRelatorioCaixaRow[]>(
+            "/api/relatorios/caixa",
+            {
+              desde_ms: ini.getTime(),
+              ate_ms: fim.getTime(),
+              operador_id: filtros.operador !== "todos" ? filtros.operador : undefined,
+              terminal_id: filtros.terminal !== "todos" ? filtros.terminal : undefined,
+              status: filtros.status !== "todos" ? filtros.status : undefined,
+              limit: 500,
+            },
+          );
+          if (cancelled) return;
+          const mapped: CaixaRow[] = data.map((c) => ({
+            id: c.id,
+            operador_id: c.operador_id,
+            operador_nome: c.operador_id ?? "—",
+            terminal_id: c.terminal_id,
+            terminal_nome: c.terminal_id ?? "—",
+            data_abertura: localDateTime(c.data_abertura_ms),
+            data_fechamento: localDateTime(c.data_fechamento_ms) || null,
+            valor_inicial: Number(c.valor_inicial) || 0,
+            total_vendas: Number(c.total_vendas) || 0,
+            total_sangrias: Number(c.total_sangrias) || 0,
+            total_suprimentos: Number(c.total_suprimentos) || 0,
+            total_dinheiro: Number(c.total_dinheiro) || 0,
+            total_pix: Number(c.total_pix) || 0,
+            total_debito: Number(c.total_debito) || 0,
+            total_credito: Number(c.total_credito) || 0,
+            total_boleto: Number(c.total_boleto) || 0,
+            total_ifood: Number(c.total_ifood) || 0,
+            total_fiado: Number(c.total_fiado) || 0,
+            total_outros: Number(c.total_outros) || 0,
+            valor_esperado: c.valor_esperado != null ? Number(c.valor_esperado) : null,
+            valor_informado: c.valor_informado != null ? Number(c.valor_informado) : null,
+            diferenca: c.diferenca != null ? Number(c.diferenca) : null,
+            status: c.status,
+            observacao: c.observacao,
+            observacao_fechamento: c.observacao_fechamento,
+            qtd_vendas: Number(c.qtd_vendas) || 0,
+          }));
+          setRows(mapped);
+        } catch (e) {
+          const msg =
+            e instanceof Error
+              ? e.message
+              : "Dados locais de caixa ainda nao disponiveis.";
+          if (!cancelled) {
+            toast.error(msg);
+            setLocalError(msg);
+            setRows([]);
+          }
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+        return;
+      }
 
       let q = supabase
         .from("caixas")
@@ -547,6 +660,14 @@ function Conteudo() {
         />
       </div>
 
+      {localError && (
+        <Card>
+          <CardContent className="py-4 text-sm text-muted-foreground">
+            Dados locais de caixa indisponiveis: {localError}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Tabela */}
       <Card>
         <CardContent className="p-0">
@@ -715,6 +836,37 @@ function DetalheCaixaDialog({
     let cancelled = false;
     (async () => {
       setLoadingMovs(true);
+      if (isFinanceiroLocalDesktopMode()) {
+        try {
+          const data = await fetchLocalFinanceiroJson<LocalCaixaMovimentoRow[]>(
+            "/api/caixa/movimentos",
+            { caixa_id: caixa.id },
+          );
+          if (cancelled) return;
+          setMovs(
+            data.map((m) => ({
+              id: m.local_uuid,
+              caixa_id: m.caixa_local_uuid,
+              tipo: m.tipo,
+              valor: Number(m.valor) || 0,
+              motivo: m.motivo,
+              created_at: localDateTime(m.created_at_ms),
+            })),
+          );
+        } catch (e) {
+          if (!cancelled) {
+            toast.error(
+              e instanceof Error
+                ? e.message
+                : "Movimentacoes locais de caixa ainda nao disponiveis.",
+            );
+            setMovs([]);
+          }
+        } finally {
+          if (!cancelled) setLoadingMovs(false);
+        }
+        return;
+      }
       const { data, error } = await supabase
         .from("caixa_movimentos")
         .select("id, caixa_id, tipo, valor, motivo, created_at")
@@ -746,6 +898,10 @@ function DetalheCaixaDialog({
 
   async function salvarObservacao() {
     if (!caixa) return;
+    if (isFinanceiroLocalDesktopMode()) {
+      toast.warning("Observacao local de auditoria ainda nao disponivel.");
+      return;
+    }
     setSalvando(true);
     const { error } = await supabase
       .from("caixas")

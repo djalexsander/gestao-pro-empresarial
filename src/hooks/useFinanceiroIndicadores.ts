@@ -6,6 +6,13 @@ import {
   calcAbertoLanc,
   calcValorRealizado,
 } from "@/lib/financeiro-canonico";
+import {
+  fetchLocalFinanceiroJson,
+  isFinanceiroLocalDesktopMode,
+  localLancamentoStatus,
+  localLancamentoTipo,
+  type LocalFinanceiroLancamento,
+} from "@/lib/financeiro-local";
 
 export interface FinanceiroPeriodo {
   inicio: string; // YYYY-MM-DD
@@ -57,6 +64,8 @@ export interface VendaResumoDetalhe {
 }
 
 export interface FinanceiroIndicadores {
+  custoIndisponivel?: boolean;
+  custoIndisponivelMotivo?: string;
   periodo: FinanceiroPeriodo;
   totalVendido: number;
   custoTotal: number;
@@ -77,11 +86,107 @@ export interface FinanceiroIndicadores {
   vendasDetalhe: VendaResumoDetalhe[];
 }
 
+interface LocalVendaResumo {
+  id: string;
+  numero: string;
+  data_finalizacao: string | null;
+  data_emissao: string;
+  total: number;
+  status: string;
+  status_pagamento: string;
+  forma_pagamento: string | null;
+  cliente_nome?: string | null;
+}
+
 export function useFinanceiroIndicadores() {
   return useQuery({
     queryKey: ["financeiro_indicadores_mes"],
     queryFn: async (): Promise<FinanceiroIndicadores> => {
       const periodo = getMesAtual();
+      if (isFinanceiroLocalDesktopMode()) {
+        const hojeStrLocal = periodo.hoje;
+        const inicioMs = new Date(`${periodo.inicio}T00:00:00`).getTime();
+        const fimMs = new Date(`${periodo.fim}T23:59:59.999`).getTime();
+        const [vendasLocal, lancamentos] = await Promise.all([
+          fetchLocalFinanceiroJson<LocalVendaResumo[]>("/api/vendas/list", { limit: 5000 }),
+          fetchLocalFinanceiroJson<LocalFinanceiroLancamento[]>("/api/financeiro/lancamentos", { limit: 5000 }),
+        ]);
+
+        const vendas = vendasLocal.filter((v) => {
+          if (v.status === "cancelada") return false;
+          const data = new Date(v.data_finalizacao ?? v.data_emissao).getTime();
+          return data >= inicioMs && data <= fimMs;
+        });
+        const totalVendido = vendas.reduce((s, v) => s + (Number(v.total) || 0), 0);
+
+        let fiadoEmAberto = 0;
+        let qtdFiado = 0;
+        let ifoodAReceber = 0;
+        let qtdIfood = 0;
+        let recebidoHoje = 0;
+        let qtdRecebimentosHoje = 0;
+        let vencidosTotal = 0;
+        let qtdVencidos = 0;
+
+        for (const l of lancamentos) {
+          const tipo = localLancamentoTipo(l);
+          const status = localLancamentoStatus(l);
+          const aberto =
+            status === "pago" || status === "recebido" || status === "cancelado"
+              ? 0
+              : Math.max(0, Number(l.valor) || 0);
+          if (tipo === "receber" && aberto > 0 && l.forma_pagamento === "fiado") {
+            fiadoEmAberto += aberto;
+            qtdFiado += 1;
+          } else if (tipo === "receber" && aberto > 0 && l.forma_pagamento === "ifood") {
+            ifoodAReceber += aberto;
+            qtdIfood += 1;
+          }
+
+          const dataPag = l.data_pagamento_ms ? new Date(l.data_pagamento_ms).toISOString().slice(0, 10) : null;
+          if (tipo === "receber" && dataPag === hojeStrLocal && (status === "pago" || status === "recebido")) {
+            recebidoHoje += Number(l.valor) || 0;
+            qtdRecebimentosHoje += 1;
+          }
+
+          const venc = l.data_vencimento_ms ? new Date(l.data_vencimento_ms).toISOString().slice(0, 10) : null;
+          if (aberto > 0 && venc && venc < hojeStrLocal) {
+            vencidosTotal += aberto;
+            qtdVencidos += 1;
+          }
+        }
+
+        return {
+          custoIndisponivel: true,
+          custoIndisponivelMotivo: "Endpoint local necessario: /api/dashboard/venda-itens-resumo.",
+          periodo,
+          totalVendido,
+          custoTotal: 0,
+          lucroBruto: 0,
+          margemPct: 0,
+          qtdVendas: vendas.length,
+          qtdItensSemCusto: 0,
+          qtdItens: 0,
+          fiadoEmAberto,
+          qtdFiado,
+          ifoodAReceber,
+          qtdIfood,
+          recebidoHoje,
+          qtdRecebimentosHoje,
+          vencidosTotal,
+          qtdVencidos,
+          itensDetalhe: [],
+          vendasDetalhe: vendas.map((v) => ({
+            id: v.id,
+            numero: v.numero,
+            data: v.data_finalizacao ?? v.data_emissao,
+            cliente_nome: v.cliente_nome ?? null,
+            forma_pagamento: v.forma_pagamento,
+            status_pagamento: v.status_pagamento,
+            total: Number(v.total) || 0,
+          })),
+        };
+      }
       const hojeStr = periodo.hoje;
 
       // 1) Vendas finalizadas no mês
