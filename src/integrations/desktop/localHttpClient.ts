@@ -1,6 +1,7 @@
 import type { TerminalConexaoConfig } from "./types";
 
-const LOCAL_REQUEST_TIMEOUT_MS = 5000;
+// Align local request timeouts with diagnostics (desktop health checks).
+const LOCAL_REQUEST_TIMEOUT_MS = 10_000;
 const LOCAL_AUTH_HEADER = "X-Gestao-Token";
 
 const tokenRegistry = new Map<string, string>();

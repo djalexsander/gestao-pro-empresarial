@@ -45,7 +45,6 @@ const STATE: BootState & { listeners: Set<() => void> } = {
 function notify() {
   STATE.listeners.forEach((l) => l());
 }
-
 function friendlyStartError(err: unknown): string {
   const msg = String(err);
   const lower = msg.toLowerCase();
@@ -260,28 +259,36 @@ export function useBootController(): BootState {
       port,
       localBaseUrl: config.localBaseUrl ?? `http://127.0.0.1:${port}`,
     });
+
+    // Keep `starting` true across the whole restart flow and always clear
+    // both `starting` and `action` in a single finally to avoid stray UI
+    // states (buttons stuck on "Reiniciando...").
     STATE.starting = true;
     STATE.action = "restart";
     STATE.lastError = null;
     notify();
     try {
-      await stopLocalServer();
-      await delay(2_000);
-    } catch (error) {
-      console.warn("[boot] stop antes do restart falhou; tentando iniciar mesmo assim", error);
+      try {
+        await stopLocalServer();
+        await delay(2_000);
+      } catch (error) {
+        console.warn("[boot] stop antes do restart falhou; tentando iniciar mesmo assim", error);
+      }
+
+      return await doStart(
+        {
+          port,
+          serverName: nome,
+          serverId: config.serverId ?? null,
+          authToken: config.serverAuthToken ?? null,
+        },
+        "restart",
+      );
     } finally {
       STATE.starting = false;
+      STATE.action = null;
       notify();
     }
-    return doStart(
-      {
-        port,
-        serverName: nome,
-        serverId: config.serverId ?? null,
-        authToken: config.serverAuthToken ?? null,
-      },
-      "restart",
-    );
   }, [
     config.serverPort,
     config.terminal?.porta,

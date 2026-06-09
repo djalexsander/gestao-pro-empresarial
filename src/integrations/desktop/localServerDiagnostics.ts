@@ -1,7 +1,8 @@
 import type { TerminalConexaoConfig } from "./types";
 import { getBaseUrl } from "./localHttpClient";
 
-const TIMEOUT_MS = 3000;
+// Use a more generous timeout for desktop local checks (8-12s recommended).
+const TIMEOUT_MS = 10_000;
 const APP_MARKER = "Gestao Pro";
 
 export type ServerConnStatus =
