@@ -75,7 +75,6 @@ export function useServerConnection(): UseServerConnectionResult {
       const baseUrl = `http://127.0.0.1:${port}`;
       registerLocalServerAuth(baseUrl, status.auth_token);
       if (!config.serverAuthToken) {
-        console.info("[useServerConnection] persistindo token retornado pelo daemon local");
         setDesktopConfig({
           ...config,
           serverAuthToken: status.auth_token,
@@ -163,10 +162,7 @@ export function useServerConnection(): UseServerConnectionResult {
       // Quando online, enriquece com /server-info.
       if (result.status === "online") {
         if (consecutiveFailures.current > 0) {
-          console.info("[useServerConnection] health recover", {
-            baseUrl: result.baseUrl,
-            failures: consecutiveFailures.current,
-          });
+          // recover from transient health failures
         }
         consecutiveFailures.current = 0;
         lastOnline.current = result;
@@ -177,10 +173,6 @@ export function useServerConnection(): UseServerConnectionResult {
           const port = si.port ?? config.serverPort ?? config.terminal?.porta ?? DEFAULT_LOCAL_PORT;
           const networkBaseUrl = `http://${si.host}:${port}`;
           if (config.networkHost !== si.host || config.networkBaseUrl !== networkBaseUrl) {
-            console.info("[useServerConnection] persistindo host de rede do servidor", {
-              networkHost: si.host,
-              networkBaseUrl,
-            });
             setDesktopConfig({
               ...config,
               networkHost: si.host,
@@ -316,10 +308,6 @@ export function useServerConnection(): UseServerConnectionResult {
 
     if (role === "server" && cfgServer) {
       const baseUrl = `http://${cfgServer.host}:${cfgServer.porta}`;
-      console.info("[useServerConnection] baseUrl server resolvida", {
-        baseUrl,
-        port: cfgServer.porta,
-      });
       setConn((prev) => ({
         ...prev,
         status: prev.status === "online" ? prev.status : "unknown",

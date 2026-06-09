@@ -127,12 +127,10 @@ export async function startLocalServer(
   const invoke = await getInvoke();
   if (!invoke) {
     if (isDesktop()) {
-      console.error("[tauriBridge] start_local_server indisponivel: invoke Tauri nao carregou");
       throw new Error("API Tauri indisponível para iniciar o servidor local.");
     }
     return STATUS_OFF;
   }
-  console.info("[tauriBridge] start_local_server", { port: opts.port });
   const startPromise = invoke<LocalServerStatus>("start_local_server", {
     port: opts.port,
     serverName: opts.serverName,
@@ -173,9 +171,6 @@ export async function startLocalServer(
 }
 
 export async function stopLocalServer(): Promise<LocalServerStatus> {
-  console.warn("[tauriBridge] stopLocalServer chamado", {
-    stack: new Error().stack,
-  });
   const invoke = await getInvoke();
   if (!invoke) {
     if (isDesktop()) {

@@ -73,7 +73,6 @@ async function doStart(opts: {
     return null;
   }
   if (STATE.starting) {
-    console.log("[boot] start já em andamento, ignorando duplicata");
     return STATE.lastStatus;
   }
   STATE.starting = true;
@@ -84,7 +83,6 @@ async function doStart(opts: {
     (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? null;
   const upstreamAnonKey =
     (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ?? null;
-  console.log("[boot] invocando start_local_server", { port: opts.port });
   try {
     const st = await startLocalServer({
       port: opts.port,
@@ -95,7 +93,6 @@ async function doStart(opts: {
       authToken: opts.authToken,
     });
     STATE.lastStatus = st;
-    console.log("[boot] start_local_server resultado", st);
 
     // Persiste o token retornado pelo backend caso ainda não tenhamos
     // nenhum salvo (primeira execução). NUNCA troca um token já salvo —
@@ -168,7 +165,6 @@ export function useLocalServerBoot() {
   ]);
 
   useEffect(() => {
-    console.log("[boot] check", { isDesktop: desk, role, started: startedRef.current });
     if (!desk) return;
 
     if (role === "server") {

@@ -708,7 +708,7 @@ export function DesktopTab() {
               </Button>
             </CardHeader>
             <CardContent className="space-y-3">
-              <ConnStatusRow status={conn.status} mensagem={conn.mensagem} />
+              <ConnStatusRow status={conn?.status ?? "unknown"} mensagem={conn?.mensagem ?? ""} />
 
               <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 text-sm sm:grid-cols-2">
                 <Field
@@ -2489,13 +2489,37 @@ function VendasSyncErrorDialog({
 }
 
 function JsonBlock({ title, value }: { title: string; value: unknown }) {
+  function safeStringify(v: unknown) {
+    try {
+      const seen = new WeakSet();
+      return JSON.stringify(
+        v,
+        (_key, val) => {
+          if (val && typeof val === "object") {
+            if (seen.has(val)) return "[Circular]";
+            seen.add(val);
+          }
+          if (typeof val === "function") return `[Function ${val.name || "anonymous"}]`;
+          return val;
+        },
+        2,
+      );
+    } catch {
+      try {
+        return String(v);
+      } catch {
+        return "[unserializable]";
+      }
+    }
+  }
+
   return (
     <div>
       <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {title}
       </div>
       <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-muted/30 p-3 font-mono text-[11px]">
-        {JSON.stringify(value, null, 2)}
+        {safeStringify(value)}
       </pre>
     </div>
   );

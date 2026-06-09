@@ -16,11 +16,11 @@ import { APP_VERSION } from "@/lib/version";
 
 interface Props {
   config: DesktopConfig;
-  conn: ServerConnInfo;
+  conn: ServerConnInfo | null;
   info: ServerInfoPayload | null;
   daemon: LocalServerStatus | null;
   dbInfo: DbInfoPayload | null;
-  outboxes: Record<string, OutboxStats | null>;
+  outboxes?: Record<string, OutboxStats | null> | null;
 }
 
 /**
@@ -41,8 +41,17 @@ export function SuporteDiagnosticoCard({
   const [aberto, setAberto] = useState(false);
   const serverPort = config.serverPort ?? config.terminal?.porta ?? 3333;
   const localBaseUrl = config.localBaseUrl ?? `http://127.0.0.1:${serverPort}`;
+  const safeConn: ServerConnInfo =
+    conn ?? {
+      status: "unknown",
+      latenciaMs: null,
+      ultimoSync: null,
+      baseUrl: null,
+    };
   const effectiveBaseUrl =
-    config.role === "server" ? conn.baseUrl ?? localBaseUrl : conn.baseUrl;
+    config.role === "server"
+      ? safeConn.baseUrl ?? localBaseUrl
+      : safeConn.baseUrl ?? localBaseUrl;
   const effectiveDaemon =
     daemon ??
     (config.role === "server"
@@ -83,16 +92,16 @@ export function SuporteDiagnosticoCard({
         : null,
     },
     conexao: {
-      status: conn.status,
-      latencia_ms: conn.latenciaMs,
+      status: safeConn.status ?? "unknown",
+      latencia_ms: safeConn.latenciaMs ?? null,
       base_url: effectiveBaseUrl,
-      server_name: conn.serverName ?? null,
-      server_id_remoto: conn.serverId ?? null,
-      server_version: conn.serverVersion ?? null,
-      mensagem: conn.mensagem ?? null,
-      last_endpoint: (conn as any).lastEndpoint ?? null,
-      last_latency_ms: (conn as any).lastLatencyMs ?? null,
-      last_error_detail: (conn as any).lastErrorDetail ?? null,
+      server_name: safeConn.serverName ?? null,
+      server_id_remoto: safeConn.serverId ?? null,
+      server_version: safeConn.serverVersion ?? null,
+      mensagem: safeConn.mensagem ?? null,
+      last_endpoint: (safeConn as any).lastEndpoint ?? null,
+      last_latency_ms: (safeConn as any).lastLatencyMs ?? null,
+      last_error_detail: (safeConn as any).lastErrorDetail ?? null,
     },
     server_info: info
       ? {
@@ -119,7 +128,7 @@ export function SuporteDiagnosticoCard({
         }
       : null,
     filas: Object.fromEntries(
-      Object.entries(outboxes).map(([k, v]) => [
+      Object.entries(outboxes ?? {}).map(([k, v]) => [
         k,
         v
           ? {
@@ -139,7 +148,7 @@ export function SuporteDiagnosticoCard({
 
   const json = JSON.stringify(snapshot, null, 2);
 
-  const ok = conn.status === "online";
+  const ok = safeConn.status === "online";
 
   function copiar() {
     navigator.clipboard
