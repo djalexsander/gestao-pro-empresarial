@@ -5,6 +5,10 @@ import { getBaseUrl, fetchWithTimeout } from "./localHttpClient";
 const TIMEOUT_MS = 10_000;
 const APP_MARKER = "Gestao Pro";
 
+function logPingResult(result: ServerConnInfo): ServerConnInfo {
+  return result;
+}
+
 export type ServerConnStatus =
   | "unknown"
   | "online"
@@ -55,13 +59,13 @@ export async function pingServidorLocal(
 ): Promise<ServerConnInfo> {
   const baseUrl = getBaseUrl(cfg);
   if (!baseUrl) {
-    return {
+    return logPingResult({
       status: "cloud-fallback",
       latenciaMs: null,
       ultimoSync: new Date(),
       baseUrl: null,
       mensagem: "Sem servidor local configurado — usando nuvem.",
-    };
+    });
   }
   // Sequential probes with individual timeouts and logging.
   const probes: Array<{
@@ -73,7 +77,7 @@ export async function pingServidorLocal(
     error?: string | null;
   }> = [];
 
-  // Helper to run a GET with timeout and log result.
+  // Helper to run a GET with timeout.
   async function probe(path: string) {
     const start = performance.now();
     const entry = { endpoint: path, start };
@@ -86,18 +90,15 @@ export async function pingServidorLocal(
       (entry as any).ok = res.ok;
       if (!res.ok) {
         (entry as any).error = `HTTP ${res.status}`;
-        console.warn("[local-diagnostics] probe failed", entry);
         return { ok: false, status: res.status, body: await res.text().catch(() => "") };
       }
       const body = await res.text().catch(() => "");
-      console.info("[local-diagnostics] probe ok", { endpoint: path, duration });
       return { ok: true, status: res.status, body };
     } catch (err) {
       const duration = Math.round(performance.now() - start);
       (entry as any).durationMs = duration;
       const name = (err as Error)?.name ?? String(err);
       (entry as any).error = String(err ?? "error");
-      console.warn("[local-diagnostics] probe error", { endpoint: path, duration, error: name });
       return { ok: false, status: null, body: null, error: String(err) };
     }
   }
@@ -106,13 +107,13 @@ export async function pingServidorLocal(
   const healthRes = await probe("/health");
   if (!healthRes.ok) {
     const isTimeout = healthRes.error?.includes("AbortError") || healthRes.error?.toLowerCase().includes("timeout");
-    return {
+    return logPingResult({
       status: isTimeout ? "offline" : "offline",
       latenciaMs: null,
       ultimoSync: new Date(),
       baseUrl,
       mensagem: isTimeout ? `Timeout em /health ao ${baseUrl}/health` : `Falha ao consultar /health em ${baseUrl}. ${healthRes.error ?? ""}`,
-    };
+    });
   }
 
   // Parse health payload safely
@@ -124,13 +125,13 @@ export async function pingServidorLocal(
   }
 
   if (!healthPayload || healthPayload?.status !== "ok" || healthPayload?.app !== APP_MARKER) {
-    return {
+    return logPingResult({
       status: "invalid-server",
       latenciaMs: null,
       ultimoSync: new Date(),
       baseUrl,
       mensagem: "Há um servidor neste endereço, mas não é um Gestão Pro válido.",
-    };
+    });
   }
 
   // Health OK — record latency from payload if available or zero.
@@ -139,7 +140,7 @@ export async function pingServidorLocal(
   // 2) /server-info (best-effort): if it fails, report but keep status=online
   const serverInfoRes = await probe("/server-info");
   if (!serverInfoRes.ok) {
-    return {
+    return logPingResult({
       status: "online",
       latenciaMs: healthLatency ?? null,
       ultimoSync: new Date(),
@@ -148,7 +149,7 @@ export async function pingServidorLocal(
       lastLatencyMs: null,
       mensagem: `Servidor local ativo. Aguardando resposta de /server-info`,
       lastErrorDetail: serverInfoRes.error ?? null,
-    };
+    });
   }
 
   // Parse server-info and expose server metadata if available
@@ -162,7 +163,7 @@ export async function pingServidorLocal(
   // 3) /db/info — if it fails, report DB-specific warning but keep server active
   const dbRes = await probe("/db/info");
   if (!dbRes.ok) {
-    return {
+    return logPingResult({
       status: "online",
       latenciaMs: healthLatency ?? null,
       ultimoSync: new Date(),
@@ -171,13 +172,13 @@ export async function pingServidorLocal(
       lastLatencyMs: null,
       mensagem: `Servidor local ativo. Banco local não respondeu.`,
       lastErrorDetail: dbRes.error ?? null,
-    };
+    });
   }
 
   // All probes succeeded
   // successful probes — pick last probe info
   const last = probes[probes.length - 1];
-  return {
+  return logPingResult({
     status: "online",
     latenciaMs: healthLatency ?? null,
     ultimoSync: new Date(),
@@ -190,7 +191,7 @@ export async function pingServidorLocal(
     serverHostname: serverInfoPayload?.host ?? null,
     mensagem: null,
     lastErrorDetail: null,
-  };
+  });
 }
 
 export interface ServerInfoPayload {

@@ -826,6 +826,7 @@ fn with_conn<T>(f: impl FnOnce(&Connection) -> DbResult<T>) -> DbResult<T> {
         .get()
         .ok_or_else(|| DbError("DB não inicializado".into()))?;
     let wait_start = Instant::now();
+    eprintln!("[gestao-pro] db::with_conn ACQUIRE lock");
     let guard = cell
         .lock()
         .map_err(|e| DbError(format!("DB lock poisoned: {e}")))?;
@@ -836,7 +837,13 @@ fn with_conn<T>(f: impl FnOnce(&Connection) -> DbResult<T>) -> DbResult<T> {
             waited.as_millis()
         );
     }
-    f(&guard)
+    let result = f(&guard);
+    drop(guard);
+    eprintln!(
+        "[gestao-pro] db::with_conn RELEASE lock after {}ms",
+        wait_start.elapsed().as_millis()
+    );
+    result
 }
 
 /// Versão pública de `with_conn` para módulos vizinhos (ex.: `backup`)

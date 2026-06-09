@@ -30,12 +30,20 @@ async fn start_local_server(
 #[tauri::command]
 async fn stop_local_server() -> Result<LocalServerStatus, String> {
     eprintln!("[gestao-pro] stop_local_server invoked");
-    local_server::stop()
+    let res = local_server::stop();
+    match &res {
+        Ok(st) => eprintln!("[gestao-pro] stop_local_server OK running={} port={:?}", st.running, st.port),
+        Err(e) => eprintln!("[gestao-pro] stop_local_server ERROR: {e}"),
+    }
+    res
 }
 
 #[tauri::command]
 async fn local_server_status() -> LocalServerStatus {
-    local_server::current_status_checked().await
+    eprintln!("[gestao-pro] local_server_status invoked");
+    let status = local_server::current_status_checked().await;
+    eprintln!("[gestao-pro] local_server_status result running={} port={:?} uptime={:?}", status.running, status.port, status.started_at);
+    status
 }
 
 #[derive(Debug, Serialize)]

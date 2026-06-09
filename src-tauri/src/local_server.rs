@@ -281,11 +281,14 @@ fn iso_from_ms(ms: i64) -> Option<String> {
 // ---------- Handlers básicos ----------
 
 async fn health_handler() -> Json<HealthResponse> {
+    eprintln!("[gestao-pro] /health handler START");
     let (started, server_id, server_name) = STATE
         .try_lock()
         .ok()
         .map(|s| (s.started_at_ms.unwrap_or_else(now_ms), s.server_id.clone(), s.server_name.clone()))
         .unwrap_or((now_ms(), None, None));
+    let uptime_ms = now_ms() - started;
+    eprintln!("[gestao-pro] /health handler END uptime_ms={} server_id={:?} server_name={:?}", uptime_ms, server_id, server_name);
     Json(HealthResponse {
         status: "ok",
         app: APP_NAME,
@@ -294,11 +297,12 @@ async fn health_handler() -> Json<HealthResponse> {
         server_id,
         server_name,
         timestamp: now_ms(),
-        uptime_ms: now_ms() - started,
+        uptime_ms,
     })
 }
 
 async fn server_info_handler() -> Json<ServerInfoResponse> {
+    eprintln!("[gestao-pro] /server-info handler START");
     let snap = STATE.try_lock().ok().map(|s| {
         (
             s.server_name.clone(),
@@ -317,14 +321,14 @@ async fn server_info_handler() -> Json<ServerInfoResponse> {
     let host = local_ip().or_else(|| hostname.clone());
     let database_ready = db::db_file().exists();
 
-    Json(ServerInfoResponse {
+    let response = ServerInfoResponse {
         app: APP_NAME,
         version: APP_VERSION,
         protocol_version: PROTOCOL_VERSION,
         role: "server",
-        server_id,
-        server_name,
-        hostname,
+        server_id: server_id.clone(),
+        server_name: server_name.clone(),
+        hostname: hostname.clone(),
         host,
         started_at,
         started_at_iso: started_at.and_then(iso_from_ms),
@@ -333,7 +337,9 @@ async fn server_info_handler() -> Json<ServerInfoResponse> {
         terminals_conectados,
         backend_running: running,
         database_ready,
-    })
+    };
+    eprintln!("[gestao-pro] /server-info handler END backend_running={} database_ready={} port={:?} id={:?}", running, database_ready, port, server_id);
+    Json(response)
 }
 
 /// Tenta descobrir o IP IPv4 não-loopback principal da máquina, para
@@ -1268,9 +1274,15 @@ async fn events_handler(
 }
 
 async fn db_info_handler() -> Result<Json<db::DbInfo>, (StatusCode, String)> {
-    db::db_info()
+    eprintln!("[gestao-pro] /db/info handler START");
+    let result = db::db_info()
         .map(Json)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
+    match &result {
+        Ok(_) => eprintln!("[gestao-pro] /db/info handler END OK"),
+        Err((_, err)) => eprintln!("[gestao-pro] /db/info handler END ERROR: {err}"),
+    }
+    result
 }
 
 #[derive(Serialize)]
@@ -3812,16 +3824,21 @@ async fn probe_local_health(port: u16) -> bool {
 }
 
 pub async fn current_status_checked() -> LocalServerStatus {
+    eprintln!("[gestao-pro] local_server::current_status_checked START");
     let status = current_status();
     if status.running {
         if let Some(port) = status.port {
+            eprintln!("[gestao-pro] local_server::current_status_checked probing /health at port {port}");
             if !probe_local_health(port).await {
                 eprintln!(
                     "[gestao-pro] local_server_status: probe /health falhou na porta {port}; mantendo estado do daemon como running"
                 );
+            } else {
+                eprintln!("[gestao-pro] local_server::current_status_checked probe /health OK");
             }
         }
     }
+    eprintln!("[gestao-pro] local_server::current_status_checked END running={} port={:?}", status.running, status.port);
     status
 }
 

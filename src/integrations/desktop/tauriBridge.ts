@@ -67,14 +67,42 @@ function withTimeout<T>(
 async function getInvoke(): Promise<TauriInvoke | null> {
   if (!isDesktop()) return null;
   if (cachedInvoke) return cachedInvoke;
+
+  const win = typeof window !== "undefined" ? window as unknown as Record<string, unknown> : null;
+  if (win && !win.__TAURI__ && !win.__TAURI_INTERNALS__) {
+    console.warn("[tauriBridge] runtime Tauri não detectado; invoke indisponível");
+    return null;
+  }
+
   try {
     // Import dinâmico — só existe no bundle desktop.
     const mod = (await import(/* @vite-ignore */ "@tauri-apps/api/core")) as {
-      invoke: TauriInvoke;
+      invoke?: TauriInvoke;
     };
-    cachedInvoke = mod.invoke;
-    return cachedInvoke;
-  } catch {
+    if (typeof mod.invoke !== "function") {
+      console.warn("[tauriBridge] invoke não disponível no módulo Tauri");
+      return null;
+    }
+
+    const wrappedInvoke = async <T>(
+      cmd: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      try {
+        return (await mod.invoke!.call(mod, cmd, args)) as T;
+      } catch (error) {
+        const msg = String(error).toLowerCase();
+        if (msg.includes("cannot read properties") || msg.includes("undefined")) {
+          cachedInvoke = null;
+        }
+        throw error;
+      }
+    };
+
+    cachedInvoke = wrappedInvoke as TauriInvoke;
+    return wrappedInvoke as TauriInvoke;
+  } catch (error) {
+    console.warn("[tauriBridge] getInvoke falhou", error);
     return null;
   }
 }

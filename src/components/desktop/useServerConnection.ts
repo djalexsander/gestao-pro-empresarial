@@ -10,7 +10,7 @@
  * Em web:                retorna `cloud-fallback` estático.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDesktopRole } from "@/components/desktop/DesktopRoleProvider";
 import {
   enviarHeartbeatLocal,
@@ -86,20 +86,33 @@ export function useServerConnection(): UseServerConnectionResult {
     [role, config],
   );
 
-  const cfgTerminal: TerminalConexaoConfig | undefined =
-    role === "terminal" ? config.terminal : undefined;
+  const cfgTerminal = useMemo<TerminalConexaoConfig | undefined>(() => {
+    return role === "terminal" ? config.terminal : undefined;
+  }, [role, config.terminal]);
 
-  const cfgServer: TerminalConexaoConfig | undefined =
-    role === "server"
-      ? {
-          host: "127.0.0.1",
-          porta: daemon?.port ?? config.serverPort ?? config.terminal?.porta ?? DEFAULT_LOCAL_PORT,
-          terminalId: "self",
-          terminalNome: daemon?.server_name ?? config.serverNome ?? "Servidor",
-        }
-      : undefined;
+  const cfgServer = useMemo<TerminalConexaoConfig | undefined>(() => {
+    if (role !== "server") return undefined;
+    return {
+      host: "127.0.0.1",
+      porta:
+        daemon?.port ??
+        config.serverPort ??
+        config.terminal?.porta ??
+        DEFAULT_LOCAL_PORT,
+      terminalId: "self",
+      terminalNome:
+        daemon?.server_name ?? config.serverNome ?? "Servidor",
+    };
+  }, [
+    role,
+    daemon?.port,
+    daemon?.server_name,
+    config.serverPort,
+    config.terminal?.porta,
+    config.serverNome,
+  ]);
 
-  const cfgPing = cfgTerminal ?? cfgServer;
+  const cfgPing = useMemo(() => cfgTerminal ?? cfgServer, [cfgTerminal, cfgServer]);
 
   const ping = useCallback(async () => {
     if (inFlight.current) return;
