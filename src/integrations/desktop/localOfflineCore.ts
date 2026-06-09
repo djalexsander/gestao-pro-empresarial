@@ -2,6 +2,7 @@ import type { TerminalConexaoConfig } from "./types";
 import {
   fetchWithTimeout,
   getBaseUrl,
+  getJson,
   getLocalJson,
   postLocalJson,
   resolveTokenForUrl,
@@ -75,90 +76,44 @@ export interface OutboxFlushResult {
 export async function fetchOutboxStats(
   cfg?: TerminalConexaoConfig,
 ): Promise<OutboxStats | null> {
-  const baseUrl = getBaseUrl(cfg);
-  if (!baseUrl) return null;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-  try {
-    const res = await fetch(`${baseUrl}/db/outbox/estoque/stats`, {
-      headers: { Accept: "application/json" },
-      signal: ctrl.signal,
-      cache: "no-store",
-    });
-    clearTimeout(timer);
-    if (!res.ok) return null;
-    return (await res.json()) as OutboxStats;
-  } catch {
-    clearTimeout(timer);
-    return null;
-  }
+  return getJson<OutboxStats>(cfg, "/db/outbox/estoque/stats");
 }
 
 export async function fetchOutboxList(
   cfg: TerminalConexaoConfig | undefined,
   opts?: { status?: OutboxItem["status"]; limit?: number },
 ): Promise<OutboxItem[]> {
-  const baseUrl = getBaseUrl(cfg);
-  if (!baseUrl) return [];
-  const url = new URL(`${baseUrl}/db/outbox/estoque`);
-  if (opts?.status) url.searchParams.set("status", opts.status);
-  if (opts?.limit) url.searchParams.set("limit", String(opts.limit));
-  try {
-    const res = await fetchWithTimeout(url.toString(), {
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
-    if (!res.ok) return [];
-    const json = (await res.json()) as { items?: OutboxItem[] };
-    return json.items ?? [];
-  } catch {
-    return [];
-  }
+  const result = await getLocalJson<{ items?: OutboxItem[] }>(cfg, "/db/outbox/estoque", {
+    status: opts?.status ?? undefined,
+    limit: opts?.limit ? String(opts.limit) : undefined,
+  });
+  return result?.items ?? [];
 }
 
 export async function flushOutbox(
   cfg: TerminalConexaoConfig | undefined,
   authToken?: string | null,
 ): Promise<OutboxFlushResult | null> {
-  const baseUrl = getBaseUrl(cfg);
-  if (!baseUrl) return null;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 30_000);
-  try {
-    const headers: Record<string, string> = { Accept: "application/json" };
-    if (authToken) headers.Authorization = `Bearer ${authToken}`;
-    const res = await fetch(`${baseUrl}/db/outbox/flush`, {
-      method: "POST",
-      headers,
-      signal: ctrl.signal,
-      cache: "no-store",
-    });
-    clearTimeout(timer);
-    if (!res.ok) return null;
-    return (await res.json()) as OutboxFlushResult;
-  } catch {
-    clearTimeout(timer);
-    return null;
-  }
+  return postLocalJson<{}, OutboxFlushResult>(
+    cfg,
+    "/db/outbox/flush",
+    {},
+    authToken,
+    30_000,
+  );
 }
 
 export async function retryOutboxErrors(
   cfg: TerminalConexaoConfig | undefined,
 ): Promise<number> {
-  const baseUrl = getBaseUrl(cfg);
-  if (!baseUrl) return 0;
-  try {
-    const res = await fetchWithTimeout(`${baseUrl}/db/outbox/retry-errors`, {
-      method: "POST",
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
-    if (!res.ok) return 0;
-    const json = (await res.json()) as { requeued?: number };
-    return json.requeued ?? 0;
-  } catch {
-    return 0;
-  }
+  const result = await postLocalJson<{}, { requeued?: number }>(
+    cfg,
+    "/db/outbox/retry-errors",
+    {},
+    null,
+    10_000,
+  );
+  return result?.requeued ?? 0;
 }
 
 export async function registrarMovimentoLocal(
@@ -282,90 +237,44 @@ export async function registrarVendaLocal(
 export async function fetchOutboxVendasStats(
   cfg?: TerminalConexaoConfig,
 ): Promise<OutboxStats | null> {
-  const baseUrl = getBaseUrl(cfg);
-  if (!baseUrl) return null;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-  try {
-    const res = await fetch(`${baseUrl}/db/outbox/vendas/stats`, {
-      headers: { Accept: "application/json" },
-      signal: ctrl.signal,
-      cache: "no-store",
-    });
-    clearTimeout(timer);
-    if (!res.ok) return null;
-    return (await res.json()) as OutboxStats;
-  } catch {
-    clearTimeout(timer);
-    return null;
-  }
+  return getJson<OutboxStats>(cfg, "/db/outbox/vendas/stats");
 }
 
 export async function fetchOutboxVendasList(
   cfg: TerminalConexaoConfig | undefined,
   opts?: { status?: OutboxItem["status"]; limit?: number },
 ): Promise<OutboxItem[]> {
-  const baseUrl = getBaseUrl(cfg);
-  if (!baseUrl) return [];
-  const url = new URL(`${baseUrl}/db/outbox/vendas`);
-  if (opts?.status) url.searchParams.set("status", opts.status);
-  if (opts?.limit) url.searchParams.set("limit", String(opts.limit));
-  try {
-    const res = await fetchWithTimeout(url.toString(), {
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
-    if (!res.ok) return [];
-    const json = (await res.json()) as { items?: OutboxItem[] };
-    return json.items ?? [];
-  } catch {
-    return [];
-  }
+  const result = await getLocalJson<{ items?: OutboxItem[] }>(cfg, "/db/outbox/vendas", {
+    status: opts?.status ?? undefined,
+    limit: opts?.limit ? String(opts.limit) : undefined,
+  });
+  return result?.items ?? [];
 }
 
 export async function flushOutboxVendas(
   cfg: TerminalConexaoConfig | undefined,
   authToken?: string | null,
 ): Promise<OutboxFlushResult | null> {
-  const baseUrl = getBaseUrl(cfg);
-  if (!baseUrl) return null;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 30_000);
-  try {
-    const headers: Record<string, string> = { Accept: "application/json" };
-    if (authToken) headers.Authorization = `Bearer ${authToken}`;
-    const res = await fetch(`${baseUrl}/db/outbox/vendas/flush`, {
-      method: "POST",
-      headers,
-      signal: ctrl.signal,
-      cache: "no-store",
-    });
-    clearTimeout(timer);
-    if (!res.ok) return null;
-    return (await res.json()) as OutboxFlushResult;
-  } catch {
-    clearTimeout(timer);
-    return null;
-  }
+  return postLocalJson<{}, OutboxFlushResult>(
+    cfg,
+    "/db/outbox/vendas/flush",
+    {},
+    authToken,
+    30_000,
+  );
 }
 
 export async function retryOutboxVendasErrors(
   cfg: TerminalConexaoConfig | undefined,
 ): Promise<number> {
-  const baseUrl = getBaseUrl(cfg);
-  if (!baseUrl) return 0;
-  try {
-    const res = await fetchWithTimeout(`${baseUrl}/db/outbox/vendas/retry-errors`, {
-      method: "POST",
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
-    if (!res.ok) return 0;
-    const json = (await res.json()) as { requeued?: number };
-    return json.requeued ?? 0;
-  } catch {
-    return 0;
-  }
+  const result = await postLocalJson<{}, { requeued?: number }>(
+    cfg,
+    "/db/outbox/vendas/retry-errors",
+    {},
+    null,
+    10_000,
+  );
+  return result?.requeued ?? 0;
 }
 
 export async function archiveOutboxVendaError(

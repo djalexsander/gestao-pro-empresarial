@@ -280,18 +280,7 @@ export interface OutboxStatusResponse {
 export async function fetchOutboxStatus(
   cfg?: TerminalConexaoConfig,
 ): Promise<OutboxStatusResponse | null> {
-  const baseUrl = getBaseUrl(cfg);
-  if (!baseUrl) return null;
-  try {
-    const res = await fetchWithTimeout(`${baseUrl}/api/db/outbox/status`, {
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as OutboxStatusResponse;
-  } catch {
-    return null;
-  }
+  return getJson<OutboxStatusResponse>(cfg, "/api/db/outbox/status");
 }
 
 // ----------------------------------------------------------------------------

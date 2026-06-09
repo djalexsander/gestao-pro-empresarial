@@ -204,7 +204,22 @@ export function DesktopTab() {
     setFlushingVendas(true);
     try {
       const { data } = await supabase.auth.getSession();
-      await flushOutboxVendas(localCfg, data.session?.access_token ?? null);
+      const result = await flushOutboxVendas(
+        localCfg,
+        data.session?.access_token ?? null,
+      );
+      if (result) {
+        toast.success(
+          `Sincronização de vendas concluída: ${result.sent} enviadas, ${result.failed} falharam.`,
+        );
+        if (result.failed > 0 && result.errors.length > 0) {
+          toast.error(result.errors[0]);
+        }
+      } else {
+        toast.error(
+          "Falha ao sincronizar vendas. Verifique o token local e tente novamente.",
+        );
+      }
       setOutboxVendas(await fetchOutboxVendasStats(localCfg));
       await recarregarOutboxStatus();
     } finally {
@@ -240,7 +255,12 @@ export function DesktopTab() {
 
   const handleRetryErrorsVendas = async () => {
     if (!localCfg) return;
-    await retryOutboxVendasErrors(localCfg);
+    const requeued = await retryOutboxVendasErrors(localCfg);
+    if (requeued > 0) {
+      toast.success(`Reenfileiradas ${requeued} vendas em erro.`);
+    } else {
+      toast.info("Nenhum erro de venda foi reenfileirado.");
+    }
     setOutboxVendas(await fetchOutboxVendasStats(localCfg));
     await recarregarOutboxStatus();
     if (vendasErroOpen) {
@@ -2057,7 +2077,14 @@ function ConnStatusRow({
   // Derive display state: treat 'online' with warning messages as amber
   let display: "online-ok" | "online-warn" | ServerConnStatus = status;
   const lowerMsg = (mensagem ?? "").toLowerCase();
-  if (status === "online" && (lowerMsg.includes("aguardando") || lowerMsg.includes("banco") || lowerMsg.includes("filas") || lowerMsg.includes("não respondeu"))) {
+  if (
+    status === "online" &&
+    (lowerMsg.includes("aguardando") ||
+      lowerMsg.includes("banco") ||
+      lowerMsg.includes("filas") ||
+      lowerMsg.includes("não respondeu") ||
+      lowerMsg.includes("token"))
+  ) {
     display = "online-warn";
   }
 
