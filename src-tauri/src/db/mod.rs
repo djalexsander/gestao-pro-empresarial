@@ -159,6 +159,7 @@ pub fn init() -> DbResult<()> {
 
         CREATE TABLE IF NOT EXISTS clientes_local (
             id                   TEXT PRIMARY KEY,
+            owner_id             TEXT,
             remote_id            TEXT,
             nome                 TEXT,
             nome_fantasia        TEXT,
@@ -177,6 +178,7 @@ pub fn init() -> DbResult<()> {
             deleted_at_ms        INTEGER
         );
         CREATE INDEX IF NOT EXISTS idx_clientes_status ON clientes_local(status);
+        CREATE INDEX IF NOT EXISTS idx_clientes_owner ON clientes_local(owner_id);
         CREATE INDEX IF NOT EXISTS idx_clientes_nome ON clientes_local(nome);
         CREATE INDEX IF NOT EXISTS idx_clientes_doc ON clientes_local(documento);
         CREATE INDEX IF NOT EXISTS idx_clientes_remote_id ON clientes_local(remote_id);
@@ -184,14 +186,16 @@ pub fn init() -> DbResult<()> {
         -- Saldos: agregados por (produto_id, variacao_id). A chave única
         -- evita duplicatas quando o snapshot é re-ingerido.
         CREATE TABLE IF NOT EXISTS estoque_saldos_local (
+            owner_id       TEXT,
             produto_id     TEXT NOT NULL,
             variacao_id    TEXT NOT NULL DEFAULT '',
             tipo           TEXT,
             quantidade     REAL NOT NULL DEFAULT 0,
             payload        TEXT NOT NULL,
             synced_at_ms   INTEGER NOT NULL,
-            PRIMARY KEY (produto_id, variacao_id)
+            PRIMARY KEY (owner_id, produto_id, variacao_id)
         );
+        CREATE INDEX IF NOT EXISTS idx_saldos_owner ON estoque_saldos_local(owner_id);
         CREATE INDEX IF NOT EXISTS idx_saldos_produto ON estoque_saldos_local(produto_id);
 
         -- Metadados de sync por domínio (último refresh, contagem ingerida,
@@ -247,6 +251,7 @@ pub fn init() -> DbResult<()> {
 
         CREATE TABLE IF NOT EXISTS estoque_movimentacoes_local (
             id                   TEXT PRIMARY KEY,
+            owner_id             TEXT,
             produto_id           TEXT NOT NULL,
             variacao_id          TEXT,
             tipo                 TEXT NOT NULL,
@@ -262,6 +267,8 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_movs_produto
             ON estoque_movimentacoes_local(produto_id);
+        CREATE INDEX IF NOT EXISTS idx_movs_owner
+            ON estoque_movimentacoes_local(owner_id);
         CREATE INDEX IF NOT EXISTS idx_movs_data
             ON estoque_movimentacoes_local(data_movimentacao_ms DESC);
         CREATE INDEX IF NOT EXISTS idx_movs_produto_data
@@ -291,6 +298,7 @@ pub fn init() -> DbResult<()> {
 
         CREATE TABLE IF NOT EXISTS outbox_estoque_movs (
             local_uuid    TEXT PRIMARY KEY,
+            owner_id      TEXT,
             client_uuid   TEXT,
             payload       TEXT NOT NULL,
             status        TEXT NOT NULL DEFAULT 'pending',
@@ -303,6 +311,8 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_outbox_status
             ON outbox_estoque_movs(status, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_estoque_owner
+            ON outbox_estoque_movs(owner_id);
         CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_client_uuid
             ON outbox_estoque_movs(client_uuid)
             WHERE client_uuid IS NOT NULL;
@@ -340,6 +350,7 @@ pub fn init() -> DbResult<()> {
 
         CREATE TABLE IF NOT EXISTS vendas_local (
             local_uuid       TEXT PRIMARY KEY,
+            owner_id         TEXT,
             client_uuid      TEXT,
             cliente_id       TEXT,
             subtotal         REAL NOT NULL DEFAULT 0,
@@ -359,11 +370,14 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_vendas_local_created
             ON vendas_local(created_at_ms DESC);
+        CREATE INDEX IF NOT EXISTS idx_vendas_local_owner
+            ON vendas_local(owner_id);
         CREATE UNIQUE INDEX IF NOT EXISTS uq_vendas_local_client_uuid
             ON vendas_local(client_uuid) WHERE client_uuid IS NOT NULL;
 
         CREATE TABLE IF NOT EXISTS venda_itens_local (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_id        TEXT,
             venda_local_uuid TEXT NOT NULL,
             produto_id      TEXT NOT NULL,
             descricao       TEXT,
@@ -375,9 +389,12 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_venda_itens_local_venda
             ON venda_itens_local(venda_local_uuid);
+        CREATE INDEX IF NOT EXISTS idx_venda_itens_local_owner
+            ON venda_itens_local(owner_id);
 
         CREATE TABLE IF NOT EXISTS venda_pagamentos_local (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_id        TEXT,
             venda_local_uuid TEXT NOT NULL,
             forma_pagamento TEXT NOT NULL,
             valor           REAL NOT NULL DEFAULT 0,
@@ -389,9 +406,12 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_venda_pagtos_local_venda
             ON venda_pagamentos_local(venda_local_uuid);
+        CREATE INDEX IF NOT EXISTS idx_venda_pagtos_local_owner
+            ON venda_pagamentos_local(owner_id);
 
         CREATE TABLE IF NOT EXISTS outbox_vendas (
             local_uuid          TEXT PRIMARY KEY,
+            owner_id            TEXT,
             client_uuid         TEXT,
             payload             TEXT NOT NULL,
             status              TEXT NOT NULL DEFAULT 'pending',
@@ -405,6 +425,8 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_outbox_vendas_status
             ON outbox_vendas(status, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_vendas_owner
+            ON outbox_vendas(owner_id);
         CREATE INDEX IF NOT EXISTS idx_outbox_vendas_status_next
             ON outbox_vendas(status, next_attempt_at_ms);
         CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_vendas_client_uuid
@@ -447,6 +469,7 @@ pub fn init() -> DbResult<()> {
 
         CREATE TABLE IF NOT EXISTS caixa_local (
             local_uuid       TEXT PRIMARY KEY,
+            owner_id         TEXT,
             client_uuid      TEXT,
             remote_id        TEXT,
             status           TEXT NOT NULL DEFAULT 'aberto',
@@ -465,6 +488,8 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_caixa_local_status
             ON caixa_local(status, data_abertura_ms DESC);
+        CREATE INDEX IF NOT EXISTS idx_caixa_local_owner
+            ON caixa_local(owner_id);
         CREATE INDEX IF NOT EXISTS idx_caixa_local_operador
             ON caixa_local(operador_id, status);
         CREATE UNIQUE INDEX IF NOT EXISTS uq_caixa_local_client_uuid
@@ -472,6 +497,7 @@ pub fn init() -> DbResult<()> {
 
         CREATE TABLE IF NOT EXISTS caixa_movs_local (
             local_uuid       TEXT PRIMARY KEY,
+            owner_id         TEXT,
             client_uuid      TEXT,
             caixa_local_uuid TEXT NOT NULL,
             tipo             TEXT NOT NULL,
@@ -483,11 +509,14 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_caixa_movs_caixa
             ON caixa_movs_local(caixa_local_uuid, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_caixa_movs_owner
+            ON caixa_movs_local(owner_id);
         CREATE UNIQUE INDEX IF NOT EXISTS uq_caixa_movs_client_uuid
             ON caixa_movs_local(client_uuid) WHERE client_uuid IS NOT NULL;
 
         CREATE TABLE IF NOT EXISTS outbox_caixa (
             local_uuid          TEXT PRIMARY KEY,
+            owner_id            TEXT,
             client_uuid         TEXT,
             action              TEXT NOT NULL,
             caixa_local_uuid    TEXT NOT NULL,
@@ -503,6 +532,8 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_outbox_caixa_status
             ON outbox_caixa(status, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_caixa_owner
+            ON outbox_caixa(owner_id);
         CREATE INDEX IF NOT EXISTS idx_outbox_caixa_status_next
             ON outbox_caixa(status, next_attempt_at_ms);
         CREATE INDEX IF NOT EXISTS idx_outbox_caixa_action
@@ -569,6 +600,24 @@ pub fn init() -> DbResult<()> {
         "ALTER TABLE outbox_clientes ADD COLUMN next_attempt_at_ms INTEGER",
         "ALTER TABLE outbox_produtos ADD COLUMN produto_local_id TEXT",
         "ALTER TABLE outbox_produtos ADD COLUMN next_attempt_at_ms INTEGER",
+        // v16: isolamento multi-tenant fisico no SQLite local.
+        // Em bancos existentes, a coluna fica nullable por compatibilidade;
+        // todas as leituras novas exigem owner_id igual ao JWT.
+        "ALTER TABLE clientes_local ADD COLUMN owner_id TEXT",
+        "ALTER TABLE estoque_saldos_local ADD COLUMN owner_id TEXT",
+        "ALTER TABLE estoque_movimentacoes_local ADD COLUMN owner_id TEXT",
+        "ALTER TABLE vendas_local ADD COLUMN owner_id TEXT",
+        "ALTER TABLE venda_itens_local ADD COLUMN owner_id TEXT",
+        "ALTER TABLE venda_pagamentos_local ADD COLUMN owner_id TEXT",
+        "ALTER TABLE caixa_local ADD COLUMN owner_id TEXT",
+        "ALTER TABLE caixa_movs_local ADD COLUMN owner_id TEXT",
+        "ALTER TABLE outbox_estoque_movs ADD COLUMN owner_id TEXT",
+        "ALTER TABLE outbox_vendas ADD COLUMN owner_id TEXT",
+        "ALTER TABLE outbox_caixa ADD COLUMN owner_id TEXT",
+        "ALTER TABLE outbox_clientes ADD COLUMN owner_id TEXT",
+        "ALTER TABLE outbox_cancelamentos_venda ADD COLUMN owner_id TEXT",
+        "ALTER TABLE lancamentos_financeiros_local ADD COLUMN owner_id TEXT",
+        "ALTER TABLE outbox_financeiro ADD COLUMN owner_id TEXT",
     ];
     for sql in alters {
         // Erro só ocorre quando a coluna já existe — seguro ignorar.
@@ -618,11 +667,31 @@ pub fn init() -> DbResult<()> {
             ON clientes_local(remote_id)",
         [],
     );
+    for sql in [
+        "CREATE INDEX IF NOT EXISTS idx_clientes_owner ON clientes_local(owner_id)",
+        "CREATE INDEX IF NOT EXISTS idx_saldos_owner ON estoque_saldos_local(owner_id)",
+        "CREATE INDEX IF NOT EXISTS idx_movs_owner ON estoque_movimentacoes_local(owner_id)",
+        "CREATE INDEX IF NOT EXISTS idx_vendas_local_owner ON vendas_local(owner_id)",
+        "CREATE INDEX IF NOT EXISTS idx_venda_itens_local_owner ON venda_itens_local(owner_id)",
+        "CREATE INDEX IF NOT EXISTS idx_venda_pagtos_local_owner ON venda_pagamentos_local(owner_id)",
+        "CREATE INDEX IF NOT EXISTS idx_caixa_local_owner ON caixa_local(owner_id)",
+        "CREATE INDEX IF NOT EXISTS idx_caixa_movs_owner ON caixa_movs_local(owner_id)",
+        "CREATE INDEX IF NOT EXISTS idx_outbox_estoque_owner ON outbox_estoque_movs(owner_id)",
+        "CREATE INDEX IF NOT EXISTS idx_outbox_vendas_owner ON outbox_vendas(owner_id)",
+        "CREATE INDEX IF NOT EXISTS idx_outbox_caixa_owner ON outbox_caixa(owner_id)",
+        "CREATE INDEX IF NOT EXISTS idx_outbox_clientes_owner ON outbox_clientes(owner_id)",
+        "CREATE INDEX IF NOT EXISTS idx_outbox_canc_owner ON outbox_cancelamentos_venda(owner_id)",
+        "CREATE INDEX IF NOT EXISTS idx_lanc_local_owner ON lancamentos_financeiros_local(owner_id)",
+        "CREATE INDEX IF NOT EXISTS idx_outbox_fin_owner ON outbox_financeiro(owner_id)",
+    ] {
+        let _ = conn.execute(sql, []);
+    }
     // v14: outbox de clientes basicos.
     conn.execute_batch(
         r#"
         CREATE TABLE IF NOT EXISTS outbox_clientes (
             local_uuid          TEXT PRIMARY KEY,
+            owner_id            TEXT,
             client_uuid         TEXT,
             cliente_local_id    TEXT NOT NULL,
             payload             TEXT NOT NULL,
@@ -637,6 +706,8 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_outbox_clientes_status
             ON outbox_clientes(status, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_clientes_owner
+            ON outbox_clientes(owner_id);
         CREATE INDEX IF NOT EXISTS idx_outbox_clientes_status_next
             ON outbox_clientes(status, next_attempt_at_ms);
         CREATE INDEX IF NOT EXISTS idx_outbox_clientes_cliente
@@ -694,6 +765,7 @@ pub fn init() -> DbResult<()> {
         r#"
         CREATE TABLE IF NOT EXISTS outbox_cancelamentos_venda (
             local_uuid          TEXT PRIMARY KEY,
+            owner_id            TEXT,
             client_uuid         TEXT,
             venda_local_uuid    TEXT NOT NULL,
             venda_remote_id     TEXT,
@@ -711,6 +783,8 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_outbox_canc_status
             ON outbox_cancelamentos_venda(status, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_canc_owner
+            ON outbox_cancelamentos_venda(owner_id);
         CREATE INDEX IF NOT EXISTS idx_outbox_canc_status_next
             ON outbox_cancelamentos_venda(status, next_attempt_at_ms);
         CREATE INDEX IF NOT EXISTS idx_outbox_canc_venda
@@ -744,6 +818,7 @@ pub fn init() -> DbResult<()> {
         r#"
         CREATE TABLE IF NOT EXISTS lancamentos_financeiros_local (
             local_uuid       TEXT PRIMARY KEY,
+            owner_id         TEXT,
             caixa_local_uuid TEXT NOT NULL,
             tipo             TEXT NOT NULL,
             categoria        TEXT NOT NULL,
@@ -756,6 +831,8 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_lanc_local_caixa
             ON lancamentos_financeiros_local(caixa_local_uuid, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_lanc_local_owner
+            ON lancamentos_financeiros_local(owner_id);
         CREATE INDEX IF NOT EXISTS idx_lanc_local_categoria
             ON lancamentos_financeiros_local(caixa_local_uuid, categoria);
         "#,
@@ -779,6 +856,7 @@ pub fn init() -> DbResult<()> {
         r#"
         CREATE TABLE IF NOT EXISTS outbox_financeiro (
             local_uuid          TEXT PRIMARY KEY,
+            owner_id            TEXT,
             client_uuid         TEXT,
             lanc_local_uuid     TEXT NOT NULL,
             payload             TEXT NOT NULL,
@@ -794,6 +872,8 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_outbox_fin_status
             ON outbox_financeiro(status, created_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_outbox_fin_owner
+            ON outbox_financeiro(owner_id);
         CREATE INDEX IF NOT EXISTS idx_outbox_fin_status_next
             ON outbox_financeiro(status, next_attempt_at_ms);
         CREATE INDEX IF NOT EXISTS idx_outbox_fin_lanc
@@ -1602,7 +1682,6 @@ pub fn read_produtos(filter: ProdutosFilter<'_>) -> DbResult<String> {
         let rows = stmt.query_map(params_dyn.as_slice(), |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, Option<f64>>(1)?))
         })?;
-        let mut out_all: Vec<serde_json::Value> = Vec::new();
         let mut out_owner: Vec<serde_json::Value> = Vec::new();
         for r in rows {
             let (payload, estoque_atual) = r?;
@@ -1630,19 +1709,13 @@ pub fn read_produtos(filter: ProdutosFilter<'_>) -> DbResult<String> {
                 if item_owner == Some(owner_id) {
                     out_owner.push(item.clone());
                 }
+            } else {
+                out_owner.push(item.clone());
             }
-            out_all.push(item);
         }
-        // Em desktop offline, o usuário pode estar usando sessão restaurada sem
-        // JWT cloud válido ou payloads locais antigos sem owner_id compatível.
-        // Se nenhum registro bater no owner do JWT, servimos a tabela local
-        // completa em vez de esconder o catálogo já persistido no SQLite.
-        let out = if filter.owner_id.is_some() && !out_owner.is_empty() {
-            out_owner
-        } else {
-            out_all
-        };
-        serde_json::to_string(&out).map_err(|e| DbError(e.to_string()))
+        // Isolamento multi-tenant: quando a rota passa owner_id, registros
+        // locais sem owner_id ou de outro dono nao podem ser servidos.
+        serde_json::to_string(&out_owner).map_err(|e| DbError(e.to_string()))
     })
 }
 
@@ -1652,6 +1725,7 @@ pub fn ingest_clientes(
     json_text: &str,
     now_ms: i64,
     strategy: IngestStrategy,
+    owner_id: &str,
 ) -> DbResult<(usize, Option<i64>)> {
     let arr: serde_json::Value = serde_json::from_str(json_text)
         .map_err(|e| DbError(format!("ingest_clientes: json inválido: {e}")))?;
@@ -1666,12 +1740,13 @@ pub fn ingest_clientes(
         {
             let mut stmt = tx.prepare(
                 "INSERT INTO clientes_local(
-                    id, remote_id, nome, nome_fantasia, documento, tipo, email,
+                    id, owner_id, remote_id, nome, nome_fantasia, documento, tipo, email,
                     telefone, celular, status, payload, sync_status,
                     created_at_ms, updated_at_ms, updated_at_remote_ms,
                     synced_at_ms, deleted_at_ms
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)
                  ON CONFLICT(id) DO UPDATE SET
+                    owner_id             = excluded.owner_id,
                     remote_id            = COALESCE(clientes_local.remote_id, excluded.remote_id),
                     nome                 = excluded.nome,
                     nome_fantasia        = excluded.nome_fantasia,
@@ -1708,9 +1783,14 @@ pub fn ingest_clientes(
                 } else {
                     None::<i64>
                 };
-                let payload = serde_json::to_string(item).unwrap_or_else(|_| "{}".into());
+                let mut item_with_owner = item.clone();
+                if let Some(obj) = item_with_owner.as_object_mut() {
+                    obj.insert("owner_id".into(), serde_json::Value::String(owner_id.to_string()));
+                }
+                let payload = serde_json::to_string(&item_with_owner).unwrap_or_else(|_| "{}".into());
                 stmt.execute(params![
                     id,
+                    owner_id,
                     id,
                     json_str(item, "nome"),
                     json_str(item, "nome_fantasia"),
@@ -1732,7 +1812,7 @@ pub fn ingest_clientes(
             }
         }
         let total: i64 =
-            tx.query_row("SELECT COUNT(*) FROM clientes_local WHERE deleted_at_ms IS NULL", [], |r| r.get(0))?;
+            tx.query_row("SELECT COUNT(*) FROM clientes_local WHERE owner_id=?1 AND deleted_at_ms IS NULL", params![owner_id], |r| r.get(0))?;
         upsert_domain_meta(&tx, DomainMetaUpdate {
             domain: "clientes_lite",
             row_count: total,
@@ -1787,13 +1867,13 @@ fn doc_digits(v: &Option<String>) -> Option<String> {
     if d.is_empty() { None } else { Some(d) }
 }
 
-fn cliente_payload_json(input: &LocalClienteInput, id: &str, remote_id: Option<&str>, now_ms: i64, sync_status: &str) -> serde_json::Value {
+fn cliente_payload_json(input: &LocalClienteInput, id: &str, remote_id: Option<&str>, owner_id: &str, now_ms: i64, sync_status: &str) -> serde_json::Value {
     let documento = doc_digits(&input.documento);
     let status = input.status.clone().unwrap_or_else(|| "ativo".into());
     serde_json::json!({
         "id": id,
         "remote_id": remote_id,
-        "owner_id": "",
+        "owner_id": owner_id,
         "tipo": input.tipo,
         "nome": input.nome.trim(),
         "nome_fantasia": norm_opt_str(&input.nome_fantasia),
@@ -1819,15 +1899,15 @@ fn cliente_payload_json(input: &LocalClienteInput, id: &str, remote_id: Option<&
 }
 
 pub fn ingest_clientes_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize> {
-    ingest_clientes(json_text, now_ms, IngestStrategy::Snapshot).map(|(n, _)| n)
+    ingest_clientes(json_text, now_ms, IngestStrategy::Snapshot, "").map(|(n, _)| n)
 }
 
-pub fn read_clientes(status: Option<&str>) -> DbResult<String> {
+pub fn read_clientes(owner_id: &str, status: Option<&str>) -> DbResult<String> {
     with_conn(|conn| {
         let mut sql = String::from(
-            "SELECT payload FROM clientes_local WHERE deleted_at_ms IS NULL",
+            "SELECT payload FROM clientes_local WHERE owner_id = ?1 AND deleted_at_ms IS NULL",
         );
-        let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        let mut args: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(owner_id.to_string())];
         if let Some(s) = status {
             sql.push_str(" AND status = ?");
             args.push(Box::new(s.to_string()));
@@ -1887,6 +1967,7 @@ fn signal_for_tipo(tipo: Option<&str>) -> f64 {
 
 fn apply_mov_to_saldo(
     tx: &rusqlite::Transaction<'_>,
+    owner_id: &str,
     produto_id: &str,
     variacao_id: &str,
     tipo: Option<&str>,
@@ -1895,18 +1976,18 @@ fn apply_mov_to_saldo(
 ) -> rusqlite::Result<()> {
     let delta = signal_for_tipo(tipo) * quantidade;
     tx.execute(
-        "INSERT INTO estoque_saldos_local(
-            produto_id, variacao_id, tipo, quantidade, payload, synced_at_ms
-         ) VALUES (?1, ?2, NULL, 0, '{}', ?3)
-         ON CONFLICT(produto_id, variacao_id) DO NOTHING",
-        params![produto_id, variacao_id, now_ms],
+        "INSERT OR IGNORE INTO estoque_saldos_local(
+            owner_id, produto_id, variacao_id, tipo, quantidade, payload, synced_at_ms
+         ) VALUES (?1, ?2, ?3, NULL, 0, '{}', ?4)
+        ",
+        params![owner_id, produto_id, variacao_id, now_ms],
     )?;
     tx.execute(
         "UPDATE estoque_saldos_local
-            SET quantidade   = quantidade + ?3,
-                synced_at_ms = ?4
-          WHERE produto_id = ?1 AND variacao_id = ?2",
-        params![produto_id, variacao_id, delta, now_ms],
+            SET quantidade   = quantidade + ?4,
+                synced_at_ms = ?5
+          WHERE owner_id = ?1 AND produto_id = ?2 AND variacao_id = ?3",
+        params![owner_id, produto_id, variacao_id, delta, now_ms],
     )?;
     Ok(())
 }
@@ -1915,6 +1996,7 @@ pub fn ingest_movimentacoes(
     json_text: &str,
     now_ms: i64,
     strategy: IngestStrategy,
+    owner_id: &str,
 ) -> DbResult<(usize, Option<i64>)> {
     let arr: serde_json::Value = serde_json::from_str(json_text)
         .map_err(|e| DbError(format!("ingest_movimentacoes: json inválido: {e}")))?;
@@ -1927,7 +2009,7 @@ pub fn ingest_movimentacoes(
         let tx = conn.unchecked_transaction()?;
 
         if strategy == IngestStrategy::Snapshot {
-            tx.execute("DELETE FROM estoque_saldos_local", [])?;
+            tx.execute("DELETE FROM estoque_saldos_local WHERE owner_id=?1", params![owner_id])?;
         }
 
         let mut inserted = 0usize;
@@ -1936,11 +2018,11 @@ pub fn ingest_movimentacoes(
         {
             let mut stmt = tx.prepare(
                 "INSERT OR IGNORE INTO estoque_movimentacoes_local(
-                    id, produto_id, variacao_id, tipo, quantidade,
+                    id, owner_id, produto_id, variacao_id, tipo, quantidade,
                     saldo_anterior, saldo_posterior, custo_unitario,
                     origem, observacoes, data_movimentacao_ms,
                     payload, synced_at_ms
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
             )?;
 
             for item in items {
@@ -1960,10 +2042,15 @@ pub fn ingest_movimentacoes(
                     None => continue,
                 };
                 max_ms = Some(max_ms.map_or(data_ms, |c| c.max(data_ms)));
-                let payload = serde_json::to_string(item).unwrap_or_else(|_| "{}".into());
+                let mut item_with_owner = item.clone();
+                if let Some(obj) = item_with_owner.as_object_mut() {
+                    obj.insert("owner_id".into(), serde_json::Value::String(owner_id.to_string()));
+                }
+                let payload = serde_json::to_string(&item_with_owner).unwrap_or_else(|_| "{}".into());
 
                 let n = stmt.execute(params![
                     id,
+                    owner_id,
                     produto_id,
                     variacao_id,
                     tipo,
@@ -1981,6 +2068,7 @@ pub fn ingest_movimentacoes(
                 if n > 0 {
                     apply_mov_to_saldo(
                         &tx,
+                        owner_id,
                         &produto_id,
                         &variacao_id,
                         Some(tipo.as_str()),
@@ -1993,8 +2081,8 @@ pub fn ingest_movimentacoes(
         }
 
         let total: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM estoque_movimentacoes_local",
-            [],
+            "SELECT COUNT(*) FROM estoque_movimentacoes_local WHERE owner_id=?1",
+            params![owner_id],
             |r| r.get(0),
         )?;
         upsert_domain_meta(
@@ -2011,8 +2099,8 @@ pub fn ingest_movimentacoes(
         )?;
 
         let saldos_total: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM estoque_saldos_local",
-            [],
+            "SELECT COUNT(*) FROM estoque_saldos_local WHERE owner_id=?1",
+            params![owner_id],
             |r| r.get(0),
         )?;
         upsert_domain_meta(
@@ -2035,17 +2123,18 @@ pub fn ingest_movimentacoes(
 
 /// Compat com o caminho legacy de saldos (proxy_with_cache).
 pub fn ingest_saldos_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize> {
-    ingest_movimentacoes(json_text, now_ms, IngestStrategy::Snapshot).map(|(n, _)| n)
+    ingest_movimentacoes(json_text, now_ms, IngestStrategy::Snapshot, "").map(|(n, _)| n)
 }
 
-pub fn read_saldos() -> DbResult<String> {
+pub fn read_saldos(owner_id: &str) -> DbResult<String> {
     with_conn(|conn| {
         let mut stmt = conn.prepare(
             "SELECT produto_id, variacao_id, quantidade
                FROM estoque_saldos_local
+              WHERE owner_id = ?1
               ORDER BY produto_id ASC",
         )?;
-        let rows = stmt.query_map([], |r| {
+        let rows = stmt.query_map(params![owner_id], |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, String>(1)?,
@@ -2074,7 +2163,7 @@ pub fn read_saldos() -> DbResult<String> {
     })
 }
 
-pub fn read_movimentacoes(produto_id: Option<&str>, limit: i64) -> DbResult<String> {
+pub fn read_movimentacoes(owner_id: &str, produto_id: Option<&str>, limit: i64) -> DbResult<String> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 5000);
         let mut out = String::from("[");
@@ -2083,11 +2172,11 @@ pub fn read_movimentacoes(produto_id: Option<&str>, limit: i64) -> DbResult<Stri
         if let Some(pid) = produto_id {
             let mut stmt = conn.prepare(
                 "SELECT payload FROM estoque_movimentacoes_local
-                  WHERE produto_id = ?1
+                  WHERE owner_id = ?1 AND produto_id = ?2
                   ORDER BY data_movimentacao_ms DESC
-                  LIMIT ?2",
+                  LIMIT ?3",
             )?;
-            let rows = stmt.query_map(params![pid, limit], |r| r.get::<_, String>(0))?;
+            let rows = stmt.query_map(params![owner_id, pid, limit], |r| r.get::<_, String>(0))?;
             for r in rows {
                 let p = r?;
                 if !first { out.push(','); }
@@ -2097,10 +2186,11 @@ pub fn read_movimentacoes(produto_id: Option<&str>, limit: i64) -> DbResult<Stri
         } else {
             let mut stmt = conn.prepare(
                 "SELECT payload FROM estoque_movimentacoes_local
+                  WHERE owner_id = ?1
                   ORDER BY data_movimentacao_ms DESC
-                  LIMIT ?1",
+                  LIMIT ?2",
             )?;
-            let rows = stmt.query_map(params![limit], |r| r.get::<_, String>(0))?;
+            let rows = stmt.query_map(params![owner_id, limit], |r| r.get::<_, String>(0))?;
             for r in rows {
                 let p = r?;
                 if !first { out.push(','); }
@@ -2115,11 +2205,11 @@ pub fn read_movimentacoes(produto_id: Option<&str>, limit: i64) -> DbResult<Stri
 }
 
 
-pub fn clientes_local_list(status: Option<&str>, busca: Option<&str>, limit: i64) -> DbResult<Vec<serde_json::Value>> {
+pub fn clientes_local_list(owner_id: &str, status: Option<&str>, busca: Option<&str>, limit: i64) -> DbResult<Vec<serde_json::Value>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
-        let mut sql = String::from("SELECT payload FROM clientes_local WHERE deleted_at_ms IS NULL");
-        let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        let mut sql = String::from("SELECT payload FROM clientes_local WHERE owner_id=?1 AND deleted_at_ms IS NULL");
+        let mut args: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(owner_id.to_string())];
         if let Some(s) = status.filter(|s| !s.is_empty()) {
             sql.push_str(&format!(" AND status = ?{}", args.len() + 1));
             args.push(Box::new(s.to_string()));
@@ -2153,32 +2243,32 @@ pub fn clientes_local_list(status: Option<&str>, busca: Option<&str>, limit: i64
     })
 }
 
-pub fn cliente_local_get(cliente_id: &str) -> DbResult<Option<serde_json::Value>> {
+pub fn cliente_local_get(owner_id: &str, cliente_id: &str) -> DbResult<Option<serde_json::Value>> {
     with_conn(|conn| {
         let payload = conn.query_row(
             "SELECT payload FROM clientes_local
-              WHERE deleted_at_ms IS NULL AND (id=?1 OR remote_id=?1)
+              WHERE owner_id=?1 AND deleted_at_ms IS NULL AND (id=?2 OR remote_id=?2)
               LIMIT 1",
-            params![cliente_id],
+            params![owner_id, cliente_id],
             |r| r.get::<_, String>(0),
         ).optional()?;
         Ok(payload.and_then(|p| serde_json::from_str(&p).ok()))
     })
 }
 
-pub fn cliente_remote_id(cliente_id: &str) -> DbResult<Option<String>> {
+pub fn cliente_remote_id(owner_id: &str, cliente_id: &str) -> DbResult<Option<String>> {
     with_conn(|conn| {
         let v = conn.query_row(
             "SELECT COALESCE(remote_id, CASE WHEN sync_status='synced' THEN id ELSE NULL END)
-               FROM clientes_local WHERE id=?1 OR remote_id=?1 LIMIT 1",
-            params![cliente_id],
+               FROM clientes_local WHERE owner_id=?1 AND (id=?2 OR remote_id=?2) LIMIT 1",
+            params![owner_id, cliente_id],
             |r| r.get::<_, Option<String>>(0),
         ).optional()?;
         Ok(v.flatten())
     })
 }
 
-pub fn cliente_check_documento(documento: &str, ignore_id: Option<&str>) -> DbResult<Option<serde_json::Value>> {
+pub fn cliente_check_documento(owner_id: &str, documento: &str, ignore_id: Option<&str>) -> DbResult<Option<serde_json::Value>> {
     let doc: String = documento.chars().filter(|c| c.is_ascii_digit()).collect();
     if doc.is_empty() {
         return Ok(None);
@@ -2187,16 +2277,16 @@ pub fn cliente_check_documento(documento: &str, ignore_id: Option<&str>) -> DbRe
         let payload = if let Some(ignore) = ignore_id {
             conn.query_row(
                 "SELECT payload FROM clientes_local
-                  WHERE documento=?1 AND deleted_at_ms IS NULL AND id<>?2 AND COALESCE(remote_id,'')<>?2
+                  WHERE owner_id=?1 AND documento=?2 AND deleted_at_ms IS NULL AND id<>?3 AND COALESCE(remote_id,'')<>?3
                   LIMIT 1",
-                params![doc, ignore],
+                params![owner_id, doc, ignore],
                 |r| r.get::<_, String>(0),
             ).optional()?
         } else {
             conn.query_row(
                 "SELECT payload FROM clientes_local
-                  WHERE documento=?1 AND deleted_at_ms IS NULL LIMIT 1",
-                params![doc],
+                  WHERE owner_id=?1 AND documento=?2 AND deleted_at_ms IS NULL LIMIT 1",
+                params![owner_id, doc],
                 |r| r.get::<_, String>(0),
             ).optional()?
         };
@@ -2204,7 +2294,7 @@ pub fn cliente_check_documento(documento: &str, ignore_id: Option<&str>) -> DbRe
     })
 }
 
-pub fn registrar_cliente_local(input: LocalClienteInput, now_ms: i64) -> DbResult<LocalClienteResult> {
+pub fn registrar_cliente_local(owner_id: &str, input: LocalClienteInput, now_ms: i64) -> DbResult<LocalClienteResult> {
     if input.nome.trim().len() < 2 {
         return Err(DbError("Informe o nome do cliente.".into()));
     }
@@ -2216,10 +2306,10 @@ pub fn registrar_cliente_local(input: LocalClienteInput, now_ms: i64) -> DbResul
         if let Some(cu) = input.client_uuid.as_deref().filter(|s| !s.is_empty()) {
             let row = conn.query_row(
                 "SELECT c.id, o.status, o.remote_id
-                   FROM outbox_clientes o
+                  FROM outbox_clientes o
                    JOIN clientes_local c ON c.id=o.cliente_local_id
-                  WHERE o.client_uuid=?1 LIMIT 1",
-                params![cu],
+                  WHERE o.owner_id=?1 AND o.client_uuid=?2 LIMIT 1",
+                params![owner_id, cu],
                 |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?)),
             ).optional()?;
             if let Some((id, outbox_status, remote_id)) = row {
@@ -2229,8 +2319,8 @@ pub fn registrar_cliente_local(input: LocalClienteInput, now_ms: i64) -> DbResul
 
         if let Some(doc) = documento.as_deref() {
             let existing = conn.query_row(
-                "SELECT id FROM clientes_local WHERE documento=?1 AND deleted_at_ms IS NULL LIMIT 1",
-                params![doc],
+                "SELECT id FROM clientes_local WHERE owner_id=?1 AND documento=?2 AND deleted_at_ms IS NULL LIMIT 1",
+                params![owner_id, doc],
                 |r| r.get::<_, String>(0),
             ).optional()?;
             if existing.is_some() {
@@ -2240,27 +2330,27 @@ pub fn registrar_cliente_local(input: LocalClienteInput, now_ms: i64) -> DbResul
 
         let local_id = random_uuid_v4();
         let outbox_id = random_uuid_v4();
-        let payload = cliente_payload_json(&input, &local_id, None, now_ms, "pending");
+        let payload = cliente_payload_json(&input, &local_id, None, owner_id, now_ms, "pending");
         let payload_text = payload.to_string();
         let tx = conn.unchecked_transaction()?;
         tx.execute(
             "INSERT INTO clientes_local(
-                id, remote_id, nome, nome_fantasia, documento, tipo, email, telefone,
+                id, owner_id, remote_id, nome, nome_fantasia, documento, tipo, email, telefone,
                 celular, status, payload, sync_status, created_at_ms, updated_at_ms,
                 updated_at_remote_ms, synced_at_ms, deleted_at_ms
-             ) VALUES (?1,NULL,?2,?3,?4,?5,?6,?7,?8,?9,?10,'pending',?11,?11,NULL,?11,NULL)",
+             ) VALUES (?1,?2,NULL,?3,?4,?5,?6,?7,?8,?9,?10,?11,'pending',?12,?12,NULL,?12,NULL)",
             params![
-                local_id, nome, norm_opt_str(&input.nome_fantasia), documento,
+                local_id, owner_id, nome, norm_opt_str(&input.nome_fantasia), documento,
                 input.tipo, norm_opt_str(&input.email), norm_opt_str(&input.telefone),
                 norm_opt_str(&input.celular), status, payload_text, now_ms
             ],
         )?;
         tx.execute(
             "INSERT INTO outbox_clientes(
-                local_uuid, client_uuid, cliente_local_id, payload, status,
+                local_uuid, owner_id, client_uuid, cliente_local_id, payload, status,
                 attempts, created_at_ms, updated_at_ms
-             ) VALUES (?1,?2,?3,?4,'pending',0,?5,?5)",
-            params![outbox_id, input.client_uuid, local_id, payload.to_string(), now_ms],
+             ) VALUES (?1,?2,?3,?4,?5,'pending',0,?6,?6)",
+            params![outbox_id, owner_id, input.client_uuid, local_id, payload.to_string(), now_ms],
         )?;
         tx.commit()?;
         Ok(LocalClienteResult {
@@ -2310,12 +2400,14 @@ fn produto_payload_json(
     input: &LocalProdutoInput,
     id: &str,
     remote_id: Option<&str>,
+    owner_id: &str,
     now_ms: i64,
     sync_status: &str,
 ) -> serde_json::Value {
     serde_json::json!({
         "id": id,
         "remote_id": remote_id,
+        "owner_id": owner_id,
         "sku": input.sku.trim(),
         "codigo_barras": input.codigo_barras.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()),
         "qr_code": input.qr_code.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()),
@@ -2343,7 +2435,7 @@ fn produto_payload_json(
     })
 }
 
-pub fn registrar_produto_local(input: LocalProdutoInput, now_ms: i64) -> DbResult<LocalProdutoResult> {
+pub fn registrar_produto_local(owner_id: &str, input: LocalProdutoInput, now_ms: i64) -> DbResult<LocalProdutoResult> {
     if input.nome.trim().len() < 2 {
         return Err(DbError("Informe o nome do produto.".into()));
     }
@@ -2374,7 +2466,7 @@ pub fn registrar_produto_local(input: LocalProdutoInput, now_ms: i64) -> DbResul
 
         let local_id = random_uuid_v4();
         let outbox_id = random_uuid_v4();
-        let payload = produto_payload_json(&input, &local_id, None, now_ms, "pending");
+        let payload = produto_payload_json(&input, &local_id, None, owner_id, now_ms, "pending");
         let payload_text = payload.to_string();
 
         let tx = conn.unchecked_transaction()?;
@@ -2398,7 +2490,7 @@ pub fn registrar_produto_local(input: LocalProdutoInput, now_ms: i64) -> DbResul
         if let Some(ini) = input.estoque_inicial.filter(|v| *v > 0.0) {
             let mov_local_uuid = random_uuid_v4();
             let variacao_id = "".to_string();
-            let saldo_anterior = read_saldo_atual(&tx, &local_id, &variacao_id)?;
+            let saldo_anterior = read_saldo_atual(&tx, owner_id, &local_id, &variacao_id)?;
             let delta = ini;
             let saldo_posterior = saldo_anterior + delta;
             let item_payload = serde_json::json!({
@@ -2414,12 +2506,14 @@ pub fn registrar_produto_local(input: LocalProdutoInput, now_ms: i64) -> DbResul
                 "observacoes": serde_json::Value::Null,
                 "data_movimentacao": chrono::DateTime::<chrono::Utc>::from_timestamp_millis(now_ms).map(|d| d.to_rfc3339()),
                 "_pending": true,
+                "owner_id": owner_id,
             }).to_string();
 
             tx.execute(
-                "INSERT OR IGNORE INTO estoque_movimentacoes_local(id, produto_id, variacao_id, tipo, quantidade, saldo_anterior, saldo_posterior, custo_unitario, origem, observacoes, data_movimentacao_ms, payload, synced_at_ms) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+                "INSERT OR IGNORE INTO estoque_movimentacoes_local(id, owner_id, produto_id, variacao_id, tipo, quantidade, saldo_anterior, saldo_posterior, custo_unitario, origem, observacoes, data_movimentacao_ms, payload, synced_at_ms) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
                 params![
                     mov_local_uuid,
+                    owner_id,
                     local_id,
                     variacao_id.clone(),
                     "entrada",
@@ -2435,17 +2529,17 @@ pub fn registrar_produto_local(input: LocalProdutoInput, now_ms: i64) -> DbResul
                 ],
             )?;
 
-            apply_mov_to_saldo(&tx, &local_id, &variacao_id, Some("entrada"), delta, now_ms)?;
+            apply_mov_to_saldo(&tx, owner_id, &local_id, &variacao_id, Some("entrada"), delta, now_ms)?;
 
             tx.execute(
-                "INSERT INTO outbox_estoque_movs(local_uuid, client_uuid, payload, status, attempts, last_error, remote_id, created_at_ms, updated_at_ms, sent_at_ms) VALUES (?1, ?2, ?3, 'pending', 0, NULL, NULL, ?4, ?4, NULL)",
-                params![mov_local_uuid, Option::<String>::None, serde_json::json!({"local_uuid": mov_local_uuid, "produto_id": local_id, "variacao_id": serde_json::Value::String(variacao_id), "tipo": "entrada", "quantidade": delta}).to_string(), now_ms],
+                "INSERT INTO outbox_estoque_movs(local_uuid, owner_id, client_uuid, payload, status, attempts, last_error, remote_id, created_at_ms, updated_at_ms, sent_at_ms) VALUES (?1, ?2, ?3, ?4, 'pending', 0, NULL, NULL, ?5, ?5, NULL)",
+                params![mov_local_uuid, owner_id, Option::<String>::None, serde_json::json!({"local_uuid": mov_local_uuid, "produto_id": local_id, "variacao_id": serde_json::Value::String(variacao_id), "tipo": "entrada", "quantidade": delta, "owner_id": owner_id}).to_string(), now_ms],
             )?;
         }
 
         tx.execute(
             "INSERT INTO outbox_produtos(local_uuid, client_uuid, produto_local_id, payload, status, attempts, created_at_ms, updated_at_ms) VALUES (?1,?2,?3,?4,'pending',0,?5,?5)",
-            params![outbox_id, input.client_uuid, local_id, produto_payload_json(&input, &local_id, None, now_ms, "pending").to_string(), now_ms],
+            params![outbox_id, input.client_uuid, local_id, produto_payload_json(&input, &local_id, None, owner_id, now_ms, "pending").to_string(), now_ms],
         )?;
 
         tx.commit()?;
@@ -2631,6 +2725,7 @@ pub fn outbox_produtos_record_flush_round(kind: &str, now_ms: i64, attempted: i6
 #[derive(Debug, Clone, Serialize)]
 pub struct OutboxClienteItem {
     pub local_uuid: String,
+    pub owner_id: Option<String>,
     pub client_uuid: Option<String>,
     pub cliente_local_id: String,
     pub payload: String,
@@ -2660,26 +2755,27 @@ pub struct OutboxClientesStats {
 fn map_outbox_cliente(r: &rusqlite::Row<'_>) -> rusqlite::Result<OutboxClienteItem> {
     Ok(OutboxClienteItem {
         local_uuid: r.get(0)?,
-        client_uuid: r.get(1)?,
-        cliente_local_id: r.get(2)?,
-        payload: r.get(3)?,
-        status: r.get(4)?,
-        attempts: r.get(5)?,
-        last_error: r.get(6)?,
-        remote_id: r.get(7)?,
-        created_at_ms: r.get(8)?,
-        updated_at_ms: r.get(9)?,
-        sent_at_ms: r.get(10)?,
+        owner_id: r.get(1)?,
+        client_uuid: r.get(2)?,
+        cliente_local_id: r.get(3)?,
+        payload: r.get(4)?,
+        status: r.get(5)?,
+        attempts: r.get(6)?,
+        last_error: r.get(7)?,
+        remote_id: r.get(8)?,
+        created_at_ms: r.get(9)?,
+        updated_at_ms: r.get(10)?,
+        sent_at_ms: r.get(11)?,
     })
 }
 
-const OUTBOX_CLIENTE_COLS: &str = "local_uuid, client_uuid, cliente_local_id, payload, status, attempts, last_error, remote_id, created_at_ms, updated_at_ms, sent_at_ms";
+const OUTBOX_CLIENTE_COLS: &str = "local_uuid, owner_id, client_uuid, cliente_local_id, payload, status, attempts, last_error, remote_id, created_at_ms, updated_at_ms, sent_at_ms";
 
-pub fn outbox_clientes_stats() -> DbResult<OutboxClientesStats> {
+pub fn outbox_clientes_stats(owner_id: &str) -> DbResult<OutboxClientesStats> {
     with_conn(|conn| {
         let mut s = OutboxClientesStats::default();
-        let mut stmt = conn.prepare("SELECT status, COUNT(*) FROM outbox_clientes GROUP BY status")?;
-        for row in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
+        let mut stmt = conn.prepare("SELECT status, COUNT(*) FROM outbox_clientes WHERE owner_id=?1 GROUP BY status")?;
+        for row in stmt.query_map(params![owner_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
             let (st, n) = row?;
             match st.as_str() {
                 "pending" => s.pending = n,
@@ -2690,21 +2786,21 @@ pub fn outbox_clientes_stats() -> DbResult<OutboxClientesStats> {
             }
         }
         s.last_sent_at_ms = conn.query_row(
-            "SELECT MAX(sent_at_ms) FROM outbox_clientes WHERE status='sent'",
-            [], |r| r.get::<_, Option<i64>>(0),
+            "SELECT MAX(sent_at_ms) FROM outbox_clientes WHERE owner_id=?1 AND status='sent'",
+            params![owner_id], |r| r.get::<_, Option<i64>>(0),
         ).optional()?.flatten();
         s.last_error = conn.query_row(
-            "SELECT last_error FROM outbox_clientes WHERE status='error' ORDER BY updated_at_ms DESC LIMIT 1",
-            [], |r| r.get::<_, Option<String>>(0),
+            "SELECT last_error FROM outbox_clientes WHERE owner_id=?1 AND status='error' ORDER BY updated_at_ms DESC LIMIT 1",
+            params![owner_id], |r| r.get::<_, Option<String>>(0),
         ).optional()?.flatten();
         let now = chrono::Utc::now().timestamp_millis();
         s.due_now = conn.query_row(
-            "SELECT COUNT(*) FROM outbox_clientes WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1",
-            params![now], |r| r.get::<_, i64>(0),
+            "SELECT COUNT(*) FROM outbox_clientes WHERE owner_id=?1 AND status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?2",
+            params![owner_id, now], |r| r.get::<_, i64>(0),
         ).optional()?.unwrap_or(0);
         s.next_attempt_at_ms = conn.query_row(
-            "SELECT MIN(COALESCE(next_attempt_at_ms,0)) FROM outbox_clientes WHERE status='pending'",
-            [], |r| r.get::<_, Option<i64>>(0),
+            "SELECT MIN(COALESCE(next_attempt_at_ms,0)) FROM outbox_clientes WHERE owner_id=?1 AND status='pending'",
+            params![owner_id], |r| r.get::<_, Option<i64>>(0),
         ).optional()?.flatten();
         s.last_auto_flush_ms = meta_get_i64(conn, "outbox_clientes_last_auto_flush_ms")?;
         s.last_manual_flush_ms = meta_get_i64(conn, "outbox_clientes_last_manual_flush_ms")?;
@@ -2723,19 +2819,19 @@ pub fn outbox_clientes_record_flush_round(kind: &str, now_ms: i64, attempted: i6
     })
 }
 
-pub fn outbox_clientes_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxClienteItem>> {
+pub fn outbox_clientes_list(owner_id: &str, limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxClienteItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let sql = if only_status.is_some() {
-            format!("SELECT {OUTBOX_CLIENTE_COLS} FROM outbox_clientes WHERE status=?1 ORDER BY created_at_ms DESC LIMIT ?2")
+            format!("SELECT {OUTBOX_CLIENTE_COLS} FROM outbox_clientes WHERE owner_id=?1 AND status=?2 ORDER BY created_at_ms DESC LIMIT ?3")
         } else {
-            format!("SELECT {OUTBOX_CLIENTE_COLS} FROM outbox_clientes ORDER BY created_at_ms DESC LIMIT ?1")
+            format!("SELECT {OUTBOX_CLIENTE_COLS} FROM outbox_clientes WHERE owner_id=?1 ORDER BY created_at_ms DESC LIMIT ?2")
         };
         let mut stmt = conn.prepare(&sql)?;
         let rows = if let Some(st) = only_status {
-            stmt.query_map(params![st, limit], map_outbox_cliente)?
+            stmt.query_map(params![owner_id, st, limit], map_outbox_cliente)?
         } else {
-            stmt.query_map(params![limit], map_outbox_cliente)?
+            stmt.query_map(params![owner_id, limit], map_outbox_cliente)?
         };
         let mut out = Vec::new();
         for row in rows { out.push(row?); }
@@ -2743,25 +2839,25 @@ pub fn outbox_clientes_list(limit: i64, only_status: Option<&str>) -> DbResult<V
     })
 }
 
-pub fn outbox_clientes_pending_batch(limit: i64) -> DbResult<Vec<OutboxClienteItem>> {
+pub fn outbox_clientes_pending_batch(owner_id: &str, limit: i64) -> DbResult<Vec<OutboxClienteItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let now = chrono::Utc::now().timestamp_millis();
-        let sql = format!("SELECT {OUTBOX_CLIENTE_COLS} FROM outbox_clientes WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1 ORDER BY created_at_ms ASC LIMIT ?2");
+        let sql = format!("SELECT {OUTBOX_CLIENTE_COLS} FROM outbox_clientes WHERE owner_id=?1 AND status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?2 ORDER BY created_at_ms ASC LIMIT ?3");
         let mut stmt = conn.prepare(&sql)?;
         let mut out = Vec::new();
-        for row in stmt.query_map(params![now, limit], map_outbox_cliente)? { out.push(row?); }
+        for row in stmt.query_map(params![owner_id, now, limit], map_outbox_cliente)? { out.push(row?); }
         Ok(out)
     })
 }
 
-pub fn outbox_clientes_pending_batch_all(limit: i64) -> DbResult<Vec<OutboxClienteItem>> {
+pub fn outbox_clientes_pending_batch_all(owner_id: &str, limit: i64) -> DbResult<Vec<OutboxClienteItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
-        let sql = format!("SELECT {OUTBOX_CLIENTE_COLS} FROM outbox_clientes WHERE status='pending' ORDER BY created_at_ms ASC LIMIT ?1");
+        let sql = format!("SELECT {OUTBOX_CLIENTE_COLS} FROM outbox_clientes WHERE owner_id=?1 AND status='pending' ORDER BY created_at_ms ASC LIMIT ?2");
         let mut stmt = conn.prepare(&sql)?;
         let mut out = Vec::new();
-        for row in stmt.query_map(params![limit], map_outbox_cliente)? { out.push(row?); }
+        for row in stmt.query_map(params![owner_id, limit], map_outbox_cliente)? { out.push(row?); }
         Ok(out)
     })
 }
@@ -2824,11 +2920,13 @@ pub fn outbox_clientes_mark_sent(local_uuid: &str, remote_id: &str, now_ms: i64)
     })
 }
 
-pub fn outbox_clientes_reset_errors(now_ms: i64) -> DbResult<i64> {
+pub fn outbox_clientes_reset_errors(owner_id: &str, now_ms: i64) -> DbResult<i64> {
     with_conn(|conn| {
         let n = conn.execute(
-            "UPDATE outbox_clientes SET status='pending', updated_at_ms=?1, next_attempt_at_ms=NULL, last_error=NULL WHERE status='error'",
-            params![now_ms],
+            "UPDATE outbox_clientes
+                SET status='pending', updated_at_ms=?2, next_attempt_at_ms=NULL, last_error=NULL
+              WHERE owner_id=?1 AND status='error'",
+            params![owner_id, now_ms],
         )?;
         Ok(n as i64)
     })
@@ -2942,14 +3040,15 @@ fn random_uuid_v4() -> String {
 /// Lê saldo atual (produto, variacao) — 0 se não existe linha.
 fn read_saldo_atual(
     tx: &rusqlite::Transaction<'_>,
+    owner_id: &str,
     produto_id: &str,
     variacao_id: &str,
 ) -> rusqlite::Result<f64> {
     let v: Option<f64> = tx
         .query_row(
             "SELECT quantidade FROM estoque_saldos_local
-              WHERE produto_id = ?1 AND variacao_id = ?2",
-            params![produto_id, variacao_id],
+              WHERE owner_id = ?1 AND produto_id = ?2 AND variacao_id = ?3",
+            params![owner_id, produto_id, variacao_id],
             |r| r.get(0),
         )
         .optional()?;
@@ -2964,6 +3063,7 @@ fn read_saldo_atual(
 ///      aplica delta no saldo materializado, enfileira na outbox —
 ///      tudo em UMA transação.
 pub fn registrar_movimento_local(
+    owner_id: &str,
     input: LocalMovimentacaoInput,
     now_ms: i64,
 ) -> DbResult<LocalMovimentacaoResult> {
@@ -2986,8 +3086,8 @@ pub fn registrar_movimento_local(
                 let row = conn
                     .query_row(
                         "SELECT local_uuid, payload FROM outbox_estoque_movs
-                          WHERE client_uuid = ?1",
-                        params![cu],
+                          WHERE owner_id = ?1 AND client_uuid = ?2",
+                        params![owner_id, cu],
                         |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
                     )
                     .optional()?;
@@ -3000,8 +3100,8 @@ pub fn registrar_movimento_local(
                     let v: Option<f64> = conn
                         .query_row(
                             "SELECT quantidade FROM estoque_saldos_local
-                              WHERE produto_id = ?1 AND variacao_id = ?2",
-                            params![input.produto_id, input.variacao_id.clone().unwrap_or_default()],
+                              WHERE owner_id = ?1 AND produto_id = ?2 AND variacao_id = ?3",
+                            params![owner_id, input.produto_id, input.variacao_id.clone().unwrap_or_default()],
                             |r| r.get(0),
                         )
                         .optional()?;
@@ -3031,13 +3131,14 @@ pub fn registrar_movimento_local(
         "observacoes": input.observacoes,
         "origem": input.origem,
         "client_uuid": input.client_uuid,
+        "owner_id": owner_id,
     })
     .to_string();
 
     with_conn(|conn| {
         let tx = conn.unchecked_transaction()?;
 
-        let saldo_anterior = read_saldo_atual(&tx, &input.produto_id, &variacao_id)?;
+        let saldo_anterior = read_saldo_atual(&tx, owner_id, &input.produto_id, &variacao_id)?;
         let delta = signal_for_tipo(Some(&tipo_norm)) * input.quantidade;
         let saldo_posterior = saldo_anterior + delta;
 
@@ -3068,13 +3169,14 @@ pub fn registrar_movimento_local(
 
         tx.execute(
             "INSERT OR IGNORE INTO estoque_movimentacoes_local(
-                id, produto_id, variacao_id, tipo, quantidade,
+                id, owner_id, produto_id, variacao_id, tipo, quantidade,
                 saldo_anterior, saldo_posterior, custo_unitario,
                 origem, observacoes, data_movimentacao_ms,
                 payload, synced_at_ms
-             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
             params![
                 local_uuid,
+                owner_id,
                 input.produto_id,
                 variacao_id,
                 tipo_norm,
@@ -3093,6 +3195,7 @@ pub fn registrar_movimento_local(
         // 2) Materializa saldo (mesmo padrão do ingest do upstream).
         apply_mov_to_saldo(
             &tx,
+            owner_id,
             &input.produto_id,
             &variacao_id,
             Some(tipo_norm.as_str()),
@@ -3103,11 +3206,11 @@ pub fn registrar_movimento_local(
         // 3) Enfileira na outbox.
         tx.execute(
             "INSERT INTO outbox_estoque_movs(
-                local_uuid, client_uuid, payload, status,
+                local_uuid, owner_id, client_uuid, payload, status,
                 attempts, last_error, remote_id,
                 created_at_ms, updated_at_ms, sent_at_ms
-             ) VALUES (?1, ?2, ?3, 'pending', 0, NULL, NULL, ?4, ?4, NULL)",
-            params![local_uuid, input.client_uuid, payload_json, now_ms],
+             ) VALUES (?1, ?2, ?3, ?4, 'pending', 0, NULL, NULL, ?5, ?5, NULL)",
+            params![local_uuid, owner_id, input.client_uuid, payload_json, now_ms],
         )?;
 
         tx.commit()?;
@@ -3127,6 +3230,7 @@ pub fn registrar_movimento_local(
 #[derive(Debug, Serialize)]
 pub struct OutboxItem {
     pub local_uuid: String,
+    pub owner_id: Option<String>,
     pub client_uuid: Option<String>,
     pub payload: String,
     pub status: String,
@@ -3164,13 +3268,13 @@ pub struct OutboxStats {
     pub last_manual_flush_ms: Option<i64>,
 }
 
-pub fn outbox_stats() -> DbResult<OutboxStats> {
+pub fn outbox_stats(owner_id: &str) -> DbResult<OutboxStats> {
     with_conn(|conn| {
         let mut s = OutboxStats::default();
         let mut stmt = conn.prepare(
-            "SELECT status, COUNT(*) FROM outbox_estoque_movs GROUP BY status",
+            "SELECT status, COUNT(*) FROM outbox_estoque_movs WHERE owner_id=?1 GROUP BY status",
         )?;
-        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        let rows = stmt.query_map(params![owner_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
         for r in rows {
             let (st, n) = r?;
             match st.as_str() {
@@ -3183,8 +3287,8 @@ pub fn outbox_stats() -> DbResult<OutboxStats> {
         }
         s.last_sent_at_ms = conn
             .query_row(
-                "SELECT MAX(sent_at_ms) FROM outbox_estoque_movs WHERE status='sent'",
-                [],
+                "SELECT MAX(sent_at_ms) FROM outbox_estoque_movs WHERE owner_id=?1 AND status='sent'",
+                params![owner_id],
                 |r| r.get::<_, Option<i64>>(0),
             )
             .optional()?
@@ -3192,8 +3296,8 @@ pub fn outbox_stats() -> DbResult<OutboxStats> {
         s.last_error = conn
             .query_row(
                 "SELECT last_error FROM outbox_estoque_movs
-                  WHERE status='error' ORDER BY updated_at_ms DESC LIMIT 1",
-                [],
+                  WHERE owner_id=?1 AND status='error' ORDER BY updated_at_ms DESC LIMIT 1",
+                params![owner_id],
                 |r| r.get::<_, Option<String>>(0),
             )
             .optional()?
@@ -3204,9 +3308,10 @@ pub fn outbox_stats() -> DbResult<OutboxStats> {
         s.due_now = conn
             .query_row(
                 "SELECT COUNT(*) FROM outbox_estoque_movs
-                  WHERE status='pending'
-                    AND COALESCE(next_attempt_at_ms, 0) <= ?1",
-                params![now],
+                  WHERE owner_id=?1
+                    AND status='pending'
+                    AND COALESCE(next_attempt_at_ms, 0) <= ?2",
+                params![owner_id, now],
                 |r| r.get::<_, i64>(0),
             )
             .optional()?
@@ -3214,8 +3319,8 @@ pub fn outbox_stats() -> DbResult<OutboxStats> {
         s.next_attempt_at_ms = conn
             .query_row(
                 "SELECT MIN(COALESCE(next_attempt_at_ms, 0))
-                   FROM outbox_estoque_movs WHERE status='pending'",
-                [],
+                   FROM outbox_estoque_movs WHERE owner_id=?1 AND status='pending'",
+                params![owner_id],
                 |r| r.get::<_, Option<i64>>(0),
             )
             .optional()?
@@ -3276,26 +3381,27 @@ pub fn outbox_record_flush_round(
     })
 }
 
-pub fn outbox_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxItem>> {
+pub fn outbox_list(owner_id: &str, limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let (sql, has_filter) = match only_status {
             Some(_) => (
                 "SELECT local_uuid, client_uuid, payload, status, attempts, last_error,
-                        remote_id, created_at_ms, updated_at_ms, sent_at_ms
+                        remote_id, created_at_ms, updated_at_ms, sent_at_ms, owner_id
                    FROM outbox_estoque_movs
-                  WHERE status = ?1
+                  WHERE owner_id = ?1 AND status = ?2
                   ORDER BY created_at_ms DESC
-                  LIMIT ?2"
+                  LIMIT ?3"
                     .to_string(),
                 true,
             ),
             None => (
                 "SELECT local_uuid, client_uuid, payload, status, attempts, last_error,
-                        remote_id, created_at_ms, updated_at_ms, sent_at_ms
+                        remote_id, created_at_ms, updated_at_ms, sent_at_ms, owner_id
                    FROM outbox_estoque_movs
+                  WHERE owner_id = ?1
                   ORDER BY created_at_ms DESC
-                  LIMIT ?1"
+                  LIMIT ?2"
                     .to_string(),
                 false,
             ),
@@ -3313,15 +3419,16 @@ pub fn outbox_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec<Outbox
                 created_at_ms: r.get(7)?,
                 updated_at_ms: r.get(8)?,
                 sent_at_ms: r.get(9)?,
+                owner_id: r.get(10)?,
             })
         };
         let mut out = Vec::new();
         if has_filter {
             let s = only_status.unwrap();
-            let rows = stmt.query_map(params![s, limit], map_row)?;
+            let rows = stmt.query_map(params![owner_id, s, limit], map_row)?;
             for r in rows { out.push(r?); }
         } else {
-            let rows = stmt.query_map(params![limit], map_row)?;
+            let rows = stmt.query_map(params![owner_id, limit], map_row)?;
             for r in rows { out.push(r?); }
         }
         Ok(out)
@@ -3330,20 +3437,21 @@ pub fn outbox_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec<Outbox
 
 /// Retorna SOMENTE itens `pending` com `next_attempt_at_ms <= now` (ou NULL).
 /// É a base do flush automático: NUNCA puxa um item em backoff.
-pub fn outbox_pending_batch(limit: i64) -> DbResult<Vec<OutboxItem>> {
+pub fn outbox_pending_batch(owner_id: &str, limit: i64) -> DbResult<Vec<OutboxItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let now = chrono::Utc::now().timestamp_millis();
         let mut stmt = conn.prepare(
             "SELECT local_uuid, client_uuid, payload, status, attempts, last_error,
-                    remote_id, created_at_ms, updated_at_ms, sent_at_ms
+                    remote_id, created_at_ms, updated_at_ms, sent_at_ms, owner_id
                FROM outbox_estoque_movs
-              WHERE status = 'pending'
-                AND COALESCE(next_attempt_at_ms, 0) <= ?1
+              WHERE owner_id = ?1
+                AND status = 'pending'
+                AND COALESCE(next_attempt_at_ms, 0) <= ?2
               ORDER BY created_at_ms ASC
-              LIMIT ?2",
+              LIMIT ?3",
         )?;
-        let rows = stmt.query_map(params![now, limit], |r| {
+        let rows = stmt.query_map(params![owner_id, now, limit], |r| {
             Ok(OutboxItem {
                 local_uuid: r.get(0)?,
                 client_uuid: r.get(1)?,
@@ -3355,6 +3463,7 @@ pub fn outbox_pending_batch(limit: i64) -> DbResult<Vec<OutboxItem>> {
                 created_at_ms: r.get(7)?,
                 updated_at_ms: r.get(8)?,
                 sent_at_ms: r.get(9)?,
+                owner_id: r.get(10)?,
             })
         })?;
         let mut out = Vec::new();
@@ -3366,18 +3475,18 @@ pub fn outbox_pending_batch(limit: i64) -> DbResult<Vec<OutboxItem>> {
 /// Igual a `outbox_pending_batch` mas IGNORA `next_attempt_at_ms`. Usado
 /// pelo flush manual: o operador clicou "Sincronizar agora" e quer ignorar
 /// a janela de espera do backoff.
-pub fn outbox_pending_batch_all(limit: i64) -> DbResult<Vec<OutboxItem>> {
+pub fn outbox_pending_batch_all(owner_id: &str, limit: i64) -> DbResult<Vec<OutboxItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let mut stmt = conn.prepare(
             "SELECT local_uuid, client_uuid, payload, status, attempts, last_error,
-                    remote_id, created_at_ms, updated_at_ms, sent_at_ms
+                    remote_id, created_at_ms, updated_at_ms, sent_at_ms, owner_id
                FROM outbox_estoque_movs
-              WHERE status = 'pending'
+              WHERE owner_id = ?1 AND status = 'pending'
               ORDER BY created_at_ms ASC
-              LIMIT ?1",
+              LIMIT ?2",
         )?;
-        let rows = stmt.query_map(params![limit], |r| {
+        let rows = stmt.query_map(params![owner_id, limit], |r| {
             Ok(OutboxItem {
                 local_uuid: r.get(0)?,
                 client_uuid: r.get(1)?,
@@ -3389,6 +3498,7 @@ pub fn outbox_pending_batch_all(limit: i64) -> DbResult<Vec<OutboxItem>> {
                 created_at_ms: r.get(7)?,
                 updated_at_ms: r.get(8)?,
                 sent_at_ms: r.get(9)?,
+                owner_id: r.get(10)?,
             })
         })?;
         let mut out = Vec::new();
@@ -3472,14 +3582,14 @@ pub fn outbox_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbResult<(
 /// Limpa backoff/erros e força reenvio imediato.
 /// Útil tanto para o botão "Reenfileirar erros" quanto para o "Sincronizar
 /// agora" do operador (que quer ignorar a janela de espera).
-pub fn outbox_reset_errors(now_ms: i64) -> DbResult<i64> {
+pub fn outbox_reset_errors(owner_id: &str, now_ms: i64) -> DbResult<i64> {
     with_conn(|conn| {
         let n = conn.execute(
             "UPDATE outbox_estoque_movs
-                SET status='pending', updated_at_ms=?1,
+                SET status='pending', updated_at_ms=?2,
                     next_attempt_at_ms=NULL, last_error=NULL
-              WHERE status IN ('error','pending') AND last_error IS NOT NULL",
-            params![now_ms],
+              WHERE owner_id=?1 AND status IN ('error','pending') AND last_error IS NOT NULL",
+            params![owner_id, now_ms],
         )?;
         Ok(n as i64)
     })
@@ -3678,7 +3788,7 @@ fn local_date_end_exclusive_ms(date: &str) -> DbResult<i64> {
     Ok(dt.and_utc().timestamp_millis())
 }
 
-pub fn vendas_local_resumo(data_inicio: &str, data_fim: &str) -> DbResult<LocalVendaResumo> {
+pub fn vendas_local_resumo(owner_id: &str, data_inicio: &str, data_fim: &str) -> DbResult<LocalVendaResumo> {
     let inicio_ms = local_date_start_ms(data_inicio)?;
     let fim_ms = local_date_end_exclusive_ms(data_fim)?;
     if fim_ms <= inicio_ms {
@@ -3697,10 +3807,12 @@ pub fn vendas_local_resumo(data_inicio: &str, data_fim: &str) -> DbResult<LocalV
              LEFT JOIN (
                     SELECT venda_local_uuid, SUM(COALESCE(valor,0)) AS valor_pago
                       FROM venda_pagamentos_local
+                     WHERE owner_id = ?1
                   GROUP BY venda_local_uuid
                   ) p ON p.venda_local_uuid = v.local_uuid
-                 WHERE v.created_at_ms >= ?1
-                   AND v.created_at_ms < ?2
+                 WHERE v.owner_id = ?1
+                   AND v.created_at_ms >= ?2
+                   AND v.created_at_ms < ?3
             )
             SELECT
                 COALESCE(SUM(CASE WHEN status <> 'cancelada' THEN 1 ELSE 0 END),0) AS qtd_vendas,
@@ -3718,7 +3830,7 @@ pub fn vendas_local_resumo(data_inicio: &str, data_fim: &str) -> DbResult<LocalV
               FROM vendas_periodo",
         )?;
         let (qtd_vendas, qtd_canceladas, total_vendido, qtd_pendentes, valor_pendente) =
-            stmt.query_row(params![inicio_ms, fim_ms], |r| {
+            stmt.query_row(params![owner_id, inicio_ms, fim_ms], |r| {
                 Ok((
                     r.get::<_, i64>(0)?,
                     r.get::<_, i64>(1)?,
@@ -3743,7 +3855,7 @@ pub fn vendas_local_resumo(data_inicio: &str, data_fim: &str) -> DbResult<LocalV
     })
 }
 
-pub fn vendas_local_list(limit: i64) -> DbResult<Vec<LocalVendaListItem>> {
+pub fn vendas_local_list(owner_id: &str, limit: i64) -> DbResult<Vec<LocalVendaListItem>> {
     let limit = limit.clamp(1, 1000);
     with_conn(|conn| {
         let mut stmt = conn.prepare(
@@ -3753,13 +3865,14 @@ pub fn vendas_local_list(limit: i64) -> DbResult<Vec<LocalVendaListItem>> {
                     v.terminal_id, ov.status, ov.remote_id, ov.last_error,
                     oc.status
                FROM vendas_local v
-          LEFT JOIN clientes_local c ON c.id = v.cliente_id
-          LEFT JOIN outbox_vendas ov ON ov.local_uuid = v.local_uuid
-          LEFT JOIN outbox_cancelamentos_venda oc ON oc.venda_local_uuid = v.local_uuid
+          LEFT JOIN clientes_local c ON c.owner_id = v.owner_id AND c.id = v.cliente_id
+          LEFT JOIN outbox_vendas ov ON ov.owner_id = v.owner_id AND ov.local_uuid = v.local_uuid
+          LEFT JOIN outbox_cancelamentos_venda oc ON oc.owner_id = v.owner_id AND oc.venda_local_uuid = v.local_uuid
+              WHERE v.owner_id = ?1
            ORDER BY v.created_at_ms DESC
-              LIMIT ?1",
+              LIMIT ?2",
         )?;
-        let rows = stmt.query_map(params![limit], |r| {
+        let rows = stmt.query_map(params![owner_id, limit], |r| {
             let id: String = r.get(0)?;
             let created_at_ms: i64 = r.get(3)?;
             let remote_id: Option<String> = r.get(12)?;
@@ -3791,7 +3904,7 @@ pub fn vendas_local_list(limit: i64) -> DbResult<Vec<LocalVendaListItem>> {
     })
 }
 
-pub fn venda_local_detalhe(venda_id: &str) -> DbResult<Option<LocalVendaDetalhe>> {
+pub fn venda_local_detalhe(owner_id: &str, venda_id: &str) -> DbResult<Option<LocalVendaDetalhe>> {
     with_conn(|conn| {
         let header = conn
             .query_row(
@@ -3801,12 +3914,12 @@ pub fn venda_local_detalhe(venda_id: &str) -> DbResult<Option<LocalVendaDetalhe>
                         v.forma_pagamento, v.observacao, ov.status,
                         ov.remote_id, ov.last_error, oc.status
                    FROM vendas_local v
-              LEFT JOIN clientes_local c ON c.id = v.cliente_id
-              LEFT JOIN outbox_vendas ov ON ov.local_uuid = v.local_uuid
-              LEFT JOIN outbox_cancelamentos_venda oc ON oc.venda_local_uuid = v.local_uuid
-                  WHERE v.local_uuid = ?1 OR v.client_uuid = ?1 OR ov.remote_id = ?1
+              LEFT JOIN clientes_local c ON c.owner_id = v.owner_id AND c.id = v.cliente_id
+              LEFT JOIN outbox_vendas ov ON ov.owner_id = v.owner_id AND ov.local_uuid = v.local_uuid
+              LEFT JOIN outbox_cancelamentos_venda oc ON oc.owner_id = v.owner_id AND oc.venda_local_uuid = v.local_uuid
+                  WHERE v.owner_id = ?1 AND (v.local_uuid = ?2 OR v.client_uuid = ?2 OR ov.remote_id = ?2)
                   LIMIT 1",
-                params![venda_id],
+                params![owner_id, venda_id],
                 |r| {
                     Ok((
                         r.get::<_, String>(0)?,
@@ -3858,10 +3971,10 @@ pub fn venda_local_detalhe(venda_id: &str) -> DbResult<Option<LocalVendaDetalhe>
                     p.nome, p.sku
                FROM venda_itens_local i
           LEFT JOIN produtos_local p ON p.id = i.produto_id
-              WHERE i.venda_local_uuid = ?1
+              WHERE i.owner_id = ?1 AND i.venda_local_uuid = ?2
            ORDER BY i.id ASC",
         )?;
-        let itens_rows = stmt_itens.query_map(params![id], |r| {
+        let itens_rows = stmt_itens.query_map(params![owner_id, id], |r| {
             Ok(LocalVendaDetalheItem {
                 id: r.get::<_, i64>(0)?.to_string(),
                 produto_id: r.get(1)?,
@@ -3883,10 +3996,10 @@ pub fn venda_local_detalhe(venda_id: &str) -> DbResult<Option<LocalVendaDetalhe>
             "SELECT id, forma_pagamento, valor, valor_recebido, troco,
                     parcelas, observacao
                FROM venda_pagamentos_local
-              WHERE venda_local_uuid = ?1
+              WHERE owner_id = ?1 AND venda_local_uuid = ?2
            ORDER BY id ASC",
         )?;
-        let pgtos_rows = stmt_pgtos.query_map(params![id], |r| {
+        let pgtos_rows = stmt_pgtos.query_map(params![owner_id, id], |r| {
             Ok(LocalVendaDetalhePagamento {
                 id: r.get::<_, i64>(0)?.to_string(),
                 forma_pagamento: r.get(1)?,
@@ -3940,6 +4053,7 @@ pub struct LocalVendaResult {
 }
 
 pub fn registrar_venda_local(
+    owner_id: &str,
     input: LocalVendaInput,
     now_ms: i64,
 ) -> DbResult<LocalVendaResult> {
@@ -3981,8 +4095,8 @@ pub fn registrar_venda_local(
                 let row = conn
                     .query_row(
                         "SELECT local_uuid, qtd_itens, total
-                           FROM vendas_local WHERE client_uuid = ?1",
-                        params![cu],
+                           FROM vendas_local WHERE owner_id = ?1 AND client_uuid = ?2",
+                        params![owner_id, cu],
                         |r| Ok((
                             r.get::<_, String>(0)?,
                             r.get::<_, i64>(1)?,
@@ -4057,6 +4171,7 @@ pub fn registrar_venda_local(
         "terminal_id":      input.terminal_id,
         "client_uuid":      input.client_uuid,
         "data_vencimento":  input.data_vencimento,
+        "owner_id":         owner_id,
     })
     .to_string();
 
@@ -4072,9 +4187,9 @@ pub fn registrar_venda_local(
             let by_op: Option<String> = match input.operador_id.as_deref() {
                 Some(op) if !op.is_empty() => tx.query_row(
                     "SELECT local_uuid FROM caixa_local
-                      WHERE status='aberto' AND operador_id = ?1
+                      WHERE owner_id = ?1 AND status='aberto' AND operador_id = ?2
                    ORDER BY data_abertura_ms DESC LIMIT 1",
-                    params![op],
+                    params![owner_id, op],
                     |r| r.get::<_, String>(0),
                 ).optional()?,
                 _ => None,
@@ -4084,9 +4199,9 @@ pub fn registrar_venda_local(
             } else {
                 tx.query_row(
                     "SELECT local_uuid FROM caixa_local
-                      WHERE status='aberto'
+                      WHERE owner_id = ?1 AND status='aberto'
                    ORDER BY data_abertura_ms DESC LIMIT 1",
-                    [],
+                    params![owner_id],
                     |r| r.get::<_, String>(0),
                 ).optional()?
             }
@@ -4118,7 +4233,7 @@ pub fn registrar_venda_local(
             }
             for (produto_id, qtd_pedida) in &por_produto {
                 let variacao_id = String::new();
-                let saldo = read_saldo_atual(&tx, produto_id, &variacao_id)?;
+                let saldo = read_saldo_atual(&tx, owner_id, produto_id, &variacao_id)?;
                 if saldo < *qtd_pedida {
                     let nome: Option<String> = tx
                         .query_row(
@@ -4139,13 +4254,14 @@ pub fn registrar_venda_local(
         // 1) Cabeçalho.
         let inserted = tx.execute(
             "INSERT OR IGNORE INTO vendas_local(
-                local_uuid, client_uuid, cliente_id, subtotal, desconto, total,
+                local_uuid, owner_id, client_uuid, cliente_id, subtotal, desconto, total,
                 forma_pagamento, status_pagamento, valor_recebido, troco,
                 observacao, operador_id, terminal_id, gerar_financeiro,
                 qtd_itens, caixa_local_uuid, created_at_ms, updated_at_ms
-             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?17)",
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?18)",
             params![
                 local_uuid,
+                owner_id,
                 input.client_uuid,
                 input.cliente_id,
                 input.subtotal,
@@ -4168,8 +4284,8 @@ pub fn registrar_venda_local(
             if let Some(cu) = input.client_uuid.as_deref().filter(|s| !s.is_empty()) {
                 if let Some((local_uuid, qtd, total)) = tx
                     .query_row(
-                        "SELECT local_uuid, qtd_itens, total FROM vendas_local WHERE client_uuid = ?1",
-                        params![cu],
+                        "SELECT local_uuid, qtd_itens, total FROM vendas_local WHERE owner_id = ?1 AND client_uuid = ?2",
+                        params![owner_id, cu],
                         |r| Ok((
                             r.get::<_, String>(0)?,
                             r.get::<_, i64>(1)?,
@@ -4196,10 +4312,11 @@ pub fn registrar_venda_local(
                 .unwrap_or_else(|_| "{}".to_string());
             tx.execute(
                 "INSERT INTO venda_itens_local(
-                    venda_local_uuid, produto_id, descricao, quantidade,
+                    owner_id, venda_local_uuid, produto_id, descricao, quantidade,
                     preco_unitario, desconto, payload, created_at_ms
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
                 params![
+                    owner_id,
                     local_uuid,
                     item.produto_id,
                     item.descricao,
@@ -4217,7 +4334,7 @@ pub fn registrar_venda_local(
             // quando processa a venda via `finalizar_venda_pdv`.
             let mov_id = format!("{}-i{}", local_uuid, idx);
             let variacao_id = String::new();
-            let saldo_anterior = read_saldo_atual(&tx, &item.produto_id, &variacao_id)?;
+            let saldo_anterior = read_saldo_atual(&tx, owner_id, &item.produto_id, &variacao_id)?;
             let saldo_posterior = saldo_anterior - item.quantidade;
             let mov_payload = serde_json::json!({
                 "id": mov_id,
@@ -4234,13 +4351,14 @@ pub fn registrar_venda_local(
             .to_string();
             let mov_inserted = tx.execute(
                 "INSERT OR IGNORE INTO estoque_movimentacoes_local(
-                    id, produto_id, variacao_id, tipo, quantidade,
+                    id, owner_id, produto_id, variacao_id, tipo, quantidade,
                     saldo_anterior, saldo_posterior, custo_unitario,
                     origem, observacoes, data_movimentacao_ms,
                     payload, synced_at_ms
-                 ) VALUES (?1,?2,?3,'saida',?4,?5,?6,NULL,'venda',NULL,?7,?8,?7)",
+                 ) VALUES (?1,?2,?3,?4,'saida',?5,?6,?7,NULL,'venda',NULL,?8,?9,?8)",
                 params![
                     mov_id,
+                    owner_id,
                     item.produto_id,
                     variacao_id,
                     item.quantidade,
@@ -4253,6 +4371,7 @@ pub fn registrar_venda_local(
             if mov_inserted > 0 {
                 apply_mov_to_saldo(
                     &tx,
+                    owner_id,
                     &item.produto_id,
                     &variacao_id,
                     Some("saida"),
@@ -4266,10 +4385,11 @@ pub fn registrar_venda_local(
         for p in &input.pagamentos {
             tx.execute(
                 "INSERT INTO venda_pagamentos_local(
-                    venda_local_uuid, forma_pagamento, valor, valor_recebido,
+                    owner_id, venda_local_uuid, forma_pagamento, valor, valor_recebido,
                     troco, parcelas, observacao, created_at_ms
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
                 params![
+                    owner_id,
                     local_uuid,
                     p.forma_pagamento,
                     p.valor,
@@ -4285,11 +4405,11 @@ pub fn registrar_venda_local(
         // 4) Outbox.
         tx.execute(
             "INSERT INTO outbox_vendas(
-                local_uuid, client_uuid, payload, status,
+                local_uuid, owner_id, client_uuid, payload, status,
                 attempts, last_error, remote_id,
                 created_at_ms, updated_at_ms, sent_at_ms, next_attempt_at_ms
-             ) VALUES (?1,?2,?3,'pending',0,NULL,NULL,?4,?4,NULL,NULL)",
-            params![local_uuid, input.client_uuid, payload_json, now_ms],
+             ) VALUES (?1,?2,?3,?4,'pending',0,NULL,NULL,?5,?5,NULL,NULL)",
+            params![local_uuid, owner_id, input.client_uuid, payload_json, now_ms],
         )?;
 
         tx.commit()?;
@@ -4322,12 +4442,12 @@ pub struct OutboxVendasStats {
     pub last_manual_flush_ms: Option<i64>,
 }
 
-pub fn outbox_vendas_stats() -> DbResult<OutboxVendasStats> {
+pub fn outbox_vendas_stats(owner_id: &str) -> DbResult<OutboxVendasStats> {
     with_conn(|conn| {
         let mut s = OutboxVendasStats::default();
         let mut stmt = conn
-            .prepare("SELECT status, COUNT(*) FROM outbox_vendas GROUP BY status")?;
-        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+            .prepare("SELECT status, COUNT(*) FROM outbox_vendas WHERE owner_id=?1 GROUP BY status")?;
+        let rows = stmt.query_map(params![owner_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
         for r in rows {
             let (st, n) = r?;
             match st.as_str() {
@@ -4339,24 +4459,24 @@ pub fn outbox_vendas_stats() -> DbResult<OutboxVendasStats> {
             }
         }
         s.last_sent_at_ms = conn.query_row(
-            "SELECT MAX(sent_at_ms) FROM outbox_vendas WHERE status='sent'",
-            [], |r| r.get::<_, Option<i64>>(0),
+            "SELECT MAX(sent_at_ms) FROM outbox_vendas WHERE owner_id=?1 AND status='sent'",
+            params![owner_id], |r| r.get::<_, Option<i64>>(0),
         ).optional()?.flatten();
         s.last_error = conn.query_row(
             "SELECT last_error FROM outbox_vendas
-              WHERE status='error' ORDER BY updated_at_ms DESC LIMIT 1",
-            [], |r| r.get::<_, Option<String>>(0),
+              WHERE owner_id=?1 AND status='error' ORDER BY updated_at_ms DESC LIMIT 1",
+            params![owner_id], |r| r.get::<_, Option<String>>(0),
         ).optional()?.flatten();
         let now = chrono::Utc::now().timestamp_millis();
         s.due_now = conn.query_row(
             "SELECT COUNT(*) FROM outbox_vendas
-              WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1",
-            params![now], |r| r.get::<_, i64>(0),
+              WHERE owner_id=?1 AND status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?2",
+            params![owner_id, now], |r| r.get::<_, i64>(0),
         ).optional()?.unwrap_or(0);
         s.next_attempt_at_ms = conn.query_row(
             "SELECT MIN(COALESCE(next_attempt_at_ms,0))
-               FROM outbox_vendas WHERE status='pending'",
-            [], |r| r.get::<_, Option<i64>>(0),
+               FROM outbox_vendas WHERE owner_id=?1 AND status='pending'",
+            params![owner_id], |r| r.get::<_, Option<i64>>(0),
         ).optional()?.flatten();
         s.last_auto_flush_ms = meta_get_i64(conn, "outbox_vendas_last_auto_flush_ms")?;
         s.last_auto_flush_sent_ms = meta_get_i64(conn, "outbox_vendas_last_auto_flush_sent_ms")?;
@@ -4387,7 +4507,7 @@ pub fn outbox_vendas_record_flush_round(
     })
 }
 
-pub fn outbox_vendas_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxItem>> {
+pub fn outbox_vendas_list(owner_id: &str, limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let map_row = |r: &rusqlite::Row<'_>| -> rusqlite::Result<OutboxItem> {
@@ -4402,25 +4522,26 @@ pub fn outbox_vendas_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec
                 created_at_ms: r.get(7)?,
                 updated_at_ms: r.get(8)?,
                 sent_at_ms: r.get(9)?,
+                owner_id: r.get(10)?,
             })
         };
         let mut out = Vec::new();
         if let Some(st) = only_status {
             let mut stmt = conn.prepare(
                 "SELECT local_uuid, client_uuid, payload, status, attempts, last_error,
-                        remote_id, created_at_ms, updated_at_ms, sent_at_ms
-                   FROM outbox_vendas WHERE status = ?1
-                  ORDER BY created_at_ms DESC LIMIT ?2",
+                        remote_id, created_at_ms, updated_at_ms, sent_at_ms, owner_id
+                   FROM outbox_vendas WHERE owner_id = ?1 AND status = ?2
+                  ORDER BY created_at_ms DESC LIMIT ?3",
             )?;
-            let rows = stmt.query_map(params![st, limit], map_row)?;
+            let rows = stmt.query_map(params![owner_id, st, limit], map_row)?;
             for r in rows { out.push(r?); }
         } else {
             let mut stmt = conn.prepare(
                 "SELECT local_uuid, client_uuid, payload, status, attempts, last_error,
-                        remote_id, created_at_ms, updated_at_ms, sent_at_ms
-                   FROM outbox_vendas ORDER BY created_at_ms DESC LIMIT ?1",
+                        remote_id, created_at_ms, updated_at_ms, sent_at_ms, owner_id
+                   FROM outbox_vendas WHERE owner_id = ?1 ORDER BY created_at_ms DESC LIMIT ?2",
             )?;
-            let rows = stmt.query_map(params![limit], map_row)?;
+            let rows = stmt.query_map(params![owner_id, limit], map_row)?;
             for r in rows { out.push(r?); }
         }
         Ok(out)
@@ -4431,7 +4552,7 @@ pub fn outbox_vendas_get(local_uuid: &str) -> DbResult<Option<OutboxItem>> {
     with_conn(|conn| {
         let mut stmt = conn.prepare(
             "SELECT local_uuid, client_uuid, payload, status, attempts, last_error,
-                    remote_id, created_at_ms, updated_at_ms, sent_at_ms
+                    remote_id, created_at_ms, updated_at_ms, sent_at_ms, owner_id
                FROM outbox_vendas WHERE local_uuid = ?1",
         )?;
         let item = stmt.query_row(params![local_uuid], |r| {
@@ -4446,29 +4567,30 @@ pub fn outbox_vendas_get(local_uuid: &str) -> DbResult<Option<OutboxItem>> {
                 created_at_ms: r.get(7)?,
                 updated_at_ms: r.get(8)?,
                 sent_at_ms: r.get(9)?,
+                owner_id: r.get(10)?,
             })
         }).optional()?;
         Ok(item)
     })
 }
 
-pub fn outbox_vendas_pending_batch(limit: i64) -> DbResult<Vec<OutboxItem>> {
+pub fn outbox_vendas_pending_batch(owner_id: &str, limit: i64) -> DbResult<Vec<OutboxItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let now = chrono::Utc::now().timestamp_millis();
         let mut stmt = conn.prepare(
             "SELECT local_uuid, client_uuid, payload, status, attempts, last_error,
-                    remote_id, created_at_ms, updated_at_ms, sent_at_ms
+                    remote_id, created_at_ms, updated_at_ms, sent_at_ms, owner_id
                FROM outbox_vendas
-              WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1
-              ORDER BY created_at_ms ASC LIMIT ?2",
+              WHERE owner_id=?1 AND status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?2
+              ORDER BY created_at_ms ASC LIMIT ?3",
         )?;
-        let rows = stmt.query_map(params![now, limit], |r| {
+        let rows = stmt.query_map(params![owner_id, now, limit], |r| {
             Ok(OutboxItem {
                 local_uuid: r.get(0)?, client_uuid: r.get(1)?, payload: r.get(2)?,
                 status: r.get(3)?, attempts: r.get(4)?, last_error: r.get(5)?,
                 remote_id: r.get(6)?, created_at_ms: r.get(7)?,
-                updated_at_ms: r.get(8)?, sent_at_ms: r.get(9)?,
+                updated_at_ms: r.get(8)?, sent_at_ms: r.get(9)?, owner_id: r.get(10)?,
             })
         })?;
         let mut out = Vec::new();
@@ -4477,21 +4599,21 @@ pub fn outbox_vendas_pending_batch(limit: i64) -> DbResult<Vec<OutboxItem>> {
     })
 }
 
-pub fn outbox_vendas_pending_batch_all(limit: i64) -> DbResult<Vec<OutboxItem>> {
+pub fn outbox_vendas_pending_batch_all(owner_id: &str, limit: i64) -> DbResult<Vec<OutboxItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let mut stmt = conn.prepare(
             "SELECT local_uuid, client_uuid, payload, status, attempts, last_error,
-                    remote_id, created_at_ms, updated_at_ms, sent_at_ms
-               FROM outbox_vendas WHERE status='pending'
-              ORDER BY created_at_ms ASC LIMIT ?1",
+                    remote_id, created_at_ms, updated_at_ms, sent_at_ms, owner_id
+               FROM outbox_vendas WHERE owner_id=?1 AND status='pending'
+              ORDER BY created_at_ms ASC LIMIT ?2",
         )?;
-        let rows = stmt.query_map(params![limit], |r| {
+        let rows = stmt.query_map(params![owner_id, limit], |r| {
             Ok(OutboxItem {
                 local_uuid: r.get(0)?, client_uuid: r.get(1)?, payload: r.get(2)?,
                 status: r.get(3)?, attempts: r.get(4)?, last_error: r.get(5)?,
                 remote_id: r.get(6)?, created_at_ms: r.get(7)?,
-                updated_at_ms: r.get(8)?, sent_at_ms: r.get(9)?,
+                updated_at_ms: r.get(8)?, sent_at_ms: r.get(9)?, owner_id: r.get(10)?,
             })
         })?;
         let mut out = Vec::new();
@@ -4553,11 +4675,11 @@ pub fn outbox_vendas_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbR
     })
 }
 
-pub fn venda_caixa_local_uuid(venda_local_uuid: &str) -> DbResult<Option<String>> {
+pub fn venda_caixa_local_uuid(owner_id: &str, venda_local_uuid: &str) -> DbResult<Option<String>> {
     with_conn(|conn| {
         conn.query_row(
-            "SELECT caixa_local_uuid FROM vendas_local WHERE local_uuid=?1",
-            params![venda_local_uuid],
+            "SELECT caixa_local_uuid FROM vendas_local WHERE owner_id=?1 AND local_uuid=?2",
+            params![owner_id, venda_local_uuid],
             |r| r.get::<_, Option<String>>(0),
         )
         .optional()
@@ -4566,29 +4688,31 @@ pub fn venda_caixa_local_uuid(venda_local_uuid: &str) -> DbResult<Option<String>
     })
 }
 
-pub fn count_unsynced_vendas_for_caixa(caixa_local_uuid: &str) -> DbResult<i64> {
+pub fn count_unsynced_vendas_for_caixa(owner_id: &str, caixa_local_uuid: &str) -> DbResult<i64> {
     with_conn(|conn| {
         conn.query_row(
             "SELECT COUNT(*)
                FROM outbox_vendas ov
                JOIN vendas_local vl ON vl.local_uuid = ov.local_uuid
-              WHERE vl.caixa_local_uuid = ?1
+              WHERE ov.owner_id = ?1
+                AND vl.owner_id = ?1
+                AND vl.caixa_local_uuid = ?2
                 AND ov.status IN ('pending','sending')",
-            params![caixa_local_uuid],
+            params![owner_id, caixa_local_uuid],
             |r| r.get::<_, i64>(0),
         )
         .map_err(Into::into)
     })
 }
 
-pub fn outbox_vendas_reset_errors(now_ms: i64) -> DbResult<i64> {
+pub fn outbox_vendas_reset_errors(owner_id: &str, now_ms: i64) -> DbResult<i64> {
     with_conn(|conn| {
         let n = conn.execute(
             "UPDATE outbox_vendas
-                SET status='pending', updated_at_ms=?1,
+                SET status='pending', updated_at_ms=?2,
                     next_attempt_at_ms=NULL, last_error=NULL
-              WHERE status IN ('error','pending') AND last_error IS NOT NULL",
-            params![now_ms],
+              WHERE owner_id=?1 AND status IN ('error','pending') AND last_error IS NOT NULL",
+            params![owner_id, now_ms],
         )?;
         Ok(n as i64)
     })
@@ -4635,6 +4759,7 @@ pub struct LocalAbrirCaixaResult {
 }
 
 pub fn abrir_caixa_local(
+    owner_id: &str,
     input: LocalAbrirCaixaInput,
     now_ms: i64,
 ) -> DbResult<LocalAbrirCaixaResult> {
@@ -4649,8 +4774,8 @@ pub fn abrir_caixa_local(
                 let row = conn
                     .query_row(
                         "SELECT local_uuid, valor_inicial
-                           FROM caixa_local WHERE client_uuid = ?1",
-                        params![cu],
+                           FROM caixa_local WHERE owner_id = ?1 AND client_uuid = ?2",
+                        params![owner_id, cu],
                         |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?)),
                     )
                     .optional()?;
@@ -4672,17 +4797,17 @@ pub fn abrir_caixa_local(
         let row = if let Some(op) = oper {
             conn.query_row(
                 "SELECT local_uuid, valor_inicial FROM caixa_local
-                  WHERE status='aberto' AND operador_id = ?1
+                  WHERE owner_id=?1 AND status='aberto' AND operador_id = ?2
                ORDER BY data_abertura_ms DESC LIMIT 1",
-                params![op],
+                params![owner_id, op],
                 |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?)),
             )
         } else {
             conn.query_row(
                 "SELECT local_uuid, valor_inicial FROM caixa_local
-                  WHERE status='aberto' AND operador_id IS NULL
+                  WHERE owner_id=?1 AND status='aberto' AND operador_id IS NULL
                ORDER BY data_abertura_ms DESC LIMIT 1",
-                [],
+                params![owner_id],
                 |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?)),
             )
         }
@@ -4705,6 +4830,7 @@ pub fn abrir_caixa_local(
         "operador_id":   input.operador_id,
         "terminal_id":   input.terminal_id,
         "client_uuid":   input.client_uuid,
+        "owner_id":      owner_id,
     })
     .to_string();
 
@@ -4712,12 +4838,13 @@ pub fn abrir_caixa_local(
         let tx = conn.unchecked_transaction()?;
         tx.execute(
             "INSERT INTO caixa_local(
-                local_uuid, client_uuid, remote_id, status, valor_inicial,
+                local_uuid, owner_id, client_uuid, remote_id, status, valor_inicial,
                 observacao_abertura, operador_id, terminal_id,
                 data_abertura_ms, created_at_ms, updated_at_ms
-             ) VALUES (?1,?2,NULL,'aberto',?3,?4,?5,?6,?7,?7,?7)",
+             ) VALUES (?1,?2,?3,NULL,'aberto',?4,?5,?6,?7,?8,?8,?8)",
             params![
                 local_uuid,
+                owner_id,
                 input.client_uuid,
                 input.valor_inicial,
                 input.observacao,
@@ -4728,11 +4855,11 @@ pub fn abrir_caixa_local(
         )?;
         tx.execute(
             "INSERT INTO outbox_caixa(
-                local_uuid, client_uuid, action, caixa_local_uuid, payload,
+                local_uuid, owner_id, client_uuid, action, caixa_local_uuid, payload,
                 status, attempts, last_error, remote_id,
                 created_at_ms, updated_at_ms, sent_at_ms, next_attempt_at_ms
-             ) VALUES (?1,?2,'abrir',?3,?4,'pending',0,NULL,NULL,?5,?5,NULL,NULL)",
-            params![local_uuid, input.client_uuid, local_uuid, payload_json, now_ms],
+             ) VALUES (?1,?2,?3,'abrir',?4,?5,'pending',0,NULL,NULL,?6,?6,NULL,NULL)",
+            params![local_uuid, owner_id, input.client_uuid, local_uuid, payload_json, now_ms],
         )?;
         tx.commit()?;
         Ok(LocalAbrirCaixaResult {
@@ -4768,12 +4895,12 @@ pub struct LocalMovimentoCaixaResult {
     pub valor: f64,
 }
 
-fn resolve_caixa_local_uuid(conn: &Connection, caixa_id: &str) -> DbResult<Option<String>> {
+fn resolve_caixa_local_uuid(conn: &Connection, owner_id: &str, caixa_id: &str) -> DbResult<Option<String>> {
     // Tenta direto pelo local_uuid.
     let by_local: Option<String> = conn
         .query_row(
-            "SELECT local_uuid FROM caixa_local WHERE local_uuid = ?1",
-            params![caixa_id],
+            "SELECT local_uuid FROM caixa_local WHERE owner_id = ?1 AND local_uuid = ?2",
+            params![owner_id, caixa_id],
             |r| r.get::<_, String>(0),
         )
         .optional()?;
@@ -4784,8 +4911,8 @@ fn resolve_caixa_local_uuid(conn: &Connection, caixa_id: &str) -> DbResult<Optio
     // futura — não usado nesta etapa, mas deixa o caminho preparado).
     let by_remote: Option<String> = conn
         .query_row(
-            "SELECT local_uuid FROM caixa_local WHERE remote_id = ?1",
-            params![caixa_id],
+            "SELECT local_uuid FROM caixa_local WHERE owner_id = ?1 AND remote_id = ?2",
+            params![owner_id, caixa_id],
             |r| r.get::<_, String>(0),
         )
         .optional()?;
@@ -4793,6 +4920,7 @@ fn resolve_caixa_local_uuid(conn: &Connection, caixa_id: &str) -> DbResult<Optio
 }
 
 pub fn registrar_mov_caixa_local(
+    owner_id: &str,
     input: LocalMovimentoCaixaInput,
     now_ms: i64,
 ) -> DbResult<LocalMovimentoCaixaResult> {
@@ -4813,8 +4941,8 @@ pub fn registrar_mov_caixa_local(
                 let r = conn
                     .query_row(
                         "SELECT local_uuid, caixa_local_uuid, tipo, valor
-                           FROM caixa_movs_local WHERE client_uuid = ?1",
-                        params![cu],
+                           FROM caixa_movs_local WHERE owner_id = ?1 AND client_uuid = ?2",
+                        params![owner_id, cu],
                         |r| {
                             Ok((
                                 r.get::<_, String>(0)?,
@@ -4839,15 +4967,15 @@ pub fn registrar_mov_caixa_local(
         }
     }
 
-    let caixa_local_uuid = with_conn(|conn| resolve_caixa_local_uuid(conn, &input.caixa_id))?
+    let caixa_local_uuid = with_conn(|conn| resolve_caixa_local_uuid(conn, owner_id, &input.caixa_id))?
         .ok_or_else(|| DbError(format!("caixa não encontrado localmente: {}", input.caixa_id)))?;
 
     // Verifica que o caixa ainda está aberto.
     let status: Option<String> = with_conn(|conn| {
         let s = conn
             .query_row(
-                "SELECT status FROM caixa_local WHERE local_uuid = ?1",
-                params![caixa_local_uuid],
+                "SELECT status FROM caixa_local WHERE owner_id = ?1 AND local_uuid = ?2",
+                params![owner_id, caixa_local_uuid],
                 |r| r.get::<_, String>(0),
             )
             .optional()?;
@@ -4867,6 +4995,7 @@ pub fn registrar_mov_caixa_local(
         "motivo":           input.motivo,
         "operador_id":      input.operador_id,
         "client_uuid":      input.client_uuid,
+        "owner_id":         owner_id,
     })
     .to_string();
 
@@ -4874,11 +5003,12 @@ pub fn registrar_mov_caixa_local(
         let tx = conn.unchecked_transaction()?;
         tx.execute(
             "INSERT INTO caixa_movs_local(
-                local_uuid, client_uuid, caixa_local_uuid, tipo, valor,
+                local_uuid, owner_id, client_uuid, caixa_local_uuid, tipo, valor,
                 motivo, operador_id, remote_id, created_at_ms
-             ) VALUES (?1,?2,?3,?4,?5,?6,?7,NULL,?8)",
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,NULL,?9)",
             params![
                 local_uuid,
+                owner_id,
                 input.client_uuid,
                 caixa_local_uuid,
                 input.tipo,
@@ -4890,12 +5020,13 @@ pub fn registrar_mov_caixa_local(
         )?;
         tx.execute(
             "INSERT INTO outbox_caixa(
-                local_uuid, client_uuid, action, caixa_local_uuid, payload,
+                local_uuid, owner_id, client_uuid, action, caixa_local_uuid, payload,
                 status, attempts, last_error, remote_id,
                 created_at_ms, updated_at_ms, sent_at_ms, next_attempt_at_ms
-             ) VALUES (?1,?2,'movimento',?3,?4,'pending',0,NULL,NULL,?5,?5,NULL,NULL)",
+             ) VALUES (?1,?2,?3,'movimento',?4,?5,'pending',0,NULL,NULL,?6,?6,NULL,NULL)",
             params![
                 local_uuid,
+                owner_id,
                 input.client_uuid,
                 caixa_local_uuid,
                 payload_json,
@@ -4903,8 +5034,8 @@ pub fn registrar_mov_caixa_local(
             ],
         )?;
         tx.execute(
-            "UPDATE caixa_local SET updated_at_ms=?1 WHERE local_uuid=?2",
-            params![now_ms, caixa_local_uuid],
+            "UPDATE caixa_local SET updated_at_ms=?1 WHERE owner_id=?2 AND local_uuid=?3",
+            params![now_ms, owner_id, caixa_local_uuid],
         )?;
         tx.commit()?;
         Ok(LocalMovimentoCaixaResult {
@@ -4936,6 +5067,7 @@ pub struct LocalFecharCaixaResult {
 }
 
 pub fn fechar_caixa_local(
+    owner_id: &str,
     input: LocalFecharCaixaInput,
     now_ms: i64,
 ) -> DbResult<LocalFecharCaixaResult> {
@@ -4943,7 +5075,7 @@ pub fn fechar_caixa_local(
         return Err(DbError("valor_informado não pode ser negativo".into()));
     }
 
-    let caixa_local_uuid = with_conn(|conn| resolve_caixa_local_uuid(conn, &input.caixa_id))?
+    let caixa_local_uuid = with_conn(|conn| resolve_caixa_local_uuid(conn, owner_id, &input.caixa_id))?
         .ok_or_else(|| DbError(format!("caixa não encontrado localmente: {}", input.caixa_id)))?;
 
     // Idempotência por client_uuid (no nível da outbox de fechamento).
@@ -4953,8 +5085,8 @@ pub fn fechar_caixa_local(
                 let r = conn
                     .query_row(
                         "SELECT local_uuid FROM outbox_caixa
-                          WHERE client_uuid=?1 AND action='fechar'",
-                        params![cu],
+                          WHERE owner_id=?1 AND client_uuid=?2 AND action='fechar'",
+                        params![owner_id, cu],
                         |r| r.get::<_, String>(0),
                     )
                     .optional()?;
@@ -4974,8 +5106,8 @@ pub fn fechar_caixa_local(
     let status: Option<String> = with_conn(|conn| {
         let s = conn
             .query_row(
-                "SELECT status FROM caixa_local WHERE local_uuid = ?1",
-                params![caixa_local_uuid],
+                "SELECT status FROM caixa_local WHERE owner_id = ?1 AND local_uuid = ?2",
+                params![owner_id, caixa_local_uuid],
                 |r| r.get::<_, String>(0),
             )
             .optional()?;
@@ -4993,6 +5125,7 @@ pub fn fechar_caixa_local(
         "valor_informado":  input.valor_informado,
         "observacao":       input.observacao,
         "client_uuid":      input.client_uuid,
+        "owner_id":         owner_id,
     })
     .to_string();
 
@@ -5005,22 +5138,24 @@ pub fn fechar_caixa_local(
                     observacao_fechamento=?2,
                     data_fechamento_ms=?3,
                     updated_at_ms=?3
-              WHERE local_uuid=?4",
+              WHERE owner_id=?4 AND local_uuid=?5",
             params![
                 input.valor_informado,
                 input.observacao,
                 now_ms,
+                owner_id,
                 caixa_local_uuid,
             ],
         )?;
         tx.execute(
             "INSERT INTO outbox_caixa(
-                local_uuid, client_uuid, action, caixa_local_uuid, payload,
+                local_uuid, owner_id, client_uuid, action, caixa_local_uuid, payload,
                 status, attempts, last_error, remote_id,
                 created_at_ms, updated_at_ms, sent_at_ms, next_attempt_at_ms
-             ) VALUES (?1,?2,'fechar',?3,?4,'pending',0,NULL,NULL,?5,?5,NULL,NULL)",
+             ) VALUES (?1,?2,?3,'fechar',?4,?5,'pending',0,NULL,NULL,?6,?6,NULL,NULL)",
             params![
                 local_uuid,
+                owner_id,
                 input.client_uuid,
                 caixa_local_uuid,
                 payload_json,
@@ -5528,15 +5663,15 @@ pub struct CaixaResumoLocal {
     pub por_forma: Vec<CaixaResumoFormaRow>,
 }
 
-pub fn caixa_resumo_local(caixa_local_uuid: &str) -> DbResult<Option<CaixaResumoLocal>> {
+pub fn caixa_resumo_local(owner_id: &str, caixa_local_uuid: &str) -> DbResult<Option<CaixaResumoLocal>> {
     with_conn(|conn| {
         // Cabeçalho do caixa.
         let cab: Option<(String, Option<String>, String, i64, Option<i64>,
             Option<String>, Option<String>, f64, Option<f64>)> = conn.query_row(
             "SELECT local_uuid, remote_id, status, data_abertura_ms, data_fechamento_ms,
                     operador_id, terminal_id, valor_inicial, valor_informado
-               FROM caixa_local WHERE local_uuid=?1",
-            params![caixa_local_uuid],
+               FROM caixa_local WHERE owner_id=?1 AND local_uuid=?2",
+            params![owner_id, caixa_local_uuid],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
                     r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?)),
         ).optional()?;
@@ -5550,13 +5685,13 @@ pub fn caixa_resumo_local(caixa_local_uuid: &str) -> DbResult<Option<CaixaResumo
                     COUNT(DISTINCT v.local_uuid) AS qtd
                FROM venda_pagamentos_local p
                JOIN vendas_local v ON v.local_uuid = p.venda_local_uuid
-              WHERE v.caixa_local_uuid = ?1
+              WHERE v.owner_id = ?1 AND p.owner_id = ?1 AND v.caixa_local_uuid = ?2
             AND COALESCE(v.status,'ativa') <> 'cancelada'
               GROUP BY forma",
         )?;
         let mut por_forma_map: std::collections::BTreeMap<String, (f64, i64)> =
             std::collections::BTreeMap::new();
-        for row in stmt.query_map(params![caixa_local_uuid], |r| {
+        for row in stmt.query_map(params![owner_id, caixa_local_uuid], |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?, r.get::<_, i64>(2)?))
         })? {
             let (f, t, q) = row?;
@@ -5570,15 +5705,15 @@ pub fn caixa_resumo_local(caixa_local_uuid: &str) -> DbResult<Option<CaixaResumo
                     ROUND(SUM(v.total),2) AS total,
                     COUNT(*) AS qtd
                FROM vendas_local v
-              WHERE v.caixa_local_uuid = ?1
+              WHERE v.owner_id = ?1 AND v.caixa_local_uuid = ?2
             AND COALESCE(v.status,'ativa') <> 'cancelada'
                 AND NOT EXISTS (
                     SELECT 1 FROM venda_pagamentos_local p
-                     WHERE p.venda_local_uuid = v.local_uuid
+                     WHERE p.owner_id = ?1 AND p.venda_local_uuid = v.local_uuid
                 )
               GROUP BY forma",
         )?;
-        for row in stmt.query_map(params![caixa_local_uuid], |r| {
+        for row in stmt.query_map(params![owner_id, caixa_local_uuid], |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?, r.get::<_, i64>(2)?))
         })? {
             let (f, t, q) = row?;
@@ -5595,9 +5730,9 @@ pub fn caixa_resumo_local(caixa_local_uuid: &str) -> DbResult<Option<CaixaResumo
         // Total geral + qtd vendas.
         let (total_vendido, qtd_vendas): (f64, i64) = conn.query_row(
             "SELECT COALESCE(SUM(total),0), COUNT(*)
-               FROM vendas_local WHERE caixa_local_uuid = ?1
+               FROM vendas_local WHERE owner_id = ?1 AND caixa_local_uuid = ?2
                  AND COALESCE(status,'ativa') <> 'cancelada'",
-            params![caixa_local_uuid],
+            params![owner_id, caixa_local_uuid],
             |r| Ok((r.get(0)?, r.get(1)?)),
         ).unwrap_or((0.0, 0));
 
@@ -5606,8 +5741,8 @@ pub fn caixa_resumo_local(caixa_local_uuid: &str) -> DbResult<Option<CaixaResumo
             "SELECT
                 COALESCE(SUM(CASE WHEN tipo='suprimento' THEN valor ELSE 0 END),0),
                 COALESCE(SUM(CASE WHEN tipo='sangria'    THEN valor ELSE 0 END),0)
-               FROM caixa_movs_local WHERE caixa_local_uuid=?1",
-            params![caixa_local_uuid],
+               FROM caixa_movs_local WHERE owner_id=?1 AND caixa_local_uuid=?2",
+            params![owner_id, caixa_local_uuid],
             |r| Ok((r.get(0)?, r.get(1)?)),
         ).unwrap_or((0.0, 0.0));
 
@@ -5649,8 +5784,8 @@ pub fn caixa_resumo_local(caixa_local_uuid: &str) -> DbResult<Option<CaixaResumo
 
 /// Resolve um identificador (local_uuid OU remote_id) de caixa para o
 /// `local_uuid` interno. Útil para os handlers HTTP aceitarem qualquer um.
-pub fn resolve_caixa_id_publico(any_id: &str) -> DbResult<Option<String>> {
-    with_conn(|conn| resolve_caixa_local_uuid(conn, any_id))
+pub fn resolve_caixa_id_publico(owner_id: &str, any_id: &str) -> DbResult<Option<String>> {
+    with_conn(|conn| resolve_caixa_local_uuid(conn, owner_id, any_id))
 }
 
 // ---------------------------------------------------------------------------
@@ -5678,7 +5813,7 @@ pub struct CaixaLocalRow {
     pub total_sangrias: f64,
 }
 
-pub fn caixa_local_aberto(operador_id: Option<&str>) -> DbResult<Option<CaixaLocalRow>> {
+pub fn caixa_local_aberto(owner_id: &str, operador_id: Option<&str>) -> DbResult<Option<CaixaLocalRow>> {
     with_conn(|conn| {
         let row_opt: Option<(String, Option<String>, Option<String>, String, f64,
             Option<f64>, Option<f64>, Option<f64>, Option<String>, Option<String>,
@@ -5690,9 +5825,9 @@ pub fn caixa_local_aberto(operador_id: Option<&str>) -> DbResult<Option<CaixaLoc
                         operador_id, terminal_id,
                         data_abertura_ms, data_fechamento_ms
                    FROM caixa_local
-                  WHERE status='aberto' AND operador_id = ?1
+                  WHERE owner_id=?1 AND status='aberto' AND operador_id = ?2
                ORDER BY data_abertura_ms DESC LIMIT 1",
-                params![op],
+                params![owner_id, op],
                 |r| Ok((
                     r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
                     r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?,
@@ -5707,9 +5842,9 @@ pub fn caixa_local_aberto(operador_id: Option<&str>) -> DbResult<Option<CaixaLoc
                         operador_id, terminal_id,
                         data_abertura_ms, data_fechamento_ms
                    FROM caixa_local
-                  WHERE status='aberto'
+                  WHERE owner_id=?1 AND status='aberto'
                ORDER BY data_abertura_ms DESC LIMIT 1",
-                [],
+                params![owner_id],
                 |r| Ok((
                     r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
                     r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?,
@@ -5726,8 +5861,8 @@ pub fn caixa_local_aberto(operador_id: Option<&str>) -> DbResult<Option<CaixaLoc
                 COUNT(*),
                 COALESCE(SUM(CASE WHEN tipo='suprimento' THEN valor ELSE 0 END),0),
                 COALESCE(SUM(CASE WHEN tipo='sangria' THEN valor ELSE 0 END),0)
-               FROM caixa_movs_local WHERE caixa_local_uuid=?1",
-            params![local_uuid],
+               FROM caixa_movs_local WHERE owner_id=?1 AND caixa_local_uuid=?2",
+            params![owner_id, local_uuid],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         ).unwrap_or((0, 0.0, 0.0));
         Ok(Some(CaixaLocalRow {
@@ -5754,7 +5889,7 @@ pub struct CaixaMovimentoLocalRow {
     pub created_at_ms: i64,
 }
 
-pub fn caixa_local_historico(limit: Option<i64>) -> DbResult<Vec<CaixaLocalRow>> {
+pub fn caixa_local_historico(owner_id: &str, limit: Option<i64>) -> DbResult<Vec<CaixaLocalRow>> {
     with_conn(|conn| {
         let sql = if limit.is_some() {
             "SELECT c.local_uuid, c.remote_id, c.client_uuid, c.status, c.valor_inicial,
@@ -5772,10 +5907,12 @@ pub fn caixa_local_historico(limit: Option<i64>) -> DbResult<Vec<CaixaLocalRow>>
                            COALESCE(SUM(CASE WHEN tipo='suprimento' THEN valor ELSE 0 END),0) AS total_suprimentos,
                            COALESCE(SUM(CASE WHEN tipo='sangria' THEN valor ELSE 0 END),0) AS total_sangrias
                       FROM caixa_movs_local
+                     WHERE owner_id=?1
                      GROUP BY caixa_local_uuid
                ) m ON m.caixa_local_uuid = c.local_uuid
+              WHERE c.owner_id=?1
               ORDER BY c.data_abertura_ms DESC
-              LIMIT ?1"
+              LIMIT ?2"
         } else {
             "SELECT c.local_uuid, c.remote_id, c.client_uuid, c.status, c.valor_inicial,
                     c.valor_informado, c.valor_esperado, c.diferenca,
@@ -5792,8 +5929,10 @@ pub fn caixa_local_historico(limit: Option<i64>) -> DbResult<Vec<CaixaLocalRow>>
                            COALESCE(SUM(CASE WHEN tipo='suprimento' THEN valor ELSE 0 END),0) AS total_suprimentos,
                            COALESCE(SUM(CASE WHEN tipo='sangria' THEN valor ELSE 0 END),0) AS total_sangrias
                       FROM caixa_movs_local
+                     WHERE owner_id=?1
                      GROUP BY caixa_local_uuid
                ) m ON m.caixa_local_uuid = c.local_uuid
+              WHERE c.owner_id=?1
               ORDER BY c.data_abertura_ms DESC"
         };
 
@@ -5822,9 +5961,9 @@ pub fn caixa_local_historico(limit: Option<i64>) -> DbResult<Vec<CaixaLocalRow>>
         }
 
         let rows = if let Some(limit) = limit {
-            stmt.query_map(params![limit], map_caixa_local_row)?
+            stmt.query_map(params![owner_id, limit], map_caixa_local_row)?
         } else {
-            stmt.query_map([], map_caixa_local_row)?
+            stmt.query_map(params![owner_id], map_caixa_local_row)?
         };
 
         let mut result = Vec::new();
@@ -5835,15 +5974,15 @@ pub fn caixa_local_historico(limit: Option<i64>) -> DbResult<Vec<CaixaLocalRow>>
     })
 }
 
-pub fn caixa_movimentos_local(caixa_local_uuid: &str) -> DbResult<Vec<CaixaMovimentoLocalRow>> {
+pub fn caixa_movimentos_local(owner_id: &str, caixa_local_uuid: &str) -> DbResult<Vec<CaixaMovimentoLocalRow>> {
     with_conn(|conn| {
         let mut stmt = conn.prepare(
             "SELECT local_uuid, caixa_local_uuid, tipo, valor, motivo, operador_id, remote_id, created_at_ms
                FROM caixa_movs_local
-              WHERE caixa_local_uuid = ?1
+              WHERE owner_id = ?1 AND caixa_local_uuid = ?2
            ORDER BY created_at_ms ASC",
         )?;
-        let rows = stmt.query_map(params![caixa_local_uuid], |r| Ok(CaixaMovimentoLocalRow {
+        let rows = stmt.query_map(params![owner_id, caixa_local_uuid], |r| Ok(CaixaMovimentoLocalRow {
             local_uuid: r.get(0)?,
             caixa_local_uuid: r.get(1)?,
             tipo: r.get(2)?,
@@ -5887,12 +6026,12 @@ pub struct OutboxCaixaStats {
     pub pending_fechar: i64,
 }
 
-pub fn outbox_caixa_stats() -> DbResult<OutboxCaixaStats> {
+pub fn outbox_caixa_stats(owner_id: &str) -> DbResult<OutboxCaixaStats> {
     with_conn(|conn| {
         let mut s = OutboxCaixaStats::default();
         let mut stmt = conn
-            .prepare("SELECT status, COUNT(*) FROM outbox_caixa GROUP BY status")?;
-        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+            .prepare("SELECT status, COUNT(*) FROM outbox_caixa WHERE owner_id=?1 GROUP BY status")?;
+        let rows = stmt.query_map(params![owner_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
         for r in rows {
             let (st, n) = r?;
             match st.as_str() {
@@ -5905,8 +6044,8 @@ pub fn outbox_caixa_stats() -> DbResult<OutboxCaixaStats> {
         }
         let mut stmt = conn
             .prepare("SELECT action, COUNT(*) FROM outbox_caixa
-                       WHERE status='pending' GROUP BY action")?;
-        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+                       WHERE owner_id=?1 AND status='pending' GROUP BY action")?;
+        let rows = stmt.query_map(params![owner_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
         for r in rows {
             let (act, n) = r?;
             match act.as_str() {
@@ -5917,24 +6056,24 @@ pub fn outbox_caixa_stats() -> DbResult<OutboxCaixaStats> {
             }
         }
         s.last_sent_at_ms = conn.query_row(
-            "SELECT MAX(sent_at_ms) FROM outbox_caixa WHERE status='sent'",
-            [], |r| r.get::<_, Option<i64>>(0),
+            "SELECT MAX(sent_at_ms) FROM outbox_caixa WHERE owner_id=?1 AND status='sent'",
+            params![owner_id], |r| r.get::<_, Option<i64>>(0),
         ).optional()?.flatten();
         s.last_error = conn.query_row(
             "SELECT last_error FROM outbox_caixa
-              WHERE status='error' ORDER BY updated_at_ms DESC LIMIT 1",
-            [], |r| r.get::<_, Option<String>>(0),
+              WHERE owner_id=?1 AND status='error' ORDER BY updated_at_ms DESC LIMIT 1",
+            params![owner_id], |r| r.get::<_, Option<String>>(0),
         ).optional()?.flatten();
         let now = chrono::Utc::now().timestamp_millis();
         s.due_now = conn.query_row(
             "SELECT COUNT(*) FROM outbox_caixa
-              WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1",
-            params![now], |r| r.get::<_, i64>(0),
+              WHERE owner_id=?1 AND status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?2",
+            params![owner_id, now], |r| r.get::<_, i64>(0),
         ).optional()?.unwrap_or(0);
         s.next_attempt_at_ms = conn.query_row(
             "SELECT MIN(COALESCE(next_attempt_at_ms,0))
-               FROM outbox_caixa WHERE status='pending'",
-            [], |r| r.get::<_, Option<i64>>(0),
+               FROM outbox_caixa WHERE owner_id=?1 AND status='pending'",
+            params![owner_id], |r| r.get::<_, Option<i64>>(0),
         ).optional()?.flatten();
         s.last_auto_flush_ms = meta_get_i64(conn, "outbox_caixa_last_auto_flush_ms")?;
         s.last_auto_flush_sent_ms = meta_get_i64(conn, "outbox_caixa_last_auto_flush_sent_ms")?;
@@ -5968,6 +6107,7 @@ pub fn outbox_caixa_record_flush_round(
 #[derive(Debug, Serialize)]
 pub struct OutboxCaixaItem {
     pub local_uuid: String,
+    pub owner_id: Option<String>,
     pub client_uuid: Option<String>,
     pub action: String,
     pub caixa_local_uuid: String,
@@ -5984,42 +6124,43 @@ pub struct OutboxCaixaItem {
 fn map_caixa_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<OutboxCaixaItem> {
     Ok(OutboxCaixaItem {
         local_uuid: r.get(0)?,
-        client_uuid: r.get(1)?,
-        action: r.get(2)?,
-        caixa_local_uuid: r.get(3)?,
-        payload: r.get(4)?,
-        status: r.get(5)?,
-        attempts: r.get(6)?,
-        last_error: r.get(7)?,
-        remote_id: r.get(8)?,
-        created_at_ms: r.get(9)?,
-        updated_at_ms: r.get(10)?,
-        sent_at_ms: r.get(11)?,
+        owner_id: r.get(1)?,
+        client_uuid: r.get(2)?,
+        action: r.get(3)?,
+        caixa_local_uuid: r.get(4)?,
+        payload: r.get(5)?,
+        status: r.get(6)?,
+        attempts: r.get(7)?,
+        last_error: r.get(8)?,
+        remote_id: r.get(9)?,
+        created_at_ms: r.get(10)?,
+        updated_at_ms: r.get(11)?,
+        sent_at_ms: r.get(12)?,
     })
 }
 
-pub fn outbox_caixa_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxCaixaItem>> {
+pub fn outbox_caixa_list(owner_id: &str, limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxCaixaItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let mut out = Vec::new();
         if let Some(st) = only_status {
             let mut stmt = conn.prepare(
-                "SELECT local_uuid, client_uuid, action, caixa_local_uuid, payload,
+                "SELECT local_uuid, owner_id, client_uuid, action, caixa_local_uuid, payload,
                         status, attempts, last_error, remote_id,
                         created_at_ms, updated_at_ms, sent_at_ms
-                   FROM outbox_caixa WHERE status = ?1
-                  ORDER BY created_at_ms DESC LIMIT ?2",
+                   FROM outbox_caixa WHERE owner_id = ?1 AND status = ?2
+                  ORDER BY created_at_ms DESC LIMIT ?3",
             )?;
-            let rows = stmt.query_map(params![st, limit], map_caixa_item)?;
+            let rows = stmt.query_map(params![owner_id, st, limit], map_caixa_item)?;
             for r in rows { out.push(r?); }
         } else {
             let mut stmt = conn.prepare(
-                "SELECT local_uuid, client_uuid, action, caixa_local_uuid, payload,
+                "SELECT local_uuid, owner_id, client_uuid, action, caixa_local_uuid, payload,
                         status, attempts, last_error, remote_id,
                         created_at_ms, updated_at_ms, sent_at_ms
-                   FROM outbox_caixa ORDER BY created_at_ms DESC LIMIT ?1",
+                   FROM outbox_caixa WHERE owner_id = ?1 ORDER BY created_at_ms DESC LIMIT ?2",
             )?;
-            let rows = stmt.query_map(params![limit], map_caixa_item)?;
+            let rows = stmt.query_map(params![owner_id, limit], map_caixa_item)?;
             for r in rows { out.push(r?); }
         }
         Ok(out)
@@ -6030,36 +6171,36 @@ pub fn outbox_caixa_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec<
 /// o backoff. Para preservar a ordem causal (abrir → movimento → fechar) de um
 /// MESMO caixa, o scheduler envia em série e só prossegue para o próximo
 /// item do MESMO caixa quando o anterior terminou.
-pub fn outbox_caixa_pending_batch(limit: i64) -> DbResult<Vec<OutboxCaixaItem>> {
+pub fn outbox_caixa_pending_batch(owner_id: &str, limit: i64) -> DbResult<Vec<OutboxCaixaItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let now = chrono::Utc::now().timestamp_millis();
         let mut stmt = conn.prepare(
-            "SELECT local_uuid, client_uuid, action, caixa_local_uuid, payload,
+            "SELECT local_uuid, owner_id, client_uuid, action, caixa_local_uuid, payload,
                     status, attempts, last_error, remote_id,
                     created_at_ms, updated_at_ms, sent_at_ms
                FROM outbox_caixa
-              WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1
-              ORDER BY created_at_ms ASC LIMIT ?2",
+              WHERE owner_id=?1 AND status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?2
+              ORDER BY created_at_ms ASC LIMIT ?3",
         )?;
-        let rows = stmt.query_map(params![now, limit], map_caixa_item)?;
+        let rows = stmt.query_map(params![owner_id, now, limit], map_caixa_item)?;
         let mut out = Vec::new();
         for r in rows { out.push(r?); }
         Ok(out)
     })
 }
 
-pub fn outbox_caixa_pending_batch_all(limit: i64) -> DbResult<Vec<OutboxCaixaItem>> {
+pub fn outbox_caixa_pending_batch_all(owner_id: &str, limit: i64) -> DbResult<Vec<OutboxCaixaItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let mut stmt = conn.prepare(
-            "SELECT local_uuid, client_uuid, action, caixa_local_uuid, payload,
+            "SELECT local_uuid, owner_id, client_uuid, action, caixa_local_uuid, payload,
                     status, attempts, last_error, remote_id,
                     created_at_ms, updated_at_ms, sent_at_ms
-               FROM outbox_caixa WHERE status='pending'
-              ORDER BY created_at_ms ASC LIMIT ?1",
+               FROM outbox_caixa WHERE owner_id=?1 AND status='pending'
+              ORDER BY created_at_ms ASC LIMIT ?2",
         )?;
-        let rows = stmt.query_map(params![limit], map_caixa_item)?;
+        let rows = stmt.query_map(params![owner_id, limit], map_caixa_item)?;
         let mut out = Vec::new();
         for r in rows { out.push(r?); }
         Ok(out)
@@ -6069,7 +6210,7 @@ pub fn outbox_caixa_pending_batch_all(limit: i64) -> DbResult<Vec<OutboxCaixaIte
 pub fn outbox_caixa_get(local_uuid: &str) -> DbResult<Option<OutboxCaixaItem>> {
     with_conn(|conn| {
         let r = conn.query_row(
-            "SELECT local_uuid, client_uuid, action, caixa_local_uuid, payload,
+            "SELECT local_uuid, owner_id, client_uuid, action, caixa_local_uuid, payload,
                     status, attempts, last_error, remote_id,
                     created_at_ms, updated_at_ms, sent_at_ms
                FROM outbox_caixa WHERE local_uuid=?1",
@@ -6096,7 +6237,7 @@ pub fn outbox_vendas_archive_error(
                     updated_at_ms=?3,
                     next_attempt_at_ms=NULL
               WHERE local_uuid=?1
-                AND status='error'",
+                AND status IN ('pending','error')",
             params![local_uuid, msg, now_ms],
         )?;
         Ok(n > 0)
@@ -6151,11 +6292,11 @@ pub fn outbox_caixa_archive_local_group(
     })
 }
 
-pub fn caixa_remote_id(caixa_local_uuid: &str) -> DbResult<Option<String>> {
+pub fn caixa_remote_id(owner_id: &str, caixa_local_uuid: &str) -> DbResult<Option<String>> {
     with_conn(|conn| {
         conn.query_row(
-            "SELECT remote_id FROM caixa_local WHERE local_uuid=?1",
-            params![caixa_local_uuid],
+            "SELECT remote_id FROM caixa_local WHERE owner_id=?1 AND local_uuid=?2",
+            params![owner_id, caixa_local_uuid],
             |r| r.get::<_, Option<String>>(0),
         )
         .optional()
@@ -6165,19 +6306,21 @@ pub fn caixa_remote_id(caixa_local_uuid: &str) -> DbResult<Option<String>> {
 }
 
 pub fn outbox_caixa_item_for_action(
+    owner_id: &str,
     caixa_local_uuid: &str,
     action: &str,
 ) -> DbResult<Option<OutboxCaixaItem>> {
     with_conn(|conn| {
         conn.query_row(
-            "SELECT local_uuid, client_uuid, action, caixa_local_uuid, payload,
+            "SELECT local_uuid, owner_id, client_uuid, action, caixa_local_uuid, payload,
                     status, attempts, last_error, remote_id,
                     created_at_ms, updated_at_ms, sent_at_ms
-               FROM outbox_caixa
-              WHERE caixa_local_uuid=?1 AND action=?2
+              FROM outbox_caixa
+              WHERE owner_id=?1 AND caixa_local_uuid=?2 AND action=?3
+                AND status NOT IN ('archived','skipped')
            ORDER BY created_at_ms ASC
               LIMIT 1",
-            params![caixa_local_uuid, action],
+            params![owner_id, caixa_local_uuid, action],
             map_caixa_item,
         )
         .optional()
@@ -6261,14 +6404,14 @@ pub fn outbox_caixa_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbRe
     })
 }
 
-pub fn outbox_caixa_reset_errors(now_ms: i64) -> DbResult<i64> {
+pub fn outbox_caixa_reset_errors(owner_id: &str, now_ms: i64) -> DbResult<i64> {
     with_conn(|conn| {
         let n = conn.execute(
             "UPDATE outbox_caixa
-                SET status='pending', updated_at_ms=?1,
+                SET status='pending', updated_at_ms=?2,
                     next_attempt_at_ms=NULL, last_error=NULL
-              WHERE status IN ('error','pending') AND last_error IS NOT NULL",
-            params![now_ms],
+              WHERE owner_id=?1 AND status IN ('error','pending') AND last_error IS NOT NULL",
+            params![owner_id, now_ms],
         )?;
         Ok(n as i64)
     })
@@ -6326,6 +6469,7 @@ pub struct LocalCancelarVendaResult {
 }
 
 pub fn cancelar_venda_local(
+    owner_id: &str,
     input: LocalCancelarVendaInput,
     now_ms: i64,
 ) -> DbResult<LocalCancelarVendaResult> {
@@ -6340,9 +6484,9 @@ pub fn cancelar_venda_local(
             "SELECT local_uuid, COALESCE(status,'ativa'), caixa_local_uuid,
                     cancelamento_local_uuid
                FROM vendas_local
-              WHERE local_uuid = ?1 OR client_uuid = ?1
+              WHERE owner_id = ?1 AND (local_uuid = ?2 OR client_uuid = ?2)
               LIMIT 1",
-            params![input.venda_local_uuid],
+            params![owner_id, input.venda_local_uuid],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         ).optional()?;
         Ok(r)
@@ -6356,8 +6500,8 @@ pub fn cancelar_venda_local(
         let (qtd_itens, qtd_total) = with_conn(|conn| {
             let r = conn.query_row(
                 "SELECT COUNT(*), COALESCE(SUM(quantidade),0)
-                   FROM venda_itens_local WHERE venda_local_uuid = ?1",
-                params![venda_uuid],
+                   FROM venda_itens_local WHERE owner_id = ?1 AND venda_local_uuid = ?2",
+                params![owner_id, venda_uuid],
                 |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?)),
             ).optional()?;
             Ok(r.unwrap_or((0, 0.0)))
@@ -6379,8 +6523,8 @@ pub fn cancelar_venda_local(
             if let Some(local_uuid) = with_conn(|conn| {
                 let r = conn.query_row(
                     "SELECT local_uuid FROM outbox_cancelamentos_venda
-                       WHERE client_uuid = ?1",
-                    params![cu],
+                       WHERE owner_id = ?1 AND client_uuid = ?2",
+                    params![owner_id, cu],
                     |r| r.get::<_, String>(0),
                 ).optional()?;
                 Ok(r)
@@ -6388,8 +6532,8 @@ pub fn cancelar_venda_local(
                 let (qtd_itens, qtd_total) = with_conn(|conn| {
                     let r = conn.query_row(
                         "SELECT COUNT(*), COALESCE(SUM(quantidade),0)
-                           FROM venda_itens_local WHERE venda_local_uuid = ?1",
-                        params![venda_uuid],
+                           FROM venda_itens_local WHERE owner_id = ?1 AND venda_local_uuid = ?2",
+                        params![owner_id, venda_uuid],
                         |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?)),
                     ).optional()?;
                     Ok(r.unwrap_or((0, 0.0)))
@@ -6410,8 +6554,8 @@ pub fn cancelar_venda_local(
     // Lê venda_remote_id (se já sincronizada) — vai no payload de outbox.
     let venda_remote_id: Option<String> = with_conn(|conn| {
         let r = conn.query_row(
-            "SELECT remote_id FROM outbox_vendas WHERE local_uuid = ?1",
-            params![venda_uuid],
+            "SELECT remote_id FROM outbox_vendas WHERE owner_id = ?1 AND local_uuid = ?2",
+            params![owner_id, venda_uuid],
             |r| r.get::<_, Option<String>>(0),
         ).optional()?;
         Ok(r.flatten())
@@ -6426,6 +6570,7 @@ pub fn cancelar_venda_local(
         "motivo":            input.motivo,
         "operador_id":       input.operador_id,
         "client_uuid":       input.client_uuid,
+        "owner_id":          owner_id,
     }).to_string();
 
     let res = with_conn(|conn| {
@@ -6441,13 +6586,14 @@ pub fn cancelar_venda_local(
                     cancelado_client_uuid=?4,
                     cancelamento_local_uuid=?5,
                     updated_at_ms=?1
-              WHERE local_uuid=?6",
+              WHERE owner_id=?6 AND local_uuid=?7",
             params![
                 now_ms,
                 input.motivo,
                 input.operador_id,
                 input.client_uuid,
                 cancelamento_local_uuid,
+                owner_id,
                 venda_uuid,
             ],
         )?;
@@ -6456,11 +6602,11 @@ pub fn cancelar_venda_local(
         let mut stmt = tx.prepare(
             "SELECT produto_id, quantidade
                FROM venda_itens_local
-              WHERE venda_local_uuid = ?1
+              WHERE owner_id = ?1 AND venda_local_uuid = ?2
               ORDER BY id ASC",
         )?;
         let itens: Vec<(String, f64)> = stmt
-            .query_map(params![venda_uuid], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .query_map(params![owner_id, venda_uuid], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?;
         drop(stmt);
 
@@ -6469,7 +6615,7 @@ pub fn cancelar_venda_local(
         for (idx, (produto_id, quantidade)) in itens.iter().enumerate() {
             let mov_id = format!("{}-c{}", venda_uuid, idx);
             let variacao_id = String::new();
-            let saldo_anterior = read_saldo_atual(&tx, produto_id, &variacao_id)?;
+            let saldo_anterior = read_saldo_atual(&tx, owner_id, produto_id, &variacao_id)?;
             let saldo_posterior = saldo_anterior + *quantidade;
             let mov_payload = serde_json::json!({
                 "id": mov_id,
@@ -6482,17 +6628,19 @@ pub fn cancelar_venda_local(
                 "venda_local_uuid": venda_uuid,
                 "data_movimentacao": iso_from_ms_z_pub(now_ms),
                 "_pending": true,
+                "owner_id": owner_id,
             }).to_string();
             tx.execute(
                 "INSERT OR IGNORE INTO estoque_movimentacoes_local(
-                    id, produto_id, variacao_id, tipo, quantidade,
+                    id, owner_id, produto_id, variacao_id, tipo, quantidade,
                     saldo_anterior, saldo_posterior, custo_unitario,
                     origem, observacoes, data_movimentacao_ms,
                     payload, synced_at_ms
-                 ) VALUES (?1,?2,?3,'devolucao',?4,?5,?6,NULL,'cancelamento_venda',
-                           NULL,?7,?8,?7)",
+                 ) VALUES (?1,?2,?3,?4,'devolucao',?5,?6,?7,NULL,'cancelamento_venda',
+                           NULL,?8,?9,?8)",
                 params![
                     mov_id,
+                    owner_id,
                     produto_id,
                     variacao_id,
                     quantidade,
@@ -6503,7 +6651,7 @@ pub fn cancelar_venda_local(
                 ],
             )?;
             apply_mov_to_saldo(
-                &tx, produto_id, &variacao_id,
+                &tx, owner_id, produto_id, &variacao_id,
                 Some("devolucao"), *quantidade, now_ms,
             )?;
             qtd_itens += 1;
@@ -6519,13 +6667,14 @@ pub fn cancelar_venda_local(
         // 4) Enfileira na outbox de cancelamentos.
         tx.execute(
             "INSERT INTO outbox_cancelamentos_venda(
-                local_uuid, client_uuid, venda_local_uuid, venda_remote_id,
+                local_uuid, owner_id, client_uuid, venda_local_uuid, venda_remote_id,
                 motivo, operador_id, payload, status, attempts,
                 last_error, remote_response,
                 created_at_ms, updated_at_ms, sent_at_ms, next_attempt_at_ms
-             ) VALUES (?1,?2,?3,?4,?5,?6,?7,'pending',0,NULL,NULL,?8,?8,NULL,NULL)",
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'pending',0,NULL,NULL,?9,?9,NULL,NULL)",
             params![
                 cancelamento_local_uuid,
+                owner_id,
                 input.client_uuid,
                 venda_uuid,
                 venda_remote_id,
@@ -6568,13 +6717,13 @@ pub struct OutboxCancelStats {
     pub waiting_venda_sync: i64,
 }
 
-pub fn outbox_cancel_stats() -> DbResult<OutboxCancelStats> {
+pub fn outbox_cancel_stats(owner_id: &str) -> DbResult<OutboxCancelStats> {
     with_conn(|conn| {
         let mut s = OutboxCancelStats::default();
         let mut stmt = conn.prepare(
-            "SELECT status, COUNT(*) FROM outbox_cancelamentos_venda GROUP BY status",
+            "SELECT status, COUNT(*) FROM outbox_cancelamentos_venda WHERE owner_id=?1 GROUP BY status",
         )?;
-        for r in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
+        for r in stmt.query_map(params![owner_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
             let (st, n) = r?;
             match st.as_str() {
                 "pending" => s.pending = n,
@@ -6585,38 +6734,41 @@ pub fn outbox_cancel_stats() -> DbResult<OutboxCancelStats> {
             }
         }
         s.last_sent_at_ms = conn.query_row(
-            "SELECT MAX(sent_at_ms) FROM outbox_cancelamentos_venda WHERE status='sent'",
-            [], |r| r.get::<_, Option<i64>>(0),
+            "SELECT MAX(sent_at_ms) FROM outbox_cancelamentos_venda WHERE owner_id=?1 AND status='sent'",
+            params![owner_id], |r| r.get::<_, Option<i64>>(0),
         ).unwrap_or(None);
         s.last_error = conn.query_row(
             "SELECT last_error FROM outbox_cancelamentos_venda
-              WHERE status='error' ORDER BY updated_at_ms DESC LIMIT 1",
-            [], |r| r.get::<_, Option<String>>(0),
+              WHERE owner_id=?1 AND status='error' ORDER BY updated_at_ms DESC LIMIT 1",
+            params![owner_id], |r| r.get::<_, Option<String>>(0),
         ).unwrap_or(None);
         s.due_now = conn.query_row(
             "SELECT COUNT(*) FROM outbox_cancelamentos_venda
-              WHERE status='pending'
-                AND (next_attempt_at_ms IS NULL OR next_attempt_at_ms <= ?1)",
-            params![chrono::Utc::now().timestamp_millis()], |r| r.get::<_, i64>(0),
+              WHERE owner_id=?1
+                AND status='pending'
+                AND (next_attempt_at_ms IS NULL OR next_attempt_at_ms <= ?2)",
+            params![owner_id, chrono::Utc::now().timestamp_millis()], |r| r.get::<_, i64>(0),
         ).unwrap_or(0);
         s.next_attempt_at_ms = conn.query_row(
             "SELECT MIN(next_attempt_at_ms) FROM outbox_cancelamentos_venda
-              WHERE status='pending'",
-            [], |r| r.get::<_, Option<i64>>(0),
+              WHERE owner_id=?1 AND status='pending'",
+            params![owner_id], |r| r.get::<_, Option<i64>>(0),
         ).unwrap_or(None);
         // Cancelamentos pendentes cuja venda ainda não foi sincronizada.
         s.waiting_venda_sync = conn.query_row(
             "SELECT COUNT(*)
                FROM outbox_cancelamentos_venda c
               WHERE c.status='pending'
+                AND c.owner_id=?1
                 AND (c.venda_remote_id IS NULL OR c.venda_remote_id = '')
                 AND NOT EXISTS (
                     SELECT 1 FROM outbox_vendas v
                      WHERE v.local_uuid = c.venda_local_uuid
+                       AND v.owner_id = c.owner_id
                        AND v.status='sent'
                        AND v.remote_id IS NOT NULL
                 )",
-            [], |r| r.get::<_, i64>(0),
+            params![owner_id], |r| r.get::<_, i64>(0),
         ).unwrap_or(0);
         Ok(s)
     })
@@ -6625,6 +6777,7 @@ pub fn outbox_cancel_stats() -> DbResult<OutboxCancelStats> {
 #[derive(Debug, Serialize)]
 pub struct OutboxCancelItem {
     pub local_uuid: String,
+    pub owner_id: Option<String>,
     pub client_uuid: Option<String>,
     pub venda_local_uuid: String,
     pub venda_remote_id: Option<String>,
@@ -6641,38 +6794,40 @@ pub struct OutboxCancelItem {
 fn map_cancel_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<OutboxCancelItem> {
     Ok(OutboxCancelItem {
         local_uuid: r.get(0)?,
-        client_uuid: r.get(1)?,
-        venda_local_uuid: r.get(2)?,
-        venda_remote_id: r.get(3)?,
-        motivo: r.get(4)?,
-        status: r.get(5)?,
-        attempts: r.get(6)?,
-        last_error: r.get(7)?,
-        created_at_ms: r.get(8)?,
-        updated_at_ms: r.get(9)?,
-        sent_at_ms: r.get(10)?,
-        next_attempt_at_ms: r.get(11)?,
+        owner_id: r.get(1)?,
+        client_uuid: r.get(2)?,
+        venda_local_uuid: r.get(3)?,
+        venda_remote_id: r.get(4)?,
+        motivo: r.get(5)?,
+        status: r.get(6)?,
+        attempts: r.get(7)?,
+        last_error: r.get(8)?,
+        created_at_ms: r.get(9)?,
+        updated_at_ms: r.get(10)?,
+        sent_at_ms: r.get(11)?,
+        next_attempt_at_ms: r.get(12)?,
     })
 }
 
-pub fn outbox_cancel_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxCancelItem>> {
+pub fn outbox_cancel_list(owner_id: &str, limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxCancelItem>> {
     with_conn(|conn| {
         let (sql, has_status) = match only_status {
             Some(_) => (
-                "SELECT local_uuid, client_uuid, venda_local_uuid, venda_remote_id,
+                "SELECT local_uuid, owner_id, client_uuid, venda_local_uuid, venda_remote_id,
                         motivo, status, attempts, last_error,
                         created_at_ms, updated_at_ms, sent_at_ms, next_attempt_at_ms
                    FROM outbox_cancelamentos_venda
-                  WHERE status = ?1
-               ORDER BY created_at_ms DESC LIMIT ?2",
+                  WHERE owner_id = ?1 AND status = ?2
+               ORDER BY created_at_ms DESC LIMIT ?3",
                 true,
             ),
             None => (
-                "SELECT local_uuid, client_uuid, venda_local_uuid, venda_remote_id,
+                "SELECT local_uuid, owner_id, client_uuid, venda_local_uuid, venda_remote_id,
                         motivo, status, attempts, last_error,
                         created_at_ms, updated_at_ms, sent_at_ms, next_attempt_at_ms
                    FROM outbox_cancelamentos_venda
-               ORDER BY created_at_ms DESC LIMIT ?1",
+                  WHERE owner_id = ?1
+               ORDER BY created_at_ms DESC LIMIT ?2",
                 false,
             ),
         };
@@ -6680,11 +6835,11 @@ pub fn outbox_cancel_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec
         let mut out = Vec::new();
         if has_status {
             let st = only_status.unwrap();
-            for r in stmt.query_map(params![st, limit], map_cancel_item)? {
+            for r in stmt.query_map(params![owner_id, st, limit], map_cancel_item)? {
                 out.push(r?);
             }
         } else {
-            for r in stmt.query_map(params![limit], map_cancel_item)? {
+            for r in stmt.query_map(params![owner_id, limit], map_cancel_item)? {
                 out.push(r?);
             }
         }
@@ -6692,38 +6847,38 @@ pub fn outbox_cancel_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec
     })
 }
 
-pub fn outbox_cancel_pending_batch(limit: i64) -> DbResult<Vec<OutboxCancelItem>> {
+pub fn outbox_cancel_pending_batch(owner_id: &str, limit: i64) -> DbResult<Vec<OutboxCancelItem>> {
     with_conn(|conn| {
         let now = chrono::Utc::now().timestamp_millis();
         let mut stmt = conn.prepare(
-            "SELECT local_uuid, client_uuid, venda_local_uuid, venda_remote_id,
+            "SELECT local_uuid, owner_id, client_uuid, venda_local_uuid, venda_remote_id,
                     motivo, status, attempts, last_error,
                     created_at_ms, updated_at_ms, sent_at_ms, next_attempt_at_ms
                FROM outbox_cancelamentos_venda
-              WHERE status='pending'
-                AND (next_attempt_at_ms IS NULL OR next_attempt_at_ms <= ?1)
-           ORDER BY created_at_ms ASC LIMIT ?2",
+              WHERE owner_id=?1 AND status='pending'
+                AND (next_attempt_at_ms IS NULL OR next_attempt_at_ms <= ?2)
+           ORDER BY created_at_ms ASC LIMIT ?3",
         )?;
         let mut out = Vec::new();
-        for r in stmt.query_map(params![now, limit], map_cancel_item)? {
+        for r in stmt.query_map(params![owner_id, now, limit], map_cancel_item)? {
             out.push(r?);
         }
         Ok(out)
     })
 }
 
-pub fn outbox_cancel_pending_batch_all(limit: i64) -> DbResult<Vec<OutboxCancelItem>> {
+pub fn outbox_cancel_pending_batch_all(owner_id: &str, limit: i64) -> DbResult<Vec<OutboxCancelItem>> {
     with_conn(|conn| {
         let mut stmt = conn.prepare(
-            "SELECT local_uuid, client_uuid, venda_local_uuid, venda_remote_id,
+            "SELECT local_uuid, owner_id, client_uuid, venda_local_uuid, venda_remote_id,
                     motivo, status, attempts, last_error,
                     created_at_ms, updated_at_ms, sent_at_ms, next_attempt_at_ms
                FROM outbox_cancelamentos_venda
-              WHERE status='pending'
-           ORDER BY created_at_ms ASC LIMIT ?1",
+              WHERE owner_id=?1 AND status='pending'
+           ORDER BY created_at_ms ASC LIMIT ?2",
         )?;
         let mut out = Vec::new();
-        for r in stmt.query_map(params![limit], map_cancel_item)? {
+        for r in stmt.query_map(params![owner_id, limit], map_cancel_item)? {
             out.push(r?);
         }
         Ok(out)
@@ -6735,26 +6890,26 @@ pub fn outbox_cancel_pending_batch_all(limit: i64) -> DbResult<Vec<OutboxCancelI
 /// outbox de vendas se a venda foi sincronizada depois do enfileiramento.
 /// Retorna None se a venda ainda não foi sincronizada — chamador deve
 /// re-agendar o cancelamento.
-pub fn cancel_resolve_venda_remote(local_uuid: &str) -> DbResult<Option<String>> {
+pub fn cancel_resolve_venda_remote(owner_id: &str, local_uuid: &str) -> DbResult<Option<String>> {
     with_conn(|conn| {
         let stored: Option<String> = conn.query_row(
-            "SELECT venda_remote_id FROM outbox_cancelamentos_venda WHERE local_uuid=?1",
-            params![local_uuid],
+            "SELECT venda_remote_id FROM outbox_cancelamentos_venda WHERE owner_id=?1 AND local_uuid=?2",
+            params![owner_id, local_uuid],
             |r| r.get::<_, Option<String>>(0),
         ).optional()?.flatten();
         if let Some(s) = stored {
             if !s.is_empty() { return Ok(Some(s)); }
         }
         let venda_local: Option<String> = conn.query_row(
-            "SELECT venda_local_uuid FROM outbox_cancelamentos_venda WHERE local_uuid=?1",
-            params![local_uuid],
+            "SELECT venda_local_uuid FROM outbox_cancelamentos_venda WHERE owner_id=?1 AND local_uuid=?2",
+            params![owner_id, local_uuid],
             |r| r.get::<_, String>(0),
         ).optional()?;
         let Some(vl) = venda_local else { return Ok(None) };
         let remote: Option<String> = conn.query_row(
             "SELECT remote_id FROM outbox_vendas
-              WHERE local_uuid=?1 AND status='sent'",
-            params![vl],
+              WHERE owner_id=?1 AND local_uuid=?2 AND status='sent'",
+            params![owner_id, vl],
             |r| r.get::<_, Option<String>>(0),
         ).optional()?.flatten();
         // Persiste para próximas tentativas.
@@ -6814,14 +6969,14 @@ pub fn outbox_cancel_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbR
     })
 }
 
-pub fn outbox_cancel_reset_errors(now_ms: i64) -> DbResult<i64> {
+pub fn outbox_cancel_reset_errors(owner_id: &str, now_ms: i64) -> DbResult<i64> {
     with_conn(|conn| {
         let n = conn.execute(
             "UPDATE outbox_cancelamentos_venda
-                SET status='pending', updated_at_ms=?1,
+                SET status='pending', updated_at_ms=?2,
                     next_attempt_at_ms=NULL, last_error=NULL
-              WHERE status IN ('error','pending') AND last_error IS NOT NULL",
-            params![now_ms],
+              WHERE owner_id=?1 AND status IN ('error','pending') AND last_error IS NOT NULL",
+            params![owner_id, now_ms],
         )?;
         Ok(n as i64)
     })
@@ -6852,6 +7007,7 @@ pub struct OutboxFinanceiroStats {
 #[derive(Debug, Serialize)]
 pub struct OutboxFinanceiroItem {
     pub local_uuid: String,
+    pub owner_id: Option<String>,
     pub client_uuid: Option<String>,
     pub lanc_local_uuid: String,
     pub payload: String,
@@ -6867,29 +7023,30 @@ pub struct OutboxFinanceiroItem {
 fn map_fin_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<OutboxFinanceiroItem> {
     Ok(OutboxFinanceiroItem {
         local_uuid: r.get(0)?,
-        client_uuid: r.get(1)?,
-        lanc_local_uuid: r.get(2)?,
-        payload: r.get(3)?,
-        status: r.get(4)?,
-        attempts: r.get(5)?,
-        last_error: r.get(6)?,
-        remote_id: r.get(7)?,
-        created_at_ms: r.get(8)?,
-        updated_at_ms: r.get(9)?,
-        sent_at_ms: r.get(10)?,
+        owner_id: r.get(1)?,
+        client_uuid: r.get(2)?,
+        lanc_local_uuid: r.get(3)?,
+        payload: r.get(4)?,
+        status: r.get(5)?,
+        attempts: r.get(6)?,
+        last_error: r.get(7)?,
+        remote_id: r.get(8)?,
+        created_at_ms: r.get(9)?,
+        updated_at_ms: r.get(10)?,
+        sent_at_ms: r.get(11)?,
     })
 }
 
 const FIN_COLS: &str =
-    "local_uuid, client_uuid, lanc_local_uuid, payload, status, attempts,
+    "local_uuid, owner_id, client_uuid, lanc_local_uuid, payload, status, attempts,
      last_error, remote_id, created_at_ms, updated_at_ms, sent_at_ms";
 
-pub fn outbox_financeiro_stats() -> DbResult<OutboxFinanceiroStats> {
+pub fn outbox_financeiro_stats(owner_id: &str) -> DbResult<OutboxFinanceiroStats> {
     with_conn(|conn| {
         let mut s = OutboxFinanceiroStats::default();
         let mut stmt = conn
-            .prepare("SELECT status, COUNT(*) FROM outbox_financeiro GROUP BY status")?;
-        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+            .prepare("SELECT status, COUNT(*) FROM outbox_financeiro WHERE owner_id=?1 GROUP BY status")?;
+        let rows = stmt.query_map(params![owner_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
         for r in rows {
             let (st, n) = r?;
             match st.as_str() {
@@ -6901,24 +7058,24 @@ pub fn outbox_financeiro_stats() -> DbResult<OutboxFinanceiroStats> {
             }
         }
         s.last_sent_at_ms = conn.query_row(
-            "SELECT MAX(sent_at_ms) FROM outbox_financeiro WHERE status='sent'",
-            [], |r| r.get::<_, Option<i64>>(0),
+            "SELECT MAX(sent_at_ms) FROM outbox_financeiro WHERE owner_id=?1 AND status='sent'",
+            params![owner_id], |r| r.get::<_, Option<i64>>(0),
         ).optional()?.flatten();
         s.last_error = conn.query_row(
             "SELECT last_error FROM outbox_financeiro
-              WHERE status='error' ORDER BY updated_at_ms DESC LIMIT 1",
-            [], |r| r.get::<_, Option<String>>(0),
+              WHERE owner_id=?1 AND status='error' ORDER BY updated_at_ms DESC LIMIT 1",
+            params![owner_id], |r| r.get::<_, Option<String>>(0),
         ).optional()?.flatten();
         let now = chrono::Utc::now().timestamp_millis();
         s.due_now = conn.query_row(
             "SELECT COUNT(*) FROM outbox_financeiro
-              WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1",
-            params![now], |r| r.get::<_, i64>(0),
+              WHERE owner_id=?1 AND status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?2",
+            params![owner_id, now], |r| r.get::<_, i64>(0),
         ).optional()?.unwrap_or(0);
         s.next_attempt_at_ms = conn.query_row(
             "SELECT MIN(COALESCE(next_attempt_at_ms,0))
-               FROM outbox_financeiro WHERE status='pending'",
-            [], |r| r.get::<_, Option<i64>>(0),
+               FROM outbox_financeiro WHERE owner_id=?1 AND status='pending'",
+            params![owner_id], |r| r.get::<_, Option<i64>>(0),
         ).optional()?.flatten();
         s.last_auto_flush_ms = meta_get_i64(conn, "outbox_fin_last_auto_flush_ms")?;
         s.last_auto_flush_sent_ms = meta_get_i64(conn, "outbox_fin_last_auto_flush_sent_ms")?;
@@ -6949,61 +7106,61 @@ pub fn outbox_financeiro_record_flush_round(
     })
 }
 
-pub fn outbox_financeiro_list(limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxFinanceiroItem>> {
+pub fn outbox_financeiro_list(owner_id: &str, limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxFinanceiroItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let mut out = Vec::new();
         if let Some(st) = only_status {
             let sql = format!(
-                "SELECT {cols} FROM outbox_financeiro WHERE status=?1
+                "SELECT {cols} FROM outbox_financeiro WHERE owner_id=?1 AND status=?2
+                 ORDER BY created_at_ms DESC LIMIT ?3",
+                cols = FIN_COLS,
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![owner_id, st, limit], map_fin_item)?;
+            for r in rows { out.push(r?); }
+        } else {
+            let sql = format!(
+                "SELECT {cols} FROM outbox_financeiro WHERE owner_id=?1
                  ORDER BY created_at_ms DESC LIMIT ?2",
                 cols = FIN_COLS,
             );
             let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map(params![st, limit], map_fin_item)?;
-            for r in rows { out.push(r?); }
-        } else {
-            let sql = format!(
-                "SELECT {cols} FROM outbox_financeiro
-                 ORDER BY created_at_ms DESC LIMIT ?1",
-                cols = FIN_COLS,
-            );
-            let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map(params![limit], map_fin_item)?;
+            let rows = stmt.query_map(params![owner_id, limit], map_fin_item)?;
             for r in rows { out.push(r?); }
         }
         Ok(out)
     })
 }
 
-pub fn outbox_financeiro_pending_batch(limit: i64) -> DbResult<Vec<OutboxFinanceiroItem>> {
+pub fn outbox_financeiro_pending_batch(owner_id: &str, limit: i64) -> DbResult<Vec<OutboxFinanceiroItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let now = chrono::Utc::now().timestamp_millis();
         let sql = format!(
             "SELECT {cols} FROM outbox_financeiro
-              WHERE status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?1
-              ORDER BY created_at_ms ASC LIMIT ?2",
+              WHERE owner_id=?1 AND status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?2
+              ORDER BY created_at_ms ASC LIMIT ?3",
             cols = FIN_COLS,
         );
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![now, limit], map_fin_item)?;
+        let rows = stmt.query_map(params![owner_id, now, limit], map_fin_item)?;
         let mut out = Vec::new();
         for r in rows { out.push(r?); }
         Ok(out)
     })
 }
 
-pub fn outbox_financeiro_pending_batch_all(limit: i64) -> DbResult<Vec<OutboxFinanceiroItem>> {
+pub fn outbox_financeiro_pending_batch_all(owner_id: &str, limit: i64) -> DbResult<Vec<OutboxFinanceiroItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let sql = format!(
-            "SELECT {cols} FROM outbox_financeiro WHERE status='pending'
-             ORDER BY created_at_ms ASC LIMIT ?1",
+            "SELECT {cols} FROM outbox_financeiro WHERE owner_id=?1 AND status='pending'
+             ORDER BY created_at_ms ASC LIMIT ?2",
             cols = FIN_COLS,
         );
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![limit], map_fin_item)?;
+        let rows = stmt.query_map(params![owner_id, limit], map_fin_item)?;
         let mut out = Vec::new();
         for r in rows { out.push(r?); }
         Ok(out)
@@ -7097,14 +7254,14 @@ pub fn outbox_financeiro_mark_error(local_uuid: &str, err: &str, now_ms: i64) ->
     })
 }
 
-pub fn outbox_financeiro_reset_errors(now_ms: i64) -> DbResult<i64> {
+pub fn outbox_financeiro_reset_errors(owner_id: &str, now_ms: i64) -> DbResult<i64> {
     with_conn(|conn| {
         let n = conn.execute(
             "UPDATE outbox_financeiro
-                SET status='pending', updated_at_ms=?1,
+                SET status='pending', updated_at_ms=?2,
                     next_attempt_at_ms=NULL, last_error=NULL
-              WHERE status IN ('error','pending') AND last_error IS NOT NULL",
-            params![now_ms],
+              WHERE owner_id=?1 AND status IN ('error','pending') AND last_error IS NOT NULL",
+            params![owner_id, now_ms],
         )?;
         Ok(n as i64)
     })

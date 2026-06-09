@@ -52,7 +52,7 @@ export function OutboxPendenciasAlert({ contexto, className }: Props) {
             <span>
               <strong>{d.label}</strong>: {d.error} com erro
               {d.pending > 0 ? ` · ${d.pending} pendente(s)` : ""} —{" "}
-              <em>{d.lastErrorClass.label}</em>
+              <em>{d.lastErrorClass.friendly}</em>
             </span>
           </li>
         ))}

@@ -135,6 +135,7 @@ export function DesktopTab() {
     qtd_saidas: number;
   } | null>(null);
   const [finRecentes, setFinRecentes] = useState<LancamentoLocalRow[]>([]);
+  const [diagnosticoErro, setDiagnosticoErro] = useState<string | null>(null);
 
   // cfg derivado para chamadas ao backend local (terminal usa o config; servidor
   // bate em si mesmo via 127.0.0.1).
@@ -295,13 +296,11 @@ export function DesktopTab() {
     setArquivandoVendaEstoqueErro(true);
     try {
       const items = await fetchOutboxVendasList(localCfg, {
-        status: "error",
         limit: 100,
       });
-      const stockErrors = items.filter((item) => {
-        const msg = (item.last_error ?? "").toLowerCase();
-        return msg.includes("estoque insuficiente");
-      });
+      const stockErrors = items.filter((item) =>
+        isArquivableVendaSyncError(item.last_error),
+      );
       let archived = 0;
       for (const item of stockErrors) {
         const ok = await archiveOutboxVendaError(
@@ -314,7 +313,7 @@ export function DesktopTab() {
       if (archived > 0) {
         toast.success(`${archived} erro(s) antigo(s) de venda arquivado(s).`);
       } else {
-        toast.info("Nenhuma venda com erro antigo de estoque foi encontrada.");
+        toast.info("Nenhuma venda com erro antigo arquivavel foi encontrada.");
       }
       setOutboxVendas(await fetchOutboxVendasStats(localCfg));
       await recarregarOutboxStatus();
@@ -494,6 +493,7 @@ export function DesktopTab() {
 
     let alive = true;
     const carregar = async () => {
+      try {
       const [info, terms, stats, obs, ob, obv, obc, occ, obf, ca] = await Promise.all([
         fetchDbInfo(cfg),
         fetchKnownTerminals(cfg),
@@ -507,6 +507,7 @@ export function DesktopTab() {
         fetchCaixaLocalAberto(cfg),
       ]);
       if (!alive) return;
+      setDiagnosticoErro(null);
       setDbInfo(info);
       setKnownTerminals(terms);
       setDomainStats(stats);
@@ -516,7 +517,6 @@ export function DesktopTab() {
       setOutboxCaixa(obc);
       setOutboxCancel(occ);
       setOutboxFin(obf);
-      setCaixaAberto(ca);
       setCaixaAberto(ca);
 
       // Resumo + lançamentos: prioriza caixa aberto, senão omite (último
@@ -542,25 +542,39 @@ export function DesktopTab() {
       if (!alive) return;
       setFinResumo(resumoFin);
       setFinRecentes(recentes);
+      } catch (error) {
+        if (!alive) return;
+        const msg = error instanceof Error ? error.message : String(error);
+        console.warn("[DesktopTab] diagnostico local falhou; mantendo tela ativa", msg);
+        setDiagnosticoErro(msg || "Falha ao consultar diagnostico local.");
+      }
     };
     void carregar();
     const tFull = setInterval(() => void carregar(), 30_000);
     const tOutbox = setInterval(async () => {
-      const [obs, ob, obv, obc, occ, obf] = await Promise.all([
-        fetchOutboxStatus(cfg),
-        fetchOutboxStats(cfg),
-        fetchOutboxVendasStats(cfg),
-        fetchOutboxCaixaStats(cfg),
-        fetchOutboxCancelamentosStats(cfg),
-        fetchOutboxFinanceiroStats(cfg),
-      ]);
-      if (!alive) return;
-      setOutboxStatus(obs);
-      setOutbox(ob);
-      setOutboxVendas(obv);
-      setOutboxCaixa(obc);
-      setOutboxCancel(occ);
-      setOutboxFin(obf);
+      try {
+        const [obs, ob, obv, obc, occ, obf] = await Promise.all([
+          fetchOutboxStatus(cfg),
+          fetchOutboxStats(cfg),
+          fetchOutboxVendasStats(cfg),
+          fetchOutboxCaixaStats(cfg),
+          fetchOutboxCancelamentosStats(cfg),
+          fetchOutboxFinanceiroStats(cfg),
+        ]);
+        if (!alive) return;
+        setDiagnosticoErro(null);
+        setOutboxStatus(obs);
+        setOutbox(ob);
+        setOutboxVendas(obv);
+        setOutboxCaixa(obc);
+        setOutboxCancel(occ);
+        setOutboxFin(obf);
+      } catch (error) {
+        if (!alive) return;
+        const msg = error instanceof Error ? error.message : String(error);
+        console.warn("[DesktopTab] polling de outbox falhou; mantendo dados anteriores", msg);
+        setDiagnosticoErro(msg || "Falha ao atualizar filas locais.");
+      }
     }, 5_000);
     return () => {
       alive = false;
@@ -709,6 +723,18 @@ export function DesktopTab() {
         )}
 
         {/* Status de conexão real */}
+        {diagnosticoErro && (
+          <div className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <div className="font-medium">Diagnostico local em revalidacao</div>
+              <div className="mt-0.5 text-xs opacity-90">
+                O app manteve a tela ativa e vai tentar novamente. Ultimo erro: {diagnosticoErro}
+              </div>
+            </div>
+          </div>
+        )}
+
         {role !== "unset" && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-4">
@@ -1217,9 +1243,7 @@ export function DesktopTab() {
                     >
                       Reenfileirar erros
                     </Button>
-                    {(outboxVendas.last_error ?? "")
-                      .toLowerCase()
-                      .includes("estoque insuficiente") && (
+                    {isArquivableVendaSyncError(outboxVendas.last_error) && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -1326,9 +1350,7 @@ export function DesktopTab() {
                       <Eye className="mr-2 h-4 w-4" />
                       Ver detalhes
                     </Button>
-                    {(outboxVendas.last_error ?? "")
-                      .toLowerCase()
-                      .includes("estoque insuficiente") && (
+                    {isArquivableVendaSyncError(outboxVendas.last_error) && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -2136,6 +2158,16 @@ function formatMs(ms: number | null) {
   return ms ? new Date(ms).toLocaleString("pt-BR") : "—";
 }
 
+function isArquivableVendaSyncError(raw: string | null | undefined) {
+  const msg = (raw ?? "").toLowerCase();
+  return (
+    msg.includes("estoque insuficiente") ||
+    msg.includes("caixa_pendente_sync") ||
+    msg.includes("caixa aberto neste terminal") ||
+    msg.includes("abertura de caixa local")
+  );
+}
+
 function OutboxStatusPanel({
   status,
   flushing,
@@ -2223,7 +2255,7 @@ function OutboxStatusPanel({
                   d.domain === "vendas" &&
                   hasError &&
                   onArchiveVendaStockErrors &&
-                  (d.last_error ?? "").toLowerCase().includes("estoque insuficiente");
+                  isArquivableVendaSyncError(d.last_error);
                 const canArchiveCaixaConflict =
                   d.domain === "caixa" &&
                   hasError &&

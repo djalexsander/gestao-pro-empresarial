@@ -103,9 +103,43 @@ fn jwt_subject(auth_header_or_token: &str) -> Option<String> {
     value.get("sub").and_then(|v| v.as_str()).map(|s| s.to_string())
 }
 
+fn require_owner_id(ctx: &AppCtx, headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
+    resolve_user_jwt(&ctx.user_jwt, headers)
+        .and_then(|jwt| jwt_subject(&jwt))
+        .ok_or((
+            StatusCode::UNAUTHORIZED,
+            "AUTH: sem JWT do usuario para operacao local tenant-aware".into(),
+        ))
+}
+
 /// Limpa o cache de JWT — chamado quando o upstream rejeita o token
 /// (HTTP 401/403), forçando a próxima request autenticada do terminal a
 /// repopular com um token fresco.
+fn cached_owner_id(ctx: &AppCtx, scheduler: &str) -> Option<String> {
+    let owner = resolve_user_jwt(&ctx.user_jwt, &HeaderMap::new()).and_then(|jwt| jwt_subject(&jwt));
+    if owner.is_none() {
+        eprintln!("[gestao-pro] {scheduler}: sem JWT/owner_id; fila nao sera processada automaticamente");
+    }
+    owner
+}
+
+fn ensure_item_owner(
+    domain: &str,
+    local_uuid: &str,
+    item_owner: Option<&str>,
+    jwt_owner: &str,
+) -> Result<(), String> {
+    match item_owner.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(owner) if owner == jwt_owner => Ok(()),
+        Some(owner) => Err(format!(
+            "TENANT_MISMATCH: {domain} {local_uuid} pertence a outro owner_id ({owner}); envio bloqueado"
+        )),
+        None => Err(format!(
+            "LEGACY_ORPHAN: {domain} {local_uuid} sem owner_id; envio automatico ignorado"
+        )),
+    }
+}
+
 fn clear_user_jwt(cache: &JwtCache) {
     if let Ok(mut g) = cache.lock() {
         *g = None;
@@ -580,6 +614,7 @@ async fn proxy_with_incremental_sync(
 ) -> Result<axum::response::Response, (StatusCode, String)> {
     let now = now_ms();
     let spec = incremental_spec(domain);
+    let owner_id = resolve_user_jwt(&ctx.user_jwt, headers).and_then(|jwt| jwt_subject(&jwt));
 
     // 1) Lê estado de sync e decide estratégia.
     let state = db::get_domain_sync_state(domain).unwrap_or(db::DomainSyncState {
@@ -596,7 +631,7 @@ async fn proxy_with_incremental_sync(
     let key = build_cache_key(path, base_query);
     if !force {
         if let Ok(Some(_)) = db::cache_get(domain, &key, now) {
-            if let Ok(payload) = read_typed(domain, base_query) {
+            if let Ok(payload) = read_typed(domain, base_query, owner_id.as_deref()) {
                 return Ok(typed_response_full(
                     StatusCode::OK,
                     "local-table",
@@ -657,7 +692,10 @@ async fn proxy_with_incremental_sync(
                             eprintln!("[gestao-pro] ingest produtos falhou: {e}");
                         }
                     },
-                    "clientes_lite" => match db::ingest_clientes(text, now, strategy) {
+                    "clientes_lite" => match owner_id
+                        .as_deref()
+                        .ok_or_else(|| db::DbError("AUTH: sem JWT do usuario para ingestao local de clientes".into()))
+                        .and_then(|oid| db::ingest_clientes(text, now, strategy, oid)) {
                         Ok((n, _)) => delta = n as i64,
                         Err(e) => {
                             let _ = db::record_sync_error(domain, now, &e.to_string());
@@ -665,7 +703,10 @@ async fn proxy_with_incremental_sync(
                         }
                     },
                     "estoque_movimentacoes" => {
-                        match db::ingest_movimentacoes(text, now, strategy) {
+                        match owner_id
+                            .as_deref()
+                            .ok_or_else(|| db::DbError("AUTH: sem JWT do usuario para ingestao local de estoque".into()))
+                            .and_then(|oid| db::ingest_movimentacoes(text, now, strategy, oid)) {
                             Ok((n, _)) => delta = n as i64,
                             Err(e) => {
                                 let _ = db::record_sync_error(domain, now, &e.to_string());
@@ -679,7 +720,7 @@ async fn proxy_with_incremental_sync(
             }
 
             // Devolve estado consolidado da tabela local — sempre.
-            let payload = read_typed(domain, base_query)
+            let payload = read_typed(domain, base_query, owner_id.as_deref())
                 .unwrap_or_else(|_| std::str::from_utf8(&bytes).unwrap_or("[]").to_string());
             Ok(typed_response_full(
                 StatusCode::OK,
@@ -692,7 +733,7 @@ async fn proxy_with_incremental_sync(
         Err(err) => {
             let _ = db::record_sync_error(domain, now, &format!("{:?}", err));
             if let Ok(true) = db::domain_has_rows(domain) {
-                if let Ok(payload) = read_typed(domain, base_query) {
+                if let Ok(payload) = read_typed(domain, base_query, owner_id.as_deref()) {
                     return Ok(typed_response_full(
                         StatusCode::OK,
                         "local-table-stale",
@@ -717,6 +758,7 @@ async fn proxy_with_cache(
 ) -> Result<axum::response::Response, (StatusCode, String)> {
     let key = build_cache_key(path, query);
     let now = now_ms();
+    let owner_id = resolve_user_jwt(&ctx.user_jwt, headers).and_then(|jwt| jwt_subject(&jwt));
 
     if let Ok(Some(payload)) = db::cache_get(domain, &key, now) {
         return Ok(typed_response(StatusCode::OK, "local-db", payload.into_bytes()));
@@ -742,7 +784,7 @@ async fn proxy_with_cache(
         Err(err) => {
             let _ = db::record_sync_error(domain, now, &format!("{:?}", err));
             if let Ok(true) = db::domain_has_rows(domain) {
-                if let Ok(payload) = read_typed(domain, query) {
+                if let Ok(payload) = read_typed(domain, query, owner_id.as_deref()) {
                     return Ok(typed_response(
                         StatusCode::OK,
                         "local-table-stale",
@@ -803,7 +845,7 @@ fn ingest_typed(domain: &str, text: &str, now: i64) {
     }
 }
 
-fn read_typed(domain: &str, query: &[(&str, String)]) -> Result<String, db::DbError> {
+fn read_typed(domain: &str, query: &[(&str, String)], owner_id: Option<&str>) -> Result<String, db::DbError> {
     let get = |k: &str| -> Option<String> {
         query.iter().find(|(qk, _)| *qk == k).map(|(_, v)| v.clone())
     };
@@ -811,16 +853,24 @@ fn read_typed(domain: &str, query: &[(&str, String)]) -> Result<String, db::DbEr
         "produtos" => {
             let _ = get("status");
             let _ = get("categoria_id");
+            let owner_id = owner_id.ok_or_else(|| db::DbError("AUTH: sem JWT do usuario para leitura local de produtos".into()))?;
             db::read_produtos(db::ProdutosFilter {
-                owner_id: None,
+                owner_id: Some(owner_id),
                 status: None,
                 categoria_id: None,
                 busca: None,
             })
         }
-        "clientes_lite" => db::read_clientes(None),
-        "estoque_saldos" => db::read_saldos(),
+        "clientes_lite" => {
+            let owner_id = owner_id.ok_or_else(|| db::DbError("AUTH: sem JWT do usuario para leitura local de clientes".into()))?;
+            db::read_clientes(owner_id, None)
+        }
+        "estoque_saldos" => {
+            let owner_id = owner_id.ok_or_else(|| db::DbError("AUTH: sem JWT do usuario para leitura local de estoque".into()))?;
+            db::read_saldos(owner_id)
+        }
         "estoque_movimentacoes" => {
+            let owner_id = owner_id.ok_or_else(|| db::DbError("AUTH: sem JWT do usuario para leitura local de estoque".into()))?;
             let produto_id = query
                 .iter()
                 .find(|(k, _)| *k == "__filter_produto_id")
@@ -830,7 +880,7 @@ fn read_typed(domain: &str, query: &[(&str, String)]) -> Result<String, db::DbEr
                 .find(|(k, _)| *k == "__filter_limit")
                 .and_then(|(_, v)| v.parse::<i64>().ok())
                 .unwrap_or(500);
-            db::read_movimentacoes(produto_id.as_deref(), limit)
+            db::read_movimentacoes(owner_id, produto_id.as_deref(), limit)
         }
         _ => Err(db::DbError("domínio sem leitura tipada".into())),
     }
@@ -842,11 +892,15 @@ async fn produtos_list_handler(
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
     let user_id = resolve_user_jwt(&ctx.user_jwt, &headers).and_then(|jwt| jwt_subject(&jwt));
+    let user_id = user_id.ok_or((
+        StatusCode::UNAUTHORIZED,
+        "AUTH: sem JWT do usuario para leitura local de produtos".into(),
+    ))?;
     let status = q.get("status").map(|s| s.trim()).filter(|s| !s.is_empty());
     let categoria_id = q.get("categoria_id").map(|s| s.trim()).filter(|s| !s.is_empty());
     let busca = q.get("busca").map(|s| s.trim()).filter(|s| !s.is_empty());
     let payload = db::read_produtos(db::ProdutosFilter {
-        owner_id: user_id.as_deref(),
+        owner_id: Some(user_id.as_str()),
         status,
         categoria_id,
         busca,
@@ -856,8 +910,8 @@ async fn produtos_list_handler(
 }
 
 async fn produtos_buscar_handler(
-    State(_ctx): State<AppCtx>,
-    _headers: HeaderMap,
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
     let codigo = q
@@ -867,8 +921,13 @@ async fn produtos_buscar_handler(
         .ok_or((StatusCode::BAD_REQUEST, "codigo obrigatório".into()))?;
 
     // Lê todos os produtos locais (snapshot) e procura o código solicitado.
+    let user_id = resolve_user_jwt(&ctx.user_jwt, &headers).and_then(|jwt| jwt_subject(&jwt));
+    let user_id = user_id.ok_or((
+        StatusCode::UNAUTHORIZED,
+        "AUTH: sem JWT do usuario para busca local de produtos".into(),
+    ))?;
     let json = db::read_produtos(db::ProdutosFilter {
-        owner_id: None,
+        owner_id: Some(user_id.as_str()),
         status: None,
         categoria_id: None,
         busca: None,
@@ -997,7 +1056,8 @@ async fn estoque_saldos_handler(
     // Substitui o body pelo saldo materializado (mantendo headers de
     // strategy/source/delta vindos do sync).
     let (mut parts, _body) = resp.into_parts();
-    let saldos = db::read_saldos().unwrap_or_else(|_| "[]".to_string());
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let saldos = db::read_saldos(&owner_id).unwrap_or_else(|_| "[]".to_string());
     parts.headers.insert(
         axum::http::header::CONTENT_TYPE,
         axum::http::HeaderValue::from_static("application/json"),
@@ -1074,11 +1134,14 @@ struct ClientesLocalQuery {
 }
 
 async fn clientes_local_list_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Query(q): Query<ClientesLocalQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
     let status = q.status.as_deref();
     let status = status.filter(|s| !s.is_empty());
-    let rows = db::clientes_local_list(status, q.busca.as_deref(), q.limit.unwrap_or(500))
+    let rows = db::clientes_local_list(&owner_id, status, q.busca.as_deref(), q.limit.unwrap_or(500))
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(rows))
 }
@@ -1089,9 +1152,12 @@ struct ClienteLocalGetQuery {
 }
 
 async fn cliente_local_get_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Query(q): Query<ClienteLocalGetQuery>,
 ) -> Result<Json<Option<serde_json::Value>>, (StatusCode, String)> {
-    db::cliente_local_get(&q.cliente_id)
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    db::cliente_local_get(&owner_id, &q.cliente_id)
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
@@ -1103,9 +1169,12 @@ struct ClienteDocumentoQuery {
 }
 
 async fn cliente_documento_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Query(q): Query<ClienteDocumentoQuery>,
 ) -> Result<Json<Option<serde_json::Value>>, (StatusCode, String)> {
-    db::cliente_check_documento(&q.documento, q.ignore_id.as_deref())
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    db::cliente_check_documento(&owner_id, &q.documento, q.ignore_id.as_deref())
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
@@ -1115,12 +1184,13 @@ async fn registrar_cliente_local_handler(
     headers: HeaderMap,
     Json(input): Json<db::LocalClienteInput>,
 ) -> Result<Json<db::LocalClienteResult>, (StatusCode, String)> {
-    let result = db::registrar_cliente_local(input, now_ms())
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let result = db::registrar_cliente_local(&owner_id, input, now_ms())
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     if !result.idempotente && ctx.upstream.is_some() {
         let _ = push_one_outbox_cliente(&ctx, &headers, &result.cliente_id).await;
     }
-    let fresh = db::cliente_remote_id(&result.cliente_id)
+    let fresh = db::cliente_remote_id(&owner_id, &result.cliente_id)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(db::LocalClienteResult {
         remote_id: fresh.or(result.remote_id),
@@ -1226,7 +1296,8 @@ async fn registrar_produto_local_handler(
     headers: HeaderMap,
     Json(input): Json<db::LocalProdutoInput>,
 ) -> Result<Json<db::LocalProdutoResult>, (StatusCode, String)> {
-    let result = db::registrar_produto_local(input, now_ms())
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let result = db::registrar_produto_local(&owner_id, input, now_ms())
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     if !result.idempotente && ctx.upstream.is_some() {
         let _ = push_one_outbox_produto(&ctx, &headers, &result.produto_id).await;
@@ -1437,7 +1508,9 @@ async fn registrar_mov_local_handler(
     Json(req): Json<RegistrarMovLocalRequest>,
 ) -> Result<Json<RegistrarMovLocalResponse>, (StatusCode, String)> {
     let now = now_ms();
+    let owner_id = require_owner_id(&ctx, &headers)?;
     let result = db::registrar_movimento_local(
+        &owner_id,
         db::LocalMovimentacaoInput {
             produto_id: req.produto_id.clone(),
             variacao_id: req.variacao_id.clone(),
@@ -1490,15 +1563,21 @@ async fn push_one_outbox(
     let now = now_ms();
 
     // Carrega payload da outbox.
-    let items = db::outbox_list(1000, None).map_err(|e| e.to_string())?;
+    let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
+        Some(a) => a,
+        None => {
+            let msg = "AUTH: sem JWT do usuario - aguardando login no terminal".to_string();
+            let _ = db::outbox_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
+    let owner_id = jwt_subject(&auth).ok_or("AUTH: JWT sem sub/owner_id")?;
+
+    let items = db::outbox_list(&owner_id, 1000, None).map_err(|e| e.to_string())?;
     let item = items
         .into_iter()
         .find(|i| i.local_uuid == local_uuid)
         .ok_or("item não encontrado na outbox")?;
-    if item.status == "sent" {
-        return Ok(item.remote_id.unwrap_or_default());
-    }
-
     let payload: serde_json::Value =
         serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
 
@@ -1582,14 +1661,17 @@ struct OutboxListResponse {
 }
 
 async fn outbox_list_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<OutboxListResponse>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
     let limit = q
         .get("limit")
         .and_then(|s| s.parse::<i64>().ok())
         .unwrap_or(200);
     let status = q.get("status").map(|s| s.as_str());
-    let items = db::outbox_list(limit, status)
+    let items = db::outbox_list(&owner_id, limit, status)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(OutboxListResponse {
         total: items.len(),
@@ -1597,8 +1679,12 @@ async fn outbox_list_handler(
     }))
 }
 
-async fn outbox_stats_handler() -> Result<Json<db::OutboxStats>, (StatusCode, String)> {
-    db::outbox_stats()
+async fn outbox_stats_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<Json<db::OutboxStats>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    db::outbox_stats(&owner_id)
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
@@ -1637,18 +1723,22 @@ fn max_opt_i64(a: Option<i64>, b: Option<i64>) -> Option<i64> {
     }
 }
 
-async fn outbox_status_handler() -> Result<Json<OutboxStatusResponse>, (StatusCode, String)> {
-    let clientes = db::outbox_clientes_stats()
+async fn outbox_status_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<Json<OutboxStatusResponse>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let clientes = db::outbox_clientes_stats(&owner_id)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let estoque = db::outbox_stats()
+    let estoque = db::outbox_stats(&owner_id)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let vendas = db::outbox_vendas_stats()
+    let vendas = db::outbox_vendas_stats(&owner_id)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let caixa = db::outbox_caixa_stats()
+    let caixa = db::outbox_caixa_stats(&owner_id)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let cancelamentos = db::outbox_cancel_stats()
+    let cancelamentos = db::outbox_cancel_stats(&owner_id)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let financeiro = db::outbox_financeiro_stats()
+    let financeiro = db::outbox_financeiro_stats(&owner_id)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let domains = vec![
@@ -1754,7 +1844,8 @@ async fn outbox_flush_handler(
     State(ctx): State<AppCtx>,
     headers: HeaderMap,
 ) -> Result<Json<FlushResponse>, (StatusCode, String)> {
-    let pending = db::outbox_pending_batch_all(100)
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let pending = db::outbox_pending_batch_all(&owner_id, 100)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let mut sent = 0usize;
     let mut failed = 0usize;
@@ -1789,8 +1880,12 @@ struct RetryErrorsResponse {
     requeued: i64,
 }
 
-async fn outbox_retry_errors_handler() -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
-    let n = db::outbox_reset_errors(now_ms())
+async fn outbox_retry_errors_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let n = db::outbox_reset_errors(&owner_id, now_ms())
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(RetryErrorsResponse { requeued: n }))
 }
@@ -1826,7 +1921,8 @@ async fn registrar_venda_local_handler(
     let input: db::LocalVendaInput = serde_json::from_value(req.raw)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("payload inválido: {e}")))?;
 
-    let result = tokio::task::spawn_blocking(move || db::registrar_venda_local(input, now))
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let result = tokio::task::spawn_blocking(move || db::registrar_venda_local(&owner_id, input, now))
         .await
         .map_err(|e| {
             eprintln!("[gestao-pro] /api/vendas/registrar: tarefa SQLite falhou: {e}");
@@ -1897,9 +1993,12 @@ struct VendasLocalListQuery {
 }
 
 async fn vendas_local_list_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Query(q): Query<VendasLocalListQuery>,
 ) -> Result<Json<Vec<db::LocalVendaListItem>>, (StatusCode, String)> {
-    let items = db::vendas_local_list(q.limit.unwrap_or(500))
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let items = db::vendas_local_list(&owner_id, q.limit.unwrap_or(500))
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(items))
 }
@@ -1910,9 +2009,12 @@ struct VendaLocalDetalheQuery {
 }
 
 async fn venda_local_detalhe_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Query(q): Query<VendaLocalDetalheQuery>,
 ) -> Result<Json<Option<db::LocalVendaDetalhe>>, (StatusCode, String)> {
-    let item = db::venda_local_detalhe(&q.venda_id)
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let item = db::venda_local_detalhe(&owner_id, &q.venda_id)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(item))
 }
@@ -1924,9 +2026,12 @@ struct VendasLocalResumoQuery {
 }
 
 async fn vendas_local_resumo_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Query(q): Query<VendasLocalResumoQuery>,
 ) -> Result<Json<db::LocalVendaResumo>, (StatusCode, String)> {
-    let resumo = db::vendas_local_resumo(&q.data_inicio, &q.data_fim)
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let resumo = db::vendas_local_resumo(&owner_id, &q.data_inicio, &q.data_fim)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     Ok(Json(resumo))
 }
@@ -1938,7 +2043,16 @@ async fn push_one_outbox_cliente(
 ) -> Result<String, String> {
     let upstream = ctx.upstream.as_ref().ok_or("upstream não configurado")?;
     let now = now_ms();
-    let mut items = db::outbox_clientes_list(1000, None).map_err(|e| e.to_string())?;
+    let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
+        Some(a) => a,
+        None => {
+            let msg = "AUTH: sem JWT do usuario - aguardando login no terminal".to_string();
+            let _ = db::outbox_clientes_mark_error(local_or_cliente_id, &msg, now);
+            return Err(msg);
+        }
+    };
+    let owner_id = jwt_subject(&auth).ok_or("AUTH: JWT sem sub/owner_id")?;
+    let mut items = db::outbox_clientes_list(&owner_id, 1000, None).map_err(|e| e.to_string())?;
     let item = items
         .drain(..)
         .find(|i| i.local_uuid == local_or_cliente_id || i.cliente_local_id == local_or_cliente_id)
@@ -2019,7 +2133,8 @@ async fn outbox_clientes_flush_handler(
     State(ctx): State<AppCtx>,
     headers: HeaderMap,
 ) -> Result<Json<FlushResponse>, (StatusCode, String)> {
-    let pending = db::outbox_clientes_pending_batch_all(100)
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let pending = db::outbox_clientes_pending_batch_all(&owner_id, 100)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let mut sent = 0usize;
     let mut failed = 0usize;
@@ -2037,8 +2152,12 @@ async fn outbox_clientes_flush_handler(
     Ok(Json(FlushResponse { attempted: pending.len(), sent, failed, errors }))
 }
 
-async fn outbox_clientes_retry_errors_handler() -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
-    let n = db::outbox_clientes_reset_errors(now_ms())
+async fn outbox_clientes_retry_errors_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let n = db::outbox_clientes_reset_errors(&owner_id, now_ms())
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(RetryErrorsResponse { requeued: n }))
 }
@@ -2063,7 +2182,11 @@ async fn run_outbox_clientes_scheduler(
             let _ = db::outbox_clientes_record_flush_round("auto", now_ms(), 0, 0, 0);
             continue;
         }
-        let pending = match db::outbox_clientes_pending_batch(SCHEDULER_BATCH) {
+        let Some(owner_id) = cached_owner_id(&ctx, "outbox clientes scheduler") else {
+            let _ = db::outbox_clientes_record_flush_round("auto", now_ms(), 0, 0, 0);
+            continue;
+        };
+        let pending = match db::outbox_clientes_pending_batch(&owner_id, SCHEDULER_BATCH) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("[gestao-pro] outbox clientes: batch err: {e}");
@@ -2090,15 +2213,16 @@ async fn run_outbox_clientes_scheduler(
 async fn ensure_caixa_aberto_remoto(
     ctx: &AppCtx,
     headers: &HeaderMap,
+    owner_id: &str,
     caixa_local_uuid: &str,
 ) -> Result<String, String> {
-    if let Some(remote_id) = db::caixa_remote_id(caixa_local_uuid).map_err(|e| e.to_string())? {
+    if let Some(remote_id) = db::caixa_remote_id(owner_id, caixa_local_uuid).map_err(|e| e.to_string())? {
         if !remote_id.trim().is_empty() {
             return Ok(remote_id);
         }
     }
 
-    let abertura = db::outbox_caixa_item_for_action(caixa_local_uuid, "abrir")
+    let abertura = db::outbox_caixa_item_for_action(owner_id, caixa_local_uuid, "abrir")
         .map_err(|e| e.to_string())?;
     let Some(abertura) = abertura else {
         return Err(
@@ -2127,7 +2251,16 @@ async fn push_one_outbox_venda(
     let upstream = ctx.upstream.as_ref().ok_or("upstream não configurado")?;
     let now = now_ms();
 
-    let items = db::outbox_vendas_list(1000, None).map_err(|e| e.to_string())?;
+    let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
+        Some(a) => a,
+        None => {
+            let msg = "AUTH: sem JWT do usuario - aguardando login no terminal".to_string();
+            let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
+    let owner_id = jwt_subject(&auth).ok_or("AUTH: JWT sem sub/owner_id")?;
+    let items = db::outbox_vendas_list(&owner_id, 1000, None).map_err(|e| e.to_string())?;
     let item = items.into_iter()
         .find(|i| i.local_uuid == local_uuid)
         .ok_or("venda não encontrada na outbox")?;
@@ -2149,7 +2282,8 @@ async fn push_one_outbox_venda(
         }
     };
 
-    let caixa_local_uuid = match db::venda_caixa_local_uuid(local_uuid).map_err(|e| e.to_string())? {
+    ensure_item_owner("vendas", local_uuid, item.owner_id.as_deref(), &owner_id)?;
+    let caixa_local_uuid = match db::venda_caixa_local_uuid(&owner_id, local_uuid).map_err(|e| e.to_string())? {
         Some(id) if !id.trim().is_empty() => id,
         _ => {
             let msg =
@@ -2160,7 +2294,7 @@ async fn push_one_outbox_venda(
         }
     };
 
-    if let Err(e) = ensure_caixa_aberto_remoto(ctx, headers, &caixa_local_uuid).await {
+    if let Err(e) = ensure_caixa_aberto_remoto(ctx, headers, &owner_id, &caixa_local_uuid).await {
         let _ = db::outbox_vendas_mark_error(local_uuid, &e, now);
         return Err(e);
     }
@@ -2202,7 +2336,7 @@ async fn push_one_outbox_venda(
     }
 
     let cliente_id_para_sync = if let Some(cid) = payload.get("cliente_id").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
-        match db::cliente_remote_id(cid).map_err(|e| e.to_string())? {
+        match db::cliente_remote_id(&owner_id, cid).map_err(|e| e.to_string())? {
             Some(remote_id) => serde_json::Value::String(remote_id),
             None => {
                 let msg = "CLIENTE_PENDENTE_SYNC: venda aguarda sincronização do cliente local".to_string();
@@ -2286,17 +2420,24 @@ struct OutboxVendasListResponse {
 }
 
 async fn outbox_vendas_list_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<OutboxVendasListResponse>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
     let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(200);
     let status = q.get("status").map(|s| s.as_str());
-    let items = db::outbox_vendas_list(limit, status)
+    let items = db::outbox_vendas_list(&owner_id, limit, status)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(OutboxVendasListResponse { total: items.len(), items }))
 }
 
-async fn outbox_vendas_stats_handler() -> Result<Json<db::OutboxVendasStats>, (StatusCode, String)> {
-    db::outbox_vendas_stats()
+async fn outbox_vendas_stats_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<Json<db::OutboxVendasStats>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    db::outbox_vendas_stats(&owner_id)
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
@@ -2305,7 +2446,8 @@ async fn outbox_vendas_flush_handler(
     State(ctx): State<AppCtx>,
     headers: HeaderMap,
 ) -> Result<Json<FlushResponse>, (StatusCode, String)> {
-    let pending = db::outbox_vendas_pending_batch_all(100)
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let pending = db::outbox_vendas_pending_batch_all(&owner_id, 100)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let mut sent = 0usize;
     let mut failed = 0usize;
@@ -2324,8 +2466,12 @@ async fn outbox_vendas_flush_handler(
     }))
 }
 
-async fn outbox_vendas_retry_errors_handler() -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
-    let n = db::outbox_vendas_reset_errors(now_ms())
+async fn outbox_vendas_retry_errors_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let n = db::outbox_vendas_reset_errors(&owner_id, now_ms())
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(RetryErrorsResponse { requeued: n }))
 }
@@ -2376,7 +2522,11 @@ async fn run_outbox_vendas_scheduler(
             let _ = db::outbox_vendas_record_flush_round("auto", now_ms(), 0, 0, 0);
             continue;
         }
-        let pending = match db::outbox_vendas_pending_batch(SCHEDULER_BATCH) {
+        let Some(owner_id) = cached_owner_id(&ctx, "outbox vendas scheduler") else {
+            let _ = db::outbox_vendas_record_flush_round("auto", now_ms(), 0, 0, 0);
+            continue;
+        };
+        let pending = match db::outbox_vendas_pending_batch(&owner_id, SCHEDULER_BATCH) {
             Ok(p) => p,
             Err(e) => { eprintln!("[gestao-pro] outbox vendas: batch err: {e}"); continue; }
         };
@@ -2470,7 +2620,11 @@ async fn run_outbox_scheduler(
             continue;
         }
 
-        let pending = match db::outbox_pending_batch(SCHEDULER_BATCH) {
+        let Some(owner_id) = cached_owner_id(&ctx, "outbox estoque scheduler") else {
+            let _ = db::outbox_record_flush_round("auto", now_ms(), 0, 0, 0);
+            continue;
+        };
+        let pending = match db::outbox_pending_batch(&owner_id, SCHEDULER_BATCH) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("[gestao-pro] outbox scheduler: falha lendo batch: {e}");
@@ -2549,7 +2703,8 @@ async fn registrar_caixa_abrir_handler(
     let input: db::LocalAbrirCaixaInput = serde_json::from_value(req.raw)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("payload inválido: {e}")))?;
 
-    let result = db::abrir_caixa_local(input, now)
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let result = db::abrir_caixa_local(&owner_id, input, now)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
     let mut outbox_status = "pending".to_string();
@@ -2619,7 +2774,8 @@ async fn registrar_caixa_movimento_handler(
     let input: db::LocalMovimentoCaixaInput = serde_json::from_value(req.raw)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("payload inválido: {e}")))?;
 
-    let result = db::registrar_mov_caixa_local(input, now)
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let result = db::registrar_mov_caixa_local(&owner_id, input, now)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
     let mut outbox_status = "pending".to_string();
@@ -2690,7 +2846,8 @@ async fn registrar_caixa_fechar_handler(
     let input: db::LocalFecharCaixaInput = serde_json::from_value(req.raw)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("payload inválido: {e}")))?;
 
-    let result = tokio::task::spawn_blocking(move || db::fechar_caixa_local(input, now))
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let result = tokio::task::spawn_blocking(move || db::fechar_caixa_local(&owner_id, input, now))
         .await
         .map_err(|e| {
             eprintln!("[gestao-pro] /api/caixa/fechar: tarefa SQLite falhou: {e}");
@@ -2770,10 +2927,13 @@ async fn registrar_caixa_fechar_handler(
 }
 
 async fn caixa_local_aberto_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<Option<db::CaixaLocalRow>>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
     let op = q.get("operador_id").map(|s| s.as_str());
-    let row = db::caixa_local_aberto(op)
+    let row = db::caixa_local_aberto(&owner_id, op)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(row))
 }
@@ -2783,21 +2943,24 @@ async fn caixa_local_aberto_handler(
 /// Retorna o resumo local do caixa: totais por forma de pagamento, vendas,
 /// suprimentos, sangrias, esperado em dinheiro e diferença (se fechado).
 async fn caixa_resumo_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<Option<db::CaixaResumoLocal>>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
     let caixa_local_uuid: Option<String> = if let Some(cid) = q.get("caixa_id") {
-        db::resolve_caixa_id_publico(cid)
+        db::resolve_caixa_id_publico(&owner_id, cid)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     } else {
         let op = q.get("operador_id").map(|s| s.as_str());
-        db::caixa_local_aberto(op)
+        db::caixa_local_aberto(&owner_id, op)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
             .map(|r| r.local_uuid)
     };
     let Some(clu) = caixa_local_uuid else {
         return Ok(Json(None));
     };
-    let resumo = db::caixa_resumo_local(&clu)
+    let resumo = db::caixa_resumo_local(&owner_id, &clu)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(resumo))
 }
@@ -2805,14 +2968,17 @@ async fn caixa_resumo_handler(
 /// GET `/api/caixa/lancamentos?caixa_id=...` — lista os lançamentos
 /// financeiros locais derivados do fechamento daquele caixa.
 async fn caixa_lancamentos_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<db::LancamentoLocalRow>>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
     let caixa_local_uuid: Option<String> = if let Some(cid) = q.get("caixa_id") {
-        db::resolve_caixa_id_publico(cid)
+        db::resolve_caixa_id_publico(&owner_id, cid)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     } else {
         let op = q.get("operador_id").map(|s| s.as_str());
-        db::caixa_local_aberto(op)
+        db::caixa_local_aberto(&owner_id, op)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
             .map(|r| r.local_uuid)
     };
@@ -2825,24 +2991,30 @@ async fn caixa_lancamentos_handler(
 }
 
 async fn caixa_historico_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<db::CaixaLocalRow>>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
     let limit = q.get("limit").and_then(|v| v.parse::<i64>().ok());
-    let rows = db::caixa_local_historico(limit)
+    let rows = db::caixa_local_historico(&owner_id, limit)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(rows))
 }
 
 async fn caixa_movimentos_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<db::CaixaMovimentoLocalRow>>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
     let cid = q.get("caixa_id")
         .cloned()
         .ok_or((StatusCode::BAD_REQUEST, "caixa_id é obrigatório".into()))?;
-    let local_uuid = db::resolve_caixa_id_publico(&cid)
+    let local_uuid = db::resolve_caixa_id_publico(&owner_id, &cid)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((StatusCode::NOT_FOUND, "caixa não encontrada".into()))?;
-    let rows = db::caixa_movimentos_local(&local_uuid)
+    let rows = db::caixa_movimentos_local(&owner_id, &local_uuid)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(rows))
 }
@@ -2850,11 +3022,14 @@ async fn caixa_movimentos_handler(
 /// POST `/api/caixa/regenerar-lancamentos?caixa_id=...` — força a
 /// regeneração dos lançamentos derivados (idempotente).
 async fn caixa_regenerar_lancamentos_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
     let cid = q.get("caixa_id").cloned()
         .ok_or((StatusCode::BAD_REQUEST, "caixa_id é obrigatório".into()))?;
-    let clu = db::resolve_caixa_id_publico(&cid)
+    let clu = db::resolve_caixa_id_publico(&owner_id, &cid)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((StatusCode::NOT_FOUND, "caixa não encontrado".into()))?;
     db::regenerar_lancamentos_locais_caixa(&clu)
@@ -3017,6 +3192,7 @@ fn relatorio_caixa_row(caixa: &db::CaixaLocalRow, resumo: &db::CaixaResumoLocal)
 }
 
 fn relatorios_caixa_rows(
+    owner_id: &str,
     q: &HashMap<String, String>,
 ) -> Result<Vec<RelatorioCaixaLocalRow>, (StatusCode, String)> {
     let limit = parse_i64(q, "limit").or(Some(500));
@@ -3025,7 +3201,7 @@ fn relatorios_caixa_rows(
     let terminal = q.get("terminal_id").filter(|v| !v.is_empty() && *v != "todos");
     let status = q.get("status").filter(|v| !v.is_empty() && *v != "todos");
 
-    let caixas = db::caixa_local_historico(limit)
+    let caixas = db::caixa_local_historico(owner_id, limit)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let mut rows = Vec::new();
     for caixa in caixas {
@@ -3048,7 +3224,7 @@ fn relatorios_caixa_rows(
             }
         }
 
-        let Some(resumo) = db::caixa_resumo_local(&caixa.local_uuid)
+        let Some(resumo) = db::caixa_resumo_local(owner_id, &caixa.local_uuid)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))? else {
             continue;
         };
@@ -3058,9 +3234,10 @@ fn relatorios_caixa_rows(
 }
 
 fn relatorios_fluxo_payload(
+    owner_id: &str,
     q: &HashMap<String, String>,
 ) -> Result<RelatorioFluxoLocalPayload, (StatusCode, String)> {
-    let caixas = relatorios_caixa_rows(q)?;
+    let caixas = relatorios_caixa_rows(owner_id, q)?;
     let caixa_filter = q.get("caixa_id").filter(|v| !v.is_empty() && *v != "todos");
     let mut movimentos = Vec::new();
     let mut formas = std::collections::BTreeMap::<String, (f64, i64)>::new();
@@ -3093,7 +3270,7 @@ fn relatorios_fluxo_payload(
                 created_at_ms: caixa.data_fechamento_ms.unwrap_or(caixa.data_abertura_ms),
             });
         }
-        for mov in db::caixa_movimentos_local(&caixa.id)
+        for mov in db::caixa_movimentos_local(owner_id, &caixa.id)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         {
             movimentos.push(RelatorioFluxoMovLocalRow {
@@ -3155,21 +3332,30 @@ fn relatorios_fluxo_payload(
 }
 
 async fn relatorios_caixa_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<RelatorioCaixaLocalRow>>, (StatusCode, String)> {
-    Ok(Json(relatorios_caixa_rows(&q)?))
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    Ok(Json(relatorios_caixa_rows(&owner_id, &q)?))
 }
 
 async fn relatorios_fluxo_caixa_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<RelatorioFluxoLocalPayload>, (StatusCode, String)> {
-    Ok(Json(relatorios_fluxo_payload(&q)?))
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    Ok(Json(relatorios_fluxo_payload(&owner_id, &q)?))
 }
 
 async fn financeiro_fluxo_caixa_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<FinanceiroFluxoLocalPayload>, (StatusCode, String)> {
-    let fluxo = relatorios_fluxo_payload(&q)?;
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let fluxo = relatorios_fluxo_payload(&owner_id, &q)?;
     let mut rows: Vec<FinanceiroFluxoLocalRow> = fluxo.movimentos.iter().map(|m| {
         let bruto = m.valor.abs();
         let (valor, operacional) = match m.tipo.as_str() {
@@ -3325,8 +3511,13 @@ async fn push_one_outbox_caixa(
             return Err(msg);
         }
     };
+    let owner_id = jwt_subject(&auth).ok_or("AUTH: JWT sem sub/owner_id")?;
+    ensure_item_owner("caixa", local_uuid, item.owner_id.as_deref(), &owner_id)?;
+    if item.status == "sent" {
+        return Ok(item.remote_id.unwrap_or_default());
+    }
 
-    let caixa_remote_id = db::caixa_remote_id(&item.caixa_local_uuid)
+    let caixa_remote_id = db::caixa_remote_id(&owner_id, &item.caixa_local_uuid)
         .map_err(|e| e.to_string())?
         .filter(|id| !id.trim().is_empty());
 
@@ -3339,7 +3530,7 @@ async fn push_one_outbox_caixa(
     }
 
     if item.action == "fechar" {
-        let vendas_pendentes = db::count_unsynced_vendas_for_caixa(&item.caixa_local_uuid)
+        let vendas_pendentes = db::count_unsynced_vendas_for_caixa(&owner_id, &item.caixa_local_uuid)
             .map_err(|e| e.to_string())?;
         if vendas_pendentes > 0 {
             let msg = format!(
@@ -3453,17 +3644,24 @@ struct OutboxCaixaListResponse {
 }
 
 async fn outbox_caixa_list_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<OutboxCaixaListResponse>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
     let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(200);
     let status = q.get("status").map(|s| s.as_str());
-    let items = db::outbox_caixa_list(limit, status)
+    let items = db::outbox_caixa_list(&owner_id, limit, status)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(OutboxCaixaListResponse { total: items.len(), items }))
 }
 
-async fn outbox_caixa_stats_handler() -> Result<Json<db::OutboxCaixaStats>, (StatusCode, String)> {
-    db::outbox_caixa_stats()
+async fn outbox_caixa_stats_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<Json<db::OutboxCaixaStats>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    db::outbox_caixa_stats(&owner_id)
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
@@ -3472,7 +3670,8 @@ async fn outbox_caixa_flush_handler(
     State(ctx): State<AppCtx>,
     headers: HeaderMap,
 ) -> Result<Json<FlushResponse>, (StatusCode, String)> {
-    let pending = db::outbox_caixa_pending_batch_all(100)
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let pending = db::outbox_caixa_pending_batch_all(&owner_id, 100)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let mut sent = 0usize;
     let mut failed = 0usize;
@@ -3491,8 +3690,12 @@ async fn outbox_caixa_flush_handler(
     }))
 }
 
-async fn outbox_caixa_retry_errors_handler() -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
-    let n = db::outbox_caixa_reset_errors(now_ms())
+async fn outbox_caixa_retry_errors_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let n = db::outbox_caixa_reset_errors(&owner_id, now_ms())
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(RetryErrorsResponse { requeued: n }))
 }
@@ -3560,7 +3763,11 @@ async fn run_outbox_caixa_scheduler(
             let _ = db::outbox_caixa_record_flush_round("auto", now_ms(), 0, 0, 0);
             continue;
         }
-        let pending = match db::outbox_caixa_pending_batch(SCHEDULER_BATCH) {
+        let Some(owner_id) = cached_owner_id(&ctx, "outbox caixa scheduler") else {
+            let _ = db::outbox_caixa_record_flush_round("auto", now_ms(), 0, 0, 0);
+            continue;
+        };
+        let pending = match db::outbox_caixa_pending_batch(&owner_id, SCHEDULER_BATCH) {
             Ok(p) => p,
             Err(e) => { eprintln!("[gestao-pro] outbox caixa: batch err: {e}"); continue; }
         };
@@ -4127,13 +4334,14 @@ async fn cancelar_venda_local_handler(
     Json(req): Json<CancelarVendaLocalRequest>,
 ) -> Result<Json<CancelarVendaLocalResponse>, (StatusCode, String)> {
     let now = now_ms();
+    let owner_id = require_owner_id(&ctx, &headers)?;
     let input = db::LocalCancelarVendaInput {
         venda_local_uuid: req.venda_local_uuid,
         motivo: req.motivo,
         operador_id: req.operador_id,
         client_uuid: req.client_uuid,
     };
-    let r = db::cancelar_venda_local(input, now)
+    let r = db::cancelar_venda_local(&owner_id, input, now)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
     let mut outbox_status = r.outbox_status.clone();
@@ -4169,7 +4377,17 @@ async fn push_one_outbox_cancel(
     let upstream = ctx.upstream.as_ref().ok_or("upstream não configurado")?;
     let now = now_ms();
 
-    let venda_remote_id = match db::cancel_resolve_venda_remote(local_uuid)
+    let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
+        Some(a) => a,
+        None => {
+            let msg = "AUTH: sem JWT do usuario - aguardando login no terminal".to_string();
+            let _ = db::outbox_cancel_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
+    let owner_id = jwt_subject(&auth).ok_or("AUTH: JWT sem sub/owner_id")?;
+
+    let venda_remote_id = match db::cancel_resolve_venda_remote(&owner_id, local_uuid)
         .map_err(|e| e.to_string())?
     {
         Some(s) if !s.is_empty() => s,
@@ -4182,7 +4400,17 @@ async fn push_one_outbox_cancel(
         }
     };
 
-    let item = db::outbox_cancel_list(1000, None)
+    let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
+        Some(a) => a,
+        None => {
+            let msg = "AUTH: sem JWT do usuario - aguardando login no terminal".to_string();
+            let _ = db::outbox_cancel_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
+    let owner_id = jwt_subject(&auth).ok_or("AUTH: JWT sem sub/owner_id")?;
+
+    let item = db::outbox_cancel_list(&owner_id, 1000, None)
         .map_err(|e| e.to_string())?
         .into_iter()
         .find(|i| i.local_uuid == local_uuid)
@@ -4247,8 +4475,12 @@ async fn push_one_outbox_cancel(
     Ok(text)
 }
 
-async fn outbox_cancel_stats_handler() -> Result<Json<db::OutboxCancelStats>, (StatusCode, String)> {
-    db::outbox_cancel_stats().map(Json)
+async fn outbox_cancel_stats_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<Json<db::OutboxCancelStats>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    db::outbox_cancel_stats(&owner_id).map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
@@ -4259,11 +4491,14 @@ struct OutboxCancelListResponse {
 }
 
 async fn outbox_cancel_list_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<OutboxCancelListResponse>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
     let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(200);
     let status = q.get("status").map(|s| s.as_str());
-    let items = db::outbox_cancel_list(limit, status)
+    let items = db::outbox_cancel_list(&owner_id, limit, status)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(OutboxCancelListResponse { total: items.len(), items }))
 }
@@ -4272,7 +4507,8 @@ async fn outbox_cancel_flush_handler(
     State(ctx): State<AppCtx>,
     headers: HeaderMap,
 ) -> Result<Json<FlushResponse>, (StatusCode, String)> {
-    let pending = db::outbox_cancel_pending_batch_all(100)
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let pending = db::outbox_cancel_pending_batch_all(&owner_id, 100)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let mut sent = 0usize;
     let mut failed = 0usize;
@@ -4286,8 +4522,12 @@ async fn outbox_cancel_flush_handler(
     Ok(Json(FlushResponse { attempted: pending.len(), sent, failed, errors }))
 }
 
-async fn outbox_cancel_retry_errors_handler() -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
-    let n = db::outbox_cancel_reset_errors(now_ms())
+async fn outbox_cancel_retry_errors_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let n = db::outbox_cancel_reset_errors(&owner_id, now_ms())
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(RetryErrorsResponse { requeued: n }))
 }
@@ -4309,7 +4549,10 @@ async fn run_outbox_cancel_scheduler(
             }
         }
         if ctx.upstream.is_none() { continue; }
-        let pending = match db::outbox_cancel_pending_batch(SCHEDULER_BATCH) {
+        let Some(owner_id) = cached_owner_id(&ctx, "outbox cancelamentos scheduler") else {
+            continue;
+        };
+        let pending = match db::outbox_cancel_pending_batch(&owner_id, SCHEDULER_BATCH) {
             Ok(p) => p,
             Err(e) => { eprintln!("[gestao-pro] outbox cancel: batch err: {e}"); continue; }
         };
@@ -4349,6 +4592,8 @@ async fn push_one_outbox_financeiro(
             return Err(msg);
         }
     };
+    let owner_id = jwt_subject(&auth).ok_or("AUTH: JWT sem sub/owner_id")?;
+    ensure_item_owner("financeiro", local_uuid, item.owner_id.as_deref(), &owner_id)?;
 
     db::outbox_financeiro_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
 
@@ -4403,8 +4648,11 @@ async fn push_one_outbox_financeiro(
 }
 
 async fn outbox_fin_stats_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
 ) -> Result<Json<db::OutboxFinanceiroStats>, (StatusCode, String)> {
-    db::outbox_financeiro_stats().map(Json)
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    db::outbox_financeiro_stats(&owner_id).map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
@@ -4415,11 +4663,14 @@ struct OutboxFinListResponse {
 }
 
 async fn outbox_fin_list_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<OutboxFinListResponse>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
     let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(200);
     let status = q.get("status").map(|s| s.as_str());
-    let items = db::outbox_financeiro_list(limit, status)
+    let items = db::outbox_financeiro_list(&owner_id, limit, status)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(OutboxFinListResponse { total: items.len(), items }))
 }
@@ -4428,7 +4679,8 @@ async fn outbox_fin_flush_handler(
     State(ctx): State<AppCtx>,
     headers: HeaderMap,
 ) -> Result<Json<FlushResponse>, (StatusCode, String)> {
-    let pending = db::outbox_financeiro_pending_batch_all(100)
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let pending = db::outbox_financeiro_pending_batch_all(&owner_id, 100)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let mut sent = 0usize;
     let mut failed = 0usize;
@@ -4445,8 +4697,12 @@ async fn outbox_fin_flush_handler(
     Ok(Json(FlushResponse { attempted: pending.len(), sent, failed, errors }))
 }
 
-async fn outbox_fin_retry_errors_handler() -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
-    let n = db::outbox_financeiro_reset_errors(now_ms())
+async fn outbox_fin_retry_errors_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+) -> Result<Json<RetryErrorsResponse>, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    let n = db::outbox_financeiro_reset_errors(&owner_id, now_ms())
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(RetryErrorsResponse { requeued: n }))
 }
@@ -4471,7 +4727,11 @@ async fn run_outbox_financeiro_scheduler(
             let _ = db::outbox_financeiro_record_flush_round("auto", now_ms(), 0, 0, 0);
             continue;
         }
-        let pending = match db::outbox_financeiro_pending_batch(SCHEDULER_BATCH) {
+        let Some(owner_id) = cached_owner_id(&ctx, "outbox financeiro scheduler") else {
+            let _ = db::outbox_financeiro_record_flush_round("auto", now_ms(), 0, 0, 0);
+            continue;
+        };
+        let pending = match db::outbox_financeiro_pending_batch(&owner_id, SCHEDULER_BATCH) {
             Ok(p) => p,
             Err(e) => { eprintln!("[gestao-pro] outbox financeiro: batch err: {e}"); continue; }
         };

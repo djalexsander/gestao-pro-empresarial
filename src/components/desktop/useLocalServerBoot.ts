@@ -67,12 +67,13 @@ async function doStart(opts: {
   serverName: string | null;
   serverId: string | null;
   authToken: string | null;
+  allowWhileStarting?: boolean;
 }, action: "start" | "restart" = "start"): Promise<LocalServerStatus | null> {
   if (!isDesktop()) {
     console.warn("[boot] doStart ignorado — não está em Tauri");
     return null;
   }
-  if (STATE.starting) {
+  if (STATE.starting && !opts.allowWhileStarting) {
     return STATE.lastStatus;
   }
   STATE.starting = true;
@@ -277,6 +278,7 @@ export function useBootController(): BootState {
           serverName: nome,
           serverId: config.serverId ?? null,
           authToken: config.serverAuthToken ?? null,
+          allowWhileStarting: true,
         },
         "restart",
       );

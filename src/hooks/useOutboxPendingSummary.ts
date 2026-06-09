@@ -96,7 +96,12 @@ export function useOutboxPendingSummary(): OutboxPendingSummary {
     role === "terminal"
       ? config.terminal
       : role === "server"
-        ? { host: "127.0.0.1", porta: config.terminal?.porta ?? 3333, terminalId: "self", terminalNome: "self" }
+        ? {
+            host: "127.0.0.1",
+            porta: config.serverPort ?? config.terminal?.porta ?? 3333,
+            terminalId: "self",
+            terminalNome: "self",
+          }
         : undefined;
 
   const enabled = !!(isDesktop && cfg);

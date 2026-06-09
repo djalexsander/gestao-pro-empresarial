@@ -29,6 +29,7 @@ export interface ConexaoInfo {
 
 const PING_INTERVAL = 15_000;
 const BACKOFF_MAX = 30_000;
+const LOCAL_FAILURE_THRESHOLD = 3;
 
 export function useTerminalConexao(): ConexaoInfo {
   const [status, setStatus] = useState<ConexaoStatus>(
@@ -38,6 +39,7 @@ export function useTerminalConexao(): ConexaoInfo {
   const [ultimoSync, setUltimoSync] = useState<Date | null>(null);
   const [tentativas, setTentativas] = useState(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const consecutiveFailures = useRef(0);
 
   const ping = useCallback(async (): Promise<boolean> => {
     const mode = getDataMode();
@@ -50,11 +52,12 @@ export function useTerminalConexao(): ConexaoInfo {
     try {
       if (isLocalMode) {
         const cfg = getDesktopConfig();
+        const port = cfg.serverPort ?? cfg.terminal?.porta ?? 3333;
         const terminalCfg =
           cfg.role === "server"
             ? {
                 host: "127.0.0.1",
-                porta: cfg.terminal?.porta ?? 3333,
+                porta: port,
                 terminalId: "self",
                 terminalNome: cfg.serverNome ?? "Servidor",
               }
@@ -68,6 +71,7 @@ export function useTerminalConexao(): ConexaoInfo {
         setUltimoSync(new Date());
         setStatus("online");
         setTentativas(0);
+        consecutiveFailures.current = 0;
         return true;
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -78,10 +82,15 @@ export function useTerminalConexao(): ConexaoInfo {
       setUltimoSync(new Date());
       setStatus("online");
       setTentativas(0);
+      consecutiveFailures.current = 0;
       return true;
     } catch {
-      setStatus((prev) => (prev === "online" ? "reconectando" : prev));
-      setTentativas((n) => n + 1);
+      consecutiveFailures.current += 1;
+      setStatus((prev) => {
+        if (consecutiveFailures.current >= LOCAL_FAILURE_THRESHOLD) return "offline";
+        return prev === "online" ? "reconectando" : prev;
+      });
+      setTentativas(consecutiveFailures.current);
       return false;
     }
   }, []);
@@ -108,10 +117,12 @@ export function useTerminalConexao(): ConexaoInfo {
     );
 
     function onOnline() {
+      consecutiveFailures.current = 0;
       setStatus("reconectando");
       void ping();
     }
     function onOffline() {
+      consecutiveFailures.current = LOCAL_FAILURE_THRESHOLD;
       setStatus("offline");
       setLatenciaMs(null);
     }
@@ -127,6 +138,7 @@ export function useTerminalConexao(): ConexaoInfo {
   }, []);
 
   const reconectarAgora = useCallback(() => {
+    consecutiveFailures.current = 0;
     setTentativas(0);
     setStatus("reconectando");
     void ping().then((ok) => agendarProximo(ok ? PING_INTERVAL : 2_000));
