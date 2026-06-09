@@ -105,18 +105,41 @@ export async function startLocalServer(
     return STATUS_OFF;
   }
   console.info("[tauriBridge] start_local_server", { port: opts.port });
+  const startPromise = invoke<LocalServerStatus>("start_local_server", {
+    port: opts.port,
+    serverName: opts.serverName,
+    serverId: opts.serverId ?? null,
+    upstreamUrl: opts.upstreamUrl ?? null,
+    upstreamAnonKey: opts.upstreamAnonKey ?? null,
+    authToken: opts.authToken ?? null,
+  });
   const status = await withTimeout(
-    invoke<LocalServerStatus>("start_local_server", {
-      port: opts.port,
-      serverName: opts.serverName,
-      serverId: opts.serverId ?? null,
-      upstreamUrl: opts.upstreamUrl ?? null,
-      upstreamAnonKey: opts.upstreamAnonKey ?? null,
-      authToken: opts.authToken ?? null,
-    }),
+    startPromise,
     12_000,
     "start_local_server",
-  );
+  ).catch(async (error) => {
+    console.warn("[tauriBridge] start_local_server timeout; verificando status final", {
+      port: opts.port,
+      error,
+    });
+    try {
+      const recovered = await withTimeout(
+        invoke<LocalServerStatus>("local_server_status"),
+        5_000,
+        "local_server_status after start timeout",
+      );
+      if (recovered.running && (recovered.port === opts.port || recovered.port == null)) {
+        console.warn("[tauriBridge] start_local_server recuperado pelo status do daemon", {
+          port: recovered.port,
+          running: recovered.running,
+        });
+        return recovered;
+      }
+    } catch (statusError) {
+      console.warn("[tauriBridge] status apos timeout de start tambem falhou", statusError);
+    }
+    throw error;
+  });
   lastLocalServerStatus = status;
   return status;
 }

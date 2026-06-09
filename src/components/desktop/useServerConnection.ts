@@ -16,6 +16,7 @@ import {
   enviarHeartbeatLocal,
   fetchServerInfo,
   pingServidorLocal,
+  registerLocalServerAuth,
   type ServerConnInfo,
   type ServerInfoPayload,
 } from "@/integrations/desktop/serverConnection";
@@ -67,6 +68,24 @@ export function useServerConnection(): UseServerConnectionResult {
   const lastOnline = useRef<ServerConnInfo | null>(null);
   const restartInFlight = useRef(false);
 
+  const persistServerAuth = useCallback(
+    (status: LocalServerStatus | null) => {
+      if (role !== "server" || !status?.auth_token) return;
+      const port = status.port ?? config.serverPort ?? config.terminal?.porta ?? DEFAULT_LOCAL_PORT;
+      const baseUrl = `http://127.0.0.1:${port}`;
+      registerLocalServerAuth(baseUrl, status.auth_token);
+      if (!config.serverAuthToken) {
+        console.info("[useServerConnection] persistindo token retornado pelo daemon local");
+        setDesktopConfig({
+          ...config,
+          serverAuthToken: status.auth_token,
+          serverPort: port,
+        });
+      }
+    },
+    [role, config],
+  );
+
   const cfgTerminal: TerminalConexaoConfig | undefined =
     role === "terminal" ? config.terminal : undefined;
 
@@ -113,6 +132,7 @@ export function useServerConnection(): UseServerConnectionResult {
                   (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ?? null,
                 authToken: config.serverAuthToken ?? null,
               });
+              persistServerAuth(currentStatus);
             } catch (error) {
               console.error("[useServerConnection] reinicio automatico do backend local falhou", error);
             } finally {
@@ -208,6 +228,7 @@ export function useServerConnection(): UseServerConnectionResult {
                 (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ?? null,
               authToken: config.serverAuthToken ?? null,
             });
+            persistServerAuth(restarted);
             setDaemon(restarted);
           } catch (error) {
             console.error("[useServerConnection] restart por health falhou", error);
@@ -262,6 +283,7 @@ export function useServerConnection(): UseServerConnectionResult {
     config.serverNome,
     config.serverId,
     config.serverAuthToken,
+    persistServerAuth,
   ]);
 
   useEffect(() => {
