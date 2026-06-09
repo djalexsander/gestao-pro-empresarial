@@ -6120,6 +6120,30 @@ pub fn outbox_caixa_archive_error(
     })
 }
 
+pub fn outbox_caixa_archive_local_group(
+    caixa_local_uuid: &str,
+    motivo: Option<&str>,
+    now_ms: i64,
+) -> DbResult<i64> {
+    with_conn(|conn| {
+        let msg = motivo
+            .map(|m| m.trim())
+            .filter(|m| !m.is_empty())
+            .unwrap_or("Erro antigo arquivado manualmente; caixa local preservado.");
+        let n = conn.execute(
+            "UPDATE outbox_caixa
+                SET status='archived',
+                    last_error=?2,
+                    updated_at_ms=?3,
+                    next_attempt_at_ms=NULL
+              WHERE caixa_local_uuid=?1
+                AND status IN ('pending','error')",
+            params![caixa_local_uuid, msg, now_ms],
+        )?;
+        Ok(n as i64)
+    })
+}
+
 pub fn caixa_remote_id(caixa_local_uuid: &str) -> DbResult<Option<String>> {
     with_conn(|conn| {
         conn.query_row(

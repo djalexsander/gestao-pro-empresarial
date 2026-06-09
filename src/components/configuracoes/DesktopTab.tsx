@@ -112,6 +112,7 @@ export function DesktopTab() {
   const [vendasErroItems, setVendasErroItems] = useState<OutboxItem[]>([]);
   const [vendasErroLoading, setVendasErroLoading] = useState(false);
   const [arquivandoVendaErro, setArquivandoVendaErro] = useState(false);
+  const [arquivandoVendaEstoqueErro, setArquivandoVendaEstoqueErro] = useState(false);
   const [vendaErroSelecionada, setVendaErroSelecionada] = useState<string | null>(null);
   const [outboxCaixa, setOutboxCaixa] = useState<OutboxCaixaStats | null>(null);
   const [flushingCaixa, setFlushingCaixa] = useState(false);
@@ -269,6 +270,42 @@ export function DesktopTab() {
     }
   };
 
+  const handleArchiveVendaStockErrors = async () => {
+    if (!localCfg) return;
+    setArquivandoVendaEstoqueErro(true);
+    try {
+      const items = await fetchOutboxVendasList(localCfg, {
+        status: "error",
+        limit: 100,
+      });
+      const stockErrors = items.filter((item) => {
+        const msg = (item.last_error ?? "").toLowerCase();
+        return msg.includes("estoque insuficiente");
+      });
+      let archived = 0;
+      for (const item of stockErrors) {
+        const ok = await archiveOutboxVendaError(
+          localCfg,
+          item.local_uuid,
+          "Erro antigo arquivado manualmente; venda local preservada.",
+        );
+        if (ok) archived += 1;
+      }
+      if (archived > 0) {
+        toast.success(`${archived} erro(s) antigo(s) de venda arquivado(s).`);
+      } else {
+        toast.info("Nenhuma venda com erro antigo de estoque foi encontrada.");
+      }
+      setOutboxVendas(await fetchOutboxVendasStats(localCfg));
+      await recarregarOutboxStatus();
+      if (vendasErroOpen) {
+        await carregarDetalhesErrosVendas();
+      }
+    } finally {
+      setArquivandoVendaEstoqueErro(false);
+    }
+  };
+
   const handleFlushCaixa = async () => {
     if (!localCfg) return;
     setFlushingCaixa(true);
@@ -305,16 +342,22 @@ export function DesktopTab() {
         );
       });
       let archived = 0;
+      const archivedGroups = new Set<string>();
       for (const item of conflicts) {
+        if (archivedGroups.has(item.caixa_local_uuid)) continue;
         const ok = await archiveOutboxCaixaError(
           localCfg,
           item.local_uuid,
           "Erro antigo arquivado manualmente; caixa local preservado.",
+          true,
         );
-        if (ok) archived += 1;
+        if (ok) {
+          archivedGroups.add(item.caixa_local_uuid);
+          archived += 1;
+        }
       }
       if (archived > 0) {
-        toast.success(`${archived} erro(s) antigo(s) de caixa arquivado(s).`);
+        toast.success(`${archived} caixa(s) antigo(s) arquivado(s) na fila.`);
       } else {
         toast.info("Nenhum conflito antigo de caixa foi encontrado para arquivar.");
       }
@@ -715,6 +758,8 @@ export function DesktopTab() {
             flushing={flushingAll}
             onFlushAll={() => void handleFlushAll()}
             onOpenVendasDetails={() => void handleOpenVendasErrorDetails()}
+            onArchiveVendaStockErrors={() => void handleArchiveVendaStockErrors()}
+            archivingVendaStockErrors={arquivandoVendaEstoqueErro}
             onArchiveCaixaConflictErrors={() => void handleArchiveCaixaConflictErrors()}
             archivingCaixaErrors={arquivandoCaixaErro}
           />
@@ -1150,6 +1195,23 @@ export function DesktopTab() {
                     >
                       Reenfileirar erros
                     </Button>
+                    {(outboxVendas.last_error ?? "")
+                      .toLowerCase()
+                      .includes("estoque insuficiente") && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={arquivandoVendaEstoqueErro}
+                        onClick={() => void handleArchiveVendaStockErrors()}
+                      >
+                        {arquivandoVendaEstoqueErro ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="mr-2 h-4 w-4" />
+                        )}
+                        Arquivar erro antigo
+                      </Button>
+                    )}
                   </>
                 )}
                 <Button
@@ -1242,6 +1304,24 @@ export function DesktopTab() {
                       <Eye className="mr-2 h-4 w-4" />
                       Ver detalhes
                     </Button>
+                    {(outboxVendas.last_error ?? "")
+                      .toLowerCase()
+                      .includes("estoque insuficiente") && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="ml-2 mt-2"
+                        disabled={arquivandoVendaEstoqueErro}
+                        onClick={() => void handleArchiveVendaStockErrors()}
+                      >
+                        {arquivandoVendaEstoqueErro ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="mr-2 h-4 w-4" />
+                        )}
+                        Arquivar erro antigo
+                      </Button>
+                    )}
                     <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
                       {outboxVendas.last_error}
                     </div>
@@ -1269,9 +1349,36 @@ export function DesktopTab() {
               </CardTitle>
               <div className="flex gap-2">
                 {outboxCaixa.error > 0 && (
-                  <Button size="sm" variant="outline" onClick={() => void handleRetryErrorsCaixa()}>
-                    Reenfileirar erros
-                  </Button>
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void handleRetryErrorsCaixa()}
+                    >
+                      Reenfileirar erros
+                    </Button>
+                    {(() => {
+                      const msg = (outboxCaixa.last_error ?? "").toLowerCase();
+                      return (
+                        msg.includes("caixa aberto neste terminal") ||
+                        (msg.includes("caixa aberto") && msg.includes("abrir outro"))
+                      );
+                    })() && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={arquivandoCaixaErro}
+                        onClick={() => void handleArchiveCaixaConflictErrors()}
+                      >
+                        {arquivandoCaixaErro ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="mr-2 h-4 w-4" />
+                        )}
+                        Arquivar conflito antigo
+                      </Button>
+                    )}
+                  </>
                 )}
                 <Button
                   size="sm"
@@ -1326,6 +1433,28 @@ export function DesktopTab() {
                     <div className="mt-0.5 text-xs text-destructive">
                       {classifyOutboxError(outboxCaixa.last_error).friendly}
                     </div>
+                    {(() => {
+                      const msg = (outboxCaixa.last_error ?? "").toLowerCase();
+                      return (
+                        msg.includes("caixa aberto neste terminal") ||
+                        (msg.includes("caixa aberto") && msg.includes("abrir outro"))
+                      );
+                    })() && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="mt-2"
+                        disabled={arquivandoCaixaErro}
+                        onClick={() => void handleArchiveCaixaConflictErrors()}
+                      >
+                        {arquivandoCaixaErro ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="mr-2 h-4 w-4" />
+                        )}
+                        Arquivar conflito antigo
+                      </Button>
+                    )}
                     <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
                       {outboxCaixa.last_error}
                     </div>
@@ -1974,6 +2103,8 @@ function OutboxStatusPanel({
   flushing,
   onFlushAll,
   onOpenVendasDetails,
+  onArchiveVendaStockErrors,
+  archivingVendaStockErrors,
   onArchiveCaixaConflictErrors,
   archivingCaixaErrors,
 }: {
@@ -1981,6 +2112,8 @@ function OutboxStatusPanel({
   flushing: boolean;
   onFlushAll: () => void;
   onOpenVendasDetails?: () => void;
+  onArchiveVendaStockErrors?: () => void;
+  archivingVendaStockErrors?: boolean;
   onArchiveCaixaConflictErrors?: () => void;
   archivingCaixaErrors?: boolean;
 }) {
@@ -2048,6 +2181,11 @@ function OutboxStatusPanel({
                 const hasPending = d.pending > 0 || d.sending > 0;
                 const canOpenDetails =
                   d.domain === "vendas" && hasError && onOpenVendasDetails;
+                const canArchiveVendaStock =
+                  d.domain === "vendas" &&
+                  hasError &&
+                  onArchiveVendaStockErrors &&
+                  (d.last_error ?? "").toLowerCase().includes("estoque insuficiente");
                 const canArchiveCaixaConflict =
                   d.domain === "caixa" &&
                   hasError &&
@@ -2115,6 +2253,21 @@ function OutboxStatusPanel({
                               }}
                             >
                               Ver detalhes
+                            </button>
+                          )}
+                          {canArchiveVendaStock && (
+                            <button
+                              type="button"
+                              className="text-[11px] font-medium text-primary underline-offset-2 hover:underline disabled:opacity-60"
+                              disabled={archivingVendaStockErrors}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onArchiveVendaStockErrors();
+                              }}
+                            >
+                              {archivingVendaStockErrors
+                                ? "Arquivando..."
+                                : "Arquivar erro antigo"}
                             </button>
                           )}
                           {canArchiveCaixaConflict && (

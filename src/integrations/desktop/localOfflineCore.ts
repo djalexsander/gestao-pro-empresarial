@@ -679,9 +679,10 @@ export async function archiveOutboxCaixaError(
   cfg: TerminalConexaoConfig | undefined,
   localUuid: string,
   motivo?: string | null,
+  archiveGroup = false,
 ): Promise<boolean> {
   const result = await postLocalJson<
-    { local_uuid: string; motivo?: string | null },
+    { local_uuid: string; motivo?: string | null; archive_group?: boolean },
     { ok?: boolean }
   >(
     cfg,
@@ -689,6 +690,7 @@ export async function archiveOutboxCaixaError(
     {
       local_uuid: localUuid,
       motivo: motivo ?? "Erro antigo arquivado manualmente; caixa local preservado.",
+      archive_group: archiveGroup || undefined,
     },
     null,
     10_000,

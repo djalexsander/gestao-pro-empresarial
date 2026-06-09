@@ -3492,6 +3492,7 @@ async fn outbox_caixa_retry_errors_handler() -> Result<Json<RetryErrorsResponse>
 struct ArchiveOutboxCaixaRequest {
     local_uuid: String,
     motivo: Option<String>,
+    archive_group: Option<bool>,
 }
 
 async fn outbox_caixa_archive_error_handler(
@@ -3500,12 +3501,26 @@ async fn outbox_caixa_archive_error_handler(
     if req.local_uuid.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, "local_uuid e obrigatorio".into()));
     }
-    let archived = db::outbox_caixa_archive_error(
-        req.local_uuid.trim(),
-        req.motivo.as_deref(),
-        now_ms(),
-    )
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let now = now_ms();
+    let archived = if req.archive_group.unwrap_or(false) {
+        let item = db::outbox_caixa_get(req.local_uuid.trim())
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .ok_or((StatusCode::NOT_FOUND, "item de caixa nao encontrado".to_string()))?;
+        db::outbox_caixa_archive_local_group(
+            &item.caixa_local_uuid,
+            req.motivo.as_deref(),
+            now,
+        )
+        .map(|n| n > 0)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    } else {
+        db::outbox_caixa_archive_error(
+            req.local_uuid.trim(),
+            req.motivo.as_deref(),
+            now,
+        )
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    };
     Ok(Json(serde_json::json!({
         "ok": archived,
         "local_uuid": req.local_uuid,
