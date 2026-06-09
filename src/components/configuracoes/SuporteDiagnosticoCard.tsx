@@ -90,6 +90,9 @@ export function SuporteDiagnosticoCard({
       server_id_remoto: conn.serverId ?? null,
       server_version: conn.serverVersion ?? null,
       mensagem: conn.mensagem ?? null,
+      last_endpoint: (conn as any).lastEndpoint ?? null,
+      last_latency_ms: (conn as any).lastLatencyMs ?? null,
+      last_error_detail: (conn as any).lastErrorDetail ?? null,
     },
     server_info: info
       ? {

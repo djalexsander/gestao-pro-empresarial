@@ -724,6 +724,8 @@ export function DesktopTab() {
                   }
                 />
                 <Field label="Endereço" value={conn.baseUrl ?? (isServer ? localBaseUrl : "—")} mono />
+                <Field label="Último endpoint testado" value={(conn as any).lastEndpoint ?? "—"} />
+                <Field label="Tempo de resposta" value={(conn as any).lastLatencyMs != null ? `${(conn as any).lastLatencyMs} ms` : "—"} />
                 <Field label="Último erro" value={conn.mensagem ?? "—"} />
                 {conn.serverVersion && (
                   <Field label="Versão do servidor" value={conn.serverVersion} />
@@ -2052,14 +2054,23 @@ function ConnStatusRow({
   status: ServerConnStatus;
   mensagem?: string | null;
 }) {
-  const map: Record<
-    ServerConnStatus,
-    { icon: React.ReactNode; label: string; cor: string }
-  > = {
-    online: {
+  // Derive display state: treat 'online' with warning messages as amber
+  let display: "online-ok" | "online-warn" | ServerConnStatus = status;
+  const lowerMsg = (mensagem ?? "").toLowerCase();
+  if (status === "online" && (lowerMsg.includes("aguardando") || lowerMsg.includes("banco") || lowerMsg.includes("filas") || lowerMsg.includes("não respondeu"))) {
+    display = "online-warn";
+  }
+
+  const map: Record<string, { icon: React.ReactNode; label: string; cor: string }> = {
+    "online-ok": {
       icon: <Wifi className="h-5 w-5" />,
-      label: "Conectado ao servidor local",
+      label: "Servidor local operacional",
       cor: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
+    },
+    "online-warn": {
+      icon: <AlertTriangle className="h-5 w-5" />,
+      label: "Servidor local ativo (pendências)",
+      cor: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30",
     },
     offline: {
       icon: <WifiOff className="h-5 w-5" />,
@@ -2082,7 +2093,7 @@ function ConnStatusRow({
       cor: "bg-muted text-muted-foreground border-border",
     },
   };
-  const item = map[status];
+  const item = map[String(display)];
   return (
     <div className={`flex items-start gap-3 rounded-lg border p-3 ${item.cor}`}>
       <div className="mt-0.5 shrink-0">{item.icon}</div>

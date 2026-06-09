@@ -1,5 +1,5 @@
 import type { TerminalConexaoConfig } from "./types";
-import { getBaseUrl } from "./localHttpClient";
+import { getBaseUrl, fetchWithTimeout } from "./localHttpClient";
 
 // Use a more generous timeout for desktop local checks (8-12s recommended).
 const TIMEOUT_MS = 10_000;
@@ -17,6 +17,10 @@ export interface ServerConnInfo {
   latenciaMs: number | null;
   ultimoSync: Date | null;
   baseUrl: string | null;
+  /** Último endpoint testado (ex: /health, /server-info) */
+  lastEndpoint?: string | null;
+  /** Tempo de resposta do último probe (ms) */
+  lastLatencyMs?: number | null;
   /** Nome do servidor remoto, quando online. */
   serverName?: string | null;
   /** Versão do app no servidor remoto, quando online. */
@@ -27,6 +31,8 @@ export interface ServerConnInfo {
   serverHostname?: string | null;
   /** Mensagem amigável para exibir na UI quando algo dá errado. */
   mensagem?: string | null;
+  /** Detalhe técnico do último erro (body ou mensagem de timeout). */
+  lastErrorDetail?: string | null;
 }
 
 interface HealthPayload {
@@ -57,67 +63,134 @@ export async function pingServidorLocal(
       mensagem: "Sem servidor local configurado — usando nuvem.",
     };
   }
+  // Sequential probes with individual timeouts and logging.
+  const probes: Array<{
+    endpoint: string;
+    start: number;
+    durationMs?: number;
+    ok?: boolean;
+    statusCode?: number | null;
+    error?: string | null;
+  }> = [];
 
-  const t0 = performance.now();
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-
-  try {
-    const res = await fetch(`${baseUrl}/health`, {
-      method: "GET",
-      headers: { Accept: "application/json" },
-      signal: ctrl.signal,
-      cache: "no-store",
-    });
-    clearTimeout(timer);
-
-    if (!res.ok) {
-      return {
-        status: "invalid-server",
-        latenciaMs: Math.round(performance.now() - t0),
-        ultimoSync: new Date(),
-        baseUrl,
-        mensagem: `Servidor respondeu HTTP ${res.status}.`,
-      };
+  // Helper to run a GET with timeout and log result.
+  async function probe(path: string) {
+    const start = performance.now();
+    const entry = { endpoint: path, start };
+    probes.push(entry as any);
+    try {
+      const res = await fetchWithTimeout(`${baseUrl}${path}`, { headers: { Accept: "application/json" } }, TIMEOUT_MS);
+      const duration = Math.round(performance.now() - start);
+      (entry as any).durationMs = duration;
+      (entry as any).statusCode = res.status;
+      (entry as any).ok = res.ok;
+      if (!res.ok) {
+        (entry as any).error = `HTTP ${res.status}`;
+        console.warn("[local-diagnostics] probe failed", entry);
+        return { ok: false, status: res.status, body: await res.text().catch(() => "") };
+      }
+      const body = await res.text().catch(() => "");
+      console.info("[local-diagnostics] probe ok", { endpoint: path, duration });
+      return { ok: true, status: res.status, body };
+    } catch (err) {
+      const duration = Math.round(performance.now() - start);
+      (entry as any).durationMs = duration;
+      const name = (err as Error)?.name ?? String(err);
+      (entry as any).error = String(err ?? "error");
+      console.warn("[local-diagnostics] probe error", { endpoint: path, duration, error: name });
+      return { ok: false, status: null, body: null, error: String(err) };
     }
+  }
 
-    const payload = (await res.json()) as HealthPayload;
-    if (payload?.status !== "ok" || payload?.app !== APP_MARKER) {
-      return {
-        status: "invalid-server",
-        latenciaMs: Math.round(performance.now() - t0),
-        ultimoSync: new Date(),
-        baseUrl,
-        mensagem:
-          "Há um servidor neste endereço, mas não é um Gestão Pro válido.",
-      };
-    }
-
+  // 1) /health
+  const healthRes = await probe("/health");
+  if (!healthRes.ok) {
+    const isTimeout = healthRes.error?.includes("AbortError") || healthRes.error?.toLowerCase().includes("timeout");
     return {
-      status: "online",
-      latenciaMs: Math.round(performance.now() - t0),
-      ultimoSync: new Date(),
-      baseUrl,
-      serverVersion: payload.version ?? null,
-      serverName: payload.server_name ?? null,
-      serverId: payload.server_id ?? null,
-      mensagem: null,
-    };
-  } catch (err) {
-    clearTimeout(timer);
-    const isAbort = (err as Error)?.name === "AbortError";
-    const baseMessage = isAbort
-      ? "Tempo de resposta esgotado (timeout)."
-      : "Não foi possível alcançar o servidor local — usando nuvem como fallback.";
-    const detail = baseUrl ? ` Verifique se o servidor local está aceitando conexões em ${baseUrl}.` : "";
-    return {
-      status: "offline",
+      status: isTimeout ? "offline" : "offline",
       latenciaMs: null,
       ultimoSync: new Date(),
       baseUrl,
-      mensagem: `${baseMessage}${detail}`,
+      mensagem: isTimeout ? `Timeout em /health ao ${baseUrl}/health` : `Falha ao consultar /health em ${baseUrl}. ${healthRes.error ?? ""}`,
     };
   }
+
+  // Parse health payload safely
+  let healthPayload: HealthPayload | null = null;
+  try {
+    healthPayload = JSON.parse(healthRes.body ?? "") as HealthPayload;
+  } catch {
+    // try to continue — body may be empty/non-json
+  }
+
+  if (!healthPayload || healthPayload?.status !== "ok" || healthPayload?.app !== APP_MARKER) {
+    return {
+      status: "invalid-server",
+      latenciaMs: null,
+      ultimoSync: new Date(),
+      baseUrl,
+      mensagem: "Há um servidor neste endereço, mas não é um Gestão Pro válido.",
+    };
+  }
+
+  // Health OK — record latency from payload if available or zero.
+  const healthLatency = healthPayload && typeof healthPayload.uptime_ms === "number" ? 0 : 0;
+
+  // 2) /server-info (best-effort): if it fails, report but keep status=online
+  const serverInfoRes = await probe("/server-info");
+  if (!serverInfoRes.ok) {
+    return {
+      status: "online",
+      latenciaMs: healthLatency ?? null,
+      ultimoSync: new Date(),
+      baseUrl,
+      lastEndpoint: "/server-info",
+      lastLatencyMs: null,
+      mensagem: `Servidor local ativo. Aguardando resposta de /server-info`,
+      lastErrorDetail: serverInfoRes.error ?? null,
+    };
+  }
+
+  // Parse server-info and expose server metadata if available
+  let serverInfoPayload: any = null;
+  try {
+    serverInfoPayload = JSON.parse(serverInfoRes.body ?? "");
+  } catch {
+    serverInfoPayload = null;
+  }
+
+  // 3) /db/info — if it fails, report DB-specific warning but keep server active
+  const dbRes = await probe("/db/info");
+  if (!dbRes.ok) {
+    return {
+      status: "online",
+      latenciaMs: healthLatency ?? null,
+      ultimoSync: new Date(),
+      baseUrl,
+      lastEndpoint: "/db/info",
+      lastLatencyMs: null,
+      mensagem: `Servidor local ativo. Banco local não respondeu.`,
+      lastErrorDetail: dbRes.error ?? null,
+    };
+  }
+
+  // All probes succeeded
+  // successful probes — pick last probe info
+  const last = probes[probes.length - 1];
+  return {
+    status: "online",
+    latenciaMs: healthLatency ?? null,
+    ultimoSync: new Date(),
+    baseUrl,
+    lastEndpoint: last?.endpoint ?? null,
+    lastLatencyMs: last?.durationMs ?? null,
+    serverName: serverInfoPayload?.server_name ?? null,
+    serverVersion: serverInfoPayload?.version ?? null,
+    serverId: serverInfoPayload?.server_id ?? null,
+    serverHostname: serverInfoPayload?.host ?? null,
+    mensagem: null,
+    lastErrorDetail: null,
+  };
 }
 
 export interface ServerInfoPayload {
