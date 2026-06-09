@@ -34,6 +34,7 @@ import { DesktopSetupWizard } from "@/components/desktop/DesktopSetupWizard";
 import { useServerConnection } from "@/components/desktop/useServerConnection";
 import {
   archiveOutboxVendaError,
+  archiveOutboxCaixaError,
   fetchCaixaLancamentosLocal,
   fetchCaixaLocalAberto,
   fetchCaixaResumoLocal,
@@ -43,6 +44,7 @@ import {
   fetchDomainStats,
   fetchKnownTerminals,
   fetchOutboxCaixaStats,
+  fetchOutboxCaixaList,
   fetchOutboxCancelamentosStats,
   fetchOutboxFinanceiroStats,
   fetchOutboxStats,
@@ -113,6 +115,7 @@ export function DesktopTab() {
   const [vendaErroSelecionada, setVendaErroSelecionada] = useState<string | null>(null);
   const [outboxCaixa, setOutboxCaixa] = useState<OutboxCaixaStats | null>(null);
   const [flushingCaixa, setFlushingCaixa] = useState(false);
+  const [arquivandoCaixaErro, setArquivandoCaixaErro] = useState(false);
   const [outboxCancel, setOutboxCancel] =
     useState<OutboxCancelamentosStats | null>(null);
   const [flushingCancel, setFlushingCancel] = useState(false);
@@ -284,6 +287,42 @@ export function DesktopTab() {
     await retryOutboxCaixaErrors(localCfg);
     setOutboxCaixa(await fetchOutboxCaixaStats(localCfg));
     await recarregarOutboxStatus();
+  };
+
+  const handleArchiveCaixaConflictErrors = async () => {
+    if (!localCfg) return;
+    setArquivandoCaixaErro(true);
+    try {
+      const items = await fetchOutboxCaixaList(localCfg, {
+        status: "error",
+        limit: 50,
+      });
+      const conflicts = items.filter((item) => {
+        const msg = (item.last_error ?? "").toLowerCase();
+        return (
+          msg.includes("caixa aberto neste terminal") ||
+          (msg.includes("caixa aberto") && msg.includes("abrir outro"))
+        );
+      });
+      let archived = 0;
+      for (const item of conflicts) {
+        const ok = await archiveOutboxCaixaError(
+          localCfg,
+          item.local_uuid,
+          "Erro antigo arquivado manualmente; caixa local preservado.",
+        );
+        if (ok) archived += 1;
+      }
+      if (archived > 0) {
+        toast.success(`${archived} erro(s) antigo(s) de caixa arquivado(s).`);
+      } else {
+        toast.info("Nenhum conflito antigo de caixa foi encontrado para arquivar.");
+      }
+      setOutboxCaixa(await fetchOutboxCaixaStats(localCfg));
+      await recarregarOutboxStatus();
+    } finally {
+      setArquivandoCaixaErro(false);
+    }
   };
 
   const handleFlushCancel = async () => {
@@ -465,7 +504,15 @@ export function DesktopTab() {
       clearInterval(tFull);
       clearInterval(tOutbox);
     };
-  }, [isDesktop, role, config.terminal, daemon?.running, daemon?.port]);
+  }, [
+    isDesktop,
+    role,
+    config.terminal,
+    config.serverAuthToken,
+    config.serverPort,
+    daemon?.running,
+    daemon?.port,
+  ]);
 
   if (!isDesktop) {
     return (
@@ -668,6 +715,8 @@ export function DesktopTab() {
             flushing={flushingAll}
             onFlushAll={() => void handleFlushAll()}
             onOpenVendasDetails={() => void handleOpenVendasErrorDetails()}
+            onArchiveCaixaConflictErrors={() => void handleArchiveCaixaConflictErrors()}
+            archivingCaixaErrors={arquivandoCaixaErro}
           />
         )}
 
@@ -1925,11 +1974,15 @@ function OutboxStatusPanel({
   flushing,
   onFlushAll,
   onOpenVendasDetails,
+  onArchiveCaixaConflictErrors,
+  archivingCaixaErrors,
 }: {
   status: OutboxStatusResponse;
   flushing: boolean;
   onFlushAll: () => void;
   onOpenVendasDetails?: () => void;
+  onArchiveCaixaConflictErrors?: () => void;
+  archivingCaixaErrors?: boolean;
 }) {
   const firstError = status.domains.find((d) => d.last_error)?.last_error ?? null;
   const errorInfo = firstError ? classifyOutboxError(firstError) : null;
@@ -1995,6 +2048,17 @@ function OutboxStatusPanel({
                 const hasPending = d.pending > 0 || d.sending > 0;
                 const canOpenDetails =
                   d.domain === "vendas" && hasError && onOpenVendasDetails;
+                const canArchiveCaixaConflict =
+                  d.domain === "caixa" &&
+                  hasError &&
+                  onArchiveCaixaConflictErrors &&
+                  (() => {
+                    const msg = (d.last_error ?? "").toLowerCase();
+                    return (
+                      msg.includes("caixa aberto neste terminal") ||
+                      (msg.includes("caixa aberto") && msg.includes("abrir outro"))
+                    );
+                  })();
                 const badgeClass = hasError
                   ? "border-destructive/30 bg-destructive/10 text-destructive"
                   : hasPending
@@ -2051,6 +2115,21 @@ function OutboxStatusPanel({
                               }}
                             >
                               Ver detalhes
+                            </button>
+                          )}
+                          {canArchiveCaixaConflict && (
+                            <button
+                              type="button"
+                              className="text-[11px] font-medium text-primary underline-offset-2 hover:underline disabled:opacity-60"
+                              disabled={archivingCaixaErrors}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onArchiveCaixaConflictErrors();
+                              }}
+                            >
+                              {archivingCaixaErrors
+                                ? "Arquivando..."
+                                : "Arquivar conflito antigo"}
                             </button>
                           )}
                         </div>

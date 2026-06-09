@@ -3488,6 +3488,31 @@ async fn outbox_caixa_retry_errors_handler() -> Result<Json<RetryErrorsResponse>
 /// Scheduler de background da outbox de caixa — espelha vendas/estoque.
 /// Despacha em ordem causal por `created_at_ms` para preservar
 /// abrir → movimento → fechar do MESMO caixa.
+#[derive(Deserialize)]
+struct ArchiveOutboxCaixaRequest {
+    local_uuid: String,
+    motivo: Option<String>,
+}
+
+async fn outbox_caixa_archive_error_handler(
+    Json(req): Json<ArchiveOutboxCaixaRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if req.local_uuid.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "local_uuid e obrigatorio".into()));
+    }
+    let archived = db::outbox_caixa_archive_error(
+        req.local_uuid.trim(),
+        req.motivo.as_deref(),
+        now_ms(),
+    )
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(serde_json::json!({
+        "ok": archived,
+        "local_uuid": req.local_uuid,
+        "status": if archived { "archived" } else { "unchanged" },
+    })))
+}
+
 async fn run_outbox_caixa_scheduler(
     ctx: AppCtx,
     mut shutdown_rx: oneshot::Receiver<()>,
@@ -3629,6 +3654,7 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/db/outbox/caixa/stats", get(outbox_caixa_stats_handler))
         .route("/db/outbox/caixa/flush", post(outbox_caixa_flush_handler))
         .route("/db/outbox/caixa/retry-errors", post(outbox_caixa_retry_errors_handler))
+        .route("/db/outbox/caixa/archive-error", post(outbox_caixa_archive_error_handler))
         .route("/api/vendas/cancelar", post(cancelar_venda_local_handler))
         .route("/db/outbox/cancelamentos", get(outbox_cancel_list_handler))
         .route("/db/outbox/cancelamentos/stats", get(outbox_cancel_stats_handler))

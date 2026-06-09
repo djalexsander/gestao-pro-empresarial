@@ -675,6 +675,27 @@ export async function fetchOutboxCaixaList(
   }
 }
 
+export async function archiveOutboxCaixaError(
+  cfg: TerminalConexaoConfig | undefined,
+  localUuid: string,
+  motivo?: string | null,
+): Promise<boolean> {
+  const result = await postLocalJson<
+    { local_uuid: string; motivo?: string | null },
+    { ok?: boolean }
+  >(
+    cfg,
+    "/db/outbox/caixa/archive-error",
+    {
+      local_uuid: localUuid,
+      motivo: motivo ?? "Erro antigo arquivado manualmente; caixa local preservado.",
+    },
+    null,
+    10_000,
+  );
+  return Boolean(result?.ok);
+}
+
 export async function flushOutboxCaixa(
   cfg: TerminalConexaoConfig | undefined,
   authToken?: string | null,

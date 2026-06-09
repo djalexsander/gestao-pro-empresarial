@@ -254,7 +254,7 @@ function ServerControlActions({ backendOk }: { backendOk: boolean }) {
         )}
       </Button>
       </div>
-      {boot.lastError && (
+      {!backendOk && boot.lastError && (
         <div className="text-[11px] text-destructive">
           Erro: {boot.lastError}
         </div>

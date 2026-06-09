@@ -111,6 +111,7 @@ export function useServerConnection(): UseServerConnectionResult {
         try {
           const st = await getLocalServerStatus();
           let currentStatus = st;
+          persistServerAuth(currentStatus);
           if (!st.running && !restartInFlight.current) {
             restartInFlight.current = true;
             const port = st.port ?? config.serverPort ?? config.terminal?.porta ?? DEFAULT_LOCAL_PORT;
