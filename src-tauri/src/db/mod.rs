@@ -190,7 +190,6 @@ pub fn init() -> DbResult<()> {
             deleted_at_ms        INTEGER
         );
         CREATE INDEX IF NOT EXISTS idx_clientes_status ON clientes_local(status);
-        CREATE INDEX IF NOT EXISTS idx_clientes_owner ON clientes_local(owner_id);
         CREATE INDEX IF NOT EXISTS idx_clientes_nome ON clientes_local(nome);
         CREATE INDEX IF NOT EXISTS idx_clientes_doc ON clientes_local(documento);
         CREATE INDEX IF NOT EXISTS idx_clientes_remote_id ON clientes_local(remote_id);
@@ -207,7 +206,6 @@ pub fn init() -> DbResult<()> {
             synced_at_ms   INTEGER NOT NULL,
             PRIMARY KEY (owner_id, produto_id, variacao_id)
         );
-        CREATE INDEX IF NOT EXISTS idx_saldos_owner ON estoque_saldos_local(owner_id);
         CREATE INDEX IF NOT EXISTS idx_saldos_produto ON estoque_saldos_local(produto_id);
 
         -- Metadados de sync por domínio (último refresh, contagem ingerida,
@@ -279,8 +277,6 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_movs_produto
             ON estoque_movimentacoes_local(produto_id);
-        CREATE INDEX IF NOT EXISTS idx_movs_owner
-            ON estoque_movimentacoes_local(owner_id);
         CREATE INDEX IF NOT EXISTS idx_movs_data
             ON estoque_movimentacoes_local(data_movimentacao_ms DESC);
         CREATE INDEX IF NOT EXISTS idx_movs_produto_data
@@ -323,8 +319,6 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_outbox_status
             ON outbox_estoque_movs(status, created_at_ms);
-        CREATE INDEX IF NOT EXISTS idx_outbox_estoque_owner
-            ON outbox_estoque_movs(owner_id);
         CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_client_uuid
             ON outbox_estoque_movs(client_uuid)
             WHERE client_uuid IS NOT NULL;
@@ -382,8 +376,6 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_vendas_local_created
             ON vendas_local(created_at_ms DESC);
-        CREATE INDEX IF NOT EXISTS idx_vendas_local_owner
-            ON vendas_local(owner_id);
         CREATE UNIQUE INDEX IF NOT EXISTS uq_vendas_local_client_uuid
             ON vendas_local(client_uuid) WHERE client_uuid IS NOT NULL;
 
@@ -401,8 +393,6 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_venda_itens_local_venda
             ON venda_itens_local(venda_local_uuid);
-        CREATE INDEX IF NOT EXISTS idx_venda_itens_local_owner
-            ON venda_itens_local(owner_id);
 
         CREATE TABLE IF NOT EXISTS venda_pagamentos_local (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -418,8 +408,6 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_venda_pagtos_local_venda
             ON venda_pagamentos_local(venda_local_uuid);
-        CREATE INDEX IF NOT EXISTS idx_venda_pagtos_local_owner
-            ON venda_pagamentos_local(owner_id);
 
         CREATE TABLE IF NOT EXISTS outbox_vendas (
             local_uuid          TEXT PRIMARY KEY,
@@ -437,8 +425,6 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_outbox_vendas_status
             ON outbox_vendas(status, created_at_ms);
-        CREATE INDEX IF NOT EXISTS idx_outbox_vendas_owner
-            ON outbox_vendas(owner_id);
         CREATE INDEX IF NOT EXISTS idx_outbox_vendas_status_next
             ON outbox_vendas(status, next_attempt_at_ms);
         CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_vendas_client_uuid
@@ -500,8 +486,6 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_caixa_local_status
             ON caixa_local(status, data_abertura_ms DESC);
-        CREATE INDEX IF NOT EXISTS idx_caixa_local_owner
-            ON caixa_local(owner_id);
         CREATE INDEX IF NOT EXISTS idx_caixa_local_operador
             ON caixa_local(operador_id, status);
         CREATE UNIQUE INDEX IF NOT EXISTS uq_caixa_local_client_uuid
@@ -521,8 +505,6 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_caixa_movs_caixa
             ON caixa_movs_local(caixa_local_uuid, created_at_ms);
-        CREATE INDEX IF NOT EXISTS idx_caixa_movs_owner
-            ON caixa_movs_local(owner_id);
         CREATE UNIQUE INDEX IF NOT EXISTS uq_caixa_movs_client_uuid
             ON caixa_movs_local(client_uuid) WHERE client_uuid IS NOT NULL;
 
@@ -544,8 +526,6 @@ pub fn init() -> DbResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_outbox_caixa_status
             ON outbox_caixa(status, created_at_ms);
-        CREATE INDEX IF NOT EXISTS idx_outbox_caixa_owner
-            ON outbox_caixa(owner_id);
         CREATE INDEX IF NOT EXISTS idx_outbox_caixa_status_next
             ON outbox_caixa(status, next_attempt_at_ms);
         CREATE INDEX IF NOT EXISTS idx_outbox_caixa_action
