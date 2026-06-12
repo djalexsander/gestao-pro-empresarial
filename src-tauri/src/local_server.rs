@@ -615,15 +615,33 @@ async fn proxy_with_incremental_sync(
     let now = now_ms();
     let spec = incremental_spec(domain);
     let owner_id = resolve_user_jwt(&ctx.user_jwt, headers).and_then(|jwt| jwt_subject(&jwt));
+    if let Some(owner_id) = owner_id.as_deref() {
+        adopt_legacy_owner(owner_id).map_err(|e| (StatusCode::CONFLICT, e.to_string()))?;
+    }
+    let force_product_snapshot = force
+        && domain == "produtos"
+        && owner_id
+            .as_deref()
+            .and_then(|owner_id| {
+                db::read_produtos(db::ProdutosFilter {
+                    owner_id: Some(owner_id),
+                    status: None,
+                    categoria_id: None,
+                    busca: None,
+                })
+                .ok()
+            })
+            .is_some_and(|payload| payload == "[]");
 
     // 1) Lê estado de sync e decide estratégia.
     let state = db::get_domain_sync_state(domain).unwrap_or(db::DomainSyncState {
         last_remote_cursor_ms: None,
         last_strategy: None,
     });
-    let strategy = match state.last_remote_cursor_ms {
-        Some(_) => spec.incremental_strategy,
-        None => db::IngestStrategy::Snapshot,
+    let strategy = match (force_product_snapshot, state.last_remote_cursor_ms) {
+        (true, _) => db::IngestStrategy::Snapshot,
+        (false, Some(_)) => spec.incremental_strategy,
+        (false, None) => db::IngestStrategy::Snapshot,
     };
 
     // 2) Sem `force`, podemos servir do local se ainda dentro do TTL — usamos
@@ -651,7 +669,8 @@ async fn proxy_with_incremental_sync(
         .filter(|(k, _)| !k.starts_with("__"))
         .cloned()
         .collect();
-    if let Some(cursor) = state.last_remote_cursor_ms {
+    if !force_product_snapshot {
+        if let Some(cursor) = state.last_remote_cursor_ms {
         if spec.strip_status_in_incremental {
             q.retain(|(k, _)| *k != "order" && *k != "status");
         } else {
@@ -660,6 +679,7 @@ async fn proxy_with_incremental_sync(
         q.push((spec.cursor_field, format!("gte.{}", iso_from_ms_z(cursor))));
         q.push(("order", format!("{}.asc", spec.cursor_field)));
         q.push(("limit", INCREMENTAL_PAGE_LIMIT.to_string()));
+        }
     }
 
     // 4) Vai ao upstream.
@@ -848,12 +868,39 @@ fn ingest_typed(domain: &str, text: &str, now: i64) {
     }
 }
 
+fn adopt_legacy_owner(owner_id: &str) -> Result<(), db::DbError> {
+    db::adopt_legacy_ownerless_data(owner_id)
+        .map(|_| ())
+        .map_err(|error| {
+            eprintln!(
+                "[gestao-pro] LEGACY OWNER ADOPT ERROR owner_id={owner_id}: {error}"
+            );
+            let _ = db::record_sync_error(
+                "legacy_owner_adopt",
+                now_ms(),
+                &error.to_string(),
+            );
+            error
+        })
+}
+
+fn adopt_legacy_owner_http(owner_id: &str) -> Result<(), (StatusCode, String)> {
+    adopt_legacy_owner(owner_id).map_err(|error| {
+        let status = if error.to_string().starts_with("LEGACY_OWNER_CONFLICT:") {
+            StatusCode::CONFLICT
+        } else {
+            StatusCode::INTERNAL_SERVER_ERROR
+        };
+        (status, error.to_string())
+    })
+}
+
 fn read_typed(domain: &str, query: &[(&str, String)], owner_id: Option<&str>) -> Result<String, db::DbError> {
     let get = |k: &str| -> Option<String> {
         query.iter().find(|(qk, _)| *qk == k).map(|(_, v)| v.clone())
     };
     if let Some(owner_id) = owner_id {
-        let _ = db::adopt_legacy_ownerless_data(owner_id);
+        adopt_legacy_owner(owner_id)?;
     }
     match domain {
         "produtos" => {
@@ -902,7 +949,7 @@ async fn produtos_list_handler(
         StatusCode::UNAUTHORIZED,
         "AUTH: sem JWT do usuario para leitura local de produtos".into(),
     ))?;
-    let _ = db::adopt_legacy_ownerless_data(&user_id);
+    adopt_legacy_owner_http(&user_id)?;
     let status = q.get("status").map(|s| s.trim()).filter(|s| !s.is_empty());
     let categoria_id = q.get("categoria_id").map(|s| s.trim()).filter(|s| !s.is_empty());
     let busca = q.get("busca").map(|s| s.trim()).filter(|s| !s.is_empty());
@@ -933,7 +980,7 @@ async fn produtos_buscar_handler(
         StatusCode::UNAUTHORIZED,
         "AUTH: sem JWT do usuario para busca local de produtos".into(),
     ))?;
-    let _ = db::adopt_legacy_ownerless_data(&user_id);
+    adopt_legacy_owner_http(&user_id)?;
     let json = db::read_produtos(db::ProdutosFilter {
         owner_id: Some(user_id.as_str()),
         status: None,
@@ -1048,6 +1095,8 @@ async fn estoque_saldos_handler(
     State(ctx): State<AppCtx>,
     headers: HeaderMap,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
+    let owner_id = require_owner_id(&ctx, &headers)?;
+    adopt_legacy_owner_http(&owner_id)?;
     let params = estoque_movs_base_params();
     // Roda o pipeline incremental de movimentações; a leitura final
     // entregue ao terminal vem do `read_typed("estoque_saldos")` =
@@ -1064,9 +1113,8 @@ async fn estoque_saldos_handler(
     // Substitui o body pelo saldo materializado (mantendo headers de
     // strategy/source/delta vindos do sync).
     let (mut parts, _body) = resp.into_parts();
-    let owner_id = require_owner_id(&ctx, &headers)?;
-    let _ = db::adopt_legacy_ownerless_data(&owner_id);
-    let saldos = db::read_saldos(&owner_id).unwrap_or_else(|_| "[]".to_string());
+    let saldos = db::read_saldos(&owner_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("db error: {e}")))?;
     parts.headers.insert(
         axum::http::header::CONTENT_TYPE,
         axum::http::HeaderValue::from_static("application/json"),
@@ -1516,7 +1564,7 @@ async fn registrar_mov_local_handler(
 ) -> Result<Json<RegistrarMovLocalResponse>, (StatusCode, String)> {
     let now = now_ms();
     let owner_id = require_owner_id(&ctx, &headers)?;
-    let _ = db::adopt_legacy_ownerless_data(&owner_id);
+    adopt_legacy_owner_http(&owner_id)?;
     let result = db::registrar_movimento_local(
         &owner_id,
         db::LocalMovimentacaoInput {

@@ -320,8 +320,11 @@ export interface DomainStat {
 export async function fetchKnownTerminals(
   cfg?: TerminalConexaoConfig,
 ): Promise<PersistedTerminal[]> {
-  const result = await getJson<PersistedTerminal[]>(cfg, "/terminals/known");
-  return result ?? [];
+  const result = await getJson<
+    PersistedTerminal[] | { terminals?: PersistedTerminal[] | null }
+  >(cfg, "/terminals/known");
+  if (Array.isArray(result)) return result;
+  return Array.isArray(result?.terminals) ? result.terminals : [];
 }
 
 export async function fetchDbInfo(
@@ -333,8 +336,11 @@ export async function fetchDbInfo(
 export async function fetchDomainStats(
   cfg?: TerminalConexaoConfig,
 ): Promise<DomainStat[]> {
-  const result = await getJson<DomainStat[]>(cfg, "/db/domains");
-  return result ?? [];
+  const result = await getJson<
+    DomainStat[] | { domains?: DomainStat[] | null }
+  >(cfg, "/db/domains");
+  if (Array.isArray(result)) return result;
+  return Array.isArray(result?.domains) ? result.domains : [];
 }
 
 export interface HeartbeatPayload {

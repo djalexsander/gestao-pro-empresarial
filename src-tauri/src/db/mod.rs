@@ -1743,6 +1743,51 @@ fn table_has_column(conn: &Connection, table: &str, column: &str) -> rusqlite::R
     Ok(false)
 }
 
+fn table_exists(conn: &Connection, table: &str) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(
+            SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1
+        )",
+        params![table],
+        |r| r.get(0),
+    )
+}
+
+fn table_has_unique_columns(
+    conn: &Connection,
+    table: &str,
+    expected: &[&str],
+) -> rusqlite::Result<bool> {
+    let mut indexes = conn.prepare(&format!("PRAGMA index_list({table})"))?;
+    let rows = indexes.query_map([], |r| {
+        Ok((r.get::<_, String>(1)?, r.get::<_, i64>(2)? != 0))
+    })?;
+    let mut unique_indexes = Vec::new();
+    for row in rows {
+        let (name, unique) = row?;
+        if unique {
+            unique_indexes.push(name);
+        }
+    }
+    drop(indexes);
+
+    for index in unique_indexes {
+        let mut columns_stmt = conn.prepare(&format!("PRAGMA index_info({index})"))?;
+        let columns = columns_stmt
+            .query_map([], |r| r.get::<_, String>(2))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if columns.len() == expected.len()
+            && columns
+                .iter()
+                .zip(expected.iter())
+                .all(|(actual, expected)| actual == expected)
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Recupera bancos locais criados antes do isolamento multiempresa.
 ///
 /// A regra é conservadora: só adota linhas sem owner_id quando não existe
@@ -1750,9 +1795,17 @@ fn table_has_column(conn: &Connection, table: &str, column: &str) -> rusqlite::R
 /// antigos de uma única empresa voltam a aparecer sem misturar empresas.
 pub fn adopt_legacy_ownerless_data(owner_id: &str) -> DbResult<bool> {
     if owner_id.trim().is_empty() {
-        return Ok(false);
+        return Err(DbError(
+            "LEGACY_OWNER_ADOPT: usuario atual nao autenticado".into(),
+        ));
     }
-    with_conn(|conn| {
+    with_conn(|conn| adopt_legacy_ownerless_data_with_conn(conn, owner_id))
+}
+
+fn adopt_legacy_ownerless_data_with_conn(
+    conn: &Connection,
+    owner_id: &str,
+) -> DbResult<bool> {
         let owner_tables = [
             "produtos_local",
             "clientes_local",
@@ -1774,8 +1827,14 @@ pub fn adopt_legacy_ownerless_data(owner_id: &str) -> DbResult<bool> {
         ];
 
         for table in owner_tables {
-            if !table_has_column(conn, table, "owner_id").unwrap_or(false) {
+            if !table_exists(conn, table)? {
                 continue;
+            }
+            if !table_has_column(conn, table, "owner_id")? {
+                conn.execute(
+                    &format!("ALTER TABLE {table} ADD COLUMN owner_id TEXT"),
+                    [],
+                )?;
             }
             let sql = format!(
                 "SELECT COUNT(DISTINCT owner_id)
@@ -1786,7 +1845,9 @@ pub fn adopt_legacy_ownerless_data(owner_id: &str) -> DbResult<bool> {
             );
             let conflicts: i64 = conn.query_row(&sql, params![owner_id], |r| r.get(0))?;
             if conflicts > 0 {
-                return Ok(false);
+                return Err(DbError(format!(
+                    "LEGACY_OWNER_CONFLICT: {table} contem dados de outro owner; adocao automatica bloqueada"
+                )));
             }
         }
 
@@ -1795,7 +1856,60 @@ pub fn adopt_legacy_ownerless_data(owner_id: &str) -> DbResult<bool> {
 
         // Saldos têm PK com owner_id; quando já existe saldo novo do owner,
         // somamos o saldo legado e removemos a linha sem owner.
-        if table_has_column(&tx, "estoque_saldos_local", "owner_id").unwrap_or(false) {
+        let mut adopted_counts = Vec::<(&str, usize)>::new();
+        if table_exists(&tx, "estoque_saldos_local")?
+            && table_has_column(&tx, "estoque_saldos_local", "owner_id")?
+        {
+            let legacy_saldos: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM estoque_saldos_local
+                  WHERE owner_id IS NULL OR owner_id = ''",
+                [],
+                |r| r.get(0),
+            )?;
+            if legacy_saldos > 0
+                && !table_has_unique_columns(
+                    &tx,
+                    "estoque_saldos_local",
+                    &["owner_id", "produto_id", "variacao_id"],
+                )?
+            {
+                // Schema antigo: UNIQUE(produto_id, variacao_id) impede uma
+                // segunda linha para merge, entao a adocao deve ser in-place.
+                if table_exists(&tx, "estoque_movimentacoes_local")?
+                    && table_has_column(&tx, "estoque_movimentacoes_local", "owner_id")?
+                {
+                    // Movimentos do owner atual gravados enquanto o saldo ainda
+                    // era legacy nao conseguiram atualizar a linha antiga.
+                    // Soma-os uma unica vez, antes de retirar o owner NULL.
+                    tx.execute(
+                        "UPDATE estoque_saldos_local AS s
+                            SET quantidade = quantidade + COALESCE((
+                                    SELECT SUM(
+                                        CASE
+                                            WHEN m.tipo IN ('saida', 'transferencia')
+                                                THEN -m.quantidade
+                                            ELSE m.quantidade
+                                        END
+                                    )
+                                      FROM estoque_movimentacoes_local m
+                                     WHERE m.owner_id=?1
+                                       AND m.produto_id=s.produto_id
+                                       AND m.variacao_id=s.variacao_id
+                                ), 0),
+                                owner_id=?1
+                          WHERE s.owner_id IS NULL OR s.owner_id = ''",
+                        params![owner_id],
+                    )?;
+                } else {
+                    tx.execute(
+                        "UPDATE estoque_saldos_local SET owner_id=?1
+                          WHERE owner_id IS NULL OR owner_id = ''",
+                        params![owner_id],
+                    )?;
+                }
+                adopted_counts.push(("estoque_saldos_local", legacy_saldos as usize));
+                changed = true;
+            } else if legacy_saldos > 0 {
             let mut rows = Vec::<(String, String, Option<String>, f64, String, i64)>::new();
             {
                 let mut stmt = tx.prepare(
@@ -1835,13 +1949,15 @@ pub fn adopt_legacy_ownerless_data(owner_id: &str) -> DbResult<bool> {
                     [],
                 )?;
             }
+                adopted_counts.push(("estoque_saldos_local", legacy_saldos as usize));
+            }
         }
 
         for table in owner_tables {
             if table == "estoque_saldos_local" {
                 continue;
             }
-            if !table_has_column(&tx, table, "owner_id").unwrap_or(false) {
+            if !table_exists(&tx, table)? || !table_has_column(&tx, table, "owner_id")? {
                 continue;
             }
             let sql = format!(
@@ -1850,32 +1966,46 @@ pub fn adopt_legacy_ownerless_data(owner_id: &str) -> DbResult<bool> {
                   WHERE owner_id IS NULL OR owner_id = ''"
             );
             let n = tx.execute(&sql, params![owner_id])?;
+            if n > 0 {
+                adopted_counts.push((table, n));
+            }
             changed = changed || n > 0;
         }
 
         if changed {
-            let saldos_total: i64 = tx.query_row(
-                "SELECT COUNT(*) FROM estoque_saldos_local WHERE owner_id=?1",
-                params![owner_id],
-                |r| r.get(0),
-            ).unwrap_or(0);
-            upsert_domain_meta(
-                &tx,
-                DomainMetaUpdate {
-                    domain: "estoque_saldos",
-                    row_count: saldos_total,
-                    now_ms: chrono::Utc::now().timestamp_millis(),
-                    source: "legacy-owner-adopt",
-                    strategy: "migration",
-                    delta_count: saldos_total,
-                    max_remote_updated_ms: None,
-                },
-            )?;
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            for (table, domain) in [
+                ("produtos_local", "produtos"),
+                ("estoque_saldos_local", "estoque_saldos"),
+            ] {
+                if !table_exists(&tx, table)? {
+                    continue;
+                }
+                let total: i64 = tx.query_row(
+                    &format!("SELECT COUNT(*) FROM {table} WHERE owner_id=?1"),
+                    params![owner_id],
+                    |r| r.get(0),
+                )?;
+                upsert_domain_meta(
+                    &tx,
+                    DomainMetaUpdate {
+                        domain,
+                        row_count: total,
+                        now_ms,
+                        source: "legacy-owner-adopt",
+                        strategy: "migration",
+                        delta_count: total,
+                        max_remote_updated_ms: None,
+                    },
+                )?;
+            }
         }
 
         tx.commit()?;
+        for (table, count) in adopted_counts {
+            eprintln!("[gestao-pro] LEGACY ADOPT {table} {count} registros");
+        }
         Ok(changed)
-    })
 }
 
 // ---------- Clientes lite ----------
@@ -7474,4 +7604,153 @@ pub fn outbox_financeiro_reset_errors(owner_id: &str, now_ms: i64) -> DbResult<i
         )?;
         Ok(n as i64)
     })
+}
+
+#[cfg(test)]
+mod legacy_owner_tests {
+    use super::*;
+
+    const OWNER: &str = "2aa0fdf8-e2e6-49cf-8ec7-9e1002ea52ae";
+
+    fn create_domain_meta(conn: &Connection) {
+        conn.execute_batch(
+            "CREATE TABLE domain_sync_meta(
+                domain TEXT PRIMARY KEY,
+                last_synced_ms INTEGER NOT NULL,
+                row_count INTEGER NOT NULL DEFAULT 0,
+                last_source TEXT,
+                last_error TEXT,
+                last_remote_cursor_ms INTEGER,
+                last_strategy TEXT,
+                last_delta_count INTEGER NOT NULL DEFAULT 0,
+                last_attempt_ms INTEGER,
+                last_synced_ok INTEGER NOT NULL DEFAULT 0
+            );",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn adopts_old_schema_in_place_without_losing_ids_or_balance() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_domain_meta(&conn);
+        conn.execute_batch(
+            "CREATE TABLE produtos_local(
+                id TEXT PRIMARY KEY,
+                owner_id TEXT
+            );
+            CREATE TABLE estoque_saldos_local(
+                produto_id TEXT NOT NULL,
+                variacao_id TEXT NOT NULL DEFAULT '',
+                tipo TEXT,
+                quantidade REAL NOT NULL,
+                payload TEXT NOT NULL,
+                synced_at_ms INTEGER NOT NULL,
+                owner_id TEXT,
+                UNIQUE(produto_id, variacao_id)
+            );
+            CREATE TABLE vendas_local(
+                local_uuid TEXT PRIMARY KEY,
+                owner_id TEXT
+            );
+            CREATE TABLE venda_itens_local(
+                local_uuid TEXT PRIMARY KEY,
+                owner_id TEXT
+            );
+            CREATE TABLE estoque_movimentacoes_local(
+                id TEXT PRIMARY KEY,
+                owner_id TEXT,
+                produto_id TEXT NOT NULL,
+                variacao_id TEXT NOT NULL DEFAULT '',
+                tipo TEXT NOT NULL,
+                quantidade REAL NOT NULL
+            );
+            INSERT INTO produtos_local VALUES ('produto-1', NULL);
+            INSERT INTO estoque_saldos_local
+                VALUES ('produto-1', '', NULL, 73, '{}', 1, NULL);
+            INSERT INTO estoque_movimentacoes_local
+                VALUES ('movimento-novo', '2aa0fdf8-e2e6-49cf-8ec7-9e1002ea52ae',
+                        'produto-1', '', 'entrada', 10);
+            INSERT INTO estoque_movimentacoes_local
+                VALUES ('movimento-legacy', NULL, 'produto-1', '', 'entrada', 73);
+            INSERT INTO vendas_local VALUES ('venda-uuid', NULL);
+            INSERT INTO venda_itens_local VALUES ('item-uuid', NULL);",
+        )
+        .unwrap();
+
+        assert!(adopt_legacy_ownerless_data_with_conn(&conn, OWNER).unwrap());
+        let saldo: (String, f64) = conn
+            .query_row(
+                "SELECT owner_id, quantidade FROM estoque_saldos_local
+                  WHERE produto_id='produto-1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(saldo, (OWNER.to_string(), 83.0));
+        let venda: (String, String) = conn
+            .query_row(
+                "SELECT local_uuid, owner_id FROM vendas_local",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(venda, ("venda-uuid".into(), OWNER.into()));
+    }
+
+    #[test]
+    fn merges_legacy_balance_when_owner_composite_key_exists() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_domain_meta(&conn);
+        conn.execute_batch(
+            "CREATE TABLE estoque_saldos_local(
+                owner_id TEXT NOT NULL DEFAULT '',
+                produto_id TEXT NOT NULL,
+                variacao_id TEXT NOT NULL DEFAULT '',
+                tipo TEXT,
+                quantidade REAL NOT NULL,
+                payload TEXT NOT NULL,
+                synced_at_ms INTEGER NOT NULL,
+                PRIMARY KEY(owner_id, produto_id, variacao_id)
+            );
+            INSERT INTO estoque_saldos_local
+                VALUES ('', 'produto-1', '', NULL, 73, '{}', 1);
+            INSERT INTO estoque_saldos_local
+                VALUES ('2aa0fdf8-e2e6-49cf-8ec7-9e1002ea52ae', 'produto-1', '', NULL, 10, '{}', 2);",
+        )
+        .unwrap();
+
+        assert!(adopt_legacy_ownerless_data_with_conn(&conn, OWNER).unwrap());
+        let saldo: f64 = conn
+            .query_row(
+                "SELECT quantidade FROM estoque_saldos_local
+                  WHERE owner_id=?1 AND produto_id='produto-1'",
+                params![OWNER],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(saldo, 83.0);
+    }
+
+    #[test]
+    fn blocks_adoption_when_another_owner_is_present() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE produtos_local(id TEXT PRIMARY KEY, owner_id TEXT);
+             INSERT INTO produtos_local VALUES ('legacy', NULL);
+             INSERT INTO produtos_local VALUES ('other', 'outro-owner');",
+        )
+        .unwrap();
+
+        let error = adopt_legacy_ownerless_data_with_conn(&conn, OWNER).unwrap_err();
+        assert!(error.to_string().starts_with("LEGACY_OWNER_CONFLICT:"));
+        let owner: Option<String> = conn
+            .query_row(
+                "SELECT owner_id FROM produtos_local WHERE id='legacy'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(owner, None);
+    }
 }

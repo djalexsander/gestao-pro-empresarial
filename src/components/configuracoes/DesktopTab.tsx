@@ -1,4 +1,10 @@
-import { useEffect, useState } from "react";
+import {
+  Component,
+  useEffect,
+  useState,
+  type ErrorInfo,
+  type ReactNode,
+} from "react";
 import { SaveBar } from "./SaveBar";
 import {
   Server,
@@ -164,7 +170,7 @@ export function DesktopTab() {
   const recarregarDomainStats = async () => {
     if (!localCfg) return;
     const stats = await fetchDomainStats(localCfg);
-    setDomainStats(stats);
+    setDomainStats(Array.isArray(stats) ? stats : []);
   };
 
   const handleSync = async (
@@ -509,8 +515,8 @@ export function DesktopTab() {
       if (!alive) return;
       setDiagnosticoErro(null);
       setDbInfo(info);
-      setKnownTerminals(terms);
-      setDomainStats(stats);
+      setKnownTerminals(Array.isArray(terms) ? terms : []);
+      setDomainStats(Array.isArray(stats) ? stats : []);
       setOutboxStatus(obs);
       setOutbox(ob);
       setOutboxVendas(obv);
@@ -711,15 +717,19 @@ export function DesktopTab() {
         )}
 
         {isServer && (
-          <ServerReadinessCard
-            daemon={daemon}
-            info={info}
-            dbInfo={dbInfo}
-            serverNome={config.serverNome}
-            serverId={config.serverId}
-            preferredPort={visibleServerPort}
-            networkHost={config.networkHost}
-          />
+          <DiagnosticCardBoundary>
+            <ServerReadinessCard
+              daemon={daemon ?? null}
+              info={info ?? null}
+              dbInfo={dbInfo ?? null}
+              serverNome={config.serverNome ?? null}
+              serverId={config.serverId ?? null}
+              preferredPort={
+                typeof visibleServerPort === "number" ? visibleServerPort : null
+              }
+              networkHost={config.networkHost ?? null}
+            />
+          </DiagnosticCardBoundary>
         )}
 
         {/* Status de conexão real */}
@@ -2018,20 +2028,22 @@ export function DesktopTab() {
 
         <AtualizacoesTab />
 
-        <SuporteDiagnosticoCard
-          config={config}
-          conn={conn}
-          info={info}
-          daemon={daemon}
-          dbInfo={dbInfo}
-          outboxes={{
-            estoque: outbox,
-            vendas: outboxVendas,
-            caixa: outboxCaixa,
-            cancelamentos: outboxCancel,
-            financeiro: outboxFin,
-          }}
-        />
+        <DiagnosticCardBoundary>
+          <SuporteDiagnosticoCard
+            config={config}
+            conn={conn ?? null}
+            info={info ?? null}
+            daemon={daemon ?? null}
+            dbInfo={dbInfo ?? null}
+            outboxes={{
+              estoque: outbox ?? null,
+              vendas: outboxVendas ?? null,
+              caixa: outboxCaixa ?? null,
+              cancelamentos: outboxCancel ?? null,
+              financeiro: outboxFin ?? null,
+            }}
+          />
+        </DiagnosticCardBoundary>
 
         <PilotoChecklist />
 
@@ -2142,7 +2154,7 @@ function ConnStatusRow({
       cor: "bg-muted text-muted-foreground border-border",
     },
   };
-  const item = map[String(display)];
+  const item = map[String(display)] ?? map.unknown;
   return (
     <div className={`flex items-start gap-3 rounded-lg border p-3 ${item.cor}`}>
       <div className="mt-0.5 shrink-0">{item.icon}</div>
@@ -2152,6 +2164,43 @@ function ConnStatusRow({
       </div>
     </div>
   );
+}
+
+class DiagnosticCardBoundary extends Component<
+  { children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.warn("[DesktopTab] diagnostico indisponivel", {
+      message: error.message,
+      componentStack: info.componentStack,
+    });
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <Card>
+          <CardContent className="flex items-start gap-3 p-4 text-sm text-muted-foreground">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+            <div>
+              <div className="font-medium text-foreground">
+                Diagnóstico indisponível
+              </div>
+              <div>Os demais dados da tela continuam disponíveis.</div>
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 function formatMs(ms: number | null) {
@@ -2187,9 +2236,17 @@ function OutboxStatusPanel({
   onArchiveCaixaConflictErrors?: () => void;
   archivingCaixaErrors?: boolean;
 }) {
-  const firstError = status.domains.find((d) => d.last_error)?.last_error ?? null;
+  const domains = Array.isArray(status?.domains) ? status.domains : [];
+  const firstError = domains.find((d) => d?.last_error)?.last_error ?? null;
   const errorInfo = firstError ? classifyOutboxError(firstError) : null;
-  const totalBlocking = status.total_pending + status.total_sending + status.total_error;
+  const totalPending =
+    typeof status?.total_pending === "number" ? status.total_pending : 0;
+  const totalSending =
+    typeof status?.total_sending === "number" ? status.total_sending : 0;
+  const totalSent = typeof status?.total_sent === "number" ? status.total_sent : 0;
+  const totalError =
+    typeof status?.total_error === "number" ? status.total_error : 0;
+  const totalBlocking = totalPending + totalSending + totalError;
 
   return (
     <Card>
@@ -2201,7 +2258,7 @@ function OutboxStatusPanel({
         <Button
           size="sm"
           variant="outline"
-          disabled={flushing || status.total_pending === 0}
+          disabled={flushing || totalPending === 0}
           onClick={onFlushAll}
         >
           {flushing ? (
@@ -2213,12 +2270,12 @@ function OutboxStatusPanel({
         </Button>
       </CardHeader>
       <CardContent className="space-y-4">
-        {status.total_error > 0 && errorInfo && (
+        {totalError > 0 && errorInfo && (
           <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
             <div>
               <div className="font-semibold">
-                Há {status.total_error} item(ns) com erro de sincronização.
+                Há {totalError} item(ns) com erro de sincronização.
               </div>
               <div className="mt-1">{errorInfo.friendly}</div>
             </div>
@@ -2226,10 +2283,10 @@ function OutboxStatusPanel({
         )}
 
         <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 text-sm sm:grid-cols-4">
-          <Field label="Pendentes" value={String(status.total_pending)} />
-          <Field label="Processando" value={String(status.total_sending)} />
-          <Field label="Sincronizados" value={String(status.total_sent)} />
-          <Field label="Com erro" value={String(status.total_error)} />
+          <Field label="Pendentes" value={String(totalPending)} />
+          <Field label="Processando" value={String(totalSending)} />
+          <Field label="Sincronizados" value={String(totalSent)} />
+          <Field label="Com erro" value={String(totalError)} />
         </div>
 
         <div className="overflow-hidden rounded-lg border border-border">
@@ -2246,7 +2303,7 @@ function OutboxStatusPanel({
               </tr>
             </thead>
             <tbody>
-              {status.domains.map((d) => {
+              {domains.map((d) => {
                 const hasError = d.error > 0;
                 const hasPending = d.pending > 0 || d.sending > 0;
                 const canOpenDetails =

@@ -280,7 +280,22 @@ export interface OutboxStatusResponse {
 export async function fetchOutboxStatus(
   cfg?: TerminalConexaoConfig,
 ): Promise<OutboxStatusResponse | null> {
-  return getJson<OutboxStatusResponse>(cfg, "/api/db/outbox/status");
+  const result = await getJson<Partial<OutboxStatusResponse>>(
+    cfg,
+    "/api/db/outbox/status",
+  );
+  if (!result || !Array.isArray(result.domains)) return null;
+  return {
+    generated_at_ms:
+      typeof result.generated_at_ms === "number" ? result.generated_at_ms : Date.now(),
+    total_pending:
+      typeof result.total_pending === "number" ? result.total_pending : 0,
+    total_sending:
+      typeof result.total_sending === "number" ? result.total_sending : 0,
+    total_sent: typeof result.total_sent === "number" ? result.total_sent : 0,
+    total_error: typeof result.total_error === "number" ? result.total_error : 0,
+    domains: result.domains,
+  };
 }
 
 // ----------------------------------------------------------------------------

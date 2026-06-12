@@ -147,9 +147,20 @@ async function withFallback<T>(
   method: string,
   localFetcher: () => Promise<T | null>,
   cloudFetcher: () => Promise<T>,
+  options?: {
+    fallbackOnEmptyArray?: boolean;
+    emptyWarning?: string;
+  },
 ): Promise<T> {
   const local = await localFetcher();
-  if (local !== null && local !== undefined) return local;
+  const suspiciousEmpty =
+    options?.fallbackOnEmptyArray === true &&
+    Array.isArray(local) &&
+    local.length === 0;
+  if (suspiciousEmpty && options?.emptyWarning) {
+    console.warn(`[local-server-adapter] ${options.emptyWarning}`);
+  }
+  if (local !== null && local !== undefined && !suspiciousEmpty) return local;
   const result = await cloudFetcher();
   reportDataSource({ source: "cloud", domain, method, fallback: true });
   return result;
@@ -216,6 +227,11 @@ export const localServerAdapter: DataAdapter = {
             "/api/produtos/list",
           ),
         () => cloudAdapter.produtos.listar(),
+        {
+          fallbackOnEmptyArray: true,
+          emptyWarning:
+            "Produtos locais podem existir, mas nao estao associados ao usuario atual.",
+        },
       ),
     list: (input) =>
       withFallback(
@@ -233,6 +249,11 @@ export const localServerAdapter: DataAdapter = {
             },
           ),
         () => cloudAdapter.produtos.list(input),
+        {
+          fallbackOnEmptyArray: true,
+          emptyWarning:
+            "Produtos locais podem existir, mas nao estao associados ao usuario atual.",
+        },
       ),
     get: (produtoId) =>
       cloudOnly("produtos", "get", () => cloudAdapter.produtos.get(produtoId)),
@@ -324,6 +345,11 @@ export const localServerAdapter: DataAdapter = {
             "/api/estoque/saldos",
           ),
         () => cloudAdapter.estoque.saldosLinhas(),
+        {
+          fallbackOnEmptyArray: true,
+          emptyWarning:
+            "Saldos locais podem existir, mas nao estao associados ao usuario atual.",
+        },
       ),
     movimentacoes: (input) =>
       withFallback(
