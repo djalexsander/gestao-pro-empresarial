@@ -685,13 +685,16 @@ async fn proxy_with_incremental_sync(
             let mut delta = 0i64;
             if let Ok(text) = std::str::from_utf8(&bytes) {
                 match domain {
-                    "produtos" => match db::ingest_produtos(text, now, strategy) {
-                        Ok((n, _)) => delta = n as i64,
-                        Err(e) => {
-                            let _ = db::record_sync_error(domain, now, &e.to_string());
-                            eprintln!("[gestao-pro] ingest produtos falhou: {e}");
-                        }
-                    },
+                    "produtos" => match owner_id
+                        .as_deref()
+                        .ok_or_else(|| db::DbError("AUTH: sem JWT do usuario para ingestao local de produtos".into()))
+                        .and_then(|oid| db::ingest_produtos(text, now, strategy, oid)) {
+                            Ok((n, _)) => delta = n as i64,
+                            Err(e) => {
+                                let _ = db::record_sync_error(domain, now, &e.to_string());
+                                eprintln!("[gestao-pro] ingest produtos falhou: {e}");
+                            }
+                        },
                     "clientes_lite" => match owner_id
                         .as_deref()
                         .ok_or_else(|| db::DbError("AUTH: sem JWT do usuario para ingestao local de clientes".into()))
@@ -849,6 +852,9 @@ fn read_typed(domain: &str, query: &[(&str, String)], owner_id: Option<&str>) ->
     let get = |k: &str| -> Option<String> {
         query.iter().find(|(qk, _)| *qk == k).map(|(_, v)| v.clone())
     };
+    if let Some(owner_id) = owner_id {
+        let _ = db::adopt_legacy_ownerless_data(owner_id);
+    }
     match domain {
         "produtos" => {
             let _ = get("status");
@@ -896,6 +902,7 @@ async fn produtos_list_handler(
         StatusCode::UNAUTHORIZED,
         "AUTH: sem JWT do usuario para leitura local de produtos".into(),
     ))?;
+    let _ = db::adopt_legacy_ownerless_data(&user_id);
     let status = q.get("status").map(|s| s.trim()).filter(|s| !s.is_empty());
     let categoria_id = q.get("categoria_id").map(|s| s.trim()).filter(|s| !s.is_empty());
     let busca = q.get("busca").map(|s| s.trim()).filter(|s| !s.is_empty());
@@ -926,6 +933,7 @@ async fn produtos_buscar_handler(
         StatusCode::UNAUTHORIZED,
         "AUTH: sem JWT do usuario para busca local de produtos".into(),
     ))?;
+    let _ = db::adopt_legacy_ownerless_data(&user_id);
     let json = db::read_produtos(db::ProdutosFilter {
         owner_id: Some(user_id.as_str()),
         status: None,
@@ -1057,6 +1065,7 @@ async fn estoque_saldos_handler(
     // strategy/source/delta vindos do sync).
     let (mut parts, _body) = resp.into_parts();
     let owner_id = require_owner_id(&ctx, &headers)?;
+    let _ = db::adopt_legacy_ownerless_data(&owner_id);
     let saldos = db::read_saldos(&owner_id).unwrap_or_else(|_| "[]".to_string());
     parts.headers.insert(
         axum::http::header::CONTENT_TYPE,
@@ -1205,23 +1214,21 @@ async fn push_one_outbox_produto(
 ) -> Result<String, String> {
     let upstream = ctx.upstream.as_ref().ok_or("upstream não configurado")?;
     let now = now_ms();
-    let mut items = db::outbox_produtos_list(1000, None).map_err(|e| e.to_string())?;
+    let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
+        Some(a) => a,
+        None => return Err("AUTH: sem JWT do usuario - aguardando login no terminal".to_string()),
+    };
+    let owner_id = jwt_subject(&auth).ok_or("AUTH: JWT sem sub/owner_id")?;
+    let mut items = db::outbox_produtos_list(&owner_id, 1000, None).map_err(|e| e.to_string())?;
     let item = items
         .drain(..)
         .find(|i| i.local_uuid == local_or_produto_id || i.produto_local_id == local_or_produto_id)
         .ok_or("produto não encontrado na outbox")?;
+    ensure_item_owner("produtos", &item.local_uuid, item.owner_id.as_deref(), &owner_id)?;
     if item.status == "sent" {
         return Ok(item.remote_id.unwrap_or_default());
     }
     let payload: serde_json::Value = serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
-    let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
-        Some(a) => a,
-        None => {
-            let msg = "AUTH: sem JWT do usuário — aguardando login no terminal".to_string();
-            let _ = db::outbox_produtos_mark_error(&item.local_uuid, &msg, now);
-            return Err(msg);
-        }
-    };
     db::outbox_produtos_mark_sending(&item.local_uuid, now).map_err(|e| e.to_string())?;
 
     let body = serde_json::json!({
@@ -1509,6 +1516,7 @@ async fn registrar_mov_local_handler(
 ) -> Result<Json<RegistrarMovLocalResponse>, (StatusCode, String)> {
     let now = now_ms();
     let owner_id = require_owner_id(&ctx, &headers)?;
+    let _ = db::adopt_legacy_ownerless_data(&owner_id);
     let result = db::registrar_movimento_local(
         &owner_id,
         db::LocalMovimentacaoInput {
@@ -2484,12 +2492,16 @@ struct ArchiveOutboxVendaRequest {
 }
 
 async fn outbox_vendas_archive_error_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Json(req): Json<ArchiveOutboxVendaRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     if req.local_uuid.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, "local_uuid e obrigatorio".into()));
     }
+    let owner_id = require_owner_id(&ctx, &headers)?;
     let archived = db::outbox_vendas_archive_error(
+        &owner_id,
         req.local_uuid.trim(),
         req.motivo.as_deref(),
         now_ms(),
@@ -3711,17 +3723,23 @@ struct ArchiveOutboxCaixaRequest {
 }
 
 async fn outbox_caixa_archive_error_handler(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
     Json(req): Json<ArchiveOutboxCaixaRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     if req.local_uuid.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, "local_uuid e obrigatorio".into()));
     }
+    let owner_id = require_owner_id(&ctx, &headers)?;
     let now = now_ms();
     let archived = if req.archive_group.unwrap_or(false) {
         let item = db::outbox_caixa_get(req.local_uuid.trim())
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
             .ok_or((StatusCode::NOT_FOUND, "item de caixa nao encontrado".to_string()))?;
+        ensure_item_owner("caixa", &item.local_uuid, item.owner_id.as_deref(), &owner_id)
+            .map_err(|e| (StatusCode::FORBIDDEN, e))?;
         db::outbox_caixa_archive_local_group(
+            &owner_id,
             &item.caixa_local_uuid,
             req.motivo.as_deref(),
             now,
@@ -3730,6 +3748,7 @@ async fn outbox_caixa_archive_error_handler(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     } else {
         db::outbox_caixa_archive_error(
+            &owner_id,
             req.local_uuid.trim(),
             req.motivo.as_deref(),
             now,
