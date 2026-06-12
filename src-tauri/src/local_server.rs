@@ -2339,6 +2339,40 @@ async fn push_one_outbox_venda(
     };
 
     ensure_item_owner("vendas", local_uuid, item.owner_id.as_deref(), &owner_id)?;
+
+    let produtos_da_venda: std::collections::HashSet<String> = payload
+        .get("itens")
+        .and_then(|items| items.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            item.get("produto_id")
+                .and_then(|id| id.as_str())
+                .map(str::to_string)
+        })
+        .collect();
+    if !produtos_da_venda.is_empty() {
+        let estoque_pendente =
+            db::outbox_pending_batch_all(&owner_id, 1000).map_err(|e| e.to_string())?;
+        for movimento in estoque_pendente {
+            let movimento_payload: serde_json::Value =
+                serde_json::from_str(&movimento.payload).unwrap_or(serde_json::Value::Null);
+            let produto_id = movimento_payload
+                .get("produto_id")
+                .and_then(|id| id.as_str());
+            if !produto_id.is_some_and(|id| produtos_da_venda.contains(id)) {
+                continue;
+            }
+            if let Err(error) = push_one_outbox(ctx, headers, &movimento.local_uuid).await {
+                let msg = format!(
+                    "ESTOQUE_PENDENTE_SYNC: venda aguarda movimentação de estoque do produto ({error})"
+                );
+                let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
+                return Err(msg);
+            }
+        }
+    }
+
     let caixa_local_uuid = match db::venda_caixa_local_uuid(&owner_id, local_uuid).map_err(|e| e.to_string())? {
         Some(id) if !id.trim().is_empty() => id,
         _ => {
@@ -3545,6 +3579,56 @@ async fn financeiro_cancelar_handler(
 ///     reaproveita a outbox local e não cria item novo. Para a `abrir`
 ///     enviamos também `_terminal_id` que é a chave única do caixa aberto
 ///     no servidor (impede dois caixas para o mesmo terminal).
+async fn find_remote_open_caixa(
+    ctx: &AppCtx,
+    auth: &str,
+    terminal_id: Option<&str>,
+    operador_id: Option<&str>,
+) -> Result<Option<String>, String> {
+    let upstream = ctx.upstream.as_ref().ok_or("upstream não configurado")?;
+    let mut query = vec![
+        ("select", "id".to_string()),
+        ("status", "eq.aberto".to_string()),
+        ("order", "data_abertura.desc".to_string()),
+        ("limit", "1".to_string()),
+    ];
+    if let Some(id) = terminal_id.filter(|id| !id.trim().is_empty()) {
+        query.push(("terminal_id", format!("eq.{id}")));
+    } else if let Some(id) = operador_id.filter(|id| !id.trim().is_empty()) {
+        query.push(("operador_id", format!("eq.{id}")));
+    } else {
+        return Ok(None);
+    }
+
+    let url = format!(
+        "{}/rest/v1/caixas",
+        upstream.base_url.trim_end_matches('/')
+    );
+    let response = ctx
+        .http
+        .get(url)
+        .header("apikey", &upstream.anon_key)
+        .header(axum::http::header::AUTHORIZATION, auth)
+        .header(axum::http::header::ACCEPT, "application/json")
+        .query(&query)
+        .send()
+        .await
+        .map_err(|e| format!("falha ao consultar caixa remoto aberto: {e}"))?;
+    if !response.status().is_success() {
+        return Ok(None);
+    }
+    let rows: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("resposta inválida ao consultar caixa remoto: {e}"))?;
+    Ok(rows
+        .as_array()
+        .and_then(|items| items.first())
+        .and_then(|item| item.get("id"))
+        .and_then(|id| id.as_str())
+        .map(str::to_string))
+}
+
 async fn push_one_outbox_caixa(
     ctx: &AppCtx,
     headers: &HeaderMap,
@@ -3575,6 +3659,18 @@ async fn push_one_outbox_caixa(
     ensure_item_owner("caixa", local_uuid, item.owner_id.as_deref(), &owner_id)?;
     if item.status == "sent" {
         return Ok(item.remote_id.unwrap_or_default());
+    }
+
+    let terminal_id = payload.get("terminal_id").and_then(|v| v.as_str());
+    let operador_id = payload.get("operador_id").and_then(|v| v.as_str());
+    if item.action == "abrir" {
+        if let Some(remote_id) =
+            find_remote_open_caixa(ctx, &auth, terminal_id, operador_id).await?
+        {
+            db::outbox_caixa_mark_sent(local_uuid, &remote_id, now)
+                .map_err(|e| e.to_string())?;
+            return Ok(remote_id);
+        }
     }
 
     let caixa_remote_id = db::caixa_remote_id(&owner_id, &item.caixa_local_uuid)
@@ -3654,7 +3750,7 @@ async fn push_one_outbox_caixa(
     );
     let resp = ctx.http.post(&url)
         .header("apikey", &upstream.anon_key)
-        .header(axum::http::header::AUTHORIZATION, auth)
+        .header(axum::http::header::AUTHORIZATION, &auth)
         .header(axum::http::header::CONTENT_TYPE, "application/json")
         .header(axum::http::header::ACCEPT, "application/json")
         .json(&body)
@@ -3673,6 +3769,15 @@ async fn push_one_outbox_caixa(
             let msg = format!("AUTH: upstream rejeitou JWT (HTTP {}): {}", status.as_u16(), text);
             let _ = db::outbox_caixa_mark_error(local_uuid, &msg, now);
             return Err(msg);
+        }
+        if item.action == "abrir" && text.to_lowercase().contains("caixa aberto") {
+            if let Some(remote_id) =
+                find_remote_open_caixa(ctx, &auth, terminal_id, operador_id).await?
+            {
+                db::outbox_caixa_mark_sent(local_uuid, &remote_id, now)
+                    .map_err(|e| e.to_string())?;
+                return Ok(remote_id);
+            }
         }
         let msg = format!("HTTP {}: {}", status.as_u16(), text);
         let _ = db::outbox_caixa_mark_error(local_uuid, &msg, now);

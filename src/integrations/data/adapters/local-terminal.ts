@@ -33,6 +33,12 @@ import { cloudAdapter } from "./cloud";
 import { reportDataSource } from "../source-telemetry";
 import { getDesktopConfig } from "@/integrations/desktop/configStore";
 import {
+  cacheDesktopFuncionarios,
+  loadDesktopFuncionariosAtivos,
+  saveDesktopFuncionarioPin,
+  verifyDesktopFuncionarioPin,
+} from "@/integrations/desktop/tauriBridge";
+import {
   abrirCaixaLocal,
   cancelarVendaLocal,
   fecharCaixaLocal,
@@ -41,7 +47,6 @@ import {
   fetchCaixaMovimentosLocal,
   fetchCaixaResumoLocal,
   getBaseUrl,
-  pingServidorLocal,
   registrarMovCaixaLocal,
   registrarMovimentoLocal,
   registrarVendaLocal,
@@ -85,7 +90,7 @@ function getLocalConnectionConfig(): TerminalConexaoConfig | undefined {
   if (cfg.role === "server") {
     return {
       host: "127.0.0.1",
-      porta: cfg.terminal?.porta ?? DEFAULT_LOCAL_PORT,
+      porta: cfg.serverPort ?? cfg.terminal?.porta ?? DEFAULT_LOCAL_PORT,
       terminalId: "self",
       terminalNome: cfg.serverNome ?? "Servidor",
     };
@@ -258,24 +263,47 @@ async function listCategoriasProduto(input?: Parameters<DataAdapter["categoriasP
   }
 }
 
-async function assertLocalServerReady(
-  cfg: TerminalConexaoConfig | undefined,
-  operation: string,
-): Promise<void> {
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const health = await pingServidorLocal(cfg);
-    if (health.status === "online") return;
-    console.warn("[local-terminal-adapter] health fail before critical operation", {
-      operation,
-      attempt,
-      status: health.status,
-      baseUrl: health.baseUrl,
-      message: health.mensagem ?? null,
-    });
-  }
-  throw new Error(
-    "Servidor local não está pronto. Reinicie o servidor local em Configurações → Desktop.",
-  );
+function isConnectivityError(error: unknown): boolean {
+  const value = error as {
+    message?: unknown;
+    status?: unknown;
+    code?: unknown;
+    name?: unknown;
+  };
+  const text = [
+    value?.message,
+    value?.status,
+    value?.code,
+    value?.name,
+    error,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return [
+    "failed to fetch",
+    "fetch failed",
+    "network",
+    "timeout",
+    "aborterror",
+    "econnrefused",
+    "enotfound",
+    "offline",
+  ].some((needle) => text.includes(needle));
+}
+
+function funcionarioLocalToDomain(
+  row: Awaited<ReturnType<typeof loadDesktopFuncionariosAtivos>>[number],
+) {
+  return {
+    id: row.funcionario_id,
+    nome: row.nome,
+    login: row.login,
+    role: row.role === "gerente" ? "gerente" as const : "caixa" as const,
+    ativo: row.ativo,
+    ultimo_acesso: null,
+    created_at: new Date(row.synced_at_ms).toISOString(),
+  };
 }
 
 type CaixaLocalRow = Awaited<ReturnType<typeof fetchCaixaHistoricoLocal>>[number];
@@ -505,7 +533,6 @@ export const localTerminalAdapter: DataAdapter = {
     ): Promise<RegistrarMovimentoEstoqueResult> => {
       const cfg = getLocalConnectionConfig();
       if (getBaseUrl(cfg)) {
-        await assertLocalServerReady(cfg, "estoque.registrarMovimento");
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token ?? null;
         const local = await registrarMovimentoLocal(
@@ -550,6 +577,72 @@ export const localTerminalAdapter: DataAdapter = {
     },
   },
 
+  funcionarios: {
+    ...cloudAdapter.funcionarios,
+    list: async (input) => {
+      try {
+        const rows = await cloudAdapter.funcionarios.list(input);
+        await cacheDesktopFuncionarios(
+          rows.map((row) => ({
+            funcionario_id: row.id,
+            nome: row.nome,
+            login: row.login,
+            role: row.role,
+            ativo: row.ativo,
+            synced_at_ms: Date.now(),
+          })),
+        );
+        return rows;
+      } catch (error) {
+        const local = await loadDesktopFuncionariosAtivos();
+        if (local.length === 0) throw error;
+        reportDataSource({
+          source: "local-server",
+          domain: "funcionarios",
+          method: "list",
+          fallback: true,
+        });
+        const rows = local.map(funcionarioLocalToDomain);
+        return input?.somente_ativos ? rows.filter((row) => row.ativo) : rows;
+      }
+    },
+    validarPin: async (input) => {
+      try {
+        const result = await cloudAdapter.funcionarios.validarPin(input);
+        await saveDesktopFuncionarioPin(
+          result.id,
+          result.nome,
+          result.login,
+          result.role,
+          true,
+          input.pin,
+        );
+        return result;
+      } catch (error) {
+        if (!isConnectivityError(error)) throw error;
+        const local = await verifyDesktopFuncionarioPin(
+          input.funcionario_id,
+          input.pin,
+        );
+        if (!local) {
+          throw new Error("PIN incorreto ou ainda não disponível neste computador.");
+        }
+        reportDataSource({
+          source: "local-server",
+          domain: "funcionarios",
+          method: "validarPin",
+          fallback: true,
+        });
+        return {
+          id: local.funcionario_id,
+          nome: local.nome,
+          login: local.login,
+          role: local.role === "gerente" ? "gerente" : "caixa",
+        };
+      }
+    },
+  },
+
   vendas: {
     ...cloudAdapter.vendas,
     /**
@@ -576,7 +669,6 @@ export const localTerminalAdapter: DataAdapter = {
     finalizar: async (input: FinalizarVendaInput): Promise<string> => {
       const cfg = getLocalConnectionConfig();
       if (getBaseUrl(cfg)) {
-        await assertLocalServerReady(cfg, "caixa.fechar");
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token ?? null;
         const local = await registrarVendaLocal(

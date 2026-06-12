@@ -29,7 +29,7 @@ function isAbortError(error: unknown): boolean {
 
 function getSelfServerBaseUrl(): string {
   const cfg = getDesktopConfig();
-  return `http://127.0.0.1:${cfg.terminal?.porta ?? DEFAULT_LOCAL_PORT}`;
+  return `http://127.0.0.1:${cfg.serverPort ?? cfg.terminal?.porta ?? DEFAULT_LOCAL_PORT}`;
 }
 
 async function getAuthHeader(): Promise<Record<string, string>> {
@@ -369,6 +369,8 @@ export const localServerAdapter: DataAdapter = {
       ),
     registrarMovimento: (input) => localTerminalAdapter.estoque.registrarMovimento(input),
   },
+
+  funcionarios: localTerminalAdapter.funcionarios,
 
   vendas: {
     ...cloudAdapter.vendas,
