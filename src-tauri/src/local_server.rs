@@ -353,7 +353,7 @@ async fn server_info_handler() -> Json<ServerInfoResponse> {
         snap.unwrap_or((None, None, None, None, None, false, 0, false));
 
     let host = local_ip().or_else(|| hostname.clone());
-    let database_ready = db::db_file().exists();
+    let database_ready = db::is_initialized() && db::db_info().is_ok();
 
     let response = ServerInfoResponse {
         app: APP_NAME,
@@ -4078,6 +4078,8 @@ pub async fn start(
     {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         if s.running {
+            db::ensure_initialized()
+                .map_err(|e| format!("Falha ao inicializar banco local: {e}"))?;
             // Atualiza identidade se o frontend mandou novos valores.
             if server_name.is_some() {
                 s.server_name = server_name.clone();
@@ -4106,9 +4108,8 @@ pub async fn start(
     }
 
     // Garante que o banco local esteja inicializado antes de subir o HTTP.
-    if let Err(e) = db::init() {
-        eprintln!("[gestao-pro] db::init falhou no start: {e}");
-    }
+    db::ensure_initialized()
+        .map_err(|e| format!("Falha ao inicializar banco local: {e}"))?;
 
     let addr: SocketAddr = format!("0.0.0.0:{port}")
         .parse()

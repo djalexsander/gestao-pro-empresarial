@@ -334,6 +334,12 @@ const produtos: DataAdapter["produtos"] = {
   },
 
   async criarCategoria(input: CriarCategoriaProdutoInput): Promise<CriarCategoriaProdutoResult> {
+    console.info("[categorias-produto] CREATE CATEGORIA", {
+      adapter: "cloud.produtos",
+      nome: input.nome,
+      parent_id: input.parent_id ?? null,
+      client_uuid: input.client_uuid ?? null,
+    });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (supabase as any).rpc("criar_categoria_produto", {
       _nome: input.nome,
@@ -343,6 +349,11 @@ const produtos: DataAdapter["produtos"] = {
     });
     if (error) throw error;
     const d = (data ?? {}) as Record<string, unknown>;
+    console.info("[categorias-produto] CREATE CATEGORIA result", {
+      adapter: "cloud.produtos",
+      categoria_id: String(d.categoria_id ?? ""),
+      idempotente: Boolean(d.idempotente),
+    });
     return {
       categoria_id: String(d.categoria_id ?? ""),
       idempotente: Boolean(d.idempotente),
@@ -1257,13 +1268,24 @@ const categoriasProduto: DataAdapter["categoriasProduto"] = {
 
   // ---------------------------- Reads (Bloco 15) ----------------------------
   async list(input) {
+    console.info("[categorias-produto] LISTAR CATEGORIAS", {
+      adapter: "cloud.categoriasProduto",
+      incluir_inativas: Boolean(input?.incluir_inativas),
+    });
     let q = supabase
       .from("categorias_produto")
-      .select("id, nome, parent_id, ativo, descricao")
+      .select("id, nome, parent_id, ativo, descricao, owner_id")
       .order("nome");
     if (!input?.incluir_inativas) q = q.eq("ativo", true);
     const { data, error } = await q;
     if (error) throw error;
+    console.info("[categorias-produto] CATEGORIA RETORNADA", {
+      adapter: "cloud.categoriasProduto",
+      total: data?.length ?? 0,
+      ids: (data ?? []).map((c) => c.id),
+      owner_ids: Array.from(new Set((data ?? []).map((c) => c.owner_id ?? null))),
+      company_ids: [null],
+    });
     return (data ?? []) as unknown as import("../types").CategoriaProdutoDomain[];
   },
 };

@@ -16,7 +16,7 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
-import { useCategorias, useCreateCategoria } from "@/hooks/useProdutos";
+import { useCategorias, useCreateCategoria, type Categoria } from "@/hooks/useProdutos";
 
 interface CategoriaComboboxProps {
   value: string; // categoria_id ou ""
@@ -38,25 +38,33 @@ export function CategoriaCombobox({
 
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [recentlyCreated, setRecentlyCreated] = useState<Categoria | null>(null);
+
+  const categoriasVisiveis = useMemo(() => {
+    if (!recentlyCreated || categorias.some((c) => c.id === recentlyCreated.id)) {
+      return categorias;
+    }
+    return [...categorias, recentlyCreated].sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [categorias, recentlyCreated]);
 
   const selected = useMemo(
-    () => categorias.find((c) => c.id === value) ?? null,
-    [categorias, value],
+    () => categoriasVisiveis.find((c) => c.id === value) ?? null,
+    [categoriasVisiveis, value],
   );
 
   const queryTrimmed = query.trim();
   const queryLower = queryTrimmed.toLowerCase();
 
   const filtered = useMemo(() => {
-    if (!queryLower) return categorias;
-    return categorias.filter((c) => c.nome.toLowerCase().includes(queryLower));
-  }, [categorias, queryLower]);
+    if (!queryLower) return categoriasVisiveis;
+    return categoriasVisiveis.filter((c) => c.nome.toLowerCase().includes(queryLower));
+  }, [categoriasVisiveis, queryLower]);
 
   const exactMatch = useMemo(
     () =>
       queryTrimmed.length > 0 &&
-      categorias.some((c) => c.nome.trim().toLowerCase() === queryLower),
-    [categorias, queryTrimmed, queryLower],
+      categoriasVisiveis.some((c) => c.nome.trim().toLowerCase() === queryLower),
+    [categoriasVisiveis, queryTrimmed, queryLower],
   );
 
   const canCreate = queryTrimmed.length >= 2 && !exactMatch;
@@ -65,6 +73,7 @@ export function CategoriaCombobox({
     if (!canCreate || createMut.isPending) return;
     try {
       const nova = await createMut.mutateAsync(queryTrimmed);
+      setRecentlyCreated(nova);
       onChange(nova.id);
       setQuery("");
       setOpen(false);

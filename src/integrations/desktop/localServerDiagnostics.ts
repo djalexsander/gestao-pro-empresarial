@@ -177,6 +177,26 @@ export async function pingServidorLocal(
   const dbRes = await probe("/db/info");
   if (!dbRes.ok) {
     const authError = dbRes.status === 401 || dbRes.status === 403;
+    const dbReadyFromServerInfo = serverInfoPayload?.database_ready === true;
+    const detail = dbRes.body
+      ? `HTTP ${dbRes.status ?? "?"}: ${dbRes.body}`
+      : dbRes.error ?? null;
+    if (!authError && dbReadyFromServerInfo) {
+      return logPingResult({
+        status: "online",
+        latenciaMs: healthLatency ?? null,
+        ultimoSync: new Date(),
+        baseUrl,
+        lastEndpoint: "/server-info",
+        lastLatencyMs: serverInfoRes.durationMs ?? null,
+        serverName: serverInfoPayload?.server_name ?? null,
+        serverVersion: serverInfoPayload?.version ?? null,
+        serverId: serverInfoPayload?.server_id ?? null,
+        serverHostname: serverInfoPayload?.host ?? null,
+        mensagem: null,
+        lastErrorDetail: detail,
+      });
+    }
     return logPingResult({
       status: "online",
       latenciaMs: healthLatency ?? null,
@@ -189,7 +209,7 @@ export async function pingServidorLocal(
         : `Servidor local ativo. Banco local não respondeu.`,
       lastErrorDetail: authError
         ? `HTTP ${dbRes.status}: ${dbRes.error ?? ""}`
-        : dbRes.error ?? null,
+        : detail,
     });
   }
 

@@ -48,6 +48,7 @@ import {
 } from "@/integrations/desktop/serverConnection";
 import type {
   AbrirCaixaInput,
+  CategoriaProdutoDomain,
   FecharCaixaInput,
   FecharCaixaResult,
   ProdutoComVariacoes,
@@ -223,7 +224,7 @@ async function cloudOnly<T>(
 }
 
 function categoriasFromProdutos(produtos: ProdutoComVariacoes[]) {
-  const map = new Map<string, { id: string; nome: string; parent_id: string | null; ativo: boolean }>();
+  const map = new Map<string, CategoriaProdutoDomain>();
   for (const produto of produtos as Array<ProdutoComVariacoes & { categoria?: { id?: string; nome?: string } | null }>) {
     const categoria = produto.categoria;
     if (produto.categoria_id && categoria?.nome) {
@@ -236,6 +237,25 @@ function categoriasFromProdutos(produtos: ProdutoComVariacoes[]) {
     }
   }
   return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome));
+}
+
+async function listCategoriasProduto(input?: Parameters<DataAdapter["categoriasProduto"]["list"]>[0]) {
+  try {
+    const categorias = await cloudAdapter.categoriasProduto.list(input);
+    console.info("[categorias-produto] LISTAR CATEGORIAS", {
+      adapter: "local-terminal",
+      source: "cloud",
+      total: categorias.length,
+    });
+    return categorias;
+  } catch (error) {
+    console.warn("[categorias-produto] LISTAR CATEGORIAS fallback local-produtos", {
+      adapter: "local-terminal",
+      error,
+    });
+    const produtos = await localTerminalAdapter.produtos.listar();
+    return categoriasFromProdutos(produtos as unknown as ProdutoComVariacoes[]);
+  }
 }
 
 async function assertLocalServerReady(
@@ -421,10 +441,7 @@ export const localTerminalAdapter: DataAdapter = {
 
   categoriasProduto: {
     ...cloudAdapter.categoriasProduto,
-    list: async () => {
-      const produtos = await localTerminalAdapter.produtos.listar();
-      return categoriasFromProdutos(produtos as unknown as ProdutoComVariacoes[]);
-    },
+    list: listCategoriasProduto,
     editar: (input) =>
       cloudOnly("categoriasProduto", "editar", () =>
         cloudAdapter.categoriasProduto.editar(input),
@@ -488,7 +505,7 @@ export const localTerminalAdapter: DataAdapter = {
     ): Promise<RegistrarMovimentoEstoqueResult> => {
       const cfg = getLocalConnectionConfig();
       if (getBaseUrl(cfg)) {
-        await assertLocalServerReady(cfg, "vendas.finalizar");
+        await assertLocalServerReady(cfg, "estoque.registrarMovimento");
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token ?? null;
         const local = await registrarMovimentoLocal(

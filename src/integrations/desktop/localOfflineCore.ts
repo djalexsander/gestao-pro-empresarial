@@ -121,30 +121,13 @@ export async function registrarMovimentoLocal(
   payload: RegistrarMovLocalRequest,
   authToken?: string | null,
 ): Promise<RegistrarMovLocalResponse | null> {
-  const baseUrl = getBaseUrl(cfg);
-  if (!baseUrl) return null;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 8_000);
-  try {
-    const headers: Record<string, string> = {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    };
-    if (authToken) headers.Authorization = `Bearer ${authToken}`;
-    const res = await fetch(`${baseUrl}/api/estoque/movimentacoes/registrar`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload),
-      signal: ctrl.signal,
-      cache: "no-store",
-    });
-    clearTimeout(timer);
-    if (!res.ok) return null;
-    return (await res.json()) as RegistrarMovLocalResponse;
-  } catch {
-    clearTimeout(timer);
-    return null;
-  }
+  return postLocalJson<RegistrarMovLocalRequest, RegistrarMovLocalResponse>(
+    cfg,
+    "/api/estoque/movimentacoes/registrar",
+    payload,
+    authToken,
+    12_000,
+  );
 }
 
 export interface RegistrarVendaLocalRequest {

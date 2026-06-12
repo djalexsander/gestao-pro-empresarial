@@ -1230,6 +1230,8 @@ export interface CategoriaProdutoDomain {
   parent_id: string | null;
   ativo: boolean;
   descricao?: string | null;
+  owner_id?: string | null;
+  company_id?: string | null;
 }
 
 export interface CategoriasProdutoListInput {

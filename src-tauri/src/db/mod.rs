@@ -63,6 +63,18 @@ pub fn db_file() -> PathBuf {
     db_path().join("local.db")
 }
 
+pub fn is_initialized() -> bool {
+    DB.get().is_some()
+}
+
+pub fn ensure_initialized() -> DbResult<()> {
+    if is_initialized() {
+        Ok(())
+    } else {
+        init()
+    }
+}
+
 pub fn init() -> DbResult<()> {
     let dir = db_path();
     std::fs::create_dir_all(&dir)?;

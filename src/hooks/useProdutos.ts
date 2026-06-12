@@ -18,6 +18,9 @@ export type Categoria = {
   nome: string;
   parent_id: string | null;
   ativo: boolean;
+  descricao?: string | null;
+  owner_id?: string | null;
+  company_id?: string | null;
 };
 
 export type Variacao = {
@@ -36,7 +39,19 @@ export type Variacao = {
 export function useCategorias() {
   return useQuery({
     queryKey: ["categorias"],
-    queryFn: () => dataClient.categoriasProduto.list() as Promise<Categoria[]>,
+    queryFn: async () => {
+      console.info("[categorias-produto] LISTAR CATEGORIAS", {
+        source: getDataMode(),
+      });
+      const categorias = (await dataClient.categoriasProduto.list()) as Categoria[];
+      console.info("[categorias-produto] CATEGORIA RETORNADA", {
+        total: categorias.length,
+        ids: categorias.map((c) => c.id),
+        owner_ids: Array.from(new Set(categorias.map((c) => c.owner_id ?? null))),
+        company_ids: Array.from(new Set(categorias.map((c) => c.company_id ?? null))),
+      });
+      return categorias;
+    },
   });
 }
 
@@ -45,24 +60,44 @@ export function useCreateCategoria() {
   return useMutation({
     mutationFn: async (nome: string): Promise<Categoria> => {
       const client_uuid = crypto.randomUUID();
+      console.info("[categorias-produto] CREATE CATEGORIA", {
+        nome,
+        client_uuid,
+        source: getDataMode(),
+      });
       const r = await dataClient.produtos.criarCategoria({ nome, client_uuid });
-      if (isLocalProdutosMode()) {
-        const categorias = (await dataClient.categoriasProduto.list({
-          incluir_inativas: true,
-        })) as Categoria[];
-        const local = categorias.find((c) => c.id === r.categoria_id);
-        if (local) return local;
+      console.info("[categorias-produto] CREATE CATEGORIA result", {
+        categoria_id: r.categoria_id,
+        idempotente: r.idempotente,
+      });
+      const categorias = (await dataClient.categoriasProduto.list({
+        incluir_inativas: true,
+      })) as Categoria[];
+      const local = categorias.find((c) => c.id === r.categoria_id);
+      if (local) {
+        console.info("[categorias-produto] CREATE CATEGORIA loaded", {
+          categoria_id: local.id,
+          owner_id: local.owner_id ?? null,
+          company_id: local.company_id ?? null,
+        });
+        return local;
       }
       const { data, error } = await supabase
         .from("categorias_produto")
-        .select("id, nome, parent_id, ativo")
+        .select("id, nome, parent_id, ativo, descricao, owner_id")
         .eq("id", r.categoria_id)
         .single();
       if (error) throw error;
       return data as Categoria;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["categorias"] });
+    onSuccess: (categoria) => {
+      qc.setQueryData<Categoria[]>(["categorias"], (old = []) => {
+        const next = old.some((c) => c.id === categoria.id)
+          ? old.map((c) => (c.id === categoria.id ? { ...c, ...categoria } : c))
+          : [...old, categoria];
+        return next.sort((a, b) => a.nome.localeCompare(b.nome));
+      });
+      void qc.invalidateQueries({ queryKey: ["categorias"] });
       toast.success("Categoria criada.");
     },
     onError: (e: Error) => toast.error(e.message),
