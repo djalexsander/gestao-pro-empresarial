@@ -170,7 +170,9 @@ export async function startLocalServer(
   return status;
 }
 
-export async function stopLocalServer(): Promise<LocalServerStatus> {
+export async function stopLocalServer(
+  requestedBy: string,
+): Promise<LocalServerStatus> {
   const invoke = await getInvoke();
   if (!invoke) {
     if (isDesktop()) {
@@ -180,7 +182,7 @@ export async function stopLocalServer(): Promise<LocalServerStatus> {
     return STATUS_OFF;
   }
   const status = await withTimeout(
-    invoke<LocalServerStatus>("stop_local_server"),
+    invoke<LocalServerStatus>("stop_local_server", { requestedBy }),
     5_000,
     "stop_local_server",
   );

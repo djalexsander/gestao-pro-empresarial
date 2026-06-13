@@ -11,12 +11,12 @@
 
 import { supabase } from "@/integrations/supabase/client";
 import type { DataAdapter } from "../adapter";
-import type { CategoriaProdutoDomain, ProdutoComVariacoes } from "../types";
 import { cloudAdapter } from "./cloud";
 import { localTerminalAdapter } from "./local-terminal";
 import { reportDataSource } from "../source-telemetry";
 import { getDesktopConfig } from "@/integrations/desktop/configStore";
 import { resolveTokenForUrl } from "@/integrations/desktop/localHttpClient";
+import { runDbSync } from "@/integrations/desktop/serverConnection";
 
 const LOCAL_READ_DOMAINS = ["produtos", "estoque", "clientes"] as const;
 const DEFAULT_LOCAL_PORT = 3333;
@@ -150,6 +150,7 @@ async function withFallback<T>(
   options?: {
     fallbackOnEmptyArray?: boolean;
     emptyWarning?: string;
+    rehydrateDomain?: "produtos" | "clientes_lite";
   },
 ): Promise<T> {
   const local = await localFetcher();
@@ -163,7 +164,23 @@ async function withFallback<T>(
   if (local !== null && local !== undefined && !suspiciousEmpty) return local;
   const result = await cloudFetcher();
   reportDataSource({ source: "cloud", domain, method, fallback: true });
+  if (options?.rehydrateDomain) {
+    void syncSelf(options.rehydrateDomain);
+  }
   return result;
+}
+
+function syncSelf(domain: "produtos" | "clientes_lite") {
+  const cfg = getDesktopConfig();
+  return runDbSync(
+    {
+      host: "127.0.0.1",
+      porta: cfg.serverPort ?? cfg.terminal?.porta ?? DEFAULT_LOCAL_PORT,
+      terminalId: "self",
+      terminalNome: cfg.serverNome ?? "Servidor",
+    },
+    domain,
+  );
 }
 
 async function cloudOnly<T>(
@@ -172,43 +189,24 @@ async function cloudOnly<T>(
   fn: () => Promise<T>,
 ): Promise<T> {
   const result = await fn();
-  reportDataSource({ source: "cloud", domain, method, fallback: true });
+  reportDataSource({ source: "cloud", domain, method, fallback: false });
   return result;
 }
 
-function categoriasFromProdutos(produtos: ProdutoComVariacoes[]) {
-  const map = new Map<string, CategoriaProdutoDomain>();
-  for (const produto of produtos as Array<ProdutoComVariacoes & { categoria?: { id?: string; nome?: string } | null }>) {
-    const categoria = produto.categoria;
-    if (produto.categoria_id && categoria?.nome) {
-      map.set(produto.categoria_id, {
-        id: produto.categoria_id,
-        nome: categoria.nome,
-        parent_id: null,
-        ativo: true,
-      });
-    }
-  }
-  return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome));
+async function cloudThenRehydrate<T>(
+  domain: string,
+  method: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const result = await cloudOnly(domain, method, fn);
+  void syncSelf("produtos");
+  return result;
 }
 
 async function listCategoriasProduto(input?: Parameters<DataAdapter["categoriasProduto"]["list"]>[0]) {
-  try {
-    const categorias = await cloudAdapter.categoriasProduto.list(input);
-    console.info("[categorias-produto] LISTAR CATEGORIAS", {
-      adapter: "local-server",
-      source: "cloud",
-      total: categorias.length,
-    });
-    return categorias;
-  } catch (error) {
-    console.warn("[categorias-produto] LISTAR CATEGORIAS fallback local-produtos", {
-      adapter: "local-server",
-      error,
-    });
-    const produtos = await localServerAdapter.produtos.listar();
-    return categoriasFromProdutos(produtos as unknown as ProdutoComVariacoes[]);
-  }
+  return cloudOnly("categoriasProduto", "list", () =>
+    cloudAdapter.categoriasProduto.list(input),
+  );
 }
 
 export const localServerAdapter: DataAdapter = {
@@ -231,6 +229,7 @@ export const localServerAdapter: DataAdapter = {
           fallbackOnEmptyArray: true,
           emptyWarning:
             "Produtos locais podem existir, mas nao estao associados ao usuario atual.",
+          rehydrateDomain: "produtos",
         },
       ),
     list: (input) =>
@@ -253,6 +252,7 @@ export const localServerAdapter: DataAdapter = {
           fallbackOnEmptyArray: true,
           emptyWarning:
             "Produtos locais podem existir, mas nao estao associados ao usuario atual.",
+          rehydrateDomain: "produtos",
         },
       ),
     get: (produtoId) =>
@@ -267,8 +267,9 @@ export const localServerAdapter: DataAdapter = {
             "buscarPorCodigo",
             "/api/produtos/buscar",
             { codigo },
-          ),
+        ),
         () => cloudAdapter.produtos.buscarPorCodigo(codigo),
+        { rehydrateDomain: "produtos" },
       ),
     buscarPorPlu: (plu) =>
       withFallback(
@@ -280,37 +281,44 @@ export const localServerAdapter: DataAdapter = {
             "buscarPorPlu",
             "/api/produtos/buscar",
             { codigo: plu },
-          ),
+        ),
         () => cloudAdapter.produtos.buscarPorPlu(plu),
+        { rehydrateDomain: "produtos" },
       ),
     criar: (input) =>
-      cloudOnly("produtos", "criar", () => cloudAdapter.produtos.criar(input)),
+      cloudThenRehydrate("produtos", "criar", () =>
+        cloudAdapter.produtos.criar(input),
+      ),
     editar: (input) =>
-      cloudOnly("produtos", "editar", () => cloudAdapter.produtos.editar(input)),
+      cloudThenRehydrate("produtos", "editar", () =>
+        cloudAdapter.produtos.editar(input),
+      ),
     alterarStatus: (input) =>
-      cloudOnly("produtos", "alterarStatus", () =>
+      cloudThenRehydrate("produtos", "alterarStatus", () =>
         cloudAdapter.produtos.alterarStatus(input),
       ),
     excluir: (produtoId) =>
-      cloudOnly("produtos", "excluir", () => cloudAdapter.produtos.excluir(produtoId)),
+      cloudThenRehydrate("produtos", "excluir", () =>
+        cloudAdapter.produtos.excluir(produtoId),
+      ),
     adicionarCodigo: (input) =>
-      cloudOnly("produtos", "adicionarCodigo", () =>
+      cloudThenRehydrate("produtos", "adicionarCodigo", () =>
         cloudAdapter.produtos.adicionarCodigo(input),
       ),
     excluirCodigo: (codigoId) =>
-      cloudOnly("produtos", "excluirCodigo", () =>
+      cloudThenRehydrate("produtos", "excluirCodigo", () =>
         cloudAdapter.produtos.excluirCodigo(codigoId),
       ),
     criarVariacao: (input) =>
-      cloudOnly("produtos", "criarVariacao", () =>
+      cloudThenRehydrate("produtos", "criarVariacao", () =>
         cloudAdapter.produtos.criarVariacao(input),
       ),
     excluirVariacao: (variacaoId) =>
-      cloudOnly("produtos", "excluirVariacao", () =>
+      cloudThenRehydrate("produtos", "excluirVariacao", () =>
         cloudAdapter.produtos.excluirVariacao(variacaoId),
       ),
     criarCategoria: (input) =>
-      cloudOnly("produtos", "criarCategoria", () =>
+      cloudThenRehydrate("produtos", "criarCategoria", () =>
         cloudAdapter.produtos.criarCategoria(input),
       ),
   },
@@ -319,15 +327,15 @@ export const localServerAdapter: DataAdapter = {
     ...cloudAdapter.categoriasProduto,
     list: listCategoriasProduto,
     editar: (input) =>
-      cloudOnly("categoriasProduto", "editar", () =>
+      cloudThenRehydrate("categoriasProduto", "editar", () =>
         cloudAdapter.categoriasProduto.editar(input),
       ),
     alterarStatus: (input) =>
-      cloudOnly("categoriasProduto", "alterarStatus", () =>
+      cloudThenRehydrate("categoriasProduto", "alterarStatus", () =>
         cloudAdapter.categoriasProduto.alterarStatus(input),
       ),
     excluir: (categoriaId) =>
-      cloudOnly("categoriasProduto", "excluir", () =>
+      cloudThenRehydrate("categoriasProduto", "excluir", () =>
         cloudAdapter.categoriasProduto.excluir(categoriaId),
       ),
   },
@@ -412,8 +420,12 @@ export const localServerAdapter: DataAdapter = {
                     : (input.status ?? undefined)
                   : undefined,
             },
-          ),
+        ),
         () => cloudAdapter.clientes.listLite(input),
+        {
+          fallbackOnEmptyArray: true,
+          rehydrateDomain: "clientes_lite",
+        },
       ),
     metricas: async () => new Map(),
     historico: async () => [],

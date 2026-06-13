@@ -4247,9 +4247,13 @@ pub async fn start(
         _ => generate_auth_token(),
     };
 
-    {
-        let mut s = STATE.lock().map_err(|e| e.to_string())?;
-        if s.running {
+    let running_port = {
+        let s = STATE.lock().map_err(|e| e.to_string())?;
+        if s.running { s.port } else { None }
+    };
+    if let Some(active_port) = running_port {
+        if active_port == port && probe_local_health(active_port).await {
+            let mut s = STATE.lock().map_err(|e| e.to_string())?;
             db::ensure_initialized()
                 .map_err(|e| format!("Falha ao inicializar banco local: {e}"))?;
             // Atualiza identidade se o frontend mandou novos valores.
@@ -4263,6 +4267,9 @@ pub async fn start(
                 s.hostname = host.clone();
             }
             // Não troca o token se já está rodando — evita derrubar terminais.
+            eprintln!(
+                "[gestao-pro] start: existing server confirmed port={active_port}"
+            );
             return Ok(LocalServerStatus {
                 running: true,
                 port: s.port,
@@ -4277,6 +4284,11 @@ pub async fn start(
                 auth_token: s.auth_token.clone(),
             });
         }
+        eprintln!(
+            "[gestao-pro] start: replacing server state active_port={active_port} requested_port={port}"
+        );
+        let _ = stop();
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
 
     // Garante que o banco local esteja inicializado antes de subir o HTTP.
@@ -4306,9 +4318,33 @@ pub async fn start(
 
     let handle = tokio::runtime::Handle::current();
 
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .map_err(|e| format!("Falha ao abrir porta {port}: {e}"))?;
+    let listener = match tokio::net::TcpListener::bind(addr).await {
+        Ok(listener) => listener,
+        Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
+            eprintln!("[gestao-pro] start: port in use port={port}; probing /health");
+            if probe_local_health(port).await {
+                eprintln!(
+                    "[gestao-pro] start: existing Gestao Pro server adopted port={port}"
+                );
+                let mut s = STATE.lock().map_err(|e| e.to_string())?;
+                s.running = true;
+                s.port = Some(port);
+                s.started_at_ms = None;
+                s.server_name = server_name;
+                s.server_id = server_id;
+                s.hostname = host;
+                s.upstream = upstream;
+                s.auth_token = Some(resolved_token);
+                drop(s);
+                return Ok(current_status());
+            }
+            eprintln!("[gestao-pro] start: port occupied by another process port={port}");
+            return Err(format!(
+                "Porta {port} ocupada por outro processo. O servico encontrado nao e um servidor Gestao Pro."
+            ));
+        }
+        Err(error) => return Err(format!("Falha ao abrir porta {port}: {error}")),
+    };
 
     let (tx, rx) = oneshot::channel::<()>();
 

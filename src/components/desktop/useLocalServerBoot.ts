@@ -1,8 +1,3 @@
-/**
- * Boot do backend local — só faz algo quando rodando como Desktop em
- * modo "server". Em web, terminal ou unset, é no-op silencioso.
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useDesktopRole } from "./DesktopRoleProvider";
@@ -13,8 +8,8 @@ import {
 } from "@/integrations/desktop/tauriBridge";
 import { isDesktop } from "@/integrations/data/mode";
 import {
-  registerLocalServerAuth,
   clearLocalServerAuth,
+  registerLocalServerAuth,
 } from "@/integrations/desktop/serverConnection";
 import {
   getDesktopConfig,
@@ -22,12 +17,22 @@ import {
 } from "@/integrations/desktop/configStore";
 
 export const DEFAULT_LOCAL_PORT = 3333;
+const WATCHDOG_MS = 15_000;
+const WATCHDOG_RESTART_THRESHOLD = 3;
+
+export type LocalServerHealth =
+  | "active"
+  | "unstable"
+  | "reconnecting"
+  | "unavailable";
 
 export interface BootState {
   starting: boolean;
   action: "start" | "restart" | null;
   lastError: string | null;
   lastStatus: LocalServerStatus | null;
+  health: LocalServerHealth;
+  healthFailCount: number;
   start: () => Promise<LocalServerStatus | null>;
   restart: () => Promise<LocalServerStatus | null>;
 }
@@ -37,92 +42,140 @@ const STATE: BootState & { listeners: Set<() => void> } = {
   action: null,
   lastError: null,
   lastStatus: null,
+  health: "unavailable",
+  healthFailCount: 0,
   start: async () => null,
   restart: async () => null,
   listeners: new Set(),
 };
 
+let recoveryInFlight: Promise<boolean> | null = null;
+
 function notify() {
-  STATE.listeners.forEach((l) => l());
+  STATE.listeners.forEach((listener) => listener());
 }
-function friendlyStartError(err: unknown): string {
-  const msg = String(err);
-  const lower = msg.toLowerCase();
+
+function friendlyStartError(error: unknown): string {
+  const message = String(error);
+  const lower = message.toLowerCase();
   if (
     lower.includes("address already in use") ||
     lower.includes("os error 10048") ||
+    lower.includes("ocupada por outro processo") ||
     (lower.includes("porta") && lower.includes("uso"))
   ) {
-    return "A porta 3333 já está em uso. Feche o outro processo ou altere a porta do servidor local.";
+    return "Porta 3333 ocupada por outro processo.";
   }
-  return msg;
+  return message;
 }
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function doStart(opts: {
-  port: number;
-  serverName: string | null;
-  serverId: string | null;
-  authToken: string | null;
-  allowWhileStarting?: boolean;
-}, action: "start" | "restart" = "start"): Promise<LocalServerStatus | null> {
-  if (!isDesktop()) {
-    console.warn("[boot] doStart ignorado — não está em Tauri");
-    return null;
+function connectionOptions() {
+  const config = getDesktopConfig();
+  const port = config.serverPort ?? config.terminal?.porta ?? DEFAULT_LOCAL_PORT;
+  const terminalHost = config.terminal?.host
+    ?.replace(/^https?:\/\//, "")
+    .replace(/\/+$/, "");
+  const baseUrl =
+    config.role === "terminal" && terminalHost
+      ? `http://${terminalHost}:${config.terminal?.porta ?? port}`
+      : config.localBaseUrl ?? `http://127.0.0.1:${port}`;
+  return { config, port, baseUrl };
+}
+
+async function healthOk(baseUrl: string): Promise<boolean> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 2_500);
+  try {
+    const response = await fetch(`${baseUrl}/health`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    if (!response.ok) return false;
+    const payload = (await response.json()) as { status?: string; app?: string };
+    return payload.status === "ok" && payload.app === "Gestao Pro";
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
   }
-  if (STATE.starting && !opts.allowWhileStarting) {
-    return STATE.lastStatus;
-  }
+}
+
+async function doStart(
+  opts: {
+    port: number;
+    serverName: string | null;
+    serverId: string | null;
+    authToken: string | null;
+    allowWhileStarting?: boolean;
+    silent?: boolean;
+  },
+  action: "start" | "restart" = "start",
+): Promise<LocalServerStatus | null> {
+  if (!isDesktop()) return null;
+  if (STATE.starting && !opts.allowWhileStarting) return STATE.lastStatus;
+
   STATE.starting = true;
   STATE.action = action;
   STATE.lastError = null;
   notify();
-  const upstreamUrl =
-    (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? null;
-  const upstreamAnonKey =
-    (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ?? null;
+
   try {
-    const st = await startLocalServer({
+    const status = await startLocalServer({
       port: opts.port,
       serverName: opts.serverName,
       serverId: opts.serverId,
-      upstreamUrl,
-      upstreamAnonKey,
+      upstreamUrl:
+        (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? null,
+      upstreamAnonKey:
+        (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ??
+        null,
       authToken: opts.authToken,
     });
-    STATE.lastStatus = st;
+    STATE.lastStatus = status;
 
-    // Persiste o token retornado pelo backend caso ainda não tenhamos
-    // nenhum salvo (primeira execução). NUNCA troca um token já salvo —
-    // isso quebraria terminais já pareados em hot-reload.
-    if (st.auth_token) {
-      const baseUrl = `http://127.0.0.1:${st.port ?? opts.port}`;
-      registerLocalServerAuth(baseUrl, st.auth_token);
-      const current = getDesktopConfig();
-      if (!current.serverAuthToken) {
-        setDesktopConfig({
-          ...current,
-          serverAuthToken: st.auth_token,
-          atualizadoEm: Date.now(),
-        });
-      }
+    const actualPort = status.port ?? opts.port;
+    const baseUrl = `http://127.0.0.1:${actualPort}`;
+    if (status.auth_token) {
+      registerLocalServerAuth(baseUrl, status.auth_token);
     }
 
-    if (st.running) {
-      toast.success(`Backend local iniciado na porta ${st.port ?? opts.port}.`);
-    } else {
-      STATE.lastError = "O backend não confirmou execução.";
-      toast.error(STATE.lastError);
+    const current = getDesktopConfig();
+    setDesktopConfig({
+      ...current,
+      serverPort: actualPort,
+      localBaseUrl: baseUrl,
+      serverId: current.serverId ?? status.server_id ?? opts.serverId ?? undefined,
+      serverNome:
+        current.serverNome ?? status.server_name ?? opts.serverName ?? undefined,
+      serverAuthToken: current.serverAuthToken ?? status.auth_token ?? undefined,
+    });
+
+    if (!status.running) {
+      STATE.health = "unavailable";
+      STATE.lastError = "O backend local nao confirmou execucao.";
+      if (!opts.silent) toast.error(STATE.lastError);
+      return status;
     }
-    return st;
-  } catch (err) {
-    const msg = friendlyStartError(err);
-    STATE.lastError = msg;
-    console.error("[boot] start_local_server falhou", err);
-    toast.error(`Não foi possível iniciar o backend local: ${msg}`);
+
+    STATE.health = "active";
+    STATE.healthFailCount = 0;
+    if (!opts.silent) {
+      toast.success(`Backend local iniciado na porta ${actualPort}.`);
+    }
+    return status;
+  } catch (error) {
+    STATE.health = "unavailable";
+    STATE.lastError = friendlyStartError(error);
+    console.error("[local-server-watchdog] start_local_server falhou", error);
+    if (!opts.silent) {
+      toast.error(`Nao foi possivel iniciar o backend local: ${STATE.lastError}`);
+    }
     return null;
   } finally {
     STATE.starting = false;
@@ -131,151 +184,242 @@ async function doStart(opts: {
   }
 }
 
-/** Hook do boot automático — montado no DesktopRoleProvider. */
-export function useLocalServerBoot() {
-  const { isDesktop: desk, role, config } = useDesktopRole();
-  const startedRef = useRef(false);
-  const serverConfigured =
-    config.role === "server" || !!config.serverId || !!config.serverAuthToken;
+export async function ensureLocalServerReady(): Promise<boolean> {
+  if (recoveryInFlight) return recoveryInFlight;
+  recoveryInFlight = (async () => {
+    const { config, port, baseUrl } = connectionOptions();
+    if (STATE.starting) {
+      await delay(1_000);
+    }
+    if (await healthOk(baseUrl)) {
+      STATE.health = "active";
+      STATE.healthFailCount = 0;
+      STATE.lastError = null;
+      notify();
+      return true;
+    }
 
-  // Mantém o registro de token sempre alinhado com a config persistida.
-  // - server: registra token para 127.0.0.1:porta
-  // - terminal: registra token (config.terminal.serverToken) para host:porta
-  useEffect(() => {
-    if (!desk) return;
-    if (role === "server" && config.serverAuthToken) {
-      const port = config.serverPort ?? config.terminal?.porta ?? DEFAULT_LOCAL_PORT;
-      registerLocalServerAuth(`http://127.0.0.1:${port}`, config.serverAuthToken);
-    } else if (role === "terminal" && config.terminal?.serverToken) {
-      const host = config.terminal.host?.replace(/^https?:\/\//, "").replace(/\/+$/, "");
-      if (host && config.terminal.porta) {
-        registerLocalServerAuth(
-          `http://${host}:${config.terminal.porta}`,
-          config.terminal.serverToken,
-        );
+    STATE.health = "reconnecting";
+    notify();
+    console.warn("[local-server-watchdog] auto-restart iniciado", {
+      role: config.role,
+      port,
+      baseUrl,
+    });
+
+    if (config.role === "server") {
+      const status = await doStart(
+        {
+          port,
+          serverName:
+            config.serverNome ??
+            config.terminal?.terminalNome ??
+            "Servidor Gestao Pro",
+          serverId: config.serverId ?? null,
+          authToken: config.serverAuthToken ?? null,
+          silent: true,
+        },
+        "restart",
+      );
+      if (status?.running && (await healthOk(baseUrl))) {
+        STATE.health = "active";
+        STATE.healthFailCount = 0;
+        STATE.lastError = null;
+        console.info("[local-server-watchdog] auto-restart sucesso", { port });
+        notify();
+        return true;
+      }
+    } else if (config.role === "terminal") {
+      await delay(750);
+      if (await healthOk(baseUrl)) {
+        STATE.health = "active";
+        STATE.healthFailCount = 0;
+        STATE.lastError = null;
+        console.info("[local-server-watchdog] reconexao terminal sucesso", {
+          baseUrl,
+        });
+        notify();
+        return true;
       }
     }
-  }, [
-    desk,
-    role,
-    config.serverAuthToken,
-    config.terminal?.serverToken,
-    config.terminal?.host,
-    config.serverPort,
-    config.terminal?.porta,
-  ]);
+
+    STATE.health = "unavailable";
+    STATE.lastError =
+      "Servidor local indisponivel. Tentamos reconectar automaticamente, mas nao foi possivel.";
+    console.error("[local-server-watchdog] auto-restart falha", {
+      role: config.role,
+      port,
+      baseUrl,
+    });
+    notify();
+    return false;
+  })().finally(() => {
+    recoveryInFlight = null;
+  });
+  return recoveryInFlight;
+}
+
+export function useLocalServerBoot() {
+  const { isDesktop: desktop, role, config } = useDesktopRole();
+  const startedRef = useRef(false);
+  const previousRole = useRef(role);
 
   useEffect(() => {
-    if (!desk) return;
-
-    if (role === "server") {
-      if (startedRef.current) return;
-      startedRef.current = true;
-      const port = config.serverPort ?? config.terminal?.porta ?? DEFAULT_LOCAL_PORT;
-      const nome =
-        config.serverNome ??
-        config.terminal?.terminalNome ??
-        "Servidor Gestão Pro";
-      void doStart({
-        port,
-        serverName: nome,
-        serverId: config.serverId ?? null,
-        // Reaproveita o token persistido — backend NÃO gera um novo nesse caso.
-        authToken: config.serverAuthToken ?? null,
-      });
-    } else if (startedRef.current && role !== "unset" && config.role !== "server") {
-      console.warn("[boot] parando backend local porque o papel mudou", {
-        role,
-        configRole: config.role,
-      });
-      void stopLocalServer().catch(() => {});
-      clearLocalServerAuth();
-      startedRef.current = false;
-    } else if (startedRef.current && serverConfigured) {
-      console.warn(
-        "[boot] papel desktop oscilou, mas config persistida ainda é servidor; mantendo backend local em execução",
-        { role, configRole: config.role },
+    if (!desktop) return;
+    if (role === "server" && config.serverAuthToken) {
+      const port = config.serverPort ?? DEFAULT_LOCAL_PORT;
+      registerLocalServerAuth(
+        `http://127.0.0.1:${port}`,
+        config.serverAuthToken,
+      );
+    } else if (role === "terminal" && config.terminal?.serverToken) {
+      const host = config.terminal.host
+        .replace(/^https?:\/\//, "")
+        .replace(/\/+$/, "");
+      registerLocalServerAuth(
+        `http://${host}:${config.terminal.porta}`,
+        config.terminal.serverToken,
       );
     }
   }, [
-    desk,
+    desktop,
     role,
-    config.role,
+    config.serverAuthToken,
     config.serverPort,
-    config.terminal?.porta,
+    config.terminal,
+  ]);
+
+  useEffect(() => {
+    if (!desktop) return;
+
+    if (role === "server" && !startedRef.current) {
+      startedRef.current = true;
+      void doStart({
+        port: config.serverPort ?? DEFAULT_LOCAL_PORT,
+        serverName:
+          config.serverNome ??
+          config.terminal?.terminalNome ??
+          "Servidor Gestao Pro",
+        serverId: config.serverId ?? null,
+        authToken: config.serverAuthToken ?? null,
+        silent: true,
+      });
+    }
+
+    if (previousRole.current === "server" && role !== "server") {
+      console.warn("[local-server-watchdog] stop por mudanca de papel", {
+        from: previousRole.current,
+        to: role,
+      });
+      void stopLocalServer("desktop-role-change").catch((error) => {
+        console.error("[local-server-watchdog] stop por papel falhou", error);
+      });
+      clearLocalServerAuth();
+      startedRef.current = false;
+    }
+    previousRole.current = role;
+  }, [
+    desktop,
+    role,
+    config.serverPort,
     config.serverNome,
     config.serverId,
     config.serverAuthToken,
     config.terminal?.terminalNome,
-    // O token fica nas deps apenas para detectar config de servidor hidratada;
-    // se o backend já iniciou, o efeito retorna antes de reiniciar.
   ]);
-}
-
-/** Hook para componentes que querem disparar/observar o boot manualmente. */
-export function useBootController(): BootState {
-  const { config } = useDesktopRole();
-  const [, force] = useState(0);
 
   useEffect(() => {
-    const listener = () => force((n) => n + 1);
+    if (!desktop || role !== "server") return;
+    let cancelled = false;
+
+    const check = async () => {
+      const { baseUrl } = connectionOptions();
+      const ok = await healthOk(baseUrl);
+      if (cancelled) return;
+
+      if (ok) {
+        if (STATE.healthFailCount > 0) {
+          console.info("[local-server-watchdog] health recuperado", {
+            previousFailures: STATE.healthFailCount,
+            baseUrl,
+          });
+        }
+        STATE.healthFailCount = 0;
+        STATE.health = "active";
+        STATE.lastError = null;
+        notify();
+        return;
+      }
+
+      STATE.healthFailCount += 1;
+      STATE.health =
+        STATE.healthFailCount >= WATCHDOG_RESTART_THRESHOLD
+          ? "reconnecting"
+          : "unstable";
+      console.warn("[local-server-watchdog] health fail", {
+        count: STATE.healthFailCount,
+        baseUrl,
+      });
+      notify();
+
+      if (STATE.healthFailCount >= WATCHDOG_RESTART_THRESHOLD) {
+        await ensureLocalServerReady();
+      }
+    };
+
+    void check();
+    const timer = setInterval(() => void check(), WATCHDOG_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [desktop, role]);
+}
+
+export function useBootController(): BootState {
+  const { config } = useDesktopRole();
+  const [, forceRender] = useState(0);
+
+  useEffect(() => {
+    const listener = () => forceRender((value) => value + 1);
     STATE.listeners.add(listener);
     return () => {
       STATE.listeners.delete(listener);
     };
   }, []);
 
-  const start = useCallback(async () => {
-    const port = config.serverPort ?? config.terminal?.porta ?? DEFAULT_LOCAL_PORT;
-    const nome =
-      config.serverNome ??
-      config.terminal?.terminalNome ??
-      "Servidor Gestão Pro";
-    return doStart({
-      port,
-      serverName: nome,
-      serverId: config.serverId ?? null,
-      authToken: config.serverAuthToken ?? null,
-    });
-  }, [
-    config.serverPort,
-    config.terminal?.porta,
-    config.serverNome,
-    config.serverId,
-    config.terminal?.terminalNome,
-    config.serverAuthToken,
-  ]);
+  const start = useCallback(
+    () =>
+      doStart({
+        port: config.serverPort ?? DEFAULT_LOCAL_PORT,
+        serverName:
+          config.serverNome ??
+          config.terminal?.terminalNome ??
+          "Servidor Gestao Pro",
+        serverId: config.serverId ?? null,
+        authToken: config.serverAuthToken ?? null,
+      }),
+    [config],
+  );
 
   const restart = useCallback(async () => {
-    const port = config.serverPort ?? config.terminal?.porta ?? DEFAULT_LOCAL_PORT;
-    const nome =
-      config.serverNome ??
-      config.terminal?.terminalNome ??
-      "Servidor Gestão Pro";
-    console.warn("[boot] restart_local_server solicitado", {
-      port,
-      localBaseUrl: config.localBaseUrl ?? `http://127.0.0.1:${port}`,
-    });
-
-    // Keep `starting` true across the whole restart flow and always clear
-    // both `starting` and `action` in a single finally to avoid stray UI
-    // states (buttons stuck on "Reiniciando...").
     STATE.starting = true;
     STATE.action = "restart";
     STATE.lastError = null;
     notify();
     try {
-      try {
-        await stopLocalServer();
-        await delay(2_000);
-      } catch (error) {
-        console.warn("[boot] stop antes do restart falhou; tentando iniciar mesmo assim", error);
-      }
-
+      console.warn("[local-server-watchdog] restart manual iniciado", {
+        port: config.serverPort ?? DEFAULT_LOCAL_PORT,
+      });
+      await stopLocalServer("manual-restart");
+      await delay(1_000);
       return await doStart(
         {
-          port,
-          serverName: nome,
+          port: config.serverPort ?? DEFAULT_LOCAL_PORT,
+          serverName:
+            config.serverNome ??
+            config.terminal?.terminalNome ??
+            "Servidor Gestao Pro",
           serverId: config.serverId ?? null,
           authToken: config.serverAuthToken ?? null,
           allowWhileStarting: true,
@@ -287,21 +431,15 @@ export function useBootController(): BootState {
       STATE.action = null;
       notify();
     }
-  }, [
-    config.serverPort,
-    config.terminal?.porta,
-    config.serverNome,
-    config.terminal?.terminalNome,
-    config.serverId,
-    config.serverAuthToken,
-    config.localBaseUrl,
-  ]);
+  }, [config]);
 
   return {
     starting: STATE.starting,
     action: STATE.action,
     lastError: STATE.lastError,
     lastStatus: STATE.lastStatus,
+    health: STATE.health,
+    healthFailCount: STATE.healthFailCount,
     start,
     restart,
   };

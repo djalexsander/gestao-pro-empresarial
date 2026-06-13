@@ -319,7 +319,33 @@ export function getDesktopConfig(): DesktopConfig {
 }
 
 export function setDesktopConfig(cfg: DesktopConfig): void {
-  adapter.write(normalizar({ ...cfg, atualizadoEm: Date.now(), schemaVersion: 1 }));
+  const current = adapter.read();
+  const persistentTerminal = cfg.terminal
+    ? {
+        ...cfg.terminal,
+        serverToken:
+          cfg.terminal.serverToken ?? current.terminal?.serverToken,
+      }
+    : current.terminal;
+  adapter.write(
+    normalizar({
+      ...cfg,
+      machineId: cfg.machineId || current.machineId,
+      serverId: cfg.serverId ?? current.serverId,
+      serverNome: cfg.serverNome ?? current.serverNome,
+      serverPort: cfg.serverPort ?? current.serverPort ?? DEFAULT_SERVER_PORT,
+      localBaseUrl:
+        cfg.localBaseUrl ??
+        current.localBaseUrl ??
+        buildBaseUrl(DEFAULT_LOCAL_HOST, DEFAULT_SERVER_PORT),
+      networkHost: cfg.networkHost ?? current.networkHost,
+      networkBaseUrl: cfg.networkBaseUrl ?? current.networkBaseUrl,
+      serverAuthToken: cfg.serverAuthToken ?? current.serverAuthToken,
+      terminal: persistentTerminal,
+      atualizadoEm: Date.now(),
+      schemaVersion: 1,
+    }),
+  );
 }
 
 export function setDesktopRole(

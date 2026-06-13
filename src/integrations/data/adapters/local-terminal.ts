@@ -5,14 +5,13 @@
  *
  * Estratégia incremental nesta etapa:
  *
- *  - Para os domínios "provados" (produtos.list, estoque.saldosLinhas,
- *    estoque.movimentacoes, clientes.listLite), o adapter chama o backend
- *    HTTP local do servidor (`/api/<dominio>/...`). Se a chamada falhar
- *    (timeout, rede, status != 200), o adapter cai para o cloudAdapter
- *    sem quebrar a operação e marca a origem como "cloud" com `fallback: true`.
- *  - Todas as demais operações (writes complexos, vendas, caixa, etc.)
- *    são delegadas direto ao cloudAdapter — não migramos nada além do
- *    escopo desta fase.
+ *  - Consultas de produtos/clientes tentam o servidor local primeiro e usam
+ *    cloud apenas quando o local falha ou devolve vazio suspeito. Depois,
+ *    disparam reidratacao do cache local.
+ *  - Escritas criticas de PDV, caixa e estoque exigem confirmacao local.
+ *    Nunca caem automaticamente para cloud.
+ *  - Cadastros administrativos de produto/categoria gravam uma unica vez na
+ *    cloud e depois sincronizam o servidor local.
  *
  *  Esta camada NÃO sabe sobre Supabase: ela conversa com o servidor local
  *  via HTTP simples e respeita o token JWT do usuário (passado por header)
@@ -50,26 +49,27 @@ import {
   registrarMovCaixaLocal,
   registrarMovimentoLocal,
   registrarVendaLocal,
+  runDbSync,
 } from "@/integrations/desktop/serverConnection";
 import type {
   AbrirCaixaInput,
-  CategoriaProdutoDomain,
   FecharCaixaInput,
   FecharCaixaResult,
-  ProdutoComVariacoes,
   RegistrarMovimentoCaixaInput,
 } from "../types";
 import type { TerminalConexaoConfig } from "@/integrations/desktop/types";
+import { ensureLocalServerReady } from "@/components/desktop/useLocalServerBoot";
 
 const HTTP_TIMEOUT_MS = 4000;
 const DEFAULT_LOCAL_PORT = 3333;
+const locallyUpdatedPins = new Set<string>();
 
 class LocalServerIndisponivelError extends Error {
   code = "LOCAL_SERVER_UNAVAILABLE";
 
   constructor(operacao: string) {
     super(
-      `Servidor local indisponivel para ${operacao}. Verifique a conexao local e tente novamente.`,
+      `Servidor local indisponível. Tentamos reconectar automaticamente, mas não foi possível. Operação: ${operacao}.`,
     );
     this.name = "LocalServerIndisponivelError";
   }
@@ -210,11 +210,22 @@ async function withFallback<T>(
   method: string,
   localFetcher: () => Promise<T | null>,
   cloudFetcher: () => Promise<T>,
+  options?: {
+    fallbackOnEmptyArray?: boolean;
+    rehydrateDomain?: "produtos" | "clientes_lite";
+  },
 ): Promise<T> {
   const local = await localFetcher();
-  if (local !== null && local !== undefined) return local;
+  const suspiciousEmpty =
+    options?.fallbackOnEmptyArray === true &&
+    Array.isArray(local) &&
+    local.length === 0;
+  if (local !== null && local !== undefined && !suspiciousEmpty) return local;
   const result = await cloudFetcher();
   reportDataSource({ source: "cloud", domain, method, fallback: true });
+  if (options?.rehydrateDomain) {
+    void runDbSync(getLocalConnectionConfig(), options.rehydrateDomain);
+  }
   return result;
 }
 
@@ -223,44 +234,44 @@ async function cloudOnly<T>(
   method: string,
   fn: () => Promise<T>,
 ): Promise<T> {
-  const result = await fn();
-  reportDataSource({ source: "cloud", domain, method, fallback: true });
+  try {
+    const result = await fn();
+    reportDataSource({ source: "cloud", domain, method, fallback: false });
+    return result;
+  } catch (error) {
+    if (isConnectivityError(error)) {
+      throw new CloudRequiredError(`${domain}.${method}`, error);
+    }
+    throw error;
+  }
+}
+
+async function cloudThenRehydrate<T>(
+  domain: string,
+  method: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const result = await cloudOnly(domain, method, fn);
+  void runDbSync(getLocalConnectionConfig(), "produtos");
   return result;
 }
 
-function categoriasFromProdutos(produtos: ProdutoComVariacoes[]) {
-  const map = new Map<string, CategoriaProdutoDomain>();
-  for (const produto of produtos as Array<ProdutoComVariacoes & { categoria?: { id?: string; nome?: string } | null }>) {
-    const categoria = produto.categoria;
-    if (produto.categoria_id && categoria?.nome) {
-      map.set(produto.categoria_id, {
-        id: produto.categoria_id,
-        nome: categoria.nome,
-        parent_id: null,
-        ativo: true,
-      });
-    }
+class CloudRequiredError extends Error {
+  code = "CLOUD_REQUIRED";
+
+  constructor(operacao: string, cause?: unknown) {
+    super(
+      `Esta operacao precisa de internet (${operacao}). Verifique a conexao e tente novamente.`,
+      { cause },
+    );
+    this.name = "CloudRequiredError";
   }
-  return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome));
 }
 
 async function listCategoriasProduto(input?: Parameters<DataAdapter["categoriasProduto"]["list"]>[0]) {
-  try {
-    const categorias = await cloudAdapter.categoriasProduto.list(input);
-    console.info("[categorias-produto] LISTAR CATEGORIAS", {
-      adapter: "local-terminal",
-      source: "cloud",
-      total: categorias.length,
-    });
-    return categorias;
-  } catch (error) {
-    console.warn("[categorias-produto] LISTAR CATEGORIAS fallback local-produtos", {
-      adapter: "local-terminal",
-      error,
-    });
-    const produtos = await localTerminalAdapter.produtos.listar();
-    return categoriasFromProdutos(produtos as unknown as ProdutoComVariacoes[]);
-  }
+  return cloudOnly("categoriasProduto", "list", () =>
+    cloudAdapter.categoriasProduto.list(input),
+  );
 }
 
 function isConnectivityError(error: unknown): boolean {
@@ -389,6 +400,7 @@ export const localTerminalAdapter: DataAdapter = {
             "/api/produtos/list",
           ),
         () => cloudAdapter.produtos.listar(),
+        { fallbackOnEmptyArray: true, rehydrateDomain: "produtos" },
       ),
     list: (input) =>
       withFallback(
@@ -404,8 +416,9 @@ export const localTerminalAdapter: DataAdapter = {
               categoria_id: input?.categoria_id ?? undefined,
               busca: input?.busca ?? undefined,
             },
-        ),
+          ),
         () => cloudAdapter.produtos.list(input),
+        { fallbackOnEmptyArray: true, rehydrateDomain: "produtos" },
       ),
     get: (produtoId) =>
       cloudOnly("produtos", "get", () => cloudAdapter.produtos.get(produtoId)),
@@ -421,6 +434,7 @@ export const localTerminalAdapter: DataAdapter = {
             { codigo },
           ),
         () => cloudAdapter.produtos.buscarPorCodigo(codigo),
+        { rehydrateDomain: "produtos" },
       ),
     buscarPorPlu: (plu) =>
       withFallback(
@@ -434,35 +448,42 @@ export const localTerminalAdapter: DataAdapter = {
             { codigo: plu },
           ),
         () => cloudAdapter.produtos.buscarPorPlu(plu),
+        { rehydrateDomain: "produtos" },
       ),
     criar: (input) =>
-      cloudOnly("produtos", "criar", () => cloudAdapter.produtos.criar(input)),
+      cloudThenRehydrate("produtos", "criar", () =>
+        cloudAdapter.produtos.criar(input),
+      ),
     editar: (input) =>
-      cloudOnly("produtos", "editar", () => cloudAdapter.produtos.editar(input)),
+      cloudThenRehydrate("produtos", "editar", () =>
+        cloudAdapter.produtos.editar(input),
+      ),
     alterarStatus: (input) =>
-      cloudOnly("produtos", "alterarStatus", () =>
+      cloudThenRehydrate("produtos", "alterarStatus", () =>
         cloudAdapter.produtos.alterarStatus(input),
       ),
     excluir: (produtoId) =>
-      cloudOnly("produtos", "excluir", () => cloudAdapter.produtos.excluir(produtoId)),
+      cloudThenRehydrate("produtos", "excluir", () =>
+        cloudAdapter.produtos.excluir(produtoId),
+      ),
     adicionarCodigo: (input) =>
-      cloudOnly("produtos", "adicionarCodigo", () =>
+      cloudThenRehydrate("produtos", "adicionarCodigo", () =>
         cloudAdapter.produtos.adicionarCodigo(input),
       ),
     excluirCodigo: (codigoId) =>
-      cloudOnly("produtos", "excluirCodigo", () =>
+      cloudThenRehydrate("produtos", "excluirCodigo", () =>
         cloudAdapter.produtos.excluirCodigo(codigoId),
       ),
     criarVariacao: (input) =>
-      cloudOnly("produtos", "criarVariacao", () =>
+      cloudThenRehydrate("produtos", "criarVariacao", () =>
         cloudAdapter.produtos.criarVariacao(input),
       ),
     excluirVariacao: (variacaoId) =>
-      cloudOnly("produtos", "excluirVariacao", () =>
+      cloudThenRehydrate("produtos", "excluirVariacao", () =>
         cloudAdapter.produtos.excluirVariacao(variacaoId),
       ),
     criarCategoria: (input) =>
-      cloudOnly("produtos", "criarCategoria", () =>
+      cloudThenRehydrate("produtos", "criarCategoria", () =>
         cloudAdapter.produtos.criarCategoria(input),
       ),
   },
@@ -471,15 +492,15 @@ export const localTerminalAdapter: DataAdapter = {
     ...cloudAdapter.categoriasProduto,
     list: listCategoriasProduto,
     editar: (input) =>
-      cloudOnly("categoriasProduto", "editar", () =>
+      cloudThenRehydrate("categoriasProduto", "editar", () =>
         cloudAdapter.categoriasProduto.editar(input),
       ),
     alterarStatus: (input) =>
-      cloudOnly("categoriasProduto", "alterarStatus", () =>
+      cloudThenRehydrate("categoriasProduto", "alterarStatus", () =>
         cloudAdapter.categoriasProduto.alterarStatus(input),
       ),
     excluir: (categoriaId) =>
-      cloudOnly("categoriasProduto", "excluir", () =>
+      cloudThenRehydrate("categoriasProduto", "excluir", () =>
         cloudAdapter.categoriasProduto.excluir(categoriaId),
       ),
   },
@@ -531,6 +552,9 @@ export const localTerminalAdapter: DataAdapter = {
     registrarMovimento: async (
       input: RegistrarMovimentoEstoqueInput,
     ): Promise<RegistrarMovimentoEstoqueResult> => {
+      if (!(await ensureLocalServerReady())) {
+        return localUnavailable("estoque", "registrarMovimento");
+      }
       const cfg = getLocalConnectionConfig();
       if (getBaseUrl(cfg)) {
         const { data } = await supabase.auth.getSession();
@@ -565,20 +589,25 @@ export const localTerminalAdapter: DataAdapter = {
         }
         return localUnavailable("estoque", "registrarMovimento");
       }
-      // Fallback cloud — o app continua funcionando mesmo sem servidor local.
-      const result = await cloudAdapter.estoque.registrarMovimento(input);
-      reportDataSource({
-        source: "cloud",
-        domain: "estoque",
-        method: "registrarMovimento",
-        fallback: true,
-      });
-      return result;
+      return localUnavailable("estoque", "registrarMovimento");
     },
   },
 
   funcionarios: {
     ...cloudAdapter.funcionarios,
+    criar: async (input) => {
+      const result = await cloudAdapter.funcionarios.criar(input);
+      await saveDesktopFuncionarioPin(
+        result.funcionario_id,
+        input.nome,
+        input.login,
+        input.role,
+        true,
+        input.pin,
+      );
+      locallyUpdatedPins.add(result.funcionario_id);
+      return result;
+    },
     list: async (input) => {
       try {
         const rows = await cloudAdapter.funcionarios.list(input);
@@ -606,7 +635,75 @@ export const localTerminalAdapter: DataAdapter = {
         return input?.somente_ativos ? rows.filter((row) => row.ativo) : rows;
       }
     },
+    resetarPin: async (input) => {
+      await cloudAdapter.funcionarios.resetarPin(input);
+      try {
+        await cloudAdapter.funcionarios.desbloquearPin({
+          funcionario_id: input.funcionario_id,
+        });
+      } catch (error) {
+        console.warn(
+          "[funcionarios] PIN redefinido, mas o desbloqueio remoto não pôde ser confirmado",
+          error,
+        );
+      }
+
+      const locais = await loadDesktopFuncionariosAtivos();
+      let funcionario = locais.find(
+        (row) => row.funcionario_id === input.funcionario_id,
+      );
+      if (!funcionario) {
+        const remotos = await cloudAdapter.funcionarios.list({
+          somente_ativos: false,
+        });
+        const remoto = remotos.find((row) => row.id === input.funcionario_id);
+        if (remoto) {
+          funcionario = {
+            funcionario_id: remoto.id,
+            nome: remoto.nome,
+            login: remoto.login,
+            role: remoto.role,
+            ativo: remoto.ativo,
+            synced_at_ms: Date.now(),
+          };
+        }
+      }
+      if (!funcionario) {
+        throw new Error(
+          "PIN atualizado na nuvem, mas o operador não foi encontrado no cache local.",
+        );
+      }
+      await saveDesktopFuncionarioPin(
+        funcionario.funcionario_id,
+        funcionario.nome,
+        funcionario.login,
+        funcionario.role,
+        funcionario.ativo,
+        input.pin,
+      );
+      locallyUpdatedPins.add(funcionario.funcionario_id);
+    },
     validarPin: async (input) => {
+      if (locallyUpdatedPins.has(input.funcionario_id)) {
+        const local = await verifyDesktopFuncionarioPin(
+          input.funcionario_id,
+          input.pin,
+        );
+        if (local) {
+          reportDataSource({
+            source: "local-server",
+            domain: "funcionarios",
+            method: "validarPin",
+            fallback: false,
+          });
+          return {
+            id: local.funcionario_id,
+            nome: local.nome,
+            login: local.login,
+            role: local.role === "gerente" ? "gerente" : "caixa",
+          };
+        }
+      }
       try {
         const result = await cloudAdapter.funcionarios.validarPin(input);
         await saveDesktopFuncionarioPin(
@@ -625,7 +722,9 @@ export const localTerminalAdapter: DataAdapter = {
           input.pin,
         );
         if (!local) {
-          throw new Error("PIN incorreto ou ainda não disponível neste computador.");
+          throw new Error(
+            "PIN ainda não disponível neste computador. Conecte-se à nuvem e redefina o PIN novamente.",
+          );
         }
         reportDataSource({
           source: "local-server",
@@ -667,6 +766,9 @@ export const localTerminalAdapter: DataAdapter = {
      * — a venda é válida localmente desde o momento do registro.
      */
     finalizar: async (input: FinalizarVendaInput): Promise<string> => {
+      if (!(await ensureLocalServerReady())) {
+        return localUnavailable("vendas", "finalizar");
+      }
       const cfg = getLocalConnectionConfig();
       if (getBaseUrl(cfg)) {
         const { data } = await supabase.auth.getSession();
@@ -707,15 +809,7 @@ export const localTerminalAdapter: DataAdapter = {
         }
         return localUnavailable("vendas", "finalizar");
       }
-      // Fallback cloud — mantém o app funcional sem servidor local.
-      const result = await cloudAdapter.vendas.finalizar(input);
-      reportDataSource({
-        source: "cloud",
-        domain: "vendas",
-        method: "finalizar",
-        fallback: true,
-      });
-      return result;
+      return localUnavailable("vendas", "finalizar");
     },
 
     /**
@@ -779,14 +873,7 @@ export const localTerminalAdapter: DataAdapter = {
         }
         return localUnavailable("vendas", "cancelar");
       }
-      const result = await cloudAdapter.vendas.cancelar(input);
-      reportDataSource({
-        source: "cloud",
-        domain: "vendas",
-        method: "cancelar",
-        fallback: true,
-      });
-      return result;
+      return localUnavailable("vendas", "cancelar");
     },
   },
 
@@ -830,6 +917,7 @@ export const localTerminalAdapter: DataAdapter = {
             },
           ),
         () => cloudAdapter.clientes.listLite(input),
+        { fallbackOnEmptyArray: true, rehydrateDomain: "clientes_lite" },
       ),
     metricas: async () => new Map(),
     historico: async () => [],
@@ -859,6 +947,9 @@ export const localTerminalAdapter: DataAdapter = {
      *    chave única do caixa (terminal_id / caixa_id) protege a nuvem.
      */
     abrir: async (input: AbrirCaixaInput): Promise<string> => {
+      if (!(await ensureLocalServerReady())) {
+        return localUnavailable("caixa", "abrir");
+      }
       const cfg = getLocalConnectionConfig();
       if (!getBaseUrl(cfg)) return localUnavailable("caixa", "abrir");
 
@@ -892,6 +983,9 @@ export const localTerminalAdapter: DataAdapter = {
     registrarMovimento: async (
       input: RegistrarMovimentoCaixaInput,
     ): Promise<string> => {
+      if (!(await ensureLocalServerReady())) {
+        return localUnavailable("caixa", "registrarMovimento");
+      }
       const cfg = getLocalConnectionConfig();
       if (getBaseUrl(cfg)) {
         const { data } = await supabase.auth.getSession();
@@ -918,14 +1012,13 @@ export const localTerminalAdapter: DataAdapter = {
         }
         return localUnavailable("caixa", "registrarMovimento");
       }
-      const result = await cloudAdapter.caixa.registrarMovimento(input);
-      reportDataSource({
-        source: "cloud", domain: "caixa", method: "registrarMovimento", fallback: true,
-      });
-      return result;
+      return localUnavailable("caixa", "registrarMovimento");
     },
 
     fechar: async (input: FecharCaixaInput): Promise<FecharCaixaResult> => {
+      if (!(await ensureLocalServerReady())) {
+        return localUnavailable("caixa", "fechar");
+      }
       const cfg = getLocalConnectionConfig();
       if (getBaseUrl(cfg)) {
         const { data } = await supabase.auth.getSession();
@@ -969,11 +1062,7 @@ export const localTerminalAdapter: DataAdapter = {
         }
         return localUnavailable("caixa", "fechar");
       }
-      const result = await cloudAdapter.caixa.fechar(input);
-      reportDataSource({
-        source: "cloud", domain: "caixa", method: "fechar", fallback: true,
-      });
-      return result;
+      return localUnavailable("caixa", "fechar");
     },
     aberto: async (filtro) => {
       const cfg = getLocalConnectionConfig();

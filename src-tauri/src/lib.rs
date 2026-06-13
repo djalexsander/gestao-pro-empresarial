@@ -28,8 +28,11 @@ async fn start_local_server(
 }
 
 #[tauri::command]
-async fn stop_local_server() -> Result<LocalServerStatus, String> {
-    eprintln!("[gestao-pro] stop_local_server invoked");
+async fn stop_local_server(requested_by: Option<String>) -> Result<LocalServerStatus, String> {
+    eprintln!(
+        "[gestao-pro] stop_local_server invoked requested_by={}",
+        requested_by.as_deref().unwrap_or("unknown")
+    );
     let res = local_server::stop();
     match &res {
         Ok(st) => eprintln!("[gestao-pro] stop_local_server OK running={} port={:?}", st.running, st.port),

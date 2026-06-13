@@ -23,6 +23,7 @@ import {
 } from "@/integrations/desktop/types";
 import { isDesktop } from "@/integrations/data/mode";
 import { useLocalServerBoot } from "./useLocalServerBoot";
+import { LocalServerStatusIndicator } from "./LocalServerStatusIndicator";
 
 interface DesktopRoleContextValue {
   /** True quando rodando no shell desktop (Tauri). */
@@ -104,6 +105,7 @@ export function DesktopRoleProvider({ children }: { children: ReactNode }) {
   return (
     <DesktopRoleContext.Provider value={value}>
       <LocalServerBootGate />
+      <LocalServerStatusIndicator />
       {children}
     </DesktopRoleContext.Provider>
   );
