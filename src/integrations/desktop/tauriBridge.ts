@@ -309,7 +309,7 @@ export async function saveDesktopFuncionarioPin(
   const invoke = await getInvoke();
   if (!invoke) return;
   await invoke<void>("desktop_funcionario_pin_save", {
-    funcionario_id: funcionarioId,
+    funcionarioId,
     nome,
     login,
     role,
@@ -324,15 +324,11 @@ export async function verifyDesktopFuncionarioPin(
 ): Promise<DesktopFuncionarioLocalRow | null> {
   const invoke = await getInvoke();
   if (!invoke) return null;
-  try {
-    return await invoke<DesktopFuncionarioLocalRow | null>(
-      "desktop_funcionario_pin_verify",
-      {
-        funcionario_id: funcionarioId,
-        pin,
-      },
-    );
-  } catch {
-    return null;
-  }
+  return invoke<DesktopFuncionarioLocalRow | null>(
+    "desktop_funcionario_pin_verify",
+    {
+      funcionarioId,
+      pin,
+    },
+  );
 }

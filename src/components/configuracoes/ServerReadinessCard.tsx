@@ -18,7 +18,6 @@ import type {
 } from "@/integrations/desktop/serverConnection";
 import type { LocalServerStatus } from "@/integrations/desktop/tauriBridge";
 import { useBootController } from "@/components/desktop/useLocalServerBoot";
-import { useServerConnection } from "@/components/desktop/useServerConnection";
 
 interface Props {
   daemon: LocalServerStatus | null;
@@ -28,6 +27,8 @@ interface Props {
   serverId?: string | null;
   preferredPort?: number | null;
   networkHost?: string | null;
+  onRecheck: () => Promise<void>;
+  checking: boolean;
 }
 
 /**
@@ -44,6 +45,8 @@ export function ServerReadinessCard({
   serverId,
   preferredPort,
   networkHost,
+  onRecheck,
+  checking,
 }: Props) {
   const porta = daemon?.port ?? info?.port ?? preferredPort ?? null;
   const backendOk = !!daemon?.running || info?.backend_running === true;
@@ -172,15 +175,26 @@ export function ServerReadinessCard({
           </p>
         </div>
 
-        <ServerControlActions backendOk={backendOk} />
+        <ServerControlActions
+          backendOk={backendOk}
+          onRecheck={onRecheck}
+          checking={checking}
+        />
       </CardContent>
     </Card>
   );
 }
 
-function ServerControlActions({ backendOk }: { backendOk: boolean }) {
+function ServerControlActions({
+  backendOk,
+  onRecheck,
+  checking,
+}: {
+  backendOk: boolean;
+  onRecheck: () => Promise<void>;
+  checking: boolean;
+}) {
   const boot = useBootController();
-  const { reverificar } = useServerConnection();
   const starting = boot.starting && boot.action === "start";
   const restarting = boot.starting && boot.action === "restart";
 
@@ -188,14 +202,14 @@ function ServerControlActions({ backendOk }: { backendOk: boolean }) {
     const st = await boot.start();
     if (st?.running) {
       // Atualiza /health, /server-info e daemon status na sequência.
-      await reverificar();
+      await onRecheck();
     }
   }
 
   async function handleRestart() {
     const st = await boot.restart();
     if (st?.running) {
-      await reverificar();
+      await onRecheck();
     }
   }
 
@@ -232,10 +246,11 @@ function ServerControlActions({ backendOk }: { backendOk: boolean }) {
       <Button
         size="sm"
         variant="outline"
-        onClick={() => void reverificar()}
-        disabled={boot.starting}
+        onClick={() => void onRecheck()}
+        disabled={boot.starting || checking}
         className="w-full sm:w-auto"
       >
+        {checking && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
         Testar conexão
       </Button>
       <Button

@@ -82,6 +82,7 @@ import {
   type OutboxItem,
   type OutboxStats,
   type PersistedTerminal,
+  type ServerConnInfo,
   type ServerConnStatus,
 } from "@/integrations/desktop/serverConnection";
 import { classifyOutboxError } from "@/integrations/desktop/outboxErrors";
@@ -728,6 +729,8 @@ export function DesktopTab() {
                 typeof visibleServerPort === "number" ? visibleServerPort : null
               }
               networkHost={config.networkHost ?? null}
+              onRecheck={reverificar}
+              checking={testando}
             />
           </DiagnosticCardBoundary>
         )}
@@ -764,7 +767,9 @@ export function DesktopTab() {
               </Button>
             </CardHeader>
             <CardContent className="space-y-3">
-              <ConnStatusRow status={conn?.status ?? "unknown"} mensagem={conn?.mensagem ?? ""} />
+              <ConnStatusRow
+                conn={conn}
+              />
 
               <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 text-sm sm:grid-cols-2">
                 <Field
@@ -2102,24 +2107,35 @@ export function DesktopTab() {
 }
 
 function ConnStatusRow({
-  status,
-  mensagem,
+  conn,
 }: {
-  status: ServerConnStatus;
-  mensagem?: string | null;
+  conn: ServerConnInfo;
 }) {
-  // Derive display state: treat 'online' with warning messages as amber
-  let display: "online-ok" | "online-warn" | ServerConnStatus = status;
+  type DisplayStatus = "online-ok" | "online-warn" | ServerConnStatus;
+
+  const mensagem = conn.mensagem;
+  let display: DisplayStatus = conn.status;
   const lowerMsg = (mensagem ?? "").toLowerCase();
-  if (
-    status === "online" &&
-    (lowerMsg.includes("aguardando") ||
-      lowerMsg.includes("banco") ||
-      lowerMsg.includes("filas") ||
-      lowerMsg.includes("não respondeu") ||
-      lowerMsg.includes("token"))
-  ) {
-    display = "online-warn";
+  const hasWarning =
+    !!conn.lastErrorDetail ||
+    lowerMsg.includes("aguardando") ||
+    lowerMsg.includes("banco") ||
+    lowerMsg.includes("filas") ||
+    lowerMsg.includes("não respondeu") ||
+    lowerMsg.includes("token");
+  const hasCompletedProbe =
+    !!conn.ultimoSync &&
+    (!!conn.lastEndpoint ||
+      conn.lastLatencyMs != null ||
+      !!conn.serverVersion);
+  const dbProbeSucceeded =
+    conn.lastEndpoint === "/db/info" && !conn.lastErrorDetail;
+
+  if (conn.status === "online") {
+    display = hasWarning ? "online-warn" : "online-ok";
+  } else if (conn.status === "unknown" && hasCompletedProbe) {
+    display =
+      dbProbeSucceeded && !hasWarning ? "online-ok" : "online-warn";
   }
 
   const map: Record<string, { icon: React.ReactNode; label: string; cor: string }> = {

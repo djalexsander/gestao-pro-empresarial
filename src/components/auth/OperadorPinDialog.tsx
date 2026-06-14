@@ -41,6 +41,8 @@ export function OperadorPinSelector({ onSuccess }: Props) {
       const message =
         e instanceof Error && e.message.trim()
           ? e.message
+          : typeof e === "string" && e.trim()
+            ? e
           : e &&
               typeof e === "object" &&
               "message" in e &&
