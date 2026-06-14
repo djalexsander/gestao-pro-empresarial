@@ -885,7 +885,7 @@ export interface OperadorSessaoDomain {
 export interface CriarFuncionarioInput {
   nome: string;
   login: string;
-  /** 4 a 8 dígitos numéricos. Validado server-side. */
+  /** 4 a 6 dígitos numéricos. Validado no cliente e server-side. */
   pin: string;
   role: FuncionarioRoleDomain;
   client_uuid?: string | null;

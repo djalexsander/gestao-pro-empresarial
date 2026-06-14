@@ -1114,8 +1114,15 @@ const fornecedores: DataAdapter["fornecedores"] = {
 // Funcionários (operadores PDV) — Bloco 10
 // PIN é hasheado SOMENTE no banco (bcrypt). Nunca tocamos no hash aqui.
 // ============================================================
+function assertValidFuncionarioPin(pin: string): void {
+  if (!/^\d{4,6}$/.test(pin)) {
+    throw new Error("PIN deve ter de 4 a 6 dígitos numéricos.");
+  }
+}
+
 const funcionarios: DataAdapter["funcionarios"] = {
   async criar(input) {
+    assertValidFuncionarioPin(input.pin);
     const { data, error } = await supabase.rpc("funcionario_criar", {
       _nome: input.nome,
       _login: input.login,
@@ -1173,6 +1180,7 @@ const funcionarios: DataAdapter["funcionarios"] = {
   },
 
   async resetarPin(input) {
+    assertValidFuncionarioPin(input.pin);
     const { error } = await supabase.rpc("funcionario_resetar_pin", {
       _funcionario_id: input.funcionario_id,
       _novo_pin: input.pin,
@@ -1181,6 +1189,7 @@ const funcionarios: DataAdapter["funcionarios"] = {
   },
 
   async validarPin(input) {
+    assertValidFuncionarioPin(input.pin);
     // Bloco 11: passa contexto opcional de terminal/UA para auditoria.
     // A regra de lockout é por funcionário (server-side), não por terminal.
     const { data, error } = await supabase.rpc("funcionario_validar_pin", {

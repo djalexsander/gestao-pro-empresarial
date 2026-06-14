@@ -636,18 +636,6 @@ export const localTerminalAdapter: DataAdapter = {
       }
     },
     resetarPin: async (input) => {
-      await cloudAdapter.funcionarios.resetarPin(input);
-      try {
-        await cloudAdapter.funcionarios.desbloquearPin({
-          funcionario_id: input.funcionario_id,
-        });
-      } catch (error) {
-        console.warn(
-          "[funcionarios] PIN redefinido, mas o desbloqueio remoto não pôde ser confirmado",
-          error,
-        );
-      }
-
       const locais = await loadDesktopFuncionariosAtivos();
       let funcionario = locais.find(
         (row) => row.funcionario_id === input.funcionario_id,
@@ -670,9 +658,12 @@ export const localTerminalAdapter: DataAdapter = {
       }
       if (!funcionario) {
         throw new Error(
-          "PIN atualizado na nuvem, mas o operador não foi encontrado no cache local.",
+          "Não foi possível localizar o funcionário para redefinir o PIN.",
         );
       }
+
+      // A RPC troca o hash e limpa o lockout na mesma transação.
+      await cloudAdapter.funcionarios.resetarPin(input);
       await saveDesktopFuncionarioPin(
         funcionario.funcionario_id,
         funcionario.nome,

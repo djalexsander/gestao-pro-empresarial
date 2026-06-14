@@ -18,6 +18,26 @@ export interface Funcionario {
 
 export type OperadorSessao = OperadorSessaoDomain;
 
+function getMutationErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  if (error && typeof error === "object") {
+    const candidate = error as {
+      message?: unknown;
+      details?: unknown;
+      hint?: unknown;
+    };
+    for (const value of [
+      candidate.message,
+      candidate.details,
+      candidate.hint,
+    ]) {
+      if (typeof value === "string" && value.trim()) return value;
+    }
+  }
+  return fallback;
+}
+
 /**
  * Lista todos os funcionários do dono atual (para painel admin).
  *
@@ -68,7 +88,10 @@ export function useCriarFuncionario() {
       qc.invalidateQueries({ queryKey: ["funcionarios"] });
       toast.success("Funcionário cadastrado.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (error) =>
+      toast.error(
+        getMutationErrorMessage(error, "Não foi possível cadastrar o funcionário."),
+      ),
   });
 }
 
@@ -95,7 +118,10 @@ export function useEditarFuncionario() {
       qc.invalidateQueries({ queryKey: ["funcionarios"] });
       toast.success("Funcionário atualizado.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (error) =>
+      toast.error(
+        getMutationErrorMessage(error, "Não foi possível atualizar o funcionário."),
+      ),
   });
 }
 
@@ -108,11 +134,18 @@ export function useResetarPinFuncionario() {
         pin: input.pin,
       });
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["funcionarios"] });
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["funcionarios"] });
+      await qc.refetchQueries({
+        queryKey: ["funcionarios", "ativos"],
+        type: "active",
+      });
       toast.success("PIN redefinido.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (error) =>
+      toast.error(
+        getMutationErrorMessage(error, "Não foi possível redefinir o PIN."),
+      ),
   });
 }
 
@@ -132,7 +165,13 @@ export function useToggleFuncionarioAtivo() {
       qc.invalidateQueries({ queryKey: ["funcionarios"] });
       toast.success(vars.ativo ? "Funcionário ativado." : "Funcionário desativado.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (error) =>
+      toast.error(
+        getMutationErrorMessage(
+          error,
+          "Não foi possível alterar o status do funcionário.",
+        ),
+      ),
   });
 }
 
@@ -150,7 +189,10 @@ export function useExcluirFuncionario() {
       qc.invalidateQueries({ queryKey: ["funcionarios"] });
       toast.success("Funcionário removido.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (error) =>
+      toast.error(
+        getMutationErrorMessage(error, "Não foi possível remover o funcionário."),
+      ),
   });
 }
 

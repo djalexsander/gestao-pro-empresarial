@@ -38,7 +38,17 @@ export function OperadorPinSelector({ onSuccess }: Props) {
       toast.success(`Bem-vindo, ${op.nome}!`);
       onSuccess?.();
     } catch (e) {
-      toast.error((e as Error).message || "PIN incorreto.");
+      const message =
+        e instanceof Error && e.message.trim()
+          ? e.message
+          : e &&
+              typeof e === "object" &&
+              "message" in e &&
+              typeof e.message === "string" &&
+              e.message.trim()
+            ? e.message
+          : "Não foi possível validar o PIN.";
+      toast.error(message);
       setPin("");
     } finally {
       setBusy(false);
