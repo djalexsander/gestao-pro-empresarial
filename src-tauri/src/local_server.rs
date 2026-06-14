@@ -1651,8 +1651,16 @@ async fn push_one_outbox(
 
     db::outbox_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
 
+    let produto_id = payload
+        .get("produto_id")
+        .and_then(|value| value.as_str())
+        .ok_or("movimento de estoque sem produto_id")?;
+    let produto_id_remoto = db::produto_remote_id(&owner_id, produto_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("PRODUTO_PENDENTE_SYNC: movimento aguarda sincronizacao do produto")?;
+
     let body = serde_json::json!({
-        "_produto_id":     payload.get("produto_id"),
+        "_produto_id":     produto_id_remoto,
         "_variacao_id":    payload.get("variacao_id"),
         "_tipo":           payload.get("tipo"),
         "_quantidade":     payload.get("quantidade"),
@@ -2352,6 +2360,23 @@ async fn push_one_outbox_venda(
         })
         .collect();
     if !produtos_da_venda.is_empty() {
+        let produtos_pendentes =
+            db::outbox_produtos_list(&owner_id, 1000, None).map_err(|e| e.to_string())?;
+        for produto in produtos_pendentes {
+            if !produtos_da_venda.contains(&produto.produto_local_id) || produto.status == "sent" {
+                continue;
+            }
+            if let Err(error) =
+                push_one_outbox_produto(ctx, headers, &produto.produto_local_id).await
+            {
+                let msg = format!(
+                    "PRODUTO_PENDENTE_SYNC: venda aguarda sincronizacao do produto ({error})"
+                );
+                let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
+                return Err(msg);
+            }
+        }
+
         let estoque_pendente =
             db::outbox_pending_batch_all(&owner_id, 1000).map_err(|e| e.to_string())?;
         for movimento in estoque_pendente {
@@ -2438,6 +2463,30 @@ async fn push_one_outbox_venda(
         serde_json::Value::Null
     };
 
+    let mut itens_para_sync = payload
+        .get("itens")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    for item in &mut itens_para_sync {
+        let Some(produto_id) = item.get("produto_id").and_then(|value| value.as_str()) else {
+            continue;
+        };
+        let produto_id_remoto = db::produto_remote_id(&owner_id, produto_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| {
+                format!(
+                    "PRODUTO_PENDENTE_SYNC: venda aguarda sincronizacao do produto {produto_id}"
+                )
+            })?;
+        if let Some(obj) = item.as_object_mut() {
+            obj.insert(
+                "produto_id".into(),
+                serde_json::Value::String(produto_id_remoto),
+            );
+        }
+    }
+
     let body = serde_json::json!({
         "_cliente_id":       cliente_id_para_sync,
         "_subtotal":         payload.get("subtotal"),
@@ -2448,7 +2497,7 @@ async fn push_one_outbox_venda(
         "_valor_recebido":   payload.get("valor_recebido"),
         "_troco":            payload.get("troco"),
         "_observacao":       payload.get("observacao"),
-        "_itens":            payload.get("itens"),
+        "_itens":            itens_para_sync,
         "_pagamentos":       if pagamentos.as_array().map(|a| a.is_empty()).unwrap_or(true) {
                                 serde_json::Value::Null
                              } else { pagamentos },
@@ -4253,9 +4302,11 @@ pub async fn start(
     };
     if let Some(active_port) = running_port {
         if active_port == port && probe_local_health(active_port).await {
-            let mut s = STATE.lock().map_err(|e| e.to_string())?;
-            db::ensure_initialized()
+            tokio::task::spawn_blocking(db::ensure_initialized)
+                .await
+                .map_err(|e| format!("Falha ao aguardar inicializacao do banco local: {e}"))?
                 .map_err(|e| format!("Falha ao inicializar banco local: {e}"))?;
+            let mut s = STATE.lock().map_err(|e| e.to_string())?;
             // Atualiza identidade se o frontend mandou novos valores.
             if server_name.is_some() {
                 s.server_name = server_name.clone();
@@ -4292,7 +4343,9 @@ pub async fn start(
     }
 
     // Garante que o banco local esteja inicializado antes de subir o HTTP.
-    db::ensure_initialized()
+    tokio::task::spawn_blocking(db::ensure_initialized)
+        .await
+        .map_err(|e| format!("Falha ao aguardar inicializacao do banco local: {e}"))?
         .map_err(|e| format!("Falha ao inicializar banco local: {e}"))?;
 
     let addr: SocketAddr = format!("0.0.0.0:{port}")

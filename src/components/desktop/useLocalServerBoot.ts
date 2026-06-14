@@ -19,6 +19,7 @@ import {
 export const DEFAULT_LOCAL_PORT = 3333;
 const WATCHDOG_MS = 15_000;
 const WATCHDOG_RESTART_THRESHOLD = 3;
+const RECOVERY_BACKOFF_MS = [5_000, 15_000, 30_000, 60_000] as const;
 
 export type LocalServerHealth =
   | "active"
@@ -50,6 +51,18 @@ const STATE: BootState & { listeners: Set<() => void> } = {
 };
 
 let recoveryInFlight: Promise<boolean> | null = null;
+let recoveryAttempt = 0;
+let nextRecoveryAt = 0;
+let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
+
+function resetRecoveryBackoff() {
+  recoveryAttempt = 0;
+  nextRecoveryAt = 0;
+  if (recoveryTimer) {
+    clearTimeout(recoveryTimer);
+    recoveryTimer = null;
+  }
+}
 
 function notify() {
   STATE.listeners.forEach((listener) => listener());
@@ -184,8 +197,11 @@ async function doStart(
   }
 }
 
-export async function ensureLocalServerReady(): Promise<boolean> {
+export async function ensureLocalServerReady(
+  options: { force?: boolean } = { force: true },
+): Promise<boolean> {
   if (recoveryInFlight) return recoveryInFlight;
+  if (!options.force && Date.now() < nextRecoveryAt) return false;
   recoveryInFlight = (async () => {
     const { config, port, baseUrl } = connectionOptions();
     if (STATE.starting) {
@@ -195,6 +211,7 @@ export async function ensureLocalServerReady(): Promise<boolean> {
       STATE.health = "active";
       STATE.healthFailCount = 0;
       STATE.lastError = null;
+      resetRecoveryBackoff();
       notify();
       return true;
     }
@@ -225,6 +242,7 @@ export async function ensureLocalServerReady(): Promise<boolean> {
         STATE.health = "active";
         STATE.healthFailCount = 0;
         STATE.lastError = null;
+        resetRecoveryBackoff();
         console.info("[local-server-watchdog] auto-restart sucesso", { port });
         notify();
         return true;
@@ -235,6 +253,7 @@ export async function ensureLocalServerReady(): Promise<boolean> {
         STATE.health = "active";
         STATE.healthFailCount = 0;
         STATE.lastError = null;
+        resetRecoveryBackoff();
         console.info("[local-server-watchdog] reconexao terminal sucesso", {
           baseUrl,
         });
@@ -246,10 +265,22 @@ export async function ensureLocalServerReady(): Promise<boolean> {
     STATE.health = "unavailable";
     STATE.lastError =
       "Servidor local indisponivel. Tentamos reconectar automaticamente, mas nao foi possivel.";
+    const backoff =
+      RECOVERY_BACKOFF_MS[
+        Math.min(recoveryAttempt, RECOVERY_BACKOFF_MS.length - 1)
+      ];
+    recoveryAttempt += 1;
+    nextRecoveryAt = Date.now() + backoff;
+    if (recoveryTimer) clearTimeout(recoveryTimer);
+    recoveryTimer = setTimeout(() => {
+      recoveryTimer = null;
+      void ensureLocalServerReady({ force: false });
+    }, backoff);
     console.error("[local-server-watchdog] auto-restart falha", {
       role: config.role,
       port,
       baseUrl,
+      retryInMs: backoff,
     });
     notify();
     return false;
@@ -307,6 +338,7 @@ export function useLocalServerBoot() {
     }
 
     if (previousRole.current === "server" && role !== "server") {
+      resetRecoveryBackoff();
       console.warn("[local-server-watchdog] stop por mudanca de papel", {
         from: previousRole.current,
         to: role,
@@ -331,39 +363,47 @@ export function useLocalServerBoot() {
   useEffect(() => {
     if (!desktop || role !== "server") return;
     let cancelled = false;
+    let checkInFlight = false;
 
     const check = async () => {
-      const { baseUrl } = connectionOptions();
-      const ok = await healthOk(baseUrl);
-      if (cancelled) return;
+      if (checkInFlight) return;
+      checkInFlight = true;
+      try {
+        const { baseUrl } = connectionOptions();
+        const ok = await healthOk(baseUrl);
+        if (cancelled) return;
 
-      if (ok) {
-        if (STATE.healthFailCount > 0) {
-          console.info("[local-server-watchdog] health recuperado", {
-            previousFailures: STATE.healthFailCount,
-            baseUrl,
-          });
+        if (ok) {
+          if (STATE.healthFailCount > 0) {
+            console.info("[local-server-watchdog] health recuperado", {
+              previousFailures: STATE.healthFailCount,
+              baseUrl,
+            });
+          }
+          STATE.healthFailCount = 0;
+          STATE.health = "active";
+          STATE.lastError = null;
+          resetRecoveryBackoff();
+          notify();
+          return;
         }
-        STATE.healthFailCount = 0;
-        STATE.health = "active";
-        STATE.lastError = null;
+
+        STATE.healthFailCount += 1;
+        STATE.health =
+          STATE.healthFailCount >= WATCHDOG_RESTART_THRESHOLD
+            ? "reconnecting"
+            : "unstable";
+        console.warn("[local-server-watchdog] health fail", {
+          count: STATE.healthFailCount,
+          baseUrl,
+        });
         notify();
-        return;
-      }
 
-      STATE.healthFailCount += 1;
-      STATE.health =
-        STATE.healthFailCount >= WATCHDOG_RESTART_THRESHOLD
-          ? "reconnecting"
-          : "unstable";
-      console.warn("[local-server-watchdog] health fail", {
-        count: STATE.healthFailCount,
-        baseUrl,
-      });
-      notify();
-
-      if (STATE.healthFailCount >= WATCHDOG_RESTART_THRESHOLD) {
-        await ensureLocalServerReady();
+        if (STATE.healthFailCount >= WATCHDOG_RESTART_THRESHOLD) {
+          await ensureLocalServerReady({ force: false });
+        }
+      } finally {
+        checkInFlight = false;
       }
     };
 
@@ -413,6 +453,7 @@ export function useBootController(): BootState {
       });
       await stopLocalServer("manual-restart");
       await delay(1_000);
+      resetRecoveryBackoff();
       return await doStart(
         {
           port: config.serverPort ?? DEFAULT_LOCAL_PORT,

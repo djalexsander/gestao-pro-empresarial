@@ -875,7 +875,7 @@ export const localTerminalAdapter: DataAdapter = {
         return postLocal<Awaited<ReturnType<DataAdapter["clientes"]["criar"]>>>(
           "clientes",
           "criar",
-          "/api/clientes/criar",
+          "/api/clientes/registrar",
           input,
         );
       }

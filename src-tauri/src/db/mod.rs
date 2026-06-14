@@ -2194,14 +2194,36 @@ pub fn ingest_clientes_snapshot(json_text: &str, now_ms: i64) -> DbResult<usize>
 pub fn read_clientes(owner_id: &str, status: Option<&str>) -> DbResult<String> {
     with_conn(|conn| {
         let mut sql = String::from(
-            "SELECT payload FROM clientes_local WHERE owner_id = ?1 AND deleted_at_ms IS NULL",
+            "SELECT c.payload
+               FROM clientes_local c
+              WHERE c.owner_id = ?1
+                AND c.deleted_at_ms IS NULL
+                AND (
+                    COALESCE(c.documento, '') = ''
+                    OR NOT EXISTS (
+                        SELECT 1
+                          FROM clientes_local newer
+                         WHERE newer.owner_id = c.owner_id
+                           AND newer.documento = c.documento
+                           AND newer.deleted_at_ms IS NULL
+                           AND (
+                               COALESCE(newer.updated_at_remote_ms, newer.updated_at_ms, newer.synced_at_ms, 0)
+                                 > COALESCE(c.updated_at_remote_ms, c.updated_at_ms, c.synced_at_ms, 0)
+                               OR (
+                                   COALESCE(newer.updated_at_remote_ms, newer.updated_at_ms, newer.synced_at_ms, 0)
+                                     = COALESCE(c.updated_at_remote_ms, c.updated_at_ms, c.synced_at_ms, 0)
+                                   AND newer.id > c.id
+                               )
+                           )
+                    )
+                )",
         );
         let mut args: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(owner_id.to_string())];
         if let Some(s) = status {
-            sql.push_str(" AND status = ?");
+            sql.push_str(" AND c.status = ?");
             args.push(Box::new(s.to_string()));
         }
-        sql.push_str(" ORDER BY nome ASC");
+        sql.push_str(" ORDER BY c.nome ASC");
         let params_dyn: Vec<&dyn rusqlite::ToSql> = args.iter().map(|b| &**b).collect();
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params_dyn.as_slice(), |r| r.get::<_, String>(0))?;
@@ -2534,16 +2556,40 @@ pub fn read_movimentacoes(owner_id: &str, produto_id: Option<&str>, limit: i64) 
 pub fn clientes_local_list(owner_id: &str, status: Option<&str>, busca: Option<&str>, limit: i64) -> DbResult<Vec<serde_json::Value>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
-        let mut sql = String::from("SELECT payload FROM clientes_local WHERE owner_id=?1 AND deleted_at_ms IS NULL");
+        let mut sql = String::from(
+            "SELECT c.payload
+               FROM clientes_local c
+              WHERE c.owner_id=?1
+                AND c.deleted_at_ms IS NULL
+                AND (
+                    COALESCE(c.documento, '') = ''
+                    OR NOT EXISTS (
+                        SELECT 1
+                          FROM clientes_local newer
+                         WHERE newer.owner_id = c.owner_id
+                           AND newer.documento = c.documento
+                           AND newer.deleted_at_ms IS NULL
+                           AND (
+                               COALESCE(newer.updated_at_remote_ms, newer.updated_at_ms, newer.synced_at_ms, 0)
+                                 > COALESCE(c.updated_at_remote_ms, c.updated_at_ms, c.synced_at_ms, 0)
+                               OR (
+                                   COALESCE(newer.updated_at_remote_ms, newer.updated_at_ms, newer.synced_at_ms, 0)
+                                     = COALESCE(c.updated_at_remote_ms, c.updated_at_ms, c.synced_at_ms, 0)
+                                   AND newer.id > c.id
+                               )
+                           )
+                    )
+                )",
+        );
         let mut args: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(owner_id.to_string())];
         if let Some(s) = status.filter(|s| !s.is_empty()) {
-            sql.push_str(&format!(" AND status = ?{}", args.len() + 1));
+            sql.push_str(&format!(" AND c.status = ?{}", args.len() + 1));
             args.push(Box::new(s.to_string()));
         }
         if let Some(b) = busca.map(str::trim).filter(|s| !s.is_empty()) {
             let digits: String = b.chars().filter(|c| c.is_ascii_digit()).collect();
             sql.push_str(&format!(
-                " AND (lower(COALESCE(nome,'')) LIKE ?{} OR lower(COALESCE(nome_fantasia,'')) LIKE ?{} OR COALESCE(documento,'') LIKE ?{} OR COALESCE(telefone,'') LIKE ?{} OR COALESCE(celular,'') LIKE ?{})",
+                " AND (lower(COALESCE(c.nome,'')) LIKE ?{} OR lower(COALESCE(c.nome_fantasia,'')) LIKE ?{} OR COALESCE(c.documento,'') LIKE ?{} OR COALESCE(c.telefone,'') LIKE ?{} OR COALESCE(c.celular,'') LIKE ?{})",
                 args.len() + 1, args.len() + 2, args.len() + 3, args.len() + 4, args.len() + 5
             ));
             let like = format!("%{}%", b.to_lowercase());
@@ -2554,7 +2600,7 @@ pub fn clientes_local_list(owner_id: &str, status: Option<&str>, busca: Option<&
             args.push(Box::new(digit_like.clone()));
             args.push(Box::new(digit_like));
         }
-        sql.push_str(&format!(" ORDER BY nome ASC LIMIT ?{}", args.len() + 1));
+        sql.push_str(&format!(" ORDER BY c.nome ASC LIMIT ?{}", args.len() + 1));
         args.push(Box::new(limit));
         let params_dyn: Vec<&dyn rusqlite::ToSql> = args.iter().map(|b| &**b).collect();
         let mut stmt = conn.prepare(&sql)?;
@@ -2585,8 +2631,30 @@ pub fn cliente_local_get(owner_id: &str, cliente_id: &str) -> DbResult<Option<se
 pub fn cliente_remote_id(owner_id: &str, cliente_id: &str) -> DbResult<Option<String>> {
     with_conn(|conn| {
         let v = conn.query_row(
-            "SELECT COALESCE(remote_id, CASE WHEN sync_status='synced' THEN id ELSE NULL END)
-               FROM clientes_local WHERE owner_id=?1 AND (id=?2 OR remote_id=?2) LIMIT 1",
+            "WITH alvo AS (
+                SELECT documento
+                  FROM clientes_local
+                 WHERE owner_id=?1 AND (id=?2 OR remote_id=?2)
+                 LIMIT 1
+             )
+             SELECT COALESCE(c.remote_id, CASE WHEN c.sync_status='synced' THEN c.id ELSE NULL END)
+               FROM clientes_local c
+               LEFT JOIN alvo a ON 1=1
+              WHERE c.owner_id=?1
+                AND (
+                    c.id=?2
+                    OR c.remote_id=?2
+                    OR (
+                        COALESCE(a.documento, '') <> ''
+                        AND c.documento=a.documento
+                        AND c.deleted_at_ms IS NULL
+                    )
+                )
+              ORDER BY
+                    CASE WHEN c.deleted_at_ms IS NULL THEN 0 ELSE 1 END,
+                    COALESCE(c.updated_at_remote_ms, c.updated_at_ms, c.synced_at_ms, 0) DESC,
+                    c.id DESC
+              LIMIT 1",
             params![owner_id, cliente_id],
             |r| r.get::<_, Option<String>>(0),
         ).optional()?;
@@ -2604,6 +2672,7 @@ pub fn cliente_check_documento(owner_id: &str, documento: &str, ignore_id: Optio
             conn.query_row(
                 "SELECT payload FROM clientes_local
                   WHERE owner_id=?1 AND documento=?2 AND deleted_at_ms IS NULL AND id<>?3 AND COALESCE(remote_id,'')<>?3
+                  ORDER BY COALESCE(updated_at_remote_ms, updated_at_ms, synced_at_ms, 0) DESC, id DESC
                   LIMIT 1",
                 params![owner_id, doc, ignore],
                 |r| r.get::<_, String>(0),
@@ -2611,7 +2680,9 @@ pub fn cliente_check_documento(owner_id: &str, documento: &str, ignore_id: Optio
         } else {
             conn.query_row(
                 "SELECT payload FROM clientes_local
-                  WHERE owner_id=?1 AND documento=?2 AND deleted_at_ms IS NULL LIMIT 1",
+                  WHERE owner_id=?1 AND documento=?2 AND deleted_at_ms IS NULL
+                  ORDER BY COALESCE(updated_at_remote_ms, updated_at_ms, synced_at_ms, 0) DESC, id DESC
+                  LIMIT 1",
                 params![owner_id, doc],
                 |r| r.get::<_, String>(0),
             ).optional()?
@@ -2929,6 +3000,37 @@ pub fn outbox_produtos_list(owner_id: &str, limit: i64, only_status: Option<&str
         let mut out = Vec::new();
         for row in rows { out.push(row?); }
         Ok(out)
+    })
+}
+
+pub fn produto_remote_id(owner_id: &str, produto_id: &str) -> DbResult<Option<String>> {
+    with_conn(|conn| {
+        let mapped = conn
+            .query_row(
+                "SELECT remote_id
+                   FROM outbox_produtos
+                  WHERE owner_id=?1
+                    AND (produto_local_id=?2 OR remote_id=?2)
+                    AND status='sent'
+                    AND COALESCE(remote_id, '') <> ''
+                  ORDER BY sent_at_ms DESC
+                  LIMIT 1",
+                params![owner_id, produto_id],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?;
+        if mapped.is_some() {
+            return Ok(mapped);
+        }
+        let exists = conn
+            .query_row(
+                "SELECT 1 FROM produtos_local WHERE owner_id=?1 AND id=?2 LIMIT 1",
+                params![owner_id, produto_id],
+                |_| Ok(true),
+            )
+            .optional()?
+            .unwrap_or(false);
+        Ok(exists.then(|| produto_id.to_string()))
     })
 }
 
