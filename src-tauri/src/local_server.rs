@@ -31,9 +31,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+    Arc, Mutex,
+};
 use std::time::Instant;
 use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
 /// Cache compartilhado do JWT do usuário (header `Authorization: Bearer <jwt>`
@@ -100,7 +104,10 @@ fn jwt_subject(auth_header_or_token: &str) -> Option<String> {
     let payload = token.split('.').nth(1)?;
     let decoded = decode_base64_url(payload)?;
     let value: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
-    value.get("sub").and_then(|v| v.as_str()).map(|s| s.to_string())
+    value
+        .get("sub")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }
 
 fn require_owner_id(ctx: &AppCtx, headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
@@ -116,9 +123,12 @@ fn require_owner_id(ctx: &AppCtx, headers: &HeaderMap) -> Result<String, (Status
 /// (HTTP 401/403), forçando a próxima request autenticada do terminal a
 /// repopular com um token fresco.
 fn cached_owner_id(ctx: &AppCtx, scheduler: &str) -> Option<String> {
-    let owner = resolve_user_jwt(&ctx.user_jwt, &HeaderMap::new()).and_then(|jwt| jwt_subject(&jwt));
+    let owner =
+        resolve_user_jwt(&ctx.user_jwt, &HeaderMap::new()).and_then(|jwt| jwt_subject(&jwt));
     if owner.is_none() {
-        eprintln!("[gestao-pro] {scheduler}: sem JWT/owner_id; fila nao sera processada automaticamente");
+        eprintln!(
+            "[gestao-pro] {scheduler}: sem JWT/owner_id; fila nao sera processada automaticamente"
+        );
     }
     owner
 }
@@ -151,6 +161,12 @@ use crate::db;
 
 // ---------- Estado global ----------
 
+struct SchedulerTask {
+    name: &'static str,
+    generation: u64,
+    handle: JoinHandle<()>,
+}
+
 #[derive(Default)]
 struct ServerState {
     running: bool,
@@ -174,6 +190,8 @@ struct ServerState {
     fin_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
     /// Sinaliza o scheduler de backup automático para parar.
     backup_scheduler_shutdown_tx: Option<oneshot::Sender<()>>,
+    server_handle: Option<JoinHandle<()>>,
+    scheduler_handles: Vec<SchedulerTask>,
     upstream: Option<UpstreamConfig>,
     /// Últimos heartbeats por terminalId (em memória; banco local virá depois).
     terminals: HashMap<String, TerminalHeartbeat>,
@@ -194,6 +212,40 @@ struct UpstreamConfig {
 }
 
 static STATE: Lazy<Mutex<ServerState>> = Lazy::new(|| Mutex::new(ServerState::default()));
+static SERVER_START_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+static SERVER_STOP_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+static SERVER_GENERATION: AtomicU64 = AtomicU64::new(0);
+static ACTIVE_SCHEDULERS: AtomicUsize = AtomicUsize::new(0);
+static HEALTH_CHECKS: AtomicU64 = AtomicU64::new(0);
+static RESTART_COUNT: AtomicU64 = AtomicU64::new(0);
+
+struct StartGuard;
+
+impl Drop for StartGuard {
+    fn drop(&mut self) {
+        SERVER_START_IN_PROGRESS.store(false, Ordering::Release);
+    }
+}
+
+struct StopGuard;
+
+impl Drop for StopGuard {
+    fn drop(&mut self) {
+        SERVER_STOP_IN_PROGRESS.store(false, Ordering::Release);
+    }
+}
+
+struct ActiveSchedulerGuard;
+
+impl Drop for ActiveSchedulerGuard {
+    fn drop(&mut self) {
+        ACTIVE_SCHEDULERS.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+pub(crate) fn is_generation_current(generation: u64) -> bool {
+    generation != 0 && SERVER_GENERATION.load(Ordering::Acquire) == generation
+}
 
 const APP_NAME: &str = "Gestao Pro";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -238,6 +290,16 @@ struct ServerInfoResponse {
     terminals_conectados: usize,
     backend_running: bool,
     database_ready: bool,
+}
+
+#[derive(Serialize)]
+struct ServerRuntimeResponse {
+    generation: u64,
+    active_schedulers: usize,
+    start_in_progress: bool,
+    uptime: i64,
+    health_checks: u64,
+    restart_count: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -315,14 +377,24 @@ fn iso_from_ms(ms: i64) -> Option<String> {
 // ---------- Handlers básicos ----------
 
 async fn health_handler() -> Json<HealthResponse> {
+    HEALTH_CHECKS.fetch_add(1, Ordering::Relaxed);
     eprintln!("[gestao-pro] /health handler START");
     let (started, server_id, server_name) = STATE
         .try_lock()
         .ok()
-        .map(|s| (s.started_at_ms.unwrap_or_else(now_ms), s.server_id.clone(), s.server_name.clone()))
+        .map(|s| {
+            (
+                s.started_at_ms.unwrap_or_else(now_ms),
+                s.server_id.clone(),
+                s.server_name.clone(),
+            )
+        })
         .unwrap_or((now_ms(), None, None));
     let uptime_ms = now_ms() - started;
-    eprintln!("[gestao-pro] /health handler END uptime_ms={} server_id={:?} server_name={:?}", uptime_ms, server_id, server_name);
+    eprintln!(
+        "[gestao-pro] /health handler END uptime_ms={} server_id={:?} server_name={:?}",
+        uptime_ms, server_id, server_name
+    );
     Json(HealthResponse {
         status: "ok",
         app: APP_NAME,
@@ -349,8 +421,16 @@ async fn server_info_handler() -> Json<ServerInfoResponse> {
             s.running,
         )
     });
-    let (server_name, server_id, hostname, started_at, port, upstream_configured, terminals_conectados, running) =
-        snap.unwrap_or((None, None, None, None, None, false, 0, false));
+    let (
+        server_name,
+        server_id,
+        hostname,
+        started_at,
+        port,
+        upstream_configured,
+        terminals_conectados,
+        running,
+    ) = snap.unwrap_or((None, None, None, None, None, false, 0, false));
 
     let host = local_ip().or_else(|| hostname.clone());
     let database_ready = db::is_initialized() && db::db_info().is_ok();
@@ -408,7 +488,9 @@ async fn heartbeat_handler(
     };
 
     let (server_id, server_name, server_match, was_new) = {
-        let mut s = STATE.lock().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let mut s = STATE
+            .lock()
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         let was_new = !s.terminals.contains_key(&req.terminal_id);
         s.terminals.insert(req.terminal_id.clone(), hb);
         let m = req
@@ -483,10 +565,10 @@ async fn proxy_get(
     path: &str,
     query: &[(&str, String)],
 ) -> Result<axum::response::Response, (StatusCode, String)> {
-    let upstream = ctx
-        .upstream
-        .as_ref()
-        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "Upstream não configurado".into()))?;
+    let upstream = ctx.upstream.as_ref().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Upstream não configurado".into(),
+    ))?;
 
     let url = format!("{}{}", upstream.base_url.trim_end_matches('/'), path);
 
@@ -520,10 +602,12 @@ async fn proxy_get(
     if status.as_u16() == 401 || status.as_u16() == 403 {
         clear_user_jwt(&ctx.user_jwt);
     }
-    let body = res
-        .bytes()
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Falha lendo upstream: {e}")))?;
+    let body = res.bytes().await.map_err(|e| {
+        (
+            StatusCode::BAD_GATEWAY,
+            format!("Falha lendo upstream: {e}"),
+        )
+    })?;
 
     Ok((
         StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::OK),
@@ -671,14 +755,14 @@ async fn proxy_with_incremental_sync(
         .collect();
     if !force_product_snapshot {
         if let Some(cursor) = state.last_remote_cursor_ms {
-        if spec.strip_status_in_incremental {
-            q.retain(|(k, _)| *k != "order" && *k != "status");
-        } else {
-            q.retain(|(k, _)| *k != "order");
-        }
-        q.push((spec.cursor_field, format!("gte.{}", iso_from_ms_z(cursor))));
-        q.push(("order", format!("{}.asc", spec.cursor_field)));
-        q.push(("limit", INCREMENTAL_PAGE_LIMIT.to_string()));
+            if spec.strip_status_in_incremental {
+                q.retain(|(k, _)| *k != "order" && *k != "status");
+            } else {
+                q.retain(|(k, _)| *k != "order");
+            }
+            q.push((spec.cursor_field, format!("gte.{}", iso_from_ms_z(cursor))));
+            q.push(("order", format!("{}.asc", spec.cursor_field)));
+            q.push(("limit", INCREMENTAL_PAGE_LIMIT.to_string()));
         }
     }
 
@@ -707,18 +791,28 @@ async fn proxy_with_incremental_sync(
                 match domain {
                     "produtos" => match owner_id
                         .as_deref()
-                        .ok_or_else(|| db::DbError("AUTH: sem JWT do usuario para ingestao local de produtos".into()))
-                        .and_then(|oid| db::ingest_produtos(text, now, strategy, oid)) {
-                            Ok((n, _)) => delta = n as i64,
-                            Err(e) => {
-                                let _ = db::record_sync_error(domain, now, &e.to_string());
-                                eprintln!("[gestao-pro] ingest produtos falhou: {e}");
-                            }
-                        },
+                        .ok_or_else(|| {
+                            db::DbError(
+                                "AUTH: sem JWT do usuario para ingestao local de produtos".into(),
+                            )
+                        })
+                        .and_then(|oid| db::ingest_produtos(text, now, strategy, oid))
+                    {
+                        Ok((n, _)) => delta = n as i64,
+                        Err(e) => {
+                            let _ = db::record_sync_error(domain, now, &e.to_string());
+                            eprintln!("[gestao-pro] ingest produtos falhou: {e}");
+                        }
+                    },
                     "clientes_lite" => match owner_id
                         .as_deref()
-                        .ok_or_else(|| db::DbError("AUTH: sem JWT do usuario para ingestao local de clientes".into()))
-                        .and_then(|oid| db::ingest_clientes(text, now, strategy, oid)) {
+                        .ok_or_else(|| {
+                            db::DbError(
+                                "AUTH: sem JWT do usuario para ingestao local de clientes".into(),
+                            )
+                        })
+                        .and_then(|oid| db::ingest_clientes(text, now, strategy, oid))
+                    {
                         Ok((n, _)) => delta = n as i64,
                         Err(e) => {
                             let _ = db::record_sync_error(domain, now, &e.to_string());
@@ -728,8 +822,14 @@ async fn proxy_with_incremental_sync(
                     "estoque_movimentacoes" => {
                         match owner_id
                             .as_deref()
-                            .ok_or_else(|| db::DbError("AUTH: sem JWT do usuario para ingestao local de estoque".into()))
-                            .and_then(|oid| db::ingest_movimentacoes(text, now, strategy, oid)) {
+                            .ok_or_else(|| {
+                                db::DbError(
+                                    "AUTH: sem JWT do usuario para ingestao local de estoque"
+                                        .into(),
+                                )
+                            })
+                            .and_then(|oid| db::ingest_movimentacoes(text, now, strategy, oid))
+                        {
                             Ok((n, _)) => delta = n as i64,
                             Err(e) => {
                                 let _ = db::record_sync_error(domain, now, &e.to_string());
@@ -784,7 +884,11 @@ async fn proxy_with_cache(
     let owner_id = resolve_user_jwt(&ctx.user_jwt, headers).and_then(|jwt| jwt_subject(&jwt));
 
     if let Ok(Some(payload)) = db::cache_get(domain, &key, now) {
-        return Ok(typed_response(StatusCode::OK, "local-db", payload.into_bytes()));
+        return Ok(typed_response(
+            StatusCode::OK,
+            "local-db",
+            payload.into_bytes(),
+        ));
     }
 
     let upstream_result = proxy_get(ctx, headers, path, query).await;
@@ -820,7 +924,11 @@ async fn proxy_with_cache(
     }
 }
 
-fn typed_response(status: StatusCode, source: &'static str, body: Vec<u8>) -> axum::response::Response {
+fn typed_response(
+    status: StatusCode,
+    source: &'static str,
+    body: Vec<u8>,
+) -> axum::response::Response {
     (
         status,
         [
@@ -847,7 +955,10 @@ fn typed_response_full(
     )
         .into_response();
     let h = resp.headers_mut();
-    h.insert(HeaderName::from_static("x-gp-source"), HeaderValue::from_static(source));
+    h.insert(
+        HeaderName::from_static("x-gp-source"),
+        HeaderValue::from_static(source),
+    );
     if let Ok(v) = HeaderValue::from_str(strategy) {
         h.insert(HeaderName::from_static("x-gp-strategy"), v);
     }
@@ -868,18 +979,24 @@ fn ingest_typed(domain: &str, text: &str, now: i64) {
     }
 }
 
+async fn server_runtime_handler() -> Json<ServerRuntimeResponse> {
+    let started_at = STATE.try_lock().ok().and_then(|state| state.started_at_ms);
+    Json(ServerRuntimeResponse {
+        generation: SERVER_GENERATION.load(Ordering::Acquire),
+        active_schedulers: ACTIVE_SCHEDULERS.load(Ordering::Acquire),
+        start_in_progress: SERVER_START_IN_PROGRESS.load(Ordering::Acquire),
+        uptime: started_at.map(|started| now_ms() - started).unwrap_or(0),
+        health_checks: HEALTH_CHECKS.load(Ordering::Relaxed),
+        restart_count: RESTART_COUNT.load(Ordering::Relaxed),
+    })
+}
+
 fn adopt_legacy_owner(owner_id: &str) -> Result<(), db::DbError> {
     db::adopt_legacy_ownerless_data(owner_id)
         .map(|_| ())
         .map_err(|error| {
-            eprintln!(
-                "[gestao-pro] LEGACY OWNER ADOPT ERROR owner_id={owner_id}: {error}"
-            );
-            let _ = db::record_sync_error(
-                "legacy_owner_adopt",
-                now_ms(),
-                &error.to_string(),
-            );
+            eprintln!("[gestao-pro] LEGACY OWNER ADOPT ERROR owner_id={owner_id}: {error}");
+            let _ = db::record_sync_error("legacy_owner_adopt", now_ms(), &error.to_string());
             error
         })
 }
@@ -895,9 +1012,16 @@ fn adopt_legacy_owner_http(owner_id: &str) -> Result<(), (StatusCode, String)> {
     })
 }
 
-fn read_typed(domain: &str, query: &[(&str, String)], owner_id: Option<&str>) -> Result<String, db::DbError> {
+fn read_typed(
+    domain: &str,
+    query: &[(&str, String)],
+    owner_id: Option<&str>,
+) -> Result<String, db::DbError> {
     let get = |k: &str| -> Option<String> {
-        query.iter().find(|(qk, _)| *qk == k).map(|(_, v)| v.clone())
+        query
+            .iter()
+            .find(|(qk, _)| *qk == k)
+            .map(|(_, v)| v.clone())
     };
     if let Some(owner_id) = owner_id {
         adopt_legacy_owner(owner_id)?;
@@ -906,7 +1030,9 @@ fn read_typed(domain: &str, query: &[(&str, String)], owner_id: Option<&str>) ->
         "produtos" => {
             let _ = get("status");
             let _ = get("categoria_id");
-            let owner_id = owner_id.ok_or_else(|| db::DbError("AUTH: sem JWT do usuario para leitura local de produtos".into()))?;
+            let owner_id = owner_id.ok_or_else(|| {
+                db::DbError("AUTH: sem JWT do usuario para leitura local de produtos".into())
+            })?;
             db::read_produtos(db::ProdutosFilter {
                 owner_id: Some(owner_id),
                 status: None,
@@ -915,15 +1041,21 @@ fn read_typed(domain: &str, query: &[(&str, String)], owner_id: Option<&str>) ->
             })
         }
         "clientes_lite" => {
-            let owner_id = owner_id.ok_or_else(|| db::DbError("AUTH: sem JWT do usuario para leitura local de clientes".into()))?;
+            let owner_id = owner_id.ok_or_else(|| {
+                db::DbError("AUTH: sem JWT do usuario para leitura local de clientes".into())
+            })?;
             db::read_clientes(owner_id, None)
         }
         "estoque_saldos" => {
-            let owner_id = owner_id.ok_or_else(|| db::DbError("AUTH: sem JWT do usuario para leitura local de estoque".into()))?;
+            let owner_id = owner_id.ok_or_else(|| {
+                db::DbError("AUTH: sem JWT do usuario para leitura local de estoque".into())
+            })?;
             db::read_saldos(owner_id)
         }
         "estoque_movimentacoes" => {
-            let owner_id = owner_id.ok_or_else(|| db::DbError("AUTH: sem JWT do usuario para leitura local de estoque".into()))?;
+            let owner_id = owner_id.ok_or_else(|| {
+                db::DbError("AUTH: sem JWT do usuario para leitura local de estoque".into())
+            })?;
             let produto_id = query
                 .iter()
                 .find(|(k, _)| *k == "__filter_produto_id")
@@ -951,7 +1083,10 @@ async fn produtos_list_handler(
     ))?;
     adopt_legacy_owner_http(&user_id)?;
     let status = q.get("status").map(|s| s.trim()).filter(|s| !s.is_empty());
-    let categoria_id = q.get("categoria_id").map(|s| s.trim()).filter(|s| !s.is_empty());
+    let categoria_id = q
+        .get("categoria_id")
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
     let busca = q.get("busca").map(|s| s.trim()).filter(|s| !s.is_empty());
     let payload = db::read_produtos(db::ProdutosFilter {
         owner_id: Some(user_id.as_str()),
@@ -959,8 +1094,17 @@ async fn produtos_list_handler(
         categoria_id,
         busca,
     })
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("db error: {}", e)))?;
-    Ok(typed_response(StatusCode::OK, "local-table", payload.into_bytes()))
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("db error: {}", e),
+        )
+    })?;
+    Ok(typed_response(
+        StatusCode::OK,
+        "local-table",
+        payload.into_bytes(),
+    ))
 }
 
 async fn produtos_buscar_handler(
@@ -987,15 +1131,30 @@ async fn produtos_buscar_handler(
         categoria_id: None,
         busca: None,
     })
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("db error: {}", e)))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("db error: {}", e),
+        )
+    })?;
 
-    let arr: serde_json::Value = serde_json::from_str(&json)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("json parse: {}", e)))?;
+    let arr: serde_json::Value = serde_json::from_str(&json).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("json parse: {}", e),
+        )
+    })?;
     let mut found: Option<serde_json::Value> = None;
     if let Some(items) = arr.as_array() {
         for item in items {
-            if !item.is_object() { continue; }
-            let get = |k: &str| item.get(k).and_then(|v| v.as_str()).map(|s| s.trim().to_string());
+            if !item.is_object() {
+                continue;
+            }
+            let get = |k: &str| {
+                item.get(k)
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.trim().to_string())
+            };
             let matches = [
                 get("codigo_barras"),
                 get("qr_code"),
@@ -1026,24 +1185,72 @@ async fn produtos_buscar_handler(
 
     let item = found.unwrap();
     // Monta resposta compatível com `ProdutoBuscaResult` / `ProdutoPluResult`.
-    let produto_id = item.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let sku = item.get("sku").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let nome = item.get("nome").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let codigo_barras = item.get("codigo_barras").and_then(|v| v.as_str()).map(|s| s.to_string());
-    let qr_code = item.get("qr_code").and_then(|v| v.as_str()).map(|s| s.to_string());
-    let codigo_interno = item.get("codigo_interno").and_then(|v| v.as_str()).map(|s| s.to_string());
-    let tipo_identificacao_principal = item.get("tipo_identificacao_principal").and_then(|v| v.as_str()).unwrap_or("sku").to_string();
-    let preco_venda = item.get("preco_venda").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let preco_custo = item.get("preco_custo").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let unidade = item.get("unidade").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let status = item.get("status").and_then(|v| v.as_str()).unwrap_or("inativo").to_string();
-    let categoria_id = item.get("categoria_id").and_then(|v| v.as_str()).map(|s| s.to_string());
-    let categoria_nome = item.get("categoria_nome").and_then(|v| v.as_str()).map(|s| s.to_string());
-    let fonte = item.get("plu")
+    let produto_id = item
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let sku = item
+        .get("sku")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let nome = item
+        .get("nome")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let codigo_barras = item
+        .get("codigo_barras")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let qr_code = item
+        .get("qr_code")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let codigo_interno = item
+        .get("codigo_interno")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let tipo_identificacao_principal = item
+        .get("tipo_identificacao_principal")
+        .and_then(|v| v.as_str())
+        .unwrap_or("sku")
+        .to_string();
+    let preco_venda = item
+        .get("preco_venda")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let preco_custo = item
+        .get("preco_custo")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let unidade = item
+        .get("unidade")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let status = item
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("inativo")
+        .to_string();
+    let categoria_id = item
+        .get("categoria_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let categoria_nome = item
+        .get("categoria_nome")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let fonte = item
+        .get("plu")
         .and_then(|v| v.as_str())
         .map(|_| "plu")
         .unwrap_or("sku");
-    let saldo_estoque = item.get("estoque_atual").and_then(|v| v.as_f64())
+    let saldo_estoque = item
+        .get("estoque_atual")
+        .and_then(|v| v.as_f64())
         .or_else(|| item.get("saldo_estoque").and_then(|v| v.as_f64()))
         .unwrap_or(0.0);
 
@@ -1166,7 +1373,10 @@ async fn clientes_lite_handler(
     // Inclui `status` e `updated_at` no select — necessários para tombstone
     // (status != ativo) e para o cursor de sync incremental.
     let mut params: Vec<(&str, String)> = vec![
-        ("select", "id,nome,nome_fantasia,documento,status,updated_at".into()),
+        (
+            "select",
+            "id,nome,nome_fantasia,documento,status,updated_at".into(),
+        ),
         ("order", "nome.asc".into()),
     ];
     // status vazio = todos; ausente = "ativo" (default)
@@ -1180,7 +1390,15 @@ async fn clientes_lite_handler(
         params.push(("status", format!("eq.{s}")));
     }
     let q_owned: Vec<(&str, String)> = params.iter().map(|(k, v)| (*k, v.clone())).collect();
-    proxy_with_incremental_sync(&ctx, &headers, "clientes_lite", "/rest/v1/clientes", &q_owned, false).await
+    proxy_with_incremental_sync(
+        &ctx,
+        &headers,
+        "clientes_lite",
+        "/rest/v1/clientes",
+        &q_owned,
+        false,
+    )
+    .await
 }
 
 #[derive(Deserialize)]
@@ -1198,8 +1416,13 @@ async fn clientes_local_list_handler(
     let owner_id = require_owner_id(&ctx, &headers)?;
     let status = q.status.as_deref();
     let status = status.filter(|s| !s.is_empty());
-    let rows = db::clientes_local_list(&owner_id, status, q.busca.as_deref(), q.limit.unwrap_or(500))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let rows = db::clientes_local_list(
+        &owner_id,
+        status,
+        q.busca.as_deref(),
+        q.limit.unwrap_or(500),
+    )
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(rows))
 }
 
@@ -1272,11 +1495,17 @@ async fn push_one_outbox_produto(
         .drain(..)
         .find(|i| i.local_uuid == local_or_produto_id || i.produto_local_id == local_or_produto_id)
         .ok_or("produto não encontrado na outbox")?;
-    ensure_item_owner("produtos", &item.local_uuid, item.owner_id.as_deref(), &owner_id)?;
+    ensure_item_owner(
+        "produtos",
+        &item.local_uuid,
+        item.owner_id.as_deref(),
+        &owner_id,
+    )?;
     if item.status == "sent" {
         return Ok(item.remote_id.unwrap_or_default());
     }
-    let payload: serde_json::Value = serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
+    let payload: serde_json::Value =
+        serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
     db::outbox_produtos_mark_sending(&item.local_uuid, now).map_err(|e| e.to_string())?;
 
     let body = serde_json::json!({
@@ -1305,7 +1534,10 @@ async fn push_one_outbox_produto(
         "_client_uuid": item.produto_local_id,
     });
 
-    let url = format!("{}/rest/v1/rpc/criar_produto", upstream.base_url.trim_end_matches('/'));
+    let url = format!(
+        "{}/rest/v1/rpc/criar_produto",
+        upstream.base_url.trim_end_matches('/')
+    );
     let resp = ctx
         .http
         .post(&url)
@@ -1327,7 +1559,11 @@ async fn push_one_outbox_produto(
     if !status.is_success() {
         if status.as_u16() == 401 || status.as_u16() == 403 {
             clear_user_jwt(&ctx.user_jwt);
-            let msg = format!("AUTH: upstream rejeitou JWT (HTTP {}): {}", status.as_u16(), text);
+            let msg = format!(
+                "AUTH: upstream rejeitou JWT (HTTP {}): {}",
+                status.as_u16(),
+                text
+            );
             let _ = db::outbox_produtos_mark_error(&item.local_uuid, &msg, now);
             return Err(msg);
         }
@@ -1357,7 +1593,10 @@ async fn registrar_produto_local_handler(
     if !result.idempotente && ctx.upstream.is_some() {
         let _ = push_one_outbox_produto(&ctx, &headers, &result.produto_id).await;
     }
-    Ok(Json(db::LocalProdutoResult { remote_id: result.remote_id, ..result }))
+    Ok(Json(db::LocalProdutoResult {
+        remote_id: result.remote_id,
+        ..result
+    }))
 }
 
 // ---------- Endpoints de banco local ----------
@@ -1369,8 +1608,8 @@ struct KnownTerminalsResponse {
 }
 
 async fn known_terminals_handler() -> Result<Json<KnownTerminalsResponse>, (StatusCode, String)> {
-    let terminals = db::list_terminals(200)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let terminals =
+        db::list_terminals(200).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(KnownTerminalsResponse {
         total: terminals.len(),
         terminals,
@@ -1391,8 +1630,8 @@ async fn events_handler(
         .and_then(|s| s.parse::<i64>().ok())
         .unwrap_or(100)
         .clamp(1, 500);
-    let events = db::list_events(limit)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let events =
+        db::list_events(limit).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(EventsResponse {
         total: events.len(),
         events,
@@ -1418,8 +1657,8 @@ struct DomainStatsResponse {
 }
 
 async fn db_domains_handler() -> Result<Json<DomainStatsResponse>, (StatusCode, String)> {
-    let domains = db::list_domain_stats()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let domains =
+        db::list_domain_stats().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(DomainStatsResponse {
         total: domains.len(),
         domains,
@@ -1458,17 +1697,30 @@ async fn db_sync_handler(
                 ("order", "nome.asc".into()),
             ];
             proxy_with_incremental_sync(
-                &ctx, &headers, "produtos", "/rest/v1/produtos", &params, true,
+                &ctx,
+                &headers,
+                "produtos",
+                "/rest/v1/produtos",
+                &params,
+                true,
             )
             .await
         }
         "clientes_lite" => {
             let params: Vec<(&str, String)> = vec![
-                ("select", "id,nome,nome_fantasia,documento,status,updated_at".into()),
+                (
+                    "select",
+                    "id,nome,nome_fantasia,documento,status,updated_at".into(),
+                ),
                 ("order", "nome.asc".into()),
             ];
             proxy_with_incremental_sync(
-                &ctx, &headers, "clientes_lite", "/rest/v1/clientes", &params, true,
+                &ctx,
+                &headers,
+                "clientes_lite",
+                "/rest/v1/clientes",
+                &params,
+                true,
             )
             .await
         }
@@ -1697,7 +1949,11 @@ async fn push_one_outbox(
     if !status.is_success() {
         if status.as_u16() == 401 || status.as_u16() == 403 {
             clear_user_jwt(&ctx.user_jwt);
-            let msg = format!("AUTH: upstream rejeitou JWT (HTTP {}): {}", status.as_u16(), text);
+            let msg = format!(
+                "AUTH: upstream rejeitou JWT (HTTP {}): {}",
+                status.as_u16(),
+                text
+            );
             let _ = db::outbox_mark_error(local_uuid, &msg, now);
             return Err(msg);
         }
@@ -1815,7 +2071,10 @@ async fn outbox_status_handler(
             error: clientes.error,
             due_now: clientes.due_now,
             next_attempt_at_ms: clientes.next_attempt_at_ms,
-            last_attempt_at_ms: max_opt_i64(clientes.last_auto_flush_ms, clientes.last_manual_flush_ms),
+            last_attempt_at_ms: max_opt_i64(
+                clientes.last_auto_flush_ms,
+                clientes.last_manual_flush_ms,
+            ),
             last_sent_at_ms: clientes.last_sent_at_ms,
             last_error: clientes.last_error,
         },
@@ -1841,7 +2100,10 @@ async fn outbox_status_handler(
             error: estoque.error,
             due_now: estoque.due_now,
             next_attempt_at_ms: estoque.next_attempt_at_ms,
-            last_attempt_at_ms: max_opt_i64(estoque.last_auto_flush_ms, estoque.last_manual_flush_ms),
+            last_attempt_at_ms: max_opt_i64(
+                estoque.last_auto_flush_ms,
+                estoque.last_manual_flush_ms,
+            ),
             last_sent_at_ms: estoque.last_sent_at_ms,
             last_error: estoque.last_error,
         },
@@ -1880,7 +2142,10 @@ async fn outbox_status_handler(
             error: financeiro.error,
             due_now: financeiro.due_now,
             next_attempt_at_ms: financeiro.next_attempt_at_ms,
-            last_attempt_at_ms: max_opt_i64(financeiro.last_auto_flush_ms, financeiro.last_manual_flush_ms),
+            last_attempt_at_ms: max_opt_i64(
+                financeiro.last_auto_flush_ms,
+                financeiro.last_manual_flush_ms,
+            ),
             last_sent_at_ms: financeiro.last_sent_at_ms,
             last_error: financeiro.last_error,
         },
@@ -1986,20 +2251,20 @@ async fn registrar_venda_local_handler(
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("payload inválido: {e}")))?;
 
     let owner_id = require_owner_id(&ctx, &headers)?;
-    let result = tokio::task::spawn_blocking(move || db::registrar_venda_local(&owner_id, input, now))
-        .await
-        .map_err(|e| {
-            eprintln!("[gestao-pro] /api/vendas/registrar: tarefa SQLite falhou: {e}");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Erro interno ao gravar venda local.".to_string(),
-            )
-        })?
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let result =
+        tokio::task::spawn_blocking(move || db::registrar_venda_local(&owner_id, input, now))
+            .await
+            .map_err(|e| {
+                eprintln!("[gestao-pro] /api/vendas/registrar: tarefa SQLite falhou: {e}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Erro interno ao gravar venda local.".to_string(),
+                )
+            })?
+            .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     eprintln!(
         "[gestao-pro] venda local registrada local_uuid={} idempotente={}",
-        result.local_uuid,
-        result.idempotente,
+        result.local_uuid, result.idempotente,
     );
 
     let mut outbox_status = "pending".to_string();
@@ -2029,8 +2294,7 @@ async fn registrar_venda_local_handler(
                 Err(err) => {
                     eprintln!(
                         "[gestao-pro] outbox_venda sync background failed local_uuid={} err={}",
-                        local_uuid,
-                        err,
+                        local_uuid, err,
                     );
                 }
             }
@@ -2156,14 +2420,20 @@ async fn push_one_outbox_cliente(
         "_status": payload.get("status"),
         "_client_uuid": item.cliente_local_id,
     });
-    let url = format!("{}/rest/v1/rpc/criar_cliente", upstream.base_url.trim_end_matches('/'));
-    let resp = ctx.http.post(&url)
+    let url = format!(
+        "{}/rest/v1/rpc/criar_cliente",
+        upstream.base_url.trim_end_matches('/')
+    );
+    let resp = ctx
+        .http
+        .post(&url)
         .header("apikey", &upstream.anon_key)
         .header(axum::http::header::AUTHORIZATION, auth)
         .header(axum::http::header::CONTENT_TYPE, "application/json")
         .header(axum::http::header::ACCEPT, "application/json")
         .json(&body)
-        .send().await
+        .send()
+        .await
         .map_err(|e| {
             let msg = format!("rede: {e}");
             let _ = db::outbox_clientes_mark_error(&item.local_uuid, &msg, now);
@@ -2174,7 +2444,11 @@ async fn push_one_outbox_cliente(
     if !status.is_success() {
         if status.as_u16() == 401 || status.as_u16() == 403 {
             clear_user_jwt(&ctx.user_jwt);
-            let msg = format!("AUTH: upstream rejeitou JWT (HTTP {}): {}", status.as_u16(), text);
+            let msg = format!(
+                "AUTH: upstream rejeitou JWT (HTTP {}): {}",
+                status.as_u16(),
+                text
+            );
             let _ = db::outbox_clientes_mark_error(&item.local_uuid, &msg, now);
             return Err(msg);
         }
@@ -2212,8 +2486,19 @@ async fn outbox_clientes_flush_handler(
             }
         }
     }
-    let _ = db::outbox_clientes_record_flush_round("manual", now_ms(), pending.len() as i64, sent as i64, failed as i64);
-    Ok(Json(FlushResponse { attempted: pending.len(), sent, failed, errors }))
+    let _ = db::outbox_clientes_record_flush_round(
+        "manual",
+        now_ms(),
+        pending.len() as i64,
+        sent as i64,
+        failed as i64,
+    );
+    Ok(Json(FlushResponse {
+        attempted: pending.len(),
+        sent,
+        failed,
+        errors,
+    }))
 }
 
 async fn outbox_clientes_retry_errors_handler(
@@ -2229,6 +2514,7 @@ async fn outbox_clientes_retry_errors_handler(
 async fn run_outbox_clientes_scheduler(
     ctx: AppCtx,
     mut shutdown_rx: oneshot::Receiver<()>,
+    generation: u64,
 ) {
     eprintln!("[gestao-pro] outbox clientes scheduler: iniciado");
     if !scheduler_initial_delay(&mut shutdown_rx, 1_500, "outbox clientes scheduler").await {
@@ -2241,6 +2527,9 @@ async fn run_outbox_clientes_scheduler(
                 eprintln!("[gestao-pro] outbox clientes scheduler: parado");
                 break;
             }
+        }
+        if !is_generation_current(generation) {
+            break;
         }
         if ctx.upstream.is_none() {
             let _ = db::outbox_clientes_record_flush_round("auto", now_ms(), 0, 0, 0);
@@ -2267,7 +2556,11 @@ async fn run_outbox_clientes_scheduler(
             }
         }
         let _ = db::outbox_clientes_record_flush_round(
-            "auto", now_ms(), pending.len() as i64, sent, failed,
+            "auto",
+            now_ms(),
+            pending.len() as i64,
+            sent,
+            failed,
         );
     }
 }
@@ -2280,7 +2573,9 @@ async fn ensure_caixa_aberto_remoto(
     owner_id: &str,
     caixa_local_uuid: &str,
 ) -> Result<String, String> {
-    if let Some(remote_id) = db::caixa_remote_id(owner_id, caixa_local_uuid).map_err(|e| e.to_string())? {
+    if let Some(remote_id) =
+        db::caixa_remote_id(owner_id, caixa_local_uuid).map_err(|e| e.to_string())?
+    {
         if !remote_id.trim().is_empty() {
             return Ok(remote_id);
         }
@@ -2325,7 +2620,8 @@ async fn push_one_outbox_venda(
     };
     let owner_id = jwt_subject(&auth).ok_or("AUTH: JWT sem sub/owner_id")?;
     let items = db::outbox_vendas_list(&owner_id, 1000, None).map_err(|e| e.to_string())?;
-    let item = items.into_iter()
+    let item = items
+        .into_iter()
         .find(|i| i.local_uuid == local_uuid)
         .ok_or("venda não encontrada na outbox")?;
     if item.status == "sent" {
@@ -2398,7 +2694,9 @@ async fn push_one_outbox_venda(
         }
     }
 
-    let caixa_local_uuid = match db::venda_caixa_local_uuid(&owner_id, local_uuid).map_err(|e| e.to_string())? {
+    let caixa_local_uuid = match db::venda_caixa_local_uuid(&owner_id, local_uuid)
+        .map_err(|e| e.to_string())?
+    {
         Some(id) if !id.trim().is_empty() => id,
         _ => {
             let msg =
@@ -2416,7 +2714,10 @@ async fn push_one_outbox_venda(
 
     db::outbox_vendas_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
 
-    let pagamentos = payload.get("pagamentos").cloned().unwrap_or(serde_json::Value::Null);
+    let pagamentos = payload
+        .get("pagamentos")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
 
     // FIADO: defesa contra itens antigos da outbox (anteriores à correção)
     // que foram gravados sem `data_vencimento`. Não sincroniza silenciosamente
@@ -2450,11 +2751,16 @@ async fn push_one_outbox_venda(
         return Err(msg);
     }
 
-    let cliente_id_para_sync = if let Some(cid) = payload.get("cliente_id").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+    let cliente_id_para_sync = if let Some(cid) = payload
+        .get("cliente_id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
         match db::cliente_remote_id(&owner_id, cid).map_err(|e| e.to_string())? {
             Some(remote_id) => serde_json::Value::String(remote_id),
             None => {
-                let msg = "CLIENTE_PENDENTE_SYNC: venda aguarda sincronização do cliente local".to_string();
+                let msg = "CLIENTE_PENDENTE_SYNC: venda aguarda sincronização do cliente local"
+                    .to_string();
                 let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
                 return Err(msg);
             }
@@ -2515,13 +2821,16 @@ async fn push_one_outbox_venda(
         "{}/rest/v1/rpc/finalizar_venda_pdv",
         upstream.base_url.trim_end_matches('/')
     );
-    let resp = ctx.http.post(&url)
+    let resp = ctx
+        .http
+        .post(&url)
         .header("apikey", &upstream.anon_key)
         .header(axum::http::header::AUTHORIZATION, auth)
         .header(axum::http::header::CONTENT_TYPE, "application/json")
         .header(axum::http::header::ACCEPT, "application/json")
         .json(&body)
-        .send().await
+        .send()
+        .await
         .map_err(|e| {
             let msg = format!("rede: {e}");
             let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
@@ -2533,7 +2842,11 @@ async fn push_one_outbox_venda(
     if !status.is_success() {
         if status.as_u16() == 401 || status.as_u16() == 403 {
             clear_user_jwt(&ctx.user_jwt);
-            let msg = format!("AUTH: upstream rejeitou JWT (HTTP {}): {}", status.as_u16(), text);
+            let msg = format!(
+                "AUTH: upstream rejeitou JWT (HTTP {}): {}",
+                status.as_u16(),
+                text
+            );
             let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
             return Err(msg);
         }
@@ -2543,9 +2856,10 @@ async fn push_one_outbox_venda(
     }
 
     // RPC devolve o venda_id como string (ou JSON com aspas).
-    let parsed: serde_json::Value =
-        serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
-    let remote_id = parsed.as_str().map(|s| s.to_string())
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+    let remote_id = parsed
+        .as_str()
+        .map(|s| s.to_string())
         .unwrap_or_else(|| text.trim().trim_matches('"').to_string());
 
     db::outbox_vendas_mark_sent(local_uuid, &remote_id, now).map_err(|e| e.to_string())?;
@@ -2564,11 +2878,17 @@ async fn outbox_vendas_list_handler(
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<OutboxVendasListResponse>, (StatusCode, String)> {
     let owner_id = require_owner_id(&ctx, &headers)?;
-    let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(200);
+    let limit = q
+        .get("limit")
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(200);
     let status = q.get("status").map(|s| s.as_str());
     let items = db::outbox_vendas_list(&owner_id, limit, status)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(Json(OutboxVendasListResponse { total: items.len(), items }))
+    Ok(Json(OutboxVendasListResponse {
+        total: items.len(),
+        items,
+    }))
 }
 
 async fn outbox_vendas_stats_handler(
@@ -2594,14 +2914,24 @@ async fn outbox_vendas_flush_handler(
     for it in &pending {
         match push_one_outbox_venda(&ctx, &headers, &it.local_uuid).await {
             Ok(_) => sent += 1,
-            Err(e) => { failed += 1; errors.push(format!("{}: {}", it.local_uuid, e)); }
+            Err(e) => {
+                failed += 1;
+                errors.push(format!("{}: {}", it.local_uuid, e));
+            }
         }
     }
     let _ = db::outbox_vendas_record_flush_round(
-        "manual", now_ms(), pending.len() as i64, sent as i64, failed as i64,
+        "manual",
+        now_ms(),
+        pending.len() as i64,
+        sent as i64,
+        failed as i64,
     );
     Ok(Json(FlushResponse {
-        attempted: pending.len(), sent, failed, errors,
+        attempted: pending.len(),
+        sent,
+        failed,
+        errors,
     }))
 }
 
@@ -2648,6 +2978,7 @@ async fn outbox_vendas_archive_error_handler(
 async fn run_outbox_vendas_scheduler(
     ctx: AppCtx,
     mut shutdown_rx: oneshot::Receiver<()>,
+    generation: u64,
 ) {
     eprintln!("[gestao-pro] outbox vendas scheduler: iniciado");
     if !scheduler_initial_delay(&mut shutdown_rx, 2_000, "outbox vendas scheduler").await {
@@ -2661,6 +2992,9 @@ async fn run_outbox_vendas_scheduler(
                 break;
             }
         }
+        if !is_generation_current(generation) {
+            break;
+        }
         if ctx.upstream.is_none() {
             let _ = db::outbox_vendas_record_flush_round("auto", now_ms(), 0, 0, 0);
             continue;
@@ -2671,7 +3005,10 @@ async fn run_outbox_vendas_scheduler(
         };
         let pending = match db::outbox_vendas_pending_batch(&owner_id, SCHEDULER_BATCH) {
             Ok(p) => p,
-            Err(e) => { eprintln!("[gestao-pro] outbox vendas: batch err: {e}"); continue; }
+            Err(e) => {
+                eprintln!("[gestao-pro] outbox vendas: batch err: {e}");
+                continue;
+            }
         };
         if pending.is_empty() {
             let _ = db::outbox_vendas_record_flush_round("auto", now_ms(), 0, 0, 0);
@@ -2687,7 +3024,11 @@ async fn run_outbox_vendas_scheduler(
             }
         }
         let _ = db::outbox_vendas_record_flush_round(
-            "auto", now_ms(), pending.len() as i64, sent, failed,
+            "auto",
+            now_ms(),
+            pending.len() as i64,
+            sent,
+            failed,
         );
     }
 }
@@ -2721,6 +3062,29 @@ async fn run_outbox_vendas_scheduler(
 const SCHEDULER_TICK_MS: u64 = 10_000;
 const SCHEDULER_BATCH: i64 = 50;
 
+fn spawn_scheduler<F>(
+    handle: &tokio::runtime::Handle,
+    name: &'static str,
+    generation: u64,
+    future: F,
+) -> SchedulerTask
+where
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
+    ACTIVE_SCHEDULERS.fetch_add(1, Ordering::AcqRel);
+    let task_handle = handle.spawn(async move {
+        let _active_guard = ActiveSchedulerGuard;
+        eprintln!("[SCHEDULER START] name={name} generation={generation}");
+        future.await;
+        eprintln!("[SCHEDULER STOP] name={name} generation={generation} forced=false");
+    });
+    SchedulerTask {
+        name,
+        generation,
+        handle: task_handle,
+    }
+}
+
 async fn scheduler_initial_delay(
     shutdown_rx: &mut oneshot::Receiver<()>,
     delay_ms: u64,
@@ -2741,8 +3105,12 @@ async fn scheduler_initial_delay(
 async fn run_outbox_scheduler(
     ctx: AppCtx,
     mut shutdown_rx: oneshot::Receiver<()>,
+    generation: u64,
 ) {
-    eprintln!("[gestao-pro] outbox scheduler: iniciado (tick={}ms)", SCHEDULER_TICK_MS);
+    eprintln!(
+        "[gestao-pro] outbox scheduler: iniciado (tick={}ms)",
+        SCHEDULER_TICK_MS
+    );
     if !scheduler_initial_delay(&mut shutdown_rx, 1_000, "outbox scheduler").await {
         return;
     }
@@ -2754,6 +3122,9 @@ async fn run_outbox_scheduler(
                 eprintln!("[gestao-pro] outbox scheduler: parado");
                 break;
             }
+        }
+        if !is_generation_current(generation) {
+            break;
         }
 
         // Sem upstream configurado, não há pra onde empurrar — apenas
@@ -2791,13 +3162,7 @@ async fn run_outbox_scheduler(
                 Err(_) => failed += 1,
             }
         }
-        let _ = db::outbox_record_flush_round(
-            "auto",
-            now_ms(),
-            pending.len() as i64,
-            sent,
-            failed,
-        );
+        let _ = db::outbox_record_flush_round("auto", now_ms(), pending.len() as i64, sent, failed);
         if sent > 0 || failed > 0 {
             eprintln!(
                 "[gestao-pro] outbox auto-flush: attempted={} sent={} failed={}",
@@ -2874,8 +3239,7 @@ async fn registrar_caixa_abrir_handler(
                 Err(err) => {
                     eprintln!(
                         "[gestao-pro] outbox_caixa sync background failed local_uuid={} err={}",
-                        local_uuid,
-                        err,
+                        local_uuid, err,
                     );
                 }
             }
@@ -2944,8 +3308,7 @@ async fn registrar_caixa_movimento_handler(
                 Err(err) => {
                     eprintln!(
                         "[gestao-pro] outbox_caixa sync background failed local_uuid={} err={}",
-                        local_uuid,
-                        err,
+                        local_uuid, err,
                     );
                 }
             }
@@ -3002,8 +3365,7 @@ async fn registrar_caixa_fechar_handler(
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     eprintln!(
         "[gestao-pro] caixa fechado localmente fechamento_id={} idempotente={}",
-        result.local_uuid,
-        result.idempotente,
+        result.local_uuid, result.idempotente,
     );
 
     let caixa_para_lancamentos = result.caixa_local_uuid.clone();
@@ -3048,8 +3410,7 @@ async fn registrar_caixa_fechar_handler(
                 Err(err) => {
                     eprintln!(
                         "[gestao-pro] outbox_caixa sync background failed local_uuid={} err={}",
-                        local_uuid,
-                        err,
+                        local_uuid, err,
                     );
                 }
             }
@@ -3080,7 +3441,6 @@ async fn caixa_local_aberto_handler(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(row))
 }
-
 
 /// GET `/api/caixa/resumo?caixa_id=...` ou `?operador_id=...` para o aberto.
 /// Retorna o resumo local do caixa: totais por forma de pagamento, vendas,
@@ -3151,7 +3511,8 @@ async fn caixa_movimentos_handler(
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<db::CaixaMovimentoLocalRow>>, (StatusCode, String)> {
     let owner_id = require_owner_id(&ctx, &headers)?;
-    let cid = q.get("caixa_id")
+    let cid = q
+        .get("caixa_id")
         .cloned()
         .ok_or((StatusCode::BAD_REQUEST, "caixa_id é obrigatório".into()))?;
     let local_uuid = db::resolve_caixa_id_publico(&owner_id, &cid)
@@ -3170,14 +3531,18 @@ async fn caixa_regenerar_lancamentos_handler(
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let owner_id = require_owner_id(&ctx, &headers)?;
-    let cid = q.get("caixa_id").cloned()
+    let cid = q
+        .get("caixa_id")
+        .cloned()
         .ok_or((StatusCode::BAD_REQUEST, "caixa_id é obrigatório".into()))?;
     let clu = db::resolve_caixa_id_publico(&owner_id, &cid)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((StatusCode::NOT_FOUND, "caixa não encontrado".into()))?;
     db::regenerar_lancamentos_locais_caixa(&clu)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(Json(serde_json::json!({ "ok": true, "caixa_local_uuid": clu })))
+    Ok(Json(
+        serde_json::json!({ "ok": true, "caixa_local_uuid": clu }),
+    ))
 }
 
 // ============================================================================
@@ -3283,7 +3648,10 @@ fn forma_key(raw: &str) -> String {
     }
 }
 
-fn relatorio_caixa_row(caixa: &db::CaixaLocalRow, resumo: &db::CaixaResumoLocal) -> RelatorioCaixaLocalRow {
+fn relatorio_caixa_row(
+    caixa: &db::CaixaLocalRow,
+    resumo: &db::CaixaResumoLocal,
+) -> RelatorioCaixaLocalRow {
     let mut total_dinheiro = 0.0;
     let mut total_pix = 0.0;
     let mut total_debito = 0.0;
@@ -3340,8 +3708,12 @@ fn relatorios_caixa_rows(
 ) -> Result<Vec<RelatorioCaixaLocalRow>, (StatusCode, String)> {
     let limit = parse_i64(q, "limit").or(Some(500));
     let (desde_ms, ate_ms) = query_range_ms(q);
-    let operador = q.get("operador_id").filter(|v| !v.is_empty() && *v != "todos");
-    let terminal = q.get("terminal_id").filter(|v| !v.is_empty() && *v != "todos");
+    let operador = q
+        .get("operador_id")
+        .filter(|v| !v.is_empty() && *v != "todos");
+    let terminal = q
+        .get("terminal_id")
+        .filter(|v| !v.is_empty() && *v != "todos");
     let status = q.get("status").filter(|v| !v.is_empty() && *v != "todos");
 
     let caixas = db::caixa_local_historico(owner_id, limit)
@@ -3351,10 +3723,14 @@ fn relatorios_caixa_rows(
         if !in_range_ms(caixa.data_abertura_ms, desde_ms, ate_ms) {
             continue;
         }
-        if operador.map_or(false, |op| caixa.operador_id.as_deref() != Some(op.as_str())) {
+        if operador.map_or(false, |op| {
+            caixa.operador_id.as_deref() != Some(op.as_str())
+        }) {
             continue;
         }
-        if terminal.map_or(false, |term| caixa.terminal_id.as_deref() != Some(term.as_str())) {
+        if terminal.map_or(false, |term| {
+            caixa.terminal_id.as_deref() != Some(term.as_str())
+        }) {
             continue;
         }
         if let Some(st) = status {
@@ -3368,7 +3744,8 @@ fn relatorios_caixa_rows(
         }
 
         let Some(resumo) = db::caixa_resumo_local(owner_id, &caixa.local_uuid)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))? else {
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        else {
             continue;
         };
         rows.push(relatorio_caixa_row(&caixa, &resumo));
@@ -3433,7 +3810,9 @@ fn relatorios_fluxo_payload(
                 id: format!("fechamento-{}", caixa.id),
                 caixa_id: caixa.id.clone(),
                 tipo: "fechamento".into(),
-                valor: caixa.valor_informado.unwrap_or(caixa.valor_esperado.unwrap_or(0.0)),
+                valor: caixa
+                    .valor_informado
+                    .unwrap_or(caixa.valor_esperado.unwrap_or(0.0)),
                 motivo: Some("Fechamento de caixa".into()),
                 venda_id: None,
                 operador_id: caixa.operador_id.clone(),
@@ -3471,7 +3850,11 @@ fn relatorios_fluxo_payload(
             qtd_vendas,
         })
         .collect();
-    Ok(RelatorioFluxoLocalPayload { caixas, movimentos, por_forma })
+    Ok(RelatorioFluxoLocalPayload {
+        caixas,
+        movimentos,
+        por_forma,
+    })
 }
 
 async fn relatorios_caixa_handler(
@@ -3499,25 +3882,32 @@ async fn financeiro_fluxo_caixa_handler(
 ) -> Result<Json<FinanceiroFluxoLocalPayload>, (StatusCode, String)> {
     let owner_id = require_owner_id(&ctx, &headers)?;
     let fluxo = relatorios_fluxo_payload(&owner_id, &q)?;
-    let mut rows: Vec<FinanceiroFluxoLocalRow> = fluxo.movimentos.iter().map(|m| {
-        let bruto = m.valor.abs();
-        let (valor, operacional) = match m.tipo.as_str() {
-            "sangria" => (-bruto, false),
-            "fechamento" => (-bruto, true),
-            "abertura" => (bruto, true),
-            _ => (bruto, false),
-        };
-        FinanceiroFluxoLocalRow {
-            id: format!("caixa-{}", m.id),
-            data_ms: m.created_at_ms,
-            tipo: m.tipo.clone(),
-            origem: "caixa".into(),
-            descricao: m.motivo.clone().unwrap_or_else(|| "Movimento de caixa".into()),
-            valor,
-            status: None,
-            operacional,
-        }
-    }).collect();
+    let mut rows: Vec<FinanceiroFluxoLocalRow> = fluxo
+        .movimentos
+        .iter()
+        .map(|m| {
+            let bruto = m.valor.abs();
+            let (valor, operacional) = match m.tipo.as_str() {
+                "sangria" => (-bruto, false),
+                "fechamento" => (-bruto, true),
+                "abertura" => (bruto, true),
+                _ => (bruto, false),
+            };
+            FinanceiroFluxoLocalRow {
+                id: format!("caixa-{}", m.id),
+                data_ms: m.created_at_ms,
+                tipo: m.tipo.clone(),
+                origem: "caixa".into(),
+                descricao: m
+                    .motivo
+                    .clone()
+                    .unwrap_or_else(|| "Movimento de caixa".into()),
+                valor,
+                status: None,
+                operacional,
+            }
+        })
+        .collect();
 
     let f = db::FinanceiroFiltro {
         tipo: None,
@@ -3542,22 +3932,36 @@ async fn financeiro_fluxo_caixa_handler(
         if !matches!(l.status.as_str(), "pago" | "recebido" | "confirmado") {
             continue;
         }
-        let data_ms = l.data_pagamento_ms.or(l.data_competencia_ms).unwrap_or(l.created_at_ms);
+        let data_ms = l
+            .data_pagamento_ms
+            .or(l.data_competencia_ms)
+            .unwrap_or(l.created_at_ms);
         let is_saida = l.tipo == "saida" || l.tipo == "pagar" || l.tipo == "despesa";
         rows.push(FinanceiroFluxoLocalRow {
             id: format!("lanc-{}", l.local_uuid),
             data_ms,
-            tipo: if is_saida { "despesa".into() } else { "receita".into() },
+            tipo: if is_saida {
+                "despesa".into()
+            } else {
+                "receita".into()
+            },
             origem: "financeiro".into(),
             descricao: l.descricao.unwrap_or(l.categoria),
-            valor: if is_saida { -l.valor.abs() } else { l.valor.abs() },
+            valor: if is_saida {
+                -l.valor.abs()
+            } else {
+                l.valor.abs()
+            },
             status: Some(l.status),
             operacional: false,
         });
     }
 
     rows.sort_by(|a, b| b.data_ms.cmp(&a.data_ms));
-    Ok(Json(FinanceiroFluxoLocalPayload { rows, por_forma: fluxo.por_forma }))
+    Ok(Json(FinanceiroFluxoLocalPayload {
+        rows,
+        por_forma: fluxo.por_forma,
+    }))
 }
 
 fn build_financeiro_filtro(q: &HashMap<String, String>) -> db::FinanceiroFiltro {
@@ -3607,7 +4011,9 @@ async fn financeiro_manual_handler(
 async fn financeiro_cancelar_handler(
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let lu = q.get("local_uuid").cloned()
+    let lu = q
+        .get("local_uuid")
+        .cloned()
         .ok_or((StatusCode::BAD_REQUEST, "local_uuid é obrigatório".into()))?;
     let motivo = q.get("motivo").map(|s| s.as_str());
     let ok = db::lancamento_cancelar(&lu, motivo)
@@ -3649,10 +4055,7 @@ async fn find_remote_open_caixa(
         return Ok(None);
     }
 
-    let url = format!(
-        "{}/rest/v1/caixas",
-        upstream.base_url.trim_end_matches('/')
-    );
+    let url = format!("{}/rest/v1/caixas", upstream.base_url.trim_end_matches('/'));
     let response = ctx
         .http
         .get(url)
@@ -3716,8 +4119,7 @@ async fn push_one_outbox_caixa(
         if let Some(remote_id) =
             find_remote_open_caixa(ctx, &auth, terminal_id, operador_id).await?
         {
-            db::outbox_caixa_mark_sent(local_uuid, &remote_id, now)
-                .map_err(|e| e.to_string())?;
+            db::outbox_caixa_mark_sent(local_uuid, &remote_id, now).map_err(|e| e.to_string())?;
             return Ok(remote_id);
         }
     }
@@ -3727,16 +4129,16 @@ async fn push_one_outbox_caixa(
         .filter(|id| !id.trim().is_empty());
 
     if item.action != "abrir" && caixa_remote_id.is_none() {
-        let msg =
-            "CAIXA_PENDENTE_SYNC: item de caixa aguarda sincronizacao da abertura local"
-                .to_string();
+        let msg = "CAIXA_PENDENTE_SYNC: item de caixa aguarda sincronizacao da abertura local"
+            .to_string();
         let _ = db::outbox_caixa_mark_error(local_uuid, &msg, now);
         return Err(msg);
     }
 
     if item.action == "fechar" {
-        let vendas_pendentes = db::count_unsynced_vendas_for_caixa(&owner_id, &item.caixa_local_uuid)
-            .map_err(|e| e.to_string())?;
+        let vendas_pendentes =
+            db::count_unsynced_vendas_for_caixa(&owner_id, &item.caixa_local_uuid)
+                .map_err(|e| e.to_string())?;
         if vendas_pendentes > 0 {
             let msg = format!(
                 "CAIXA_AGUARDA_VENDAS_SYNC: fechamento aguarda {vendas_pendentes} venda(s) do caixa sincronizar"
@@ -3797,13 +4199,16 @@ async fn push_one_outbox_caixa(
         upstream.base_url.trim_end_matches('/'),
         rpc
     );
-    let resp = ctx.http.post(&url)
+    let resp = ctx
+        .http
+        .post(&url)
         .header("apikey", &upstream.anon_key)
         .header(axum::http::header::AUTHORIZATION, &auth)
         .header(axum::http::header::CONTENT_TYPE, "application/json")
         .header(axum::http::header::ACCEPT, "application/json")
         .json(&body)
-        .send().await
+        .send()
+        .await
         .map_err(|e| {
             let msg = format!("rede: {e}");
             let _ = db::outbox_caixa_mark_error(local_uuid, &msg, now);
@@ -3815,7 +4220,11 @@ async fn push_one_outbox_caixa(
     if !status.is_success() {
         if status.as_u16() == 401 || status.as_u16() == 403 {
             clear_user_jwt(&ctx.user_jwt);
-            let msg = format!("AUTH: upstream rejeitou JWT (HTTP {}): {}", status.as_u16(), text);
+            let msg = format!(
+                "AUTH: upstream rejeitou JWT (HTTP {}): {}",
+                status.as_u16(),
+                text
+            );
             let _ = db::outbox_caixa_mark_error(local_uuid, &msg, now);
             return Err(msg);
         }
@@ -3833,8 +4242,7 @@ async fn push_one_outbox_caixa(
         return Err(msg);
     }
 
-    let parsed: serde_json::Value =
-        serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
     // Para `fechar`, a RPC devolve um JSON com `caixa_id`; para `abrir`/
     // `movimento` devolve uma string crua.
     let remote_id = if let Some(s) = parsed.as_str() {
@@ -3863,11 +4271,17 @@ async fn outbox_caixa_list_handler(
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<OutboxCaixaListResponse>, (StatusCode, String)> {
     let owner_id = require_owner_id(&ctx, &headers)?;
-    let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(200);
+    let limit = q
+        .get("limit")
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(200);
     let status = q.get("status").map(|s| s.as_str());
     let items = db::outbox_caixa_list(&owner_id, limit, status)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(Json(OutboxCaixaListResponse { total: items.len(), items }))
+    Ok(Json(OutboxCaixaListResponse {
+        total: items.len(),
+        items,
+    }))
 }
 
 async fn outbox_caixa_stats_handler(
@@ -3893,14 +4307,24 @@ async fn outbox_caixa_flush_handler(
     for it in &pending {
         match push_one_outbox_caixa(&ctx, &headers, &it.local_uuid).await {
             Ok(_) => sent += 1,
-            Err(e) => { failed += 1; errors.push(format!("{}: {}", it.local_uuid, e)); }
+            Err(e) => {
+                failed += 1;
+                errors.push(format!("{}: {}", it.local_uuid, e));
+            }
         }
     }
     let _ = db::outbox_caixa_record_flush_round(
-        "manual", now_ms(), pending.len() as i64, sent as i64, failed as i64,
+        "manual",
+        now_ms(),
+        pending.len() as i64,
+        sent as i64,
+        failed as i64,
     );
     Ok(Json(FlushResponse {
-        attempted: pending.len(), sent, failed, errors,
+        attempted: pending.len(),
+        sent,
+        failed,
+        errors,
     }))
 }
 
@@ -3937,9 +4361,17 @@ async fn outbox_caixa_archive_error_handler(
     let archived = if req.archive_group.unwrap_or(false) {
         let item = db::outbox_caixa_get(req.local_uuid.trim())
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-            .ok_or((StatusCode::NOT_FOUND, "item de caixa nao encontrado".to_string()))?;
-        ensure_item_owner("caixa", &item.local_uuid, item.owner_id.as_deref(), &owner_id)
-            .map_err(|e| (StatusCode::FORBIDDEN, e))?;
+            .ok_or((
+                StatusCode::NOT_FOUND,
+                "item de caixa nao encontrado".to_string(),
+            ))?;
+        ensure_item_owner(
+            "caixa",
+            &item.local_uuid,
+            item.owner_id.as_deref(),
+            &owner_id,
+        )
+        .map_err(|e| (StatusCode::FORBIDDEN, e))?;
         db::outbox_caixa_archive_local_group(
             &owner_id,
             &item.caixa_local_uuid,
@@ -3949,13 +4381,8 @@ async fn outbox_caixa_archive_error_handler(
         .map(|n| n > 0)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     } else {
-        db::outbox_caixa_archive_error(
-            &owner_id,
-            req.local_uuid.trim(),
-            req.motivo.as_deref(),
-            now,
-        )
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        db::outbox_caixa_archive_error(&owner_id, req.local_uuid.trim(), req.motivo.as_deref(), now)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     };
     Ok(Json(serde_json::json!({
         "ok": archived,
@@ -3967,6 +4394,7 @@ async fn outbox_caixa_archive_error_handler(
 async fn run_outbox_caixa_scheduler(
     ctx: AppCtx,
     mut shutdown_rx: oneshot::Receiver<()>,
+    generation: u64,
 ) {
     eprintln!("[gestao-pro] outbox caixa scheduler: iniciado");
     if !scheduler_initial_delay(&mut shutdown_rx, 4_000, "outbox caixa scheduler").await {
@@ -3980,6 +4408,9 @@ async fn run_outbox_caixa_scheduler(
                 break;
             }
         }
+        if !is_generation_current(generation) {
+            break;
+        }
         if ctx.upstream.is_none() {
             let _ = db::outbox_caixa_record_flush_round("auto", now_ms(), 0, 0, 0);
             continue;
@@ -3990,7 +4421,10 @@ async fn run_outbox_caixa_scheduler(
         };
         let pending = match db::outbox_caixa_pending_batch(&owner_id, SCHEDULER_BATCH) {
             Ok(p) => p,
-            Err(e) => { eprintln!("[gestao-pro] outbox caixa: batch err: {e}"); continue; }
+            Err(e) => {
+                eprintln!("[gestao-pro] outbox caixa: batch err: {e}");
+                continue;
+            }
         };
         if pending.is_empty() {
             let _ = db::outbox_caixa_record_flush_round("auto", now_ms(), 0, 0, 0);
@@ -4017,12 +4451,18 @@ async fn run_outbox_caixa_scheduler(
             }
         }
         let _ = db::outbox_caixa_record_flush_round(
-            "auto", now_ms(), pending.len() as i64, sent, failed,
+            "auto",
+            now_ms(),
+            pending.len() as i64,
+            sent,
+            failed,
         );
         if sent > 0 || failed > 0 {
             eprintln!(
                 "[gestao-pro] outbox caixa auto-flush: attempted={} sent={} failed={}",
-                pending.len(), sent, failed,
+                pending.len(),
+                sent,
+                failed,
             );
         }
     }
@@ -4053,7 +4493,8 @@ fn build_router(ctx: AppCtx) -> Router {
     // Rotas públicas — diagnóstico e descoberta. Sem token.
     let public = Router::new()
         .route("/health", get(health_handler))
-        .route("/server-info", get(server_info_handler));
+        .route("/server-info", get(server_info_handler))
+        .route("/db/server/runtime", get(server_runtime_handler));
 
     // Rotas sensíveis — exigem header `X-Gestao-Token` válido.
     let protected = Router::new()
@@ -4072,15 +4513,33 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/db/outbox/vendas", get(outbox_vendas_list_handler))
         .route("/db/outbox/vendas/stats", get(outbox_vendas_stats_handler))
         .route("/db/outbox/vendas/flush", post(outbox_vendas_flush_handler))
-        .route("/db/outbox/vendas/retry-errors", post(outbox_vendas_retry_errors_handler))
-        .route("/db/outbox/vendas/archive-error", post(outbox_vendas_archive_error_handler))
-        .route("/db/outbox/clientes/flush", post(outbox_clientes_flush_handler))
-        .route("/db/outbox/clientes/retry-errors", post(outbox_clientes_retry_errors_handler))
+        .route(
+            "/db/outbox/vendas/retry-errors",
+            post(outbox_vendas_retry_errors_handler),
+        )
+        .route(
+            "/db/outbox/vendas/archive-error",
+            post(outbox_vendas_archive_error_handler),
+        )
+        .route(
+            "/db/outbox/clientes/flush",
+            post(outbox_clientes_flush_handler),
+        )
+        .route(
+            "/db/outbox/clientes/retry-errors",
+            post(outbox_clientes_retry_errors_handler),
+        )
         .route("/api/produtos/list", get(produtos_list_handler))
         .route("/api/produtos/buscar", get(produtos_buscar_handler))
-        .route("/api/produtos/registrar", post(registrar_produto_local_handler))
+        .route(
+            "/api/produtos/registrar",
+            post(registrar_produto_local_handler),
+        )
         .route("/api/estoque/saldos", get(estoque_saldos_handler))
-        .route("/api/estoque/movimentacoes", get(estoque_movimentacoes_handler))
+        .route(
+            "/api/estoque/movimentacoes",
+            get(estoque_movimentacoes_handler),
+        )
         .route(
             "/api/estoque/movimentacoes/registrar",
             post(registrar_mov_local_handler),
@@ -4090,54 +4549,102 @@ fn build_router(ctx: AppCtx) -> Router {
         .route("/api/vendas/resumo", get(vendas_local_resumo_handler))
         .route("/api/vendas/registrar", post(registrar_venda_local_handler))
         .route("/api/caixa/abrir", post(registrar_caixa_abrir_handler))
-        .route("/api/caixa/movimento", post(registrar_caixa_movimento_handler))
+        .route(
+            "/api/caixa/movimento",
+            post(registrar_caixa_movimento_handler),
+        )
         .route("/api/caixa/fechar", post(registrar_caixa_fechar_handler))
         .route("/api/caixa/aberto", get(caixa_local_aberto_handler))
         .route("/api/caixa/resumo", get(caixa_resumo_handler))
         .route("/api/caixa/historico", get(caixa_historico_handler))
         .route("/api/caixa/movimentos", get(caixa_movimentos_handler))
         .route("/api/caixa/lancamentos", get(caixa_lancamentos_handler))
-        .route("/api/caixa/regenerar-lancamentos", post(caixa_regenerar_lancamentos_handler))
-        .route("/api/financeiro/lancamentos", get(financeiro_listar_handler))
+        .route(
+            "/api/caixa/regenerar-lancamentos",
+            post(caixa_regenerar_lancamentos_handler),
+        )
+        .route(
+            "/api/financeiro/lancamentos",
+            get(financeiro_listar_handler),
+        )
         .route("/api/financeiro/resumo", get(financeiro_resumo_handler))
-        .route("/api/financeiro/fluxo-caixa", get(financeiro_fluxo_caixa_handler))
+        .route(
+            "/api/financeiro/fluxo-caixa",
+            get(financeiro_fluxo_caixa_handler),
+        )
         .route("/api/financeiro/manual", post(financeiro_manual_handler))
-        .route("/api/financeiro/cancelar", post(financeiro_cancelar_handler))
+        .route(
+            "/api/financeiro/cancelar",
+            post(financeiro_cancelar_handler),
+        )
         .route("/api/relatorios/caixa", get(relatorios_caixa_handler))
-        .route("/api/relatorios/fluxo-caixa", get(relatorios_fluxo_caixa_handler))
+        .route(
+            "/api/relatorios/fluxo-caixa",
+            get(relatorios_fluxo_caixa_handler),
+        )
         .route("/db/outbox/caixa", get(outbox_caixa_list_handler))
         .route("/db/outbox/caixa/stats", get(outbox_caixa_stats_handler))
         .route("/db/outbox/caixa/flush", post(outbox_caixa_flush_handler))
-        .route("/db/outbox/caixa/retry-errors", post(outbox_caixa_retry_errors_handler))
-        .route("/db/outbox/caixa/archive-error", post(outbox_caixa_archive_error_handler))
+        .route(
+            "/db/outbox/caixa/retry-errors",
+            post(outbox_caixa_retry_errors_handler),
+        )
+        .route(
+            "/db/outbox/caixa/archive-error",
+            post(outbox_caixa_archive_error_handler),
+        )
         .route("/api/vendas/cancelar", post(cancelar_venda_local_handler))
         .route("/db/outbox/cancelamentos", get(outbox_cancel_list_handler))
-        .route("/db/outbox/cancelamentos/stats", get(outbox_cancel_stats_handler))
-        .route("/db/outbox/cancelamentos/flush", post(outbox_cancel_flush_handler))
-        .route("/db/outbox/cancelamentos/retry-errors", post(outbox_cancel_retry_errors_handler))
+        .route(
+            "/db/outbox/cancelamentos/stats",
+            get(outbox_cancel_stats_handler),
+        )
+        .route(
+            "/db/outbox/cancelamentos/flush",
+            post(outbox_cancel_flush_handler),
+        )
+        .route(
+            "/db/outbox/cancelamentos/retry-errors",
+            post(outbox_cancel_retry_errors_handler),
+        )
         .route("/db/outbox/financeiro", get(outbox_fin_list_handler))
         .route("/db/outbox/financeiro/stats", get(outbox_fin_stats_handler))
-        .route("/db/outbox/financeiro/flush", post(outbox_fin_flush_handler))
-        .route("/db/outbox/financeiro/retry-errors", post(outbox_fin_retry_errors_handler))
+        .route(
+            "/db/outbox/financeiro/flush",
+            post(outbox_fin_flush_handler),
+        )
+        .route(
+            "/db/outbox/financeiro/retry-errors",
+            post(outbox_fin_retry_errors_handler),
+        )
         .route("/api/clientes/lite", get(clientes_lite_handler))
         .route("/api/clientes/list", get(clientes_local_list_handler))
         .route("/api/clientes/get", get(cliente_local_get_handler))
         .route("/api/clientes/documento", get(cliente_documento_handler))
-        .route("/api/clientes/registrar", post(registrar_cliente_local_handler))
+        .route(
+            "/api/clientes/registrar",
+            post(registrar_cliente_local_handler),
+        )
         .route("/backup/status", get(backup_status_handler))
         .route("/backup/list", get(backup_list_handler))
         .route("/backup/log", get(backup_log_handler))
         .route("/backup/create", post(backup_create_handler))
         .route("/backup/export", post(backup_export_handler))
-        .route("/backup/restore/preflight", get(backup_restore_preflight_handler))
-        .route("/backup/restore/schedule", post(backup_restore_schedule_handler))
-        .route("/backup/restore/cancel", post(backup_restore_cancel_handler))
+        .route(
+            "/backup/restore/preflight",
+            get(backup_restore_preflight_handler),
+        )
+        .route(
+            "/backup/restore/schedule",
+            post(backup_restore_schedule_handler),
+        )
+        .route(
+            "/backup/restore/cancel",
+            post(backup_restore_cancel_handler),
+        )
         .route_layer(middleware::from_fn(require_local_token));
 
-    public
-        .merge(protected)
-        .with_state(ctx)
-        .layer(cors)
+    public.merge(protected).with_state(ctx).layer(cors)
 }
 
 /// Middleware: exige `X-Gestao-Token: <token>` (ou `Authorization: Bearer <token>`)
@@ -4196,17 +4703,14 @@ fn generate_auth_token() -> String {
         .unwrap_or(0);
     let b: usize = (&a as *const _) as usize;
     let c = std::process::id() as u128;
-    let mix1 = a
-        .wrapping_mul(0x9E3779B97F4A7C15)
+    let mix1 = a.wrapping_mul(0x9E3779B97F4A7C15)
         ^ (b as u128).wrapping_mul(0xC2B2AE3D27D4EB4F)
         ^ c.wrapping_mul(0xBF58476D1CE4E5B9);
     let a2 = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let mix2 = a2
-        .wrapping_mul(0x94D049BB133111EB)
-        ^ mix1.rotate_left(33);
+    let mix2 = a2.wrapping_mul(0x94D049BB133111EB) ^ mix1.rotate_left(33);
     format!("gpt_{:032x}{:032x}", mix1, mix2)
 }
 
@@ -4239,7 +4743,12 @@ async fn probe_local_health(port: u16) -> bool {
         Err(_) => return false,
     };
 
-    match client.get(url).header("Accept", "application/json").send().await {
+    match client
+        .get(url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+    {
         Ok(res) if res.status().is_success() => match res.json::<Value>().await {
             Ok(payload) => {
                 payload.get("status").and_then(Value::as_str) == Some("ok")
@@ -4256,7 +4765,9 @@ pub async fn current_status_checked() -> LocalServerStatus {
     let status = current_status();
     if status.running {
         if let Some(port) = status.port {
-            eprintln!("[gestao-pro] local_server::current_status_checked probing /health at port {port}");
+            eprintln!(
+                "[gestao-pro] local_server::current_status_checked probing /health at port {port}"
+            );
             if !probe_local_health(port).await {
                 eprintln!(
                     "[gestao-pro] local_server_status: probe /health falhou na porta {port}; mantendo estado do daemon como running"
@@ -4266,7 +4777,10 @@ pub async fn current_status_checked() -> LocalServerStatus {
             }
         }
     }
-    eprintln!("[gestao-pro] local_server::current_status_checked END running={} port={:?}", status.running, status.port);
+    eprintln!(
+        "[gestao-pro] local_server::current_status_checked END running={} port={:?}",
+        status.running, status.port
+    );
     status
 }
 
@@ -4278,16 +4792,30 @@ pub async fn start(
     upstream_anon_key: Option<String>,
     auth_token: Option<String>,
 ) -> Result<LocalServerStatus, String> {
+    eprintln!("[START REQUEST] port={port}");
+    if SERVER_STOP_IN_PROGRESS.load(Ordering::Acquire) {
+        eprintln!("[START REJECTED_ALREADY_RUNNING] port={port} reason=stop_in_progress");
+        return Err("STOP_IN_PROGRESS: o servidor local esta sendo encerrado.".into());
+    }
+    if SERVER_START_IN_PROGRESS
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        eprintln!("[START REJECTED_ALREADY_RUNNING] port={port}");
+        return Err("START_IN_PROGRESS: o servidor local ja esta sendo iniciado.".into());
+    }
+    let _start_guard = StartGuard;
+    eprintln!("[START ACCEPTED] port={port}");
+
     let upstream = match (upstream_url, upstream_anon_key) {
-        (Some(url), Some(key)) if !url.is_empty() && !key.is_empty() => {
-            Some(UpstreamConfig { base_url: url, anon_key: key })
-        }
+        (Some(url), Some(key)) if !url.is_empty() && !key.is_empty() => Some(UpstreamConfig {
+            base_url: url,
+            anon_key: key,
+        }),
         _ => None,
     };
 
-    let host = hostname::get()
-        .ok()
-        .and_then(|s| s.into_string().ok());
+    let host = hostname::get().ok().and_then(|s| s.into_string().ok());
 
     // Resolve o token: usa o vindo do frontend (persistido na Tauri Store),
     // ou gera um novo se for a primeira execução. Token vazio nunca é aceito.
@@ -4298,7 +4826,11 @@ pub async fn start(
 
     let running_port = {
         let s = STATE.lock().map_err(|e| e.to_string())?;
-        if s.running { s.port } else { None }
+        if s.running {
+            s.port
+        } else {
+            None
+        }
     };
     if let Some(active_port) = running_port {
         if active_port == port && probe_local_health(active_port).await {
@@ -4318,9 +4850,7 @@ pub async fn start(
                 s.hostname = host.clone();
             }
             // Não troca o token se já está rodando — evita derrubar terminais.
-            eprintln!(
-                "[gestao-pro] start: existing server confirmed port={active_port}"
-            );
+            eprintln!("[gestao-pro] start: existing server confirmed port={active_port}");
             return Ok(LocalServerStatus {
                 running: true,
                 port: s.port,
@@ -4338,7 +4868,7 @@ pub async fn start(
         eprintln!(
             "[gestao-pro] start: replacing server state active_port={active_port} requested_port={port}"
         );
-        let _ = stop();
+        stop_internal().await?;
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
 
@@ -4376,9 +4906,7 @@ pub async fn start(
         Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
             eprintln!("[gestao-pro] start: port in use port={port}; probing /health");
             if probe_local_health(port).await {
-                eprintln!(
-                    "[gestao-pro] start: existing Gestao Pro server adopted port={port}"
-                );
+                eprintln!("[gestao-pro] start: existing Gestao Pro server adopted port={port}");
                 let mut s = STATE.lock().map_err(|e| e.to_string())?;
                 s.running = true;
                 s.port = Some(port);
@@ -4399,17 +4927,23 @@ pub async fn start(
         Err(error) => return Err(format!("Falha ao abrir porta {port}: {error}")),
     };
 
+    if SERVER_GENERATION.load(Ordering::Acquire) > 0 {
+        RESTART_COUNT.fetch_add(1, Ordering::Relaxed);
+    }
+    let generation = SERVER_GENERATION.fetch_add(1, Ordering::AcqRel) + 1;
+    eprintln!("[GENERATION CREATED] generation={generation}");
+
     let (tx, rx) = oneshot::channel::<()>();
 
-    handle.spawn(async move {
+    let server_handle = handle.spawn(async move {
         let _ = axum::serve(
             listener,
             app.into_make_service_with_connect_info::<SocketAddr>(),
         )
-            .with_graceful_shutdown(async {
-                let _ = rx.await;
-            })
-            .await;
+        .with_graceful_shutdown(async {
+            let _ = rx.await;
+        })
+        .await;
     });
 
     // Background scheduler para a outbox de estoque — cancelável via
@@ -4424,8 +4958,8 @@ pub async fn start(
             .map_err(|e| format!("Falha ao criar HTTP client (scheduler): {e}"))?,
         user_jwt: user_jwt.clone(),
     };
-    handle.spawn(async move {
-        run_outbox_scheduler(scheduler_ctx, scheduler_rx).await;
+    let scheduler_handle = spawn_scheduler(&handle, "estoque", generation, async move {
+        run_outbox_scheduler(scheduler_ctx, scheduler_rx, generation).await
     });
 
     let (clientes_scheduler_tx, clientes_scheduler_rx) = oneshot::channel::<()>();
@@ -4437,8 +4971,8 @@ pub async fn start(
             .map_err(|e| format!("Falha ao criar HTTP client (clientes scheduler): {e}"))?,
         user_jwt: user_jwt.clone(),
     };
-    handle.spawn(async move {
-        run_outbox_clientes_scheduler(clientes_ctx, clientes_scheduler_rx).await;
+    let clientes_scheduler_handle = spawn_scheduler(&handle, "clientes", generation, async move {
+        run_outbox_clientes_scheduler(clientes_ctx, clientes_scheduler_rx, generation).await
     });
 
     // Scheduler paralelo para a outbox de VENDAS — mesma política de
@@ -4452,8 +4986,8 @@ pub async fn start(
             .map_err(|e| format!("Falha ao criar HTTP client (vendas scheduler): {e}"))?,
         user_jwt: user_jwt.clone(),
     };
-    handle.spawn(async move {
-        run_outbox_vendas_scheduler(vendas_ctx, vendas_scheduler_rx).await;
+    let vendas_scheduler_handle = spawn_scheduler(&handle, "vendas", generation, async move {
+        run_outbox_vendas_scheduler(vendas_ctx, vendas_scheduler_rx, generation).await
     });
 
     // Scheduler paralelo para a outbox de CAIXA — mesma política.
@@ -4466,8 +5000,8 @@ pub async fn start(
             .map_err(|e| format!("Falha ao criar HTTP client (caixa scheduler): {e}"))?,
         user_jwt: user_jwt.clone(),
     };
-    handle.spawn(async move {
-        run_outbox_caixa_scheduler(caixa_ctx, caixa_scheduler_rx).await;
+    let caixa_scheduler_handle = spawn_scheduler(&handle, "caixa", generation, async move {
+        run_outbox_caixa_scheduler(caixa_ctx, caixa_scheduler_rx, generation).await
     });
 
     // Scheduler paralelo para a outbox de CANCELAMENTOS — depende causalmente
@@ -4482,9 +5016,10 @@ pub async fn start(
             .map_err(|e| format!("Falha ao criar HTTP client (cancel scheduler): {e}"))?,
         user_jwt: user_jwt.clone(),
     };
-    handle.spawn(async move {
-        run_outbox_cancel_scheduler(cancel_ctx, cancel_scheduler_rx).await;
-    });
+    let cancel_scheduler_handle =
+        spawn_scheduler(&handle, "cancelamentos", generation, async move {
+            run_outbox_cancel_scheduler(cancel_ctx, cancel_scheduler_rx, generation).await
+        });
 
     // Scheduler paralelo para a outbox FINANCEIRA (lançamentos manuais).
     let (fin_scheduler_tx, fin_scheduler_rx) = oneshot::channel::<()>();
@@ -4496,16 +5031,15 @@ pub async fn start(
             .map_err(|e| format!("Falha ao criar HTTP client (fin scheduler): {e}"))?,
         user_jwt: user_jwt.clone(),
     };
-    handle.spawn(async move {
-        run_outbox_financeiro_scheduler(fin_ctx, fin_scheduler_rx).await;
+    let fin_scheduler_handle = spawn_scheduler(&handle, "financeiro", generation, async move {
+        run_outbox_financeiro_scheduler(fin_ctx, fin_scheduler_rx, generation).await
     });
-
 
     // Scheduler de backup automático local. Roda 1× por dia, no máximo,
     // controlado por timestamp em meta. Não depende de upstream.
     let (backup_scheduler_tx, backup_scheduler_rx) = oneshot::channel::<()>();
-    handle.spawn(async move {
-        backup::run_backup_scheduler(backup_scheduler_rx).await;
+    let backup_scheduler_handle = spawn_scheduler(&handle, "backup", generation, async move {
+        backup::run_backup_scheduler(backup_scheduler_rx, generation).await
     });
 
     {
@@ -4517,6 +5051,7 @@ pub async fn start(
         s.server_id = server_id;
         s.hostname = host;
         s.shutdown_tx = Some(tx);
+        s.server_handle = Some(server_handle);
         s.scheduler_shutdown_tx = Some(scheduler_tx);
         s.clientes_scheduler_shutdown_tx = Some(clientes_scheduler_tx);
         s.vendas_scheduler_shutdown_tx = Some(vendas_scheduler_tx);
@@ -4524,6 +5059,15 @@ pub async fn start(
         s.cancel_scheduler_shutdown_tx = Some(cancel_scheduler_tx);
         s.fin_scheduler_shutdown_tx = Some(fin_scheduler_tx);
         s.backup_scheduler_shutdown_tx = Some(backup_scheduler_tx);
+        s.scheduler_handles = vec![
+            scheduler_handle,
+            clientes_scheduler_handle,
+            vendas_scheduler_handle,
+            caixa_scheduler_handle,
+            cancel_scheduler_handle,
+            fin_scheduler_handle,
+            backup_scheduler_handle,
+        ];
         s.upstream = upstream;
         s.terminals.clear();
         s.auth_token = Some(resolved_token);
@@ -4532,9 +5076,35 @@ pub async fn start(
     Ok(current_status())
 }
 
-pub fn stop() -> Result<LocalServerStatus, String> {
-    eprintln!("[gestao-pro] local_server::stop: encerrando backend local");
-    let (tx_opt, sched_opt, clientes_sched_opt, vendas_sched_opt, caixa_sched_opt, cancel_sched_opt, fin_sched_opt, backup_sched_opt) = {
+pub async fn stop() -> Result<LocalServerStatus, String> {
+    if SERVER_STOP_IN_PROGRESS
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return Err("STOP_IN_PROGRESS: o servidor local ja esta sendo encerrado.".into());
+    }
+    let _stop_guard = StopGuard;
+    while SERVER_START_IN_PROGRESS.load(Ordering::Acquire) {
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    stop_internal().await
+}
+
+async fn stop_internal() -> Result<LocalServerStatus, String> {
+    eprintln!("[STOP BEGIN]");
+    let (
+        tx_opt,
+        sched_opt,
+        clientes_sched_opt,
+        vendas_sched_opt,
+        caixa_sched_opt,
+        cancel_sched_opt,
+        fin_sched_opt,
+        backup_sched_opt,
+        server_handle,
+        mut scheduler_handles,
+        generation,
+    ) = {
         let mut s = STATE.lock().map_err(|e| e.to_string())?;
         s.running = false;
         s.port = None;
@@ -4550,16 +5120,70 @@ pub fn stop() -> Result<LocalServerStatus, String> {
             s.cancel_scheduler_shutdown_tx.take(),
             s.fin_scheduler_shutdown_tx.take(),
             s.backup_scheduler_shutdown_tx.take(),
+            s.server_handle.take(),
+            std::mem::take(&mut s.scheduler_handles),
+            SERVER_GENERATION.load(Ordering::Acquire),
         )
     };
-    if let Some(tx) = tx_opt { let _ = tx.send(()); }
-    if let Some(tx) = sched_opt { let _ = tx.send(()); }
-    if let Some(tx) = clientes_sched_opt { let _ = tx.send(()); }
-    if let Some(tx) = vendas_sched_opt { let _ = tx.send(()); }
-    if let Some(tx) = caixa_sched_opt { let _ = tx.send(()); }
-    if let Some(tx) = cancel_sched_opt { let _ = tx.send(()); }
-    if let Some(tx) = fin_sched_opt { let _ = tx.send(()); }
-    if let Some(tx) = backup_sched_opt { let _ = tx.send(()); }
+    if let Some(tx) = tx_opt {
+        let _ = tx.send(());
+    }
+    if let Some(tx) = sched_opt {
+        let _ = tx.send(());
+    }
+    if let Some(tx) = clientes_sched_opt {
+        let _ = tx.send(());
+    }
+    if let Some(tx) = vendas_sched_opt {
+        let _ = tx.send(());
+    }
+    if let Some(tx) = caixa_sched_opt {
+        let _ = tx.send(());
+    }
+    if let Some(tx) = cancel_sched_opt {
+        let _ = tx.send(());
+    }
+    if let Some(tx) = fin_sched_opt {
+        let _ = tx.send(());
+    }
+    if let Some(tx) = backup_sched_opt {
+        let _ = tx.send(());
+    }
+    if generation > 0 {
+        SERVER_GENERATION.fetch_add(1, Ordering::AcqRel);
+    }
+
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+    while scheduler_handles
+        .iter()
+        .any(|task| !task.handle.is_finished())
+        && tokio::time::Instant::now() < deadline
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    for task in &scheduler_handles {
+        if !task.handle.is_finished() {
+            eprintln!(
+                "[SCHEDULER STOP] name={} generation={} forced=true",
+                task.name, task.generation
+            );
+            task.handle.abort();
+        }
+    }
+    for task in scheduler_handles.drain(..) {
+        let _ = task.handle.await;
+    }
+    if let Some(handle) = server_handle {
+        if !handle.is_finished() {
+            handle.abort();
+        }
+        let _ = handle.await;
+    }
+    ACTIVE_SCHEDULERS.store(0, Ordering::Release);
+    if generation > 0 {
+        eprintln!("[GENERATION TERMINATED] generation={generation}");
+    }
+    eprintln!("[STOP COMPLETE] active_schedulers=0");
     Ok(current_status())
 }
 
@@ -4609,9 +5233,7 @@ async fn cancelar_venda_local_handler(
     let mut outbox_status = r.outbox_status.clone();
     let mut remote_response: Option<String> = None;
     if !r.idempotente && ctx.upstream.is_some() {
-        if let Ok(resp) =
-            push_one_outbox_cancel(&ctx, &headers, &r.cancelamento_local_uuid).await
-        {
+        if let Ok(resp) = push_one_outbox_cancel(&ctx, &headers, &r.cancelamento_local_uuid).await {
             outbox_status = "sent".into();
             remote_response = Some(resp);
         }
@@ -4655,9 +5277,8 @@ async fn push_one_outbox_cancel(
         Some(s) if !s.is_empty() => s,
         _ => {
             // Re-agenda: aguardando venda original ser sincronizada.
-            let _ = db::outbox_cancel_mark_error(
-                local_uuid, "aguardando sync da venda original", now,
-            );
+            let _ =
+                db::outbox_cancel_mark_error(local_uuid, "aguardando sync da venda original", now);
             return Err("venda original ainda não sincronizada".into());
         }
     };
@@ -4677,7 +5298,9 @@ async fn push_one_outbox_cancel(
         .into_iter()
         .find(|i| i.local_uuid == local_uuid)
         .ok_or("cancelamento não encontrado na outbox")?;
-    if item.status == "sent" { return Ok(String::new()); }
+    if item.status == "sent" {
+        return Ok(String::new());
+    }
 
     let auth = match resolve_user_jwt(&ctx.user_jwt, headers) {
         Some(a) => a,
@@ -4701,13 +5324,16 @@ async fn push_one_outbox_cancel(
         "{}/rest/v1/rpc/cancelar_venda",
         upstream.base_url.trim_end_matches('/')
     );
-    let resp = ctx.http.post(&url)
+    let resp = ctx
+        .http
+        .post(&url)
         .header("apikey", &upstream.anon_key)
         .header(axum::http::header::AUTHORIZATION, auth)
         .header(axum::http::header::CONTENT_TYPE, "application/json")
         .header(axum::http::header::ACCEPT, "application/json")
         .json(&body)
-        .send().await
+        .send()
+        .await
         .map_err(|e| {
             let msg = format!("rede: {e}");
             let _ = db::outbox_cancel_mark_error(local_uuid, &msg, now);
@@ -4719,13 +5345,16 @@ async fn push_one_outbox_cancel(
         // Aceita "venda já cancelada" como sucesso idempotente do upstream.
         let lower = text.to_lowercase();
         if lower.contains("já cancelada") || lower.contains("already") {
-            db::outbox_cancel_mark_sent(local_uuid, &text, now)
-                .map_err(|e| e.to_string())?;
+            db::outbox_cancel_mark_sent(local_uuid, &text, now).map_err(|e| e.to_string())?;
             return Ok(text);
         }
         if status.as_u16() == 401 || status.as_u16() == 403 {
             clear_user_jwt(&ctx.user_jwt);
-            let msg = format!("AUTH: upstream rejeitou JWT (HTTP {}): {}", status.as_u16(), text);
+            let msg = format!(
+                "AUTH: upstream rejeitou JWT (HTTP {}): {}",
+                status.as_u16(),
+                text
+            );
             let _ = db::outbox_cancel_mark_error(local_uuid, &msg, now);
             return Err(msg);
         }
@@ -4742,7 +5371,8 @@ async fn outbox_cancel_stats_handler(
     headers: HeaderMap,
 ) -> Result<Json<db::OutboxCancelStats>, (StatusCode, String)> {
     let owner_id = require_owner_id(&ctx, &headers)?;
-    db::outbox_cancel_stats(&owner_id).map(Json)
+    db::outbox_cancel_stats(&owner_id)
+        .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
@@ -4758,11 +5388,17 @@ async fn outbox_cancel_list_handler(
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<OutboxCancelListResponse>, (StatusCode, String)> {
     let owner_id = require_owner_id(&ctx, &headers)?;
-    let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(200);
+    let limit = q
+        .get("limit")
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(200);
     let status = q.get("status").map(|s| s.as_str());
     let items = db::outbox_cancel_list(&owner_id, limit, status)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(Json(OutboxCancelListResponse { total: items.len(), items }))
+    Ok(Json(OutboxCancelListResponse {
+        total: items.len(),
+        items,
+    }))
 }
 
 async fn outbox_cancel_flush_handler(
@@ -4778,10 +5414,18 @@ async fn outbox_cancel_flush_handler(
     for it in &pending {
         match push_one_outbox_cancel(&ctx, &headers, &it.local_uuid).await {
             Ok(_) => sent += 1,
-            Err(e) => { failed += 1; errors.push(format!("{}: {}", it.local_uuid, e)); }
+            Err(e) => {
+                failed += 1;
+                errors.push(format!("{}: {}", it.local_uuid, e));
+            }
         }
     }
-    Ok(Json(FlushResponse { attempted: pending.len(), sent, failed, errors }))
+    Ok(Json(FlushResponse {
+        attempted: pending.len(),
+        sent,
+        failed,
+        errors,
+    }))
 }
 
 async fn outbox_cancel_retry_errors_handler(
@@ -4797,6 +5441,7 @@ async fn outbox_cancel_retry_errors_handler(
 async fn run_outbox_cancel_scheduler(
     ctx: AppCtx,
     mut shutdown_rx: oneshot::Receiver<()>,
+    generation: u64,
 ) {
     eprintln!("[gestao-pro] outbox cancelamentos scheduler: iniciado");
     if !scheduler_initial_delay(&mut shutdown_rx, 6_000, "outbox cancelamentos scheduler").await {
@@ -4810,15 +5455,25 @@ async fn run_outbox_cancel_scheduler(
                 break;
             }
         }
-        if ctx.upstream.is_none() { continue; }
+        if !is_generation_current(generation) {
+            break;
+        }
+        if ctx.upstream.is_none() {
+            continue;
+        }
         let Some(owner_id) = cached_owner_id(&ctx, "outbox cancelamentos scheduler") else {
             continue;
         };
         let pending = match db::outbox_cancel_pending_batch(&owner_id, SCHEDULER_BATCH) {
             Ok(p) => p,
-            Err(e) => { eprintln!("[gestao-pro] outbox cancel: batch err: {e}"); continue; }
+            Err(e) => {
+                eprintln!("[gestao-pro] outbox cancel: batch err: {e}");
+                continue;
+            }
         };
-        if pending.is_empty() { continue; }
+        if pending.is_empty() {
+            continue;
+        }
         let empty = HeaderMap::new();
         for it in &pending {
             let _ = push_one_outbox_cancel(&ctx, &empty, &it.local_uuid).await;
@@ -4841,7 +5496,9 @@ async fn push_one_outbox_financeiro(
     let item = db::outbox_financeiro_get(local_uuid)
         .map_err(|e| e.to_string())?
         .ok_or("item não encontrado na outbox financeira")?;
-    if item.status == "sent" { return Ok(item.remote_id.unwrap_or_default()); }
+    if item.status == "sent" {
+        return Ok(item.remote_id.unwrap_or_default());
+    }
 
     let payload: serde_json::Value =
         serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
@@ -4855,7 +5512,12 @@ async fn push_one_outbox_financeiro(
         }
     };
     let owner_id = jwt_subject(&auth).ok_or("AUTH: JWT sem sub/owner_id")?;
-    ensure_item_owner("financeiro", local_uuid, item.owner_id.as_deref(), &owner_id)?;
+    ensure_item_owner(
+        "financeiro",
+        local_uuid,
+        item.owner_id.as_deref(),
+        &owner_id,
+    )?;
 
     db::outbox_financeiro_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
 
@@ -4863,13 +5525,16 @@ async fn push_one_outbox_financeiro(
         "{}/rest/v1/rpc/criar_lancamento_avulso",
         upstream.base_url.trim_end_matches('/')
     );
-    let resp = ctx.http.post(&url)
+    let resp = ctx
+        .http
+        .post(&url)
         .header("apikey", &upstream.anon_key)
         .header(axum::http::header::AUTHORIZATION, auth)
         .header(axum::http::header::CONTENT_TYPE, "application/json")
         .header(axum::http::header::ACCEPT, "application/json")
         .json(&payload)
-        .send().await
+        .send()
+        .await
         .map_err(|e| {
             let msg = format!("rede: {e}");
             let _ = db::outbox_financeiro_mark_error(local_uuid, &msg, now);
@@ -4880,14 +5545,19 @@ async fn push_one_outbox_financeiro(
     if !status.is_success() {
         let lower = text.to_lowercase();
         // Idempotência: lançamento já criado anteriormente.
-        if lower.contains("already") || lower.contains("já existe") || lower.contains("duplicate") {
+        if lower.contains("already") || lower.contains("já existe") || lower.contains("duplicate")
+        {
             db::outbox_financeiro_mark_sent(local_uuid, "", &text, now)
                 .map_err(|e| e.to_string())?;
             return Ok(text);
         }
         if status.as_u16() == 401 || status.as_u16() == 403 {
             clear_user_jwt(&ctx.user_jwt);
-            let msg = format!("AUTH: upstream rejeitou JWT (HTTP {}): {}", status.as_u16(), text);
+            let msg = format!(
+                "AUTH: upstream rejeitou JWT (HTTP {}): {}",
+                status.as_u16(),
+                text
+            );
             let _ = db::outbox_financeiro_mark_error(local_uuid, &msg, now);
             return Err(msg);
         }
@@ -4895,8 +5565,7 @@ async fn push_one_outbox_financeiro(
         let _ = db::outbox_financeiro_mark_error(local_uuid, &msg, now);
         return Err(msg);
     }
-    let parsed: serde_json::Value =
-        serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
     let remote_id = if let Some(s) = parsed.as_str() {
         s.to_string()
     } else if let Some(s) = parsed.get("id").and_then(|v| v.as_str()) {
@@ -4914,7 +5583,8 @@ async fn outbox_fin_stats_handler(
     headers: HeaderMap,
 ) -> Result<Json<db::OutboxFinanceiroStats>, (StatusCode, String)> {
     let owner_id = require_owner_id(&ctx, &headers)?;
-    db::outbox_financeiro_stats(&owner_id).map(Json)
+    db::outbox_financeiro_stats(&owner_id)
+        .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
@@ -4930,11 +5600,17 @@ async fn outbox_fin_list_handler(
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<OutboxFinListResponse>, (StatusCode, String)> {
     let owner_id = require_owner_id(&ctx, &headers)?;
-    let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(200);
+    let limit = q
+        .get("limit")
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(200);
     let status = q.get("status").map(|s| s.as_str());
     let items = db::outbox_financeiro_list(&owner_id, limit, status)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(Json(OutboxFinListResponse { total: items.len(), items }))
+    Ok(Json(OutboxFinListResponse {
+        total: items.len(),
+        items,
+    }))
 }
 
 async fn outbox_fin_flush_handler(
@@ -4950,13 +5626,25 @@ async fn outbox_fin_flush_handler(
     for it in &pending {
         match push_one_outbox_financeiro(&ctx, &headers, &it.local_uuid).await {
             Ok(_) => sent += 1,
-            Err(e) => { failed += 1; errors.push(format!("{}: {}", it.local_uuid, e)); }
+            Err(e) => {
+                failed += 1;
+                errors.push(format!("{}: {}", it.local_uuid, e));
+            }
         }
     }
     let _ = db::outbox_financeiro_record_flush_round(
-        "manual", now_ms(), pending.len() as i64, sent as i64, failed as i64,
+        "manual",
+        now_ms(),
+        pending.len() as i64,
+        sent as i64,
+        failed as i64,
     );
-    Ok(Json(FlushResponse { attempted: pending.len(), sent, failed, errors }))
+    Ok(Json(FlushResponse {
+        attempted: pending.len(),
+        sent,
+        failed,
+        errors,
+    }))
 }
 
 async fn outbox_fin_retry_errors_handler(
@@ -4972,6 +5660,7 @@ async fn outbox_fin_retry_errors_handler(
 async fn run_outbox_financeiro_scheduler(
     ctx: AppCtx,
     mut shutdown_rx: oneshot::Receiver<()>,
+    generation: u64,
 ) {
     eprintln!("[gestao-pro] outbox financeiro scheduler: iniciado");
     if !scheduler_initial_delay(&mut shutdown_rx, 8_000, "outbox financeiro scheduler").await {
@@ -4985,6 +5674,9 @@ async fn run_outbox_financeiro_scheduler(
                 break;
             }
         }
+        if !is_generation_current(generation) {
+            break;
+        }
         if ctx.upstream.is_none() {
             let _ = db::outbox_financeiro_record_flush_round("auto", now_ms(), 0, 0, 0);
             continue;
@@ -4995,7 +5687,10 @@ async fn run_outbox_financeiro_scheduler(
         };
         let pending = match db::outbox_financeiro_pending_batch(&owner_id, SCHEDULER_BATCH) {
             Ok(p) => p,
-            Err(e) => { eprintln!("[gestao-pro] outbox financeiro: batch err: {e}"); continue; }
+            Err(e) => {
+                eprintln!("[gestao-pro] outbox financeiro: batch err: {e}");
+                continue;
+            }
         };
         if pending.is_empty() {
             let _ = db::outbox_financeiro_record_flush_round("auto", now_ms(), 0, 0, 0);
@@ -5011,12 +5706,18 @@ async fn run_outbox_financeiro_scheduler(
             }
         }
         let _ = db::outbox_financeiro_record_flush_round(
-            "auto", now_ms(), pending.len() as i64, sent, failed,
+            "auto",
+            now_ms(),
+            pending.len() as i64,
+            sent,
+            failed,
         );
         if sent > 0 || failed > 0 {
             eprintln!(
                 "[gestao-pro] outbox financeiro auto-flush: attempted={} sent={} failed={}",
-                pending.len(), sent, failed,
+                pending.len(),
+                sent,
+                failed,
             );
         }
     }
@@ -5049,17 +5750,20 @@ async fn backup_status_handler() -> Result<Json<backup::BackupStatus>, (StatusCo
 }
 
 async fn backup_list_handler() -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let files = backup::list_backup_files()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))?;
+    let files =
+        backup::list_backup_files().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))?;
     Ok(Json(serde_json::json!({ "files": files })))
 }
 
 async fn backup_log_handler(
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let limit = q.get("limit").and_then(|s| s.parse::<i64>().ok()).unwrap_or(50);
-    let entries = backup::recent_log(limit)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))?;
+    let limit = q
+        .get("limit")
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(50);
+    let entries =
+        backup::recent_log(limit).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))?;
     Ok(Json(serde_json::json!({ "entries": entries })))
 }
 
@@ -5112,7 +5816,7 @@ async fn backup_restore_schedule_handler(
 }
 
 async fn backup_restore_cancel_handler() -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let cancelled = backup::cancel_restore()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))?;
+    let cancelled =
+        backup::cancel_restore().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))?;
     Ok(Json(serde_json::json!({ "cancelled": cancelled })))
 }

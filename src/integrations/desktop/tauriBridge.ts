@@ -45,6 +45,11 @@ type TauriInvoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T
 
 let cachedInvoke: TauriInvoke | null = null;
 let lastLocalServerStatus: LocalServerStatus | null = null;
+let nativeStartInFlight: Promise<LocalServerStatus> | null = null;
+
+export function isLocalServerStartInProgress(): boolean {
+  return nativeStartInFlight !== null;
+}
 
 function withTimeout<T>(
   promise: Promise<T>,
@@ -131,14 +136,30 @@ export async function startLocalServer(
     }
     return STATUS_OFF;
   }
-  const startPromise = invoke<LocalServerStatus>("start_local_server", {
-    port: opts.port,
-    serverName: opts.serverName,
-    serverId: opts.serverId ?? null,
-    upstreamUrl: opts.upstreamUrl ?? null,
-    upstreamAnonKey: opts.upstreamAnonKey ?? null,
-    authToken: opts.authToken ?? null,
-  });
+  if (!nativeStartInFlight) {
+    console.info("[START REQUEST]", { port: opts.port });
+    const invoked = invoke<LocalServerStatus>("start_local_server", {
+      port: opts.port,
+      serverName: opts.serverName,
+      serverId: opts.serverId ?? null,
+      upstreamUrl: opts.upstreamUrl ?? null,
+      upstreamAnonKey: opts.upstreamAnonKey ?? null,
+      authToken: opts.authToken ?? null,
+    });
+    const tracked = invoked
+      .then((status) => {
+        lastLocalServerStatus = status;
+        return status;
+      })
+      .finally(() => {
+        nativeStartInFlight = null;
+      });
+    nativeStartInFlight = tracked;
+    console.info("[START ACCEPTED]", { port: opts.port });
+  } else {
+    console.warn("[START REJECTED_ALREADY_RUNNING]", { port: opts.port });
+  }
+  const startPromise = nativeStartInFlight!;
   const status = await withTimeout(
     startPromise,
     12_000,

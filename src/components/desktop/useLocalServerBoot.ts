@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useDesktopRole } from "./DesktopRoleProvider";
 import {
+  isLocalServerStartInProgress,
   startLocalServer,
   stopLocalServer,
   type LocalServerStatus,
@@ -132,6 +133,10 @@ async function doStart(
 ): Promise<LocalServerStatus | null> {
   if (!isDesktop()) return null;
   if (STATE.starting && !opts.allowWhileStarting) return STATE.lastStatus;
+  if (isLocalServerStartInProgress()) {
+    console.warn("[START REJECTED_ALREADY_RUNNING]", { port: opts.port });
+    return STATE.lastStatus;
+  }
 
   STATE.starting = true;
   STATE.action = action;

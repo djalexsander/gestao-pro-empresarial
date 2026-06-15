@@ -986,9 +986,7 @@ pub fn verify_authorized_user(email: &str, password: &str) -> DbResult<Option<Au
             })
             .optional()?;
         if let Some((user_id, email, password_hash, synced_at_ms)) = row {
-            if bcrypt::verify(password, &password_hash)
-                .map_err(|e| DbError(e.to_string()))?
-            {
+            if bcrypt::verify(password, &password_hash).map_err(|e| DbError(e.to_string()))? {
                 return Ok(Some(AuthorizedUserRow {
                     user_id,
                     email,
@@ -1320,13 +1318,7 @@ pub fn cache_get(domain: &str, key: &str, now_ms: i64) -> DbResult<Option<String
     })
 }
 
-pub fn cache_put(
-    domain: &str,
-    key: &str,
-    payload: &str,
-    now_ms: i64,
-    ttl_ms: i64,
-) -> DbResult<()> {
+pub fn cache_put(domain: &str, key: &str, payload: &str, now_ms: i64, ttl_ms: i64) -> DbResult<()> {
     with_conn(|conn| {
         conn.execute(
             "INSERT INTO cache_kv(domain, cache_key, payload, stored_at_ms, expires_at_ms)
@@ -1395,9 +1387,7 @@ pub fn db_info() -> DbResult<DbInfo> {
 // Os símbolos continuam disponíveis dentro deste módulo via `use helpers::*`
 // abaixo, sem mudar assinaturas nem comportamento.
 mod helpers;
-use helpers::{
-    backoff_ms_for_attempts, iso_from_ms_z_pub, json_f64, json_str, parse_iso_to_ms,
-};
+use helpers::{backoff_ms_for_attempts, iso_from_ms_z_pub, json_f64, json_str, parse_iso_to_ms};
 
 #[derive(Debug, Serialize)]
 pub struct DomainStat {
@@ -1431,8 +1421,14 @@ pub fn get_domain_sync_state(domain: &str) -> DbResult<DomainSyncState> {
             )
             .optional()?;
         Ok(match row {
-            Some((c, s)) => DomainSyncState { last_remote_cursor_ms: c, last_strategy: s },
-            None => DomainSyncState { last_remote_cursor_ms: None, last_strategy: None },
+            Some((c, s)) => DomainSyncState {
+                last_remote_cursor_ms: c,
+                last_strategy: s,
+            },
+            None => DomainSyncState {
+                last_remote_cursor_ms: None,
+                last_strategy: None,
+            },
         })
     })
 }
@@ -1458,16 +1454,13 @@ pub struct DomainMetaUpdate<'a> {
     pub domain: &'a str,
     pub row_count: i64,
     pub now_ms: i64,
-    pub source: &'a str,        // "upstream" | "manual"
-    pub strategy: &'a str,      // "snapshot" | "incremental" | "append"
+    pub source: &'a str,   // "upstream" | "manual"
+    pub strategy: &'a str, // "snapshot" | "incremental" | "append"
     pub delta_count: i64,
     pub max_remote_updated_ms: Option<i64>,
 }
 
-fn upsert_domain_meta(
-    conn: &Connection,
-    upd: DomainMetaUpdate<'_>,
-) -> rusqlite::Result<()> {
+fn upsert_domain_meta(conn: &Connection, upd: DomainMetaUpdate<'_>) -> rusqlite::Result<()> {
     // Avança o cursor monotonicamente — nunca retrocede.
     conn.execute(
         "INSERT INTO domain_sync_meta(domain, last_synced_ms, row_count, last_source,
@@ -1600,18 +1593,21 @@ pub fn ingest_produtos(
                 // Tombstone aplicado APENAS em modo incremental — em snapshot
                 // não temos como diferenciar "não retornou" de "removido", e
                 // status pode aparecer como "inativo" sem ser deleção.
-                let deleted_at_ms = if strategy == IngestStrategy::Incremental
-                    && is_tombstoned_status(status)
-                {
-                    Some(now_ms)
-                } else {
-                    None::<i64>
-                };
+                let deleted_at_ms =
+                    if strategy == IngestStrategy::Incremental && is_tombstoned_status(status) {
+                        Some(now_ms)
+                    } else {
+                        None::<i64>
+                    };
                 let mut item_with_owner = item.clone();
                 if let Some(obj) = item_with_owner.as_object_mut() {
-                    obj.insert("owner_id".into(), serde_json::Value::String(owner_id.to_string()));
+                    obj.insert(
+                        "owner_id".into(),
+                        serde_json::Value::String(owner_id.to_string()),
+                    );
                 }
-                let payload = serde_json::to_string(&item_with_owner).unwrap_or_else(|_| "{}".into());
+                let payload =
+                    serde_json::to_string(&item_with_owner).unwrap_or_else(|_| "{}".into());
                 stmt.execute(params![
                     id,
                     owner_id,
@@ -1630,21 +1626,23 @@ pub fn ingest_produtos(
                 count += 1;
             }
         }
-        let total: i64 =
-            tx.query_row(
-                "SELECT COUNT(*) FROM produtos_local WHERE owner_id=?1 AND deleted_at_ms IS NULL",
-                params![owner_id],
-                |r| r.get(0),
-            )?;
-        upsert_domain_meta(&tx, DomainMetaUpdate {
-            domain: "produtos",
-            row_count: total,
-            now_ms,
-            source: "upstream",
-            strategy: strategy.as_str(),
-            delta_count: count as i64,
-            max_remote_updated_ms: max_remote_ms,
-        })?;
+        let total: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM produtos_local WHERE owner_id=?1 AND deleted_at_ms IS NULL",
+            params![owner_id],
+            |r| r.get(0),
+        )?;
+        upsert_domain_meta(
+            &tx,
+            DomainMetaUpdate {
+                domain: "produtos",
+                row_count: total,
+                now_ms,
+                source: "upstream",
+                strategy: strategy.as_str(),
+                delta_count: count as i64,
+                max_remote_updated_ms: max_remote_ms,
+            },
+        )?;
         tx.commit()?;
         Ok((count, max_remote_ms))
     })
@@ -1802,87 +1800,81 @@ pub fn adopt_legacy_ownerless_data(owner_id: &str) -> DbResult<bool> {
     with_conn(|conn| adopt_legacy_ownerless_data_with_conn(conn, owner_id))
 }
 
-fn adopt_legacy_ownerless_data_with_conn(
-    conn: &Connection,
-    owner_id: &str,
-) -> DbResult<bool> {
-        let owner_tables = [
-            "produtos_local",
-            "clientes_local",
-            "estoque_saldos_local",
-            "estoque_movimentacoes_local",
-            "vendas_local",
-            "venda_itens_local",
-            "venda_pagamentos_local",
-            "caixa_local",
-            "caixa_movs_local",
-            "outbox_estoque_movs",
-            "outbox_produtos",
-            "outbox_vendas",
-            "outbox_caixa",
-            "outbox_clientes",
-            "outbox_cancelamentos_venda",
-            "lancamentos_financeiros_local",
-            "outbox_financeiro",
-        ];
+fn adopt_legacy_ownerless_data_with_conn(conn: &Connection, owner_id: &str) -> DbResult<bool> {
+    let owner_tables = [
+        "produtos_local",
+        "clientes_local",
+        "estoque_saldos_local",
+        "estoque_movimentacoes_local",
+        "vendas_local",
+        "venda_itens_local",
+        "venda_pagamentos_local",
+        "caixa_local",
+        "caixa_movs_local",
+        "outbox_estoque_movs",
+        "outbox_produtos",
+        "outbox_vendas",
+        "outbox_caixa",
+        "outbox_clientes",
+        "outbox_cancelamentos_venda",
+        "lancamentos_financeiros_local",
+        "outbox_financeiro",
+    ];
 
-        for table in owner_tables {
-            if !table_exists(conn, table)? {
-                continue;
-            }
-            if !table_has_column(conn, table, "owner_id")? {
-                conn.execute(
-                    &format!("ALTER TABLE {table} ADD COLUMN owner_id TEXT"),
-                    [],
-                )?;
-            }
-            let sql = format!(
-                "SELECT COUNT(DISTINCT owner_id)
+    for table in owner_tables {
+        if !table_exists(conn, table)? {
+            continue;
+        }
+        if !table_has_column(conn, table, "owner_id")? {
+            conn.execute(&format!("ALTER TABLE {table} ADD COLUMN owner_id TEXT"), [])?;
+        }
+        let sql = format!(
+            "SELECT COUNT(DISTINCT owner_id)
                    FROM {table}
                   WHERE owner_id IS NOT NULL
                     AND owner_id <> ''
                     AND owner_id <> ?1"
-            );
-            let conflicts: i64 = conn.query_row(&sql, params![owner_id], |r| r.get(0))?;
-            if conflicts > 0 {
-                return Err(DbError(format!(
+        );
+        let conflicts: i64 = conn.query_row(&sql, params![owner_id], |r| r.get(0))?;
+        if conflicts > 0 {
+            return Err(DbError(format!(
                     "LEGACY_OWNER_CONFLICT: {table} contem dados de outro owner; adocao automatica bloqueada"
                 )));
-            }
         }
+    }
 
-        let tx = conn.unchecked_transaction()?;
-        let mut changed = false;
+    let tx = conn.unchecked_transaction()?;
+    let mut changed = false;
 
-        // Saldos têm PK com owner_id; quando já existe saldo novo do owner,
-        // somamos o saldo legado e removemos a linha sem owner.
-        let mut adopted_counts = Vec::<(&str, usize)>::new();
-        if table_exists(&tx, "estoque_saldos_local")?
-            && table_has_column(&tx, "estoque_saldos_local", "owner_id")?
-        {
-            let legacy_saldos: i64 = tx.query_row(
-                "SELECT COUNT(*) FROM estoque_saldos_local
+    // Saldos têm PK com owner_id; quando já existe saldo novo do owner,
+    // somamos o saldo legado e removemos a linha sem owner.
+    let mut adopted_counts = Vec::<(&str, usize)>::new();
+    if table_exists(&tx, "estoque_saldos_local")?
+        && table_has_column(&tx, "estoque_saldos_local", "owner_id")?
+    {
+        let legacy_saldos: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM estoque_saldos_local
                   WHERE owner_id IS NULL OR owner_id = ''",
-                [],
-                |r| r.get(0),
-            )?;
-            if legacy_saldos > 0
-                && !table_has_unique_columns(
-                    &tx,
-                    "estoque_saldos_local",
-                    &["owner_id", "produto_id", "variacao_id"],
-                )?
+            [],
+            |r| r.get(0),
+        )?;
+        if legacy_saldos > 0
+            && !table_has_unique_columns(
+                &tx,
+                "estoque_saldos_local",
+                &["owner_id", "produto_id", "variacao_id"],
+            )?
+        {
+            // Schema antigo: UNIQUE(produto_id, variacao_id) impede uma
+            // segunda linha para merge, entao a adocao deve ser in-place.
+            if table_exists(&tx, "estoque_movimentacoes_local")?
+                && table_has_column(&tx, "estoque_movimentacoes_local", "owner_id")?
             {
-                // Schema antigo: UNIQUE(produto_id, variacao_id) impede uma
-                // segunda linha para merge, entao a adocao deve ser in-place.
-                if table_exists(&tx, "estoque_movimentacoes_local")?
-                    && table_has_column(&tx, "estoque_movimentacoes_local", "owner_id")?
-                {
-                    // Movimentos do owner atual gravados enquanto o saldo ainda
-                    // era legacy nao conseguiram atualizar a linha antiga.
-                    // Soma-os uma unica vez, antes de retirar o owner NULL.
-                    tx.execute(
-                        "UPDATE estoque_saldos_local AS s
+                // Movimentos do owner atual gravados enquanto o saldo ainda
+                // era legacy nao conseguiram atualizar a linha antiga.
+                // Soma-os uma unica vez, antes de retirar o owner NULL.
+                tx.execute(
+                    "UPDATE estoque_saldos_local AS s
                             SET quantidade = quantidade + COALESCE((
                                     SELECT SUM(
                                         CASE
@@ -1898,18 +1890,18 @@ fn adopt_legacy_ownerless_data_with_conn(
                                 ), 0),
                                 owner_id=?1
                           WHERE s.owner_id IS NULL OR s.owner_id = ''",
-                        params![owner_id],
-                    )?;
-                } else {
-                    tx.execute(
-                        "UPDATE estoque_saldos_local SET owner_id=?1
+                    params![owner_id],
+                )?;
+            } else {
+                tx.execute(
+                    "UPDATE estoque_saldos_local SET owner_id=?1
                           WHERE owner_id IS NULL OR owner_id = ''",
-                        params![owner_id],
-                    )?;
-                }
-                adopted_counts.push(("estoque_saldos_local", legacy_saldos as usize));
-                changed = true;
-            } else if legacy_saldos > 0 {
+                    params![owner_id],
+                )?;
+            }
+            adopted_counts.push(("estoque_saldos_local", legacy_saldos as usize));
+            changed = true;
+        } else if legacy_saldos > 0 {
             let mut rows = Vec::<(String, String, Option<String>, f64, String, i64)>::new();
             {
                 let mut stmt = tx.prepare(
@@ -1949,63 +1941,63 @@ fn adopt_legacy_ownerless_data_with_conn(
                     [],
                 )?;
             }
-                adopted_counts.push(("estoque_saldos_local", legacy_saldos as usize));
-            }
+            adopted_counts.push(("estoque_saldos_local", legacy_saldos as usize));
         }
+    }
 
-        for table in owner_tables {
-            if table == "estoque_saldos_local" {
-                continue;
-            }
-            if !table_exists(&tx, table)? || !table_has_column(&tx, table, "owner_id")? {
-                continue;
-            }
-            let sql = format!(
-                "UPDATE {table}
+    for table in owner_tables {
+        if table == "estoque_saldos_local" {
+            continue;
+        }
+        if !table_exists(&tx, table)? || !table_has_column(&tx, table, "owner_id")? {
+            continue;
+        }
+        let sql = format!(
+            "UPDATE {table}
                     SET owner_id = ?1
                   WHERE owner_id IS NULL OR owner_id = ''"
-            );
-            let n = tx.execute(&sql, params![owner_id])?;
-            if n > 0 {
-                adopted_counts.push((table, n));
-            }
-            changed = changed || n > 0;
+        );
+        let n = tx.execute(&sql, params![owner_id])?;
+        if n > 0 {
+            adopted_counts.push((table, n));
         }
+        changed = changed || n > 0;
+    }
 
-        if changed {
-            let now_ms = chrono::Utc::now().timestamp_millis();
-            for (table, domain) in [
-                ("produtos_local", "produtos"),
-                ("estoque_saldos_local", "estoque_saldos"),
-            ] {
-                if !table_exists(&tx, table)? {
-                    continue;
-                }
-                let total: i64 = tx.query_row(
-                    &format!("SELECT COUNT(*) FROM {table} WHERE owner_id=?1"),
-                    params![owner_id],
-                    |r| r.get(0),
-                )?;
-                upsert_domain_meta(
-                    &tx,
-                    DomainMetaUpdate {
-                        domain,
-                        row_count: total,
-                        now_ms,
-                        source: "legacy-owner-adopt",
-                        strategy: "migration",
-                        delta_count: total,
-                        max_remote_updated_ms: None,
-                    },
-                )?;
+    if changed {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        for (table, domain) in [
+            ("produtos_local", "produtos"),
+            ("estoque_saldos_local", "estoque_saldos"),
+        ] {
+            if !table_exists(&tx, table)? {
+                continue;
             }
+            let total: i64 = tx.query_row(
+                &format!("SELECT COUNT(*) FROM {table} WHERE owner_id=?1"),
+                params![owner_id],
+                |r| r.get(0),
+            )?;
+            upsert_domain_meta(
+                &tx,
+                DomainMetaUpdate {
+                    domain,
+                    row_count: total,
+                    now_ms,
+                    source: "legacy-owner-adopt",
+                    strategy: "migration",
+                    delta_count: total,
+                    max_remote_updated_ms: None,
+                },
+            )?;
         }
+    }
 
-        tx.commit()?;
-        for (table, count) in adopted_counts {
-            eprintln!("[gestao-pro] LEGACY ADOPT {table} {count} registros");
-        }
-        Ok(changed)
+    tx.commit()?;
+    for (table, count) in adopted_counts {
+        eprintln!("[gestao-pro] LEGACY ADOPT {table} {count} registros");
+    }
+    Ok(changed)
 }
 
 // ---------- Clientes lite ----------
@@ -2065,18 +2057,21 @@ pub fn ingest_clientes(
                     max_remote_ms = Some(max_remote_ms.map_or(ms, |c| c.max(ms)));
                 }
                 let status = json_str(item, "status");
-                let deleted_at_ms = if strategy == IngestStrategy::Incremental
-                    && is_tombstoned_status(status)
-                {
-                    Some(now_ms)
-                } else {
-                    None::<i64>
-                };
+                let deleted_at_ms =
+                    if strategy == IngestStrategy::Incremental && is_tombstoned_status(status) {
+                        Some(now_ms)
+                    } else {
+                        None::<i64>
+                    };
                 let mut item_with_owner = item.clone();
                 if let Some(obj) = item_with_owner.as_object_mut() {
-                    obj.insert("owner_id".into(), serde_json::Value::String(owner_id.to_string()));
+                    obj.insert(
+                        "owner_id".into(),
+                        serde_json::Value::String(owner_id.to_string()),
+                    );
                 }
-                let payload = serde_json::to_string(&item_with_owner).unwrap_or_else(|_| "{}".into());
+                let payload =
+                    serde_json::to_string(&item_with_owner).unwrap_or_else(|_| "{}".into());
                 stmt.execute(params![
                     id,
                     owner_id,
@@ -2100,17 +2095,23 @@ pub fn ingest_clientes(
                 count += 1;
             }
         }
-        let total: i64 =
-            tx.query_row("SELECT COUNT(*) FROM clientes_local WHERE owner_id=?1 AND deleted_at_ms IS NULL", params![owner_id], |r| r.get(0))?;
-        upsert_domain_meta(&tx, DomainMetaUpdate {
-            domain: "clientes_lite",
-            row_count: total,
-            now_ms,
-            source: "upstream",
-            strategy: strategy.as_str(),
-            delta_count: count as i64,
-            max_remote_updated_ms: max_remote_ms,
-        })?;
+        let total: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM clientes_local WHERE owner_id=?1 AND deleted_at_ms IS NULL",
+            params![owner_id],
+            |r| r.get(0),
+        )?;
+        upsert_domain_meta(
+            &tx,
+            DomainMetaUpdate {
+                domain: "clientes_lite",
+                row_count: total,
+                now_ms,
+                source: "upstream",
+                strategy: strategy.as_str(),
+                delta_count: count as i64,
+                max_remote_updated_ms: max_remote_ms,
+            },
+        )?;
         tx.commit()?;
         Ok((count, max_remote_ms))
     })
@@ -2148,15 +2149,33 @@ pub struct LocalClienteResult {
 }
 
 fn norm_opt_str(v: &Option<String>) -> Option<String> {
-    v.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    v.as_ref()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn doc_digits(v: &Option<String>) -> Option<String> {
-    let d: String = v.as_deref().unwrap_or("").chars().filter(|c| c.is_ascii_digit()).collect();
-    if d.is_empty() { None } else { Some(d) }
+    let d: String = v
+        .as_deref()
+        .unwrap_or("")
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .collect();
+    if d.is_empty() {
+        None
+    } else {
+        Some(d)
+    }
 }
 
-fn cliente_payload_json(input: &LocalClienteInput, id: &str, remote_id: Option<&str>, owner_id: &str, now_ms: i64, sync_status: &str) -> serde_json::Value {
+fn cliente_payload_json(
+    input: &LocalClienteInput,
+    id: &str,
+    remote_id: Option<&str>,
+    owner_id: &str,
+    now_ms: i64,
+    sync_status: &str,
+) -> serde_json::Value {
     let documento = doc_digits(&input.documento);
     let status = input.status.clone().unwrap_or_else(|| "ativo".into());
     serde_json::json!({
@@ -2320,7 +2339,10 @@ pub fn ingest_movimentacoes(
         let tx = conn.unchecked_transaction()?;
 
         if strategy == IngestStrategy::Snapshot {
-            tx.execute("DELETE FROM estoque_saldos_local WHERE owner_id=?1", params![owner_id])?;
+            tx.execute(
+                "DELETE FROM estoque_saldos_local WHERE owner_id=?1",
+                params![owner_id],
+            )?;
         }
 
         let mut inserted = 0usize;
@@ -2355,9 +2377,13 @@ pub fn ingest_movimentacoes(
                 max_ms = Some(max_ms.map_or(data_ms, |c| c.max(data_ms)));
                 let mut item_with_owner = item.clone();
                 if let Some(obj) = item_with_owner.as_object_mut() {
-                    obj.insert("owner_id".into(), serde_json::Value::String(owner_id.to_string()));
+                    obj.insert(
+                        "owner_id".into(),
+                        serde_json::Value::String(owner_id.to_string()),
+                    );
                 }
-                let payload = serde_json::to_string(&item_with_owner).unwrap_or_else(|_| "{}".into());
+                let payload =
+                    serde_json::to_string(&item_with_owner).unwrap_or_else(|_| "{}".into());
 
                 let n = stmt.execute(params![
                     id,
@@ -2474,13 +2500,21 @@ pub fn read_saldos(owner_id: &str) -> DbResult<String> {
     })
 }
 
-pub fn read_movimentacoes(owner_id: &str, produto_id: Option<&str>, limit: i64) -> DbResult<String> {
+pub fn read_movimentacoes(
+    owner_id: &str,
+    produto_id: Option<&str>,
+    limit: i64,
+) -> DbResult<String> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 5000);
         let mut out = String::from("[");
         let mut first = true;
 
-        let mut push_row = |payload: String, pid: String, sku: Option<String>, nome: Option<String>| -> DbResult<()> {
+        let mut push_row = |payload: String,
+                            pid: String,
+                            sku: Option<String>,
+                            nome: Option<String>|
+         -> DbResult<()> {
             let mut item: serde_json::Value =
                 serde_json::from_str(&payload).unwrap_or_else(|_| serde_json::json!({}));
             if let Some(obj) = item.as_object_mut() {
@@ -2497,7 +2531,9 @@ pub fn read_movimentacoes(owner_id: &str, produto_id: Option<&str>, limit: i64) 
                     );
                 }
             }
-            if !first { out.push(','); }
+            if !first {
+                out.push(',');
+            }
             out.push_str(&serde_json::to_string(&item).map_err(|e| DbError(e.to_string()))?);
             first = false;
             Ok(())
@@ -2552,8 +2588,12 @@ pub fn read_movimentacoes(owner_id: &str, produto_id: Option<&str>, limit: i64) 
     })
 }
 
-
-pub fn clientes_local_list(owner_id: &str, status: Option<&str>, busca: Option<&str>, limit: i64) -> DbResult<Vec<serde_json::Value>> {
+pub fn clientes_local_list(
+    owner_id: &str,
+    status: Option<&str>,
+    busca: Option<&str>,
+    limit: i64,
+) -> DbResult<Vec<serde_json::Value>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let mut sql = String::from(
@@ -2617,21 +2657,24 @@ pub fn clientes_local_list(owner_id: &str, status: Option<&str>, busca: Option<&
 
 pub fn cliente_local_get(owner_id: &str, cliente_id: &str) -> DbResult<Option<serde_json::Value>> {
     with_conn(|conn| {
-        let payload = conn.query_row(
-            "SELECT payload FROM clientes_local
+        let payload = conn
+            .query_row(
+                "SELECT payload FROM clientes_local
               WHERE owner_id=?1 AND deleted_at_ms IS NULL AND (id=?2 OR remote_id=?2)
               LIMIT 1",
-            params![owner_id, cliente_id],
-            |r| r.get::<_, String>(0),
-        ).optional()?;
+                params![owner_id, cliente_id],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?;
         Ok(payload.and_then(|p| serde_json::from_str(&p).ok()))
     })
 }
 
 pub fn cliente_remote_id(owner_id: &str, cliente_id: &str) -> DbResult<Option<String>> {
     with_conn(|conn| {
-        let v = conn.query_row(
-            "WITH alvo AS (
+        let v = conn
+            .query_row(
+                "WITH alvo AS (
                 SELECT documento
                   FROM clientes_local
                  WHERE owner_id=?1 AND (id=?2 OR remote_id=?2)
@@ -2655,14 +2698,19 @@ pub fn cliente_remote_id(owner_id: &str, cliente_id: &str) -> DbResult<Option<St
                     COALESCE(c.updated_at_remote_ms, c.updated_at_ms, c.synced_at_ms, 0) DESC,
                     c.id DESC
               LIMIT 1",
-            params![owner_id, cliente_id],
-            |r| r.get::<_, Option<String>>(0),
-        ).optional()?;
+                params![owner_id, cliente_id],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .optional()?;
         Ok(v.flatten())
     })
 }
 
-pub fn cliente_check_documento(owner_id: &str, documento: &str, ignore_id: Option<&str>) -> DbResult<Option<serde_json::Value>> {
+pub fn cliente_check_documento(
+    owner_id: &str,
+    documento: &str,
+    ignore_id: Option<&str>,
+) -> DbResult<Option<serde_json::Value>> {
     let doc: String = documento.chars().filter(|c| c.is_ascii_digit()).collect();
     if doc.is_empty() {
         return Ok(None);
@@ -2691,7 +2739,11 @@ pub fn cliente_check_documento(owner_id: &str, documento: &str, ignore_id: Optio
     })
 }
 
-pub fn registrar_cliente_local(owner_id: &str, input: LocalClienteInput, now_ms: i64) -> DbResult<LocalClienteResult> {
+pub fn registrar_cliente_local(
+    owner_id: &str,
+    input: LocalClienteInput,
+    now_ms: i64,
+) -> DbResult<LocalClienteResult> {
     if input.nome.trim().len() < 2 {
         return Err(DbError("Informe o nome do cliente.".into()));
     }
@@ -2701,16 +2753,29 @@ pub fn registrar_cliente_local(owner_id: &str, input: LocalClienteInput, now_ms:
 
     with_conn(|conn| {
         if let Some(cu) = input.client_uuid.as_deref().filter(|s| !s.is_empty()) {
-            let row = conn.query_row(
-                "SELECT c.id, o.status, o.remote_id
+            let row = conn
+                .query_row(
+                    "SELECT c.id, o.status, o.remote_id
                   FROM outbox_clientes o
                    JOIN clientes_local c ON c.id=o.cliente_local_id
                   WHERE o.owner_id=?1 AND o.client_uuid=?2 LIMIT 1",
-                params![owner_id, cu],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?)),
-            ).optional()?;
+                    params![owner_id, cu],
+                    |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, String>(1)?,
+                            r.get::<_, Option<String>>(2)?,
+                        ))
+                    },
+                )
+                .optional()?;
             if let Some((id, outbox_status, remote_id)) = row {
-                return Ok(LocalClienteResult { cliente_id: id, idempotente: true, outbox_status, remote_id });
+                return Ok(LocalClienteResult {
+                    cliente_id: id,
+                    idempotente: true,
+                    outbox_status,
+                    remote_id,
+                });
             }
         }
 
@@ -2737,9 +2802,18 @@ pub fn registrar_cliente_local(owner_id: &str, input: LocalClienteInput, now_ms:
                 updated_at_remote_ms, synced_at_ms, deleted_at_ms
              ) VALUES (?1,?2,NULL,?3,?4,?5,?6,?7,?8,?9,?10,?11,'pending',?12,?12,NULL,?12,NULL)",
             params![
-                local_id, owner_id, nome, norm_opt_str(&input.nome_fantasia), documento,
-                input.tipo, norm_opt_str(&input.email), norm_opt_str(&input.telefone),
-                norm_opt_str(&input.celular), status, payload_text, now_ms
+                local_id,
+                owner_id,
+                nome,
+                norm_opt_str(&input.nome_fantasia),
+                documento,
+                input.tipo,
+                norm_opt_str(&input.email),
+                norm_opt_str(&input.telefone),
+                norm_opt_str(&input.celular),
+                status,
+                payload_text,
+                now_ms
             ],
         )?;
         tx.execute(
@@ -2747,7 +2821,14 @@ pub fn registrar_cliente_local(owner_id: &str, input: LocalClienteInput, now_ms:
                 local_uuid, owner_id, client_uuid, cliente_local_id, payload, status,
                 attempts, created_at_ms, updated_at_ms
              ) VALUES (?1,?2,?3,?4,?5,'pending',0,?6,?6)",
-            params![outbox_id, owner_id, input.client_uuid, local_id, payload.to_string(), now_ms],
+            params![
+                outbox_id,
+                owner_id,
+                input.client_uuid,
+                local_id,
+                payload.to_string(),
+                now_ms
+            ],
         )?;
         tx.commit()?;
         Ok(LocalClienteResult {
@@ -2832,7 +2913,11 @@ fn produto_payload_json(
     })
 }
 
-pub fn registrar_produto_local(owner_id: &str, input: LocalProdutoInput, now_ms: i64) -> DbResult<LocalProdutoResult> {
+pub fn registrar_produto_local(
+    owner_id: &str,
+    input: LocalProdutoInput,
+    now_ms: i64,
+) -> DbResult<LocalProdutoResult> {
     if input.nome.trim().len() < 2 {
         return Err(DbError("Informe o nome do produto.".into()));
     }
@@ -2841,16 +2926,29 @@ pub fn registrar_produto_local(owner_id: &str, input: LocalProdutoInput, now_ms:
     with_conn(|conn| {
         // Idempotência por client_uuid
         if let Some(cu) = input.client_uuid.as_deref().filter(|s| !s.is_empty()) {
-            let row = conn.query_row(
-                "SELECT p.id, o.status, o.remote_id
+            let row = conn
+                .query_row(
+                    "SELECT p.id, o.status, o.remote_id
                   FROM outbox_produtos o
                    JOIN produtos_local p ON p.id=o.produto_local_id
                   WHERE p.owner_id=?1 AND o.client_uuid=?2 LIMIT 1",
-                params![owner_id, cu],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?)),
-            ).optional()?;
+                    params![owner_id, cu],
+                    |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, String>(1)?,
+                            r.get::<_, Option<String>>(2)?,
+                        ))
+                    },
+                )
+                .optional()?;
             if let Some((id, outbox_status, remote_id)) = row {
-                return Ok(LocalProdutoResult { produto_id: id, idempotente: true, outbox_status, remote_id });
+                return Ok(LocalProdutoResult {
+                    produto_id: id,
+                    idempotente: true,
+                    outbox_status,
+                    remote_id,
+                });
             }
         }
 
@@ -2930,7 +3028,15 @@ pub fn registrar_produto_local(owner_id: &str, input: LocalProdutoInput, now_ms:
                 ],
             )?;
 
-            apply_mov_to_saldo(&tx, owner_id, &local_id, &variacao_id, Some("entrada"), delta, now_ms)?;
+            apply_mov_to_saldo(
+                &tx,
+                owner_id,
+                &local_id,
+                &variacao_id,
+                Some("entrada"),
+                delta,
+                now_ms,
+            )?;
 
             tx.execute(
                 "INSERT INTO outbox_estoque_movs(local_uuid, owner_id, client_uuid, payload, status, attempts, last_error, remote_id, created_at_ms, updated_at_ms, sent_at_ms) VALUES (?1, ?2, ?3, ?4, 'pending', 0, NULL, NULL, ?5, ?5, NULL)",
@@ -2944,7 +3050,12 @@ pub fn registrar_produto_local(owner_id: &str, input: LocalProdutoInput, now_ms:
         )?;
 
         tx.commit()?;
-        Ok(LocalProdutoResult { produto_id: local_id, idempotente: false, outbox_status: "pending".into(), remote_id: None })
+        Ok(LocalProdutoResult {
+            produto_id: local_id,
+            idempotente: false,
+            outbox_status: "pending".into(),
+            remote_id: None,
+        })
     })
 }
 
@@ -2983,7 +3094,11 @@ fn map_outbox_produto(r: &rusqlite::Row<'_>) -> rusqlite::Result<OutboxProdutoIt
 
 const OUTBOX_PRODUTO_COLS: &str = "local_uuid, owner_id, client_uuid, produto_local_id, payload, status, attempts, last_error, remote_id, created_at_ms, updated_at_ms, sent_at_ms";
 
-pub fn outbox_produtos_list(owner_id: &str, limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxProdutoItem>> {
+pub fn outbox_produtos_list(
+    owner_id: &str,
+    limit: i64,
+    only_status: Option<&str>,
+) -> DbResult<Vec<OutboxProdutoItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let sql = if only_status.is_some() {
@@ -2998,7 +3113,9 @@ pub fn outbox_produtos_list(owner_id: &str, limit: i64, only_status: Option<&str
             stmt.query_map(params![owner_id, limit], map_outbox_produto)?
         };
         let mut out = Vec::new();
-        for row in rows { out.push(row?); }
+        for row in rows {
+            out.push(row?);
+        }
         Ok(out)
     })
 }
@@ -3034,25 +3151,35 @@ pub fn produto_remote_id(owner_id: &str, produto_id: &str) -> DbResult<Option<St
     })
 }
 
-pub fn outbox_produtos_pending_batch(owner_id: &str, limit: i64) -> DbResult<Vec<OutboxProdutoItem>> {
+pub fn outbox_produtos_pending_batch(
+    owner_id: &str,
+    limit: i64,
+) -> DbResult<Vec<OutboxProdutoItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let now = chrono::Utc::now().timestamp_millis();
         let sql = format!("SELECT {OUTBOX_PRODUTO_COLS} FROM outbox_produtos WHERE owner_id=?1 AND status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?2 ORDER BY created_at_ms ASC LIMIT ?3");
         let mut stmt = conn.prepare(&sql)?;
         let mut out = Vec::new();
-        for row in stmt.query_map(params![owner_id, now, limit], map_outbox_produto)? { out.push(row?); }
+        for row in stmt.query_map(params![owner_id, now, limit], map_outbox_produto)? {
+            out.push(row?);
+        }
         Ok(out)
     })
 }
 
-pub fn outbox_produtos_pending_batch_all(owner_id: &str, limit: i64) -> DbResult<Vec<OutboxProdutoItem>> {
+pub fn outbox_produtos_pending_batch_all(
+    owner_id: &str,
+    limit: i64,
+) -> DbResult<Vec<OutboxProdutoItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let sql = format!("SELECT {OUTBOX_PRODUTO_COLS} FROM outbox_produtos WHERE owner_id=?1 AND status='pending' ORDER BY created_at_ms ASC LIMIT ?2");
         let mut stmt = conn.prepare(&sql)?;
         let mut out = Vec::new();
-        for row in stmt.query_map(params![owner_id, limit], map_outbox_produto)? { out.push(row?); }
+        for row in stmt.query_map(params![owner_id, limit], map_outbox_produto)? {
+            out.push(row?);
+        }
         Ok(out)
     })
 }
@@ -3069,10 +3196,14 @@ pub fn outbox_produtos_mark_sending(local_uuid: &str, now_ms: i64) -> DbResult<(
 
 pub fn outbox_produtos_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbResult<()> {
     with_conn(|conn| {
-        let attempts: i64 = conn.query_row(
-            "SELECT attempts FROM outbox_produtos WHERE local_uuid=?1",
-            params![local_uuid], |r| r.get(0),
-        ).optional()?.unwrap_or(1);
+        let attempts: i64 = conn
+            .query_row(
+                "SELECT attempts FROM outbox_produtos WHERE local_uuid=?1",
+                params![local_uuid],
+                |r| r.get(0),
+            )
+            .optional()?
+            .unwrap_or(1);
         if attempts >= MAX_AUTO_ATTEMPTS {
             conn.execute(
                 "UPDATE outbox_produtos SET status='error', last_error=?2, updated_at_ms=?3, next_attempt_at_ms=NULL WHERE local_uuid=?1",
@@ -3092,12 +3223,21 @@ pub fn outbox_produtos_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> D
 pub fn outbox_produtos_mark_sent(local_uuid: &str, remote_id: &str, now_ms: i64) -> DbResult<()> {
     with_conn(|conn| {
         let sql = format!("SELECT {OUTBOX_PRODUTO_COLS} FROM outbox_produtos WHERE local_uuid=?1");
-        let item = conn.query_row(&sql, params![local_uuid], map_outbox_produto)
-            .optional()? .ok_or_else(|| DbError("produto nao encontrado na outbox".into()))?;
-        let mut payload: serde_json::Value = serde_json::from_str(&item.payload).unwrap_or_else(|_| serde_json::json!({}));
+        let item = conn
+            .query_row(&sql, params![local_uuid], map_outbox_produto)
+            .optional()?
+            .ok_or_else(|| DbError("produto nao encontrado na outbox".into()))?;
+        let mut payload: serde_json::Value =
+            serde_json::from_str(&item.payload).unwrap_or_else(|_| serde_json::json!({}));
         if let Some(obj) = payload.as_object_mut() {
-            obj.insert("remote_id".into(), serde_json::Value::String(remote_id.to_string()));
-            obj.insert("sync_status".into(), serde_json::Value::String("synced".into()));
+            obj.insert(
+                "remote_id".into(),
+                serde_json::Value::String(remote_id.to_string()),
+            );
+            obj.insert(
+                "sync_status".into(),
+                serde_json::Value::String("synced".into()),
+            );
         }
         let tx = conn.unchecked_transaction()?;
         tx.execute(
@@ -3146,13 +3286,31 @@ pub fn outbox_produtos_reset_errors(owner_id: &str, now_ms: i64) -> DbResult<i64
     })
 }
 
-pub fn outbox_produtos_record_flush_round(kind: &str, now_ms: i64, attempted: i64, sent: i64, failed: i64) -> DbResult<()> {
+pub fn outbox_produtos_record_flush_round(
+    kind: &str,
+    now_ms: i64,
+    attempted: i64,
+    sent: i64,
+    failed: i64,
+) -> DbResult<()> {
     with_conn(|conn| {
         let prefix = if kind == "auto" { "auto" } else { "manual" };
-        meta_set_i64(conn, &format!("outbox_produtos_last_{prefix}_flush_ms"), now_ms)?;
-        meta_set_i64(conn, &format!("outbox_produtos_last_{prefix}_attempted"), attempted)?;
+        meta_set_i64(
+            conn,
+            &format!("outbox_produtos_last_{prefix}_flush_ms"),
+            now_ms,
+        )?;
+        meta_set_i64(
+            conn,
+            &format!("outbox_produtos_last_{prefix}_attempted"),
+            attempted,
+        )?;
         meta_set_i64(conn, &format!("outbox_produtos_last_{prefix}_sent"), sent)?;
-        meta_set_i64(conn, &format!("outbox_produtos_last_{prefix}_failed"), failed)?;
+        meta_set_i64(
+            conn,
+            &format!("outbox_produtos_last_{prefix}_failed"),
+            failed,
+        )?;
         Ok(())
     })
 }
@@ -3209,8 +3367,12 @@ const OUTBOX_CLIENTE_COLS: &str = "local_uuid, owner_id, client_uuid, cliente_lo
 pub fn outbox_clientes_stats(owner_id: &str) -> DbResult<OutboxClientesStats> {
     with_conn(|conn| {
         let mut s = OutboxClientesStats::default();
-        let mut stmt = conn.prepare("SELECT status, COUNT(*) FROM outbox_clientes WHERE owner_id=?1 GROUP BY status")?;
-        for row in stmt.query_map(params![owner_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
+        let mut stmt = conn.prepare(
+            "SELECT status, COUNT(*) FROM outbox_clientes WHERE owner_id=?1 GROUP BY status",
+        )?;
+        for row in stmt.query_map(params![owner_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })? {
             let (st, n) = row?;
             match st.as_str() {
                 "pending" => s.pending = n,
@@ -3220,10 +3382,14 @@ pub fn outbox_clientes_stats(owner_id: &str) -> DbResult<OutboxClientesStats> {
                 _ => {}
             }
         }
-        s.last_sent_at_ms = conn.query_row(
-            "SELECT MAX(sent_at_ms) FROM outbox_clientes WHERE owner_id=?1 AND status='sent'",
-            params![owner_id], |r| r.get::<_, Option<i64>>(0),
-        ).optional()?.flatten();
+        s.last_sent_at_ms = conn
+            .query_row(
+                "SELECT MAX(sent_at_ms) FROM outbox_clientes WHERE owner_id=?1 AND status='sent'",
+                params![owner_id],
+                |r| r.get::<_, Option<i64>>(0),
+            )
+            .optional()?
+            .flatten();
         s.last_error = conn.query_row(
             "SELECT last_error FROM outbox_clientes WHERE owner_id=?1 AND status='error' ORDER BY updated_at_ms DESC LIMIT 1",
             params![owner_id], |r| r.get::<_, Option<String>>(0),
@@ -3243,18 +3409,40 @@ pub fn outbox_clientes_stats(owner_id: &str) -> DbResult<OutboxClientesStats> {
     })
 }
 
-pub fn outbox_clientes_record_flush_round(kind: &str, now_ms: i64, attempted: i64, sent: i64, failed: i64) -> DbResult<()> {
+pub fn outbox_clientes_record_flush_round(
+    kind: &str,
+    now_ms: i64,
+    attempted: i64,
+    sent: i64,
+    failed: i64,
+) -> DbResult<()> {
     with_conn(|conn| {
         let prefix = if kind == "auto" { "auto" } else { "manual" };
-        meta_set_i64(conn, &format!("outbox_clientes_last_{prefix}_flush_ms"), now_ms)?;
-        meta_set_i64(conn, &format!("outbox_clientes_last_{prefix}_attempted"), attempted)?;
+        meta_set_i64(
+            conn,
+            &format!("outbox_clientes_last_{prefix}_flush_ms"),
+            now_ms,
+        )?;
+        meta_set_i64(
+            conn,
+            &format!("outbox_clientes_last_{prefix}_attempted"),
+            attempted,
+        )?;
         meta_set_i64(conn, &format!("outbox_clientes_last_{prefix}_sent"), sent)?;
-        meta_set_i64(conn, &format!("outbox_clientes_last_{prefix}_failed"), failed)?;
+        meta_set_i64(
+            conn,
+            &format!("outbox_clientes_last_{prefix}_failed"),
+            failed,
+        )?;
         Ok(())
     })
 }
 
-pub fn outbox_clientes_list(owner_id: &str, limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxClienteItem>> {
+pub fn outbox_clientes_list(
+    owner_id: &str,
+    limit: i64,
+    only_status: Option<&str>,
+) -> DbResult<Vec<OutboxClienteItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let sql = if only_status.is_some() {
@@ -3269,30 +3457,42 @@ pub fn outbox_clientes_list(owner_id: &str, limit: i64, only_status: Option<&str
             stmt.query_map(params![owner_id, limit], map_outbox_cliente)?
         };
         let mut out = Vec::new();
-        for row in rows { out.push(row?); }
+        for row in rows {
+            out.push(row?);
+        }
         Ok(out)
     })
 }
 
-pub fn outbox_clientes_pending_batch(owner_id: &str, limit: i64) -> DbResult<Vec<OutboxClienteItem>> {
+pub fn outbox_clientes_pending_batch(
+    owner_id: &str,
+    limit: i64,
+) -> DbResult<Vec<OutboxClienteItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let now = chrono::Utc::now().timestamp_millis();
         let sql = format!("SELECT {OUTBOX_CLIENTE_COLS} FROM outbox_clientes WHERE owner_id=?1 AND status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?2 ORDER BY created_at_ms ASC LIMIT ?3");
         let mut stmt = conn.prepare(&sql)?;
         let mut out = Vec::new();
-        for row in stmt.query_map(params![owner_id, now, limit], map_outbox_cliente)? { out.push(row?); }
+        for row in stmt.query_map(params![owner_id, now, limit], map_outbox_cliente)? {
+            out.push(row?);
+        }
         Ok(out)
     })
 }
 
-pub fn outbox_clientes_pending_batch_all(owner_id: &str, limit: i64) -> DbResult<Vec<OutboxClienteItem>> {
+pub fn outbox_clientes_pending_batch_all(
+    owner_id: &str,
+    limit: i64,
+) -> DbResult<Vec<OutboxClienteItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let sql = format!("SELECT {OUTBOX_CLIENTE_COLS} FROM outbox_clientes WHERE owner_id=?1 AND status='pending' ORDER BY created_at_ms ASC LIMIT ?2");
         let mut stmt = conn.prepare(&sql)?;
         let mut out = Vec::new();
-        for row in stmt.query_map(params![owner_id, limit], map_outbox_cliente)? { out.push(row?); }
+        for row in stmt.query_map(params![owner_id, limit], map_outbox_cliente)? {
+            out.push(row?);
+        }
         Ok(out)
     })
 }
@@ -3309,10 +3509,14 @@ pub fn outbox_clientes_mark_sending(local_uuid: &str, now_ms: i64) -> DbResult<(
 
 pub fn outbox_clientes_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbResult<()> {
     with_conn(|conn| {
-        let attempts: i64 = conn.query_row(
-            "SELECT attempts FROM outbox_clientes WHERE local_uuid=?1",
-            params![local_uuid], |r| r.get(0),
-        ).optional()?.unwrap_or(1);
+        let attempts: i64 = conn
+            .query_row(
+                "SELECT attempts FROM outbox_clientes WHERE local_uuid=?1",
+                params![local_uuid],
+                |r| r.get(0),
+            )
+            .optional()?
+            .unwrap_or(1);
         if attempts >= MAX_AUTO_ATTEMPTS {
             conn.execute(
                 "UPDATE outbox_clientes SET status='error', last_error=?2, updated_at_ms=?3, next_attempt_at_ms=NULL WHERE local_uuid=?1",
@@ -3332,14 +3536,21 @@ pub fn outbox_clientes_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> D
 pub fn outbox_clientes_mark_sent(local_uuid: &str, remote_id: &str, now_ms: i64) -> DbResult<()> {
     with_conn(|conn| {
         let sql = format!("SELECT {OUTBOX_CLIENTE_COLS} FROM outbox_clientes WHERE local_uuid=?1");
-        let item = conn.query_row(&sql, params![local_uuid], map_outbox_cliente)
+        let item = conn
+            .query_row(&sql, params![local_uuid], map_outbox_cliente)
             .optional()?
             .ok_or_else(|| DbError("cliente nao encontrado na outbox".into()))?;
-        let mut payload: serde_json::Value = serde_json::from_str(&item.payload)
-            .unwrap_or_else(|_| serde_json::json!({}));
+        let mut payload: serde_json::Value =
+            serde_json::from_str(&item.payload).unwrap_or_else(|_| serde_json::json!({}));
         if let Some(obj) = payload.as_object_mut() {
-            obj.insert("remote_id".into(), serde_json::Value::String(remote_id.to_string()));
-            obj.insert("sync_status".into(), serde_json::Value::String("synced".into()));
+            obj.insert(
+                "remote_id".into(),
+                serde_json::Value::String(remote_id.to_string()),
+            );
+            obj.insert(
+                "sync_status".into(),
+                serde_json::Value::String("synced".into()),
+            );
         }
         let tx = conn.unchecked_transaction()?;
         tx.execute(
@@ -3536,7 +3747,11 @@ pub fn registrar_movimento_local(
                         .query_row(
                             "SELECT quantidade FROM estoque_saldos_local
                               WHERE owner_id = ?1 AND produto_id = ?2 AND variacao_id = ?3",
-                            params![owner_id, input.produto_id, input.variacao_id.clone().unwrap_or_default()],
+                            params![
+                                owner_id,
+                                input.produto_id,
+                                input.variacao_id.clone().unwrap_or_default()
+                            ],
                             |r| r.get(0),
                         )
                         .optional()?;
@@ -3645,7 +3860,13 @@ pub fn registrar_movimento_local(
                 attempts, last_error, remote_id,
                 created_at_ms, updated_at_ms, sent_at_ms
              ) VALUES (?1, ?2, ?3, ?4, 'pending', 0, NULL, NULL, ?5, ?5, NULL)",
-            params![local_uuid, owner_id, input.client_uuid, payload_json, now_ms],
+            params![
+                local_uuid,
+                owner_id,
+                input.client_uuid,
+                payload_json,
+                now_ms
+            ],
         )?;
 
         tx.commit()?;
@@ -3709,7 +3930,9 @@ pub fn outbox_stats(owner_id: &str) -> DbResult<OutboxStats> {
         let mut stmt = conn.prepare(
             "SELECT status, COUNT(*) FROM outbox_estoque_movs WHERE owner_id=?1 GROUP BY status",
         )?;
-        let rows = stmt.query_map(params![owner_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        let rows = stmt.query_map(params![owner_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })?;
         for r in rows {
             let (st, n) = r?;
             match st.as_str() {
@@ -3774,11 +3997,9 @@ pub fn outbox_stats(owner_id: &str) -> DbResult<OutboxStats> {
 
 fn meta_get_i64(conn: &Connection, key: &str) -> DbResult<Option<i64>> {
     let v: Option<String> = conn
-        .query_row(
-            "SELECT value FROM meta WHERE key = ?1",
-            params![key],
-            |r| r.get(0),
-        )
+        .query_row("SELECT value FROM meta WHERE key = ?1", params![key], |r| {
+            r.get(0)
+        })
         .optional()?;
     Ok(v.and_then(|s| s.parse::<i64>().ok()))
 }
@@ -3816,7 +4037,11 @@ pub fn outbox_record_flush_round(
     })
 }
 
-pub fn outbox_list(owner_id: &str, limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxItem>> {
+pub fn outbox_list(
+    owner_id: &str,
+    limit: i64,
+    only_status: Option<&str>,
+) -> DbResult<Vec<OutboxItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let (sql, has_filter) = match only_status {
@@ -3861,10 +4086,14 @@ pub fn outbox_list(owner_id: &str, limit: i64, only_status: Option<&str>) -> DbR
         if has_filter {
             let s = only_status.unwrap();
             let rows = stmt.query_map(params![owner_id, s, limit], map_row)?;
-            for r in rows { out.push(r?); }
+            for r in rows {
+                out.push(r?);
+            }
         } else {
             let rows = stmt.query_map(params![owner_id, limit], map_row)?;
-            for r in rows { out.push(r?); }
+            for r in rows {
+                out.push(r?);
+            }
         }
         Ok(out)
     })
@@ -3902,7 +4131,9 @@ pub fn outbox_pending_batch(owner_id: &str, limit: i64) -> DbResult<Vec<OutboxIt
             })
         })?;
         let mut out = Vec::new();
-        for r in rows { out.push(r?); }
+        for r in rows {
+            out.push(r?);
+        }
         Ok(out)
     })
 }
@@ -3937,7 +4168,9 @@ pub fn outbox_pending_batch_all(owner_id: &str, limit: i64) -> DbResult<Vec<Outb
             })
         })?;
         let mut out = Vec::new();
-        for r in rows { out.push(r?); }
+        for r in rows {
+            out.push(r?);
+        }
         Ok(out)
     })
 }
@@ -4077,7 +4310,9 @@ pub struct LocalVendaPagamentoInput {
     pub observacao: Option<String>,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Debug, Deserialize)]
 pub struct LocalVendaInput {
@@ -4190,7 +4425,11 @@ fn local_venda_numero(local_uuid: &str, remote_id: Option<&str>) -> String {
     if let Some(rid) = remote_id.filter(|s| !s.is_empty()) {
         return rid.to_string();
     }
-    let short = local_uuid.chars().take(8).collect::<String>().to_uppercase();
+    let short = local_uuid
+        .chars()
+        .take(8)
+        .collect::<String>()
+        .to_uppercase();
     format!("LOCAL-{short}")
 }
 
@@ -4223,7 +4462,11 @@ fn local_date_end_exclusive_ms(date: &str) -> DbResult<i64> {
     Ok(dt.and_utc().timestamp_millis())
 }
 
-pub fn vendas_local_resumo(owner_id: &str, data_inicio: &str, data_fim: &str) -> DbResult<LocalVendaResumo> {
+pub fn vendas_local_resumo(
+    owner_id: &str,
+    data_inicio: &str,
+    data_fim: &str,
+) -> DbResult<LocalVendaResumo> {
     let inicio_ms = local_date_start_ms(data_inicio)?;
     let fim_ms = local_date_end_exclusive_ms(data_fim)?;
     if fim_ms <= inicio_ms {
@@ -4264,8 +4507,8 @@ pub fn vendas_local_resumo(owner_id: &str, data_inicio: &str, data_fim: &str) ->
                     ELSE 0 END),0) AS valor_pendente
               FROM vendas_periodo",
         )?;
-        let (qtd_vendas, qtd_canceladas, total_vendido, qtd_pendentes, valor_pendente) =
-            stmt.query_row(params![owner_id, inicio_ms, fim_ms], |r| {
+        let (qtd_vendas, qtd_canceladas, total_vendido, qtd_pendentes, valor_pendente) = stmt
+            .query_row(params![owner_id, inicio_ms, fim_ms], |r| {
                 Ok((
                     r.get::<_, i64>(0)?,
                     r.get::<_, i64>(1)?,
@@ -4395,7 +4638,8 @@ pub fn venda_local_detalhe(owner_id: &str, venda_id: &str) -> DbResult<Option<Lo
             sync_remote_id,
             sync_error,
             cancel_sync_status,
-        )) = header else {
+        )) = header
+        else {
             return Ok(None);
         };
 
@@ -4505,7 +4749,12 @@ pub fn registrar_venda_local(
             .iter()
             .any(|p| p.forma_pagamento.eq_ignore_ascii_case("fiado"));
     if tem_fiado {
-        if input.cliente_id.as_deref().map(|s| s.is_empty()).unwrap_or(true) {
+        if input
+            .cliente_id
+            .as_deref()
+            .map(|s| s.is_empty())
+            .unwrap_or(true)
+        {
             return Err(DbError(
                 "Venda fiado exige cliente — selecione um cliente antes de finalizar.".into(),
             ));
@@ -4522,7 +4771,6 @@ pub fn registrar_venda_local(
         }
     }
 
-
     // Idempotência por client_uuid (antes da transação grande).
     if let Some(cu) = input.client_uuid.as_deref() {
         if !cu.is_empty() {
@@ -4532,11 +4780,13 @@ pub fn registrar_venda_local(
                         "SELECT local_uuid, qtd_itens, total
                            FROM vendas_local WHERE owner_id = ?1 AND client_uuid = ?2",
                         params![owner_id, cu],
-                        |r| Ok((
-                            r.get::<_, String>(0)?,
-                            r.get::<_, i64>(1)?,
-                            r.get::<_, f64>(2)?,
-                        )),
+                        |r| {
+                            Ok((
+                                r.get::<_, String>(0)?,
+                                r.get::<_, i64>(1)?,
+                                r.get::<_, f64>(2)?,
+                            ))
+                        },
                     )
                     .optional()?;
                 Ok(row)
@@ -4620,13 +4870,15 @@ pub fn registrar_venda_local(
         //    atrelado a um caixa local aberto.
         let caixa_local_uuid: Option<String> = {
             let by_op: Option<String> = match input.operador_id.as_deref() {
-                Some(op) if !op.is_empty() => tx.query_row(
-                    "SELECT local_uuid FROM caixa_local
+                Some(op) if !op.is_empty() => tx
+                    .query_row(
+                        "SELECT local_uuid FROM caixa_local
                       WHERE owner_id = ?1 AND status='aberto' AND operador_id = ?2
                    ORDER BY data_abertura_ms DESC LIMIT 1",
-                    params![owner_id, op],
-                    |r| r.get::<_, String>(0),
-                ).optional()?,
+                        params![owner_id, op],
+                        |r| r.get::<_, String>(0),
+                    )
+                    .optional()?,
                 _ => None,
             };
             if by_op.is_some() {
@@ -4638,7 +4890,8 @@ pub fn registrar_venda_local(
                    ORDER BY data_abertura_ms DESC LIMIT 1",
                     params![owner_id],
                     |r| r.get::<_, String>(0),
-                ).optional()?
+                )
+                .optional()?
             }
         };
 
@@ -4737,14 +4990,15 @@ pub fn registrar_venda_local(
                 }
             }
             return Err(DbError(
-                "Falha ao registrar a venda. Já existe uma venda local com este client_uuid.".into(),
+                "Falha ao registrar a venda. Já existe uma venda local com este client_uuid."
+                    .into(),
             ));
         }
 
         // 2) Itens + baixa de estoque local.
         for (idx, item) in input.itens.iter().enumerate() {
-            let item_payload = serde_json::to_string(&itens_json[idx])
-                .unwrap_or_else(|_| "{}".to_string());
+            let item_payload =
+                serde_json::to_string(&itens_json[idx]).unwrap_or_else(|_| "{}".to_string());
             tx.execute(
                 "INSERT INTO venda_itens_local(
                     owner_id, venda_local_uuid, produto_id, descricao, quantidade,
@@ -4844,7 +5098,13 @@ pub fn registrar_venda_local(
                 attempts, last_error, remote_id,
                 created_at_ms, updated_at_ms, sent_at_ms, next_attempt_at_ms
              ) VALUES (?1,?2,?3,?4,'pending',0,NULL,NULL,?5,?5,NULL,NULL)",
-            params![local_uuid, owner_id, input.client_uuid, payload_json, now_ms],
+            params![
+                local_uuid,
+                owner_id,
+                input.client_uuid,
+                payload_json,
+                now_ms
+            ],
         )?;
 
         tx.commit()?;
@@ -4880,9 +5140,12 @@ pub struct OutboxVendasStats {
 pub fn outbox_vendas_stats(owner_id: &str) -> DbResult<OutboxVendasStats> {
     with_conn(|conn| {
         let mut s = OutboxVendasStats::default();
-        let mut stmt = conn
-            .prepare("SELECT status, COUNT(*) FROM outbox_vendas WHERE owner_id=?1 GROUP BY status")?;
-        let rows = stmt.query_map(params![owner_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        let mut stmt = conn.prepare(
+            "SELECT status, COUNT(*) FROM outbox_vendas WHERE owner_id=?1 GROUP BY status",
+        )?;
+        let rows = stmt.query_map(params![owner_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })?;
         for r in rows {
             let (st, n) = r?;
             match st.as_str() {
@@ -4893,26 +5156,42 @@ pub fn outbox_vendas_stats(owner_id: &str) -> DbResult<OutboxVendasStats> {
                 _ => {}
             }
         }
-        s.last_sent_at_ms = conn.query_row(
-            "SELECT MAX(sent_at_ms) FROM outbox_vendas WHERE owner_id=?1 AND status='sent'",
-            params![owner_id], |r| r.get::<_, Option<i64>>(0),
-        ).optional()?.flatten();
-        s.last_error = conn.query_row(
-            "SELECT last_error FROM outbox_vendas
+        s.last_sent_at_ms = conn
+            .query_row(
+                "SELECT MAX(sent_at_ms) FROM outbox_vendas WHERE owner_id=?1 AND status='sent'",
+                params![owner_id],
+                |r| r.get::<_, Option<i64>>(0),
+            )
+            .optional()?
+            .flatten();
+        s.last_error = conn
+            .query_row(
+                "SELECT last_error FROM outbox_vendas
               WHERE owner_id=?1 AND status='error' ORDER BY updated_at_ms DESC LIMIT 1",
-            params![owner_id], |r| r.get::<_, Option<String>>(0),
-        ).optional()?.flatten();
+                params![owner_id],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten();
         let now = chrono::Utc::now().timestamp_millis();
-        s.due_now = conn.query_row(
-            "SELECT COUNT(*) FROM outbox_vendas
+        s.due_now = conn
+            .query_row(
+                "SELECT COUNT(*) FROM outbox_vendas
               WHERE owner_id=?1 AND status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?2",
-            params![owner_id, now], |r| r.get::<_, i64>(0),
-        ).optional()?.unwrap_or(0);
-        s.next_attempt_at_ms = conn.query_row(
-            "SELECT MIN(COALESCE(next_attempt_at_ms,0))
+                params![owner_id, now],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()?
+            .unwrap_or(0);
+        s.next_attempt_at_ms = conn
+            .query_row(
+                "SELECT MIN(COALESCE(next_attempt_at_ms,0))
                FROM outbox_vendas WHERE owner_id=?1 AND status='pending'",
-            params![owner_id], |r| r.get::<_, Option<i64>>(0),
-        ).optional()?.flatten();
+                params![owner_id],
+                |r| r.get::<_, Option<i64>>(0),
+            )
+            .optional()?
+            .flatten();
         s.last_auto_flush_ms = meta_get_i64(conn, "outbox_vendas_last_auto_flush_ms")?;
         s.last_auto_flush_sent_ms = meta_get_i64(conn, "outbox_vendas_last_auto_flush_sent_ms")?;
         s.last_auto_attempted = meta_get_i64(conn, "outbox_vendas_last_auto_attempted")?;
@@ -4924,7 +5203,11 @@ pub fn outbox_vendas_stats(owner_id: &str) -> DbResult<OutboxVendasStats> {
 }
 
 pub fn outbox_vendas_record_flush_round(
-    kind: &str, now_ms: i64, attempted: i64, sent: i64, failed: i64,
+    kind: &str,
+    now_ms: i64,
+    attempted: i64,
+    sent: i64,
+    failed: i64,
 ) -> DbResult<()> {
     with_conn(|conn| {
         if kind == "auto" {
@@ -4942,7 +5225,11 @@ pub fn outbox_vendas_record_flush_round(
     })
 }
 
-pub fn outbox_vendas_list(owner_id: &str, limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxItem>> {
+pub fn outbox_vendas_list(
+    owner_id: &str,
+    limit: i64,
+    only_status: Option<&str>,
+) -> DbResult<Vec<OutboxItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let map_row = |r: &rusqlite::Row<'_>| -> rusqlite::Result<OutboxItem> {
@@ -4969,7 +5256,9 @@ pub fn outbox_vendas_list(owner_id: &str, limit: i64, only_status: Option<&str>)
                   ORDER BY created_at_ms DESC LIMIT ?3",
             )?;
             let rows = stmt.query_map(params![owner_id, st, limit], map_row)?;
-            for r in rows { out.push(r?); }
+            for r in rows {
+                out.push(r?);
+            }
         } else {
             let mut stmt = conn.prepare(
                 "SELECT local_uuid, client_uuid, payload, status, attempts, last_error,
@@ -4977,7 +5266,9 @@ pub fn outbox_vendas_list(owner_id: &str, limit: i64, only_status: Option<&str>)
                    FROM outbox_vendas WHERE owner_id = ?1 ORDER BY created_at_ms DESC LIMIT ?2",
             )?;
             let rows = stmt.query_map(params![owner_id, limit], map_row)?;
-            for r in rows { out.push(r?); }
+            for r in rows {
+                out.push(r?);
+            }
         }
         Ok(out)
     })
@@ -4990,21 +5281,23 @@ pub fn outbox_vendas_get(local_uuid: &str) -> DbResult<Option<OutboxItem>> {
                     remote_id, created_at_ms, updated_at_ms, sent_at_ms, owner_id
                FROM outbox_vendas WHERE local_uuid = ?1",
         )?;
-        let item = stmt.query_row(params![local_uuid], |r| {
-            Ok(OutboxItem {
-                local_uuid: r.get(0)?,
-                client_uuid: r.get(1)?,
-                payload: r.get(2)?,
-                status: r.get(3)?,
-                attempts: r.get(4)?,
-                last_error: r.get(5)?,
-                remote_id: r.get(6)?,
-                created_at_ms: r.get(7)?,
-                updated_at_ms: r.get(8)?,
-                sent_at_ms: r.get(9)?,
-                owner_id: r.get(10)?,
+        let item = stmt
+            .query_row(params![local_uuid], |r| {
+                Ok(OutboxItem {
+                    local_uuid: r.get(0)?,
+                    client_uuid: r.get(1)?,
+                    payload: r.get(2)?,
+                    status: r.get(3)?,
+                    attempts: r.get(4)?,
+                    last_error: r.get(5)?,
+                    remote_id: r.get(6)?,
+                    created_at_ms: r.get(7)?,
+                    updated_at_ms: r.get(8)?,
+                    sent_at_ms: r.get(9)?,
+                    owner_id: r.get(10)?,
+                })
             })
-        }).optional()?;
+            .optional()?;
         Ok(item)
     })
 }
@@ -5022,14 +5315,23 @@ pub fn outbox_vendas_pending_batch(owner_id: &str, limit: i64) -> DbResult<Vec<O
         )?;
         let rows = stmt.query_map(params![owner_id, now, limit], |r| {
             Ok(OutboxItem {
-                local_uuid: r.get(0)?, client_uuid: r.get(1)?, payload: r.get(2)?,
-                status: r.get(3)?, attempts: r.get(4)?, last_error: r.get(5)?,
-                remote_id: r.get(6)?, created_at_ms: r.get(7)?,
-                updated_at_ms: r.get(8)?, sent_at_ms: r.get(9)?, owner_id: r.get(10)?,
+                local_uuid: r.get(0)?,
+                client_uuid: r.get(1)?,
+                payload: r.get(2)?,
+                status: r.get(3)?,
+                attempts: r.get(4)?,
+                last_error: r.get(5)?,
+                remote_id: r.get(6)?,
+                created_at_ms: r.get(7)?,
+                updated_at_ms: r.get(8)?,
+                sent_at_ms: r.get(9)?,
+                owner_id: r.get(10)?,
             })
         })?;
         let mut out = Vec::new();
-        for r in rows { out.push(r?); }
+        for r in rows {
+            out.push(r?);
+        }
         Ok(out)
     })
 }
@@ -5045,14 +5347,23 @@ pub fn outbox_vendas_pending_batch_all(owner_id: &str, limit: i64) -> DbResult<V
         )?;
         let rows = stmt.query_map(params![owner_id, limit], |r| {
             Ok(OutboxItem {
-                local_uuid: r.get(0)?, client_uuid: r.get(1)?, payload: r.get(2)?,
-                status: r.get(3)?, attempts: r.get(4)?, last_error: r.get(5)?,
-                remote_id: r.get(6)?, created_at_ms: r.get(7)?,
-                updated_at_ms: r.get(8)?, sent_at_ms: r.get(9)?, owner_id: r.get(10)?,
+                local_uuid: r.get(0)?,
+                client_uuid: r.get(1)?,
+                payload: r.get(2)?,
+                status: r.get(3)?,
+                attempts: r.get(4)?,
+                last_error: r.get(5)?,
+                remote_id: r.get(6)?,
+                created_at_ms: r.get(7)?,
+                updated_at_ms: r.get(8)?,
+                sent_at_ms: r.get(9)?,
+                owner_id: r.get(10)?,
             })
         })?;
         let mut out = Vec::new();
-        for r in rows { out.push(r?); }
+        for r in rows {
+            out.push(r?);
+        }
         Ok(out)
     })
 }
@@ -5084,10 +5395,14 @@ pub fn outbox_vendas_mark_sent(local_uuid: &str, remote_id: &str, now_ms: i64) -
 
 pub fn outbox_vendas_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbResult<()> {
     with_conn(|conn| {
-        let attempts: i64 = conn.query_row(
-            "SELECT attempts FROM outbox_vendas WHERE local_uuid=?1",
-            params![local_uuid], |r| r.get(0),
-        ).optional()?.unwrap_or(1);
+        let attempts: i64 = conn
+            .query_row(
+                "SELECT attempts FROM outbox_vendas WHERE local_uuid=?1",
+                params![local_uuid],
+                |r| r.get(0),
+            )
+            .optional()?
+            .unwrap_or(1);
         if attempts >= MAX_AUTO_ATTEMPTS {
             conn.execute(
                 "UPDATE outbox_vendas
@@ -5152,7 +5467,6 @@ pub fn outbox_vendas_reset_errors(owner_id: &str, now_ms: i64) -> DbResult<i64> 
         Ok(n as i64)
     })
 }
-
 
 // ============================================================================
 // CAIXA LOCAL (offline-first) — abertura, suprimento/sangria e fechamento
@@ -5294,7 +5608,14 @@ pub fn abrir_caixa_local(
                 status, attempts, last_error, remote_id,
                 created_at_ms, updated_at_ms, sent_at_ms, next_attempt_at_ms
              ) VALUES (?1,?2,?3,'abrir',?4,?5,'pending',0,NULL,NULL,?6,?6,NULL,NULL)",
-            params![local_uuid, owner_id, input.client_uuid, local_uuid, payload_json, now_ms],
+            params![
+                local_uuid,
+                owner_id,
+                input.client_uuid,
+                local_uuid,
+                payload_json,
+                now_ms
+            ],
         )?;
         tx.commit()?;
         Ok(LocalAbrirCaixaResult {
@@ -5330,7 +5651,11 @@ pub struct LocalMovimentoCaixaResult {
     pub valor: f64,
 }
 
-fn resolve_caixa_local_uuid(conn: &Connection, owner_id: &str, caixa_id: &str) -> DbResult<Option<String>> {
+fn resolve_caixa_local_uuid(
+    conn: &Connection,
+    owner_id: &str,
+    caixa_id: &str,
+) -> DbResult<Option<String>> {
     // Tenta direto pelo local_uuid.
     let by_local: Option<String> = conn
         .query_row(
@@ -5402,8 +5727,15 @@ pub fn registrar_mov_caixa_local(
         }
     }
 
-    let caixa_local_uuid = with_conn(|conn| resolve_caixa_local_uuid(conn, owner_id, &input.caixa_id))?
-        .ok_or_else(|| DbError(format!("caixa não encontrado localmente: {}", input.caixa_id)))?;
+    let caixa_local_uuid =
+        with_conn(|conn| resolve_caixa_local_uuid(conn, owner_id, &input.caixa_id))?.ok_or_else(
+            || {
+                DbError(format!(
+                    "caixa não encontrado localmente: {}",
+                    input.caixa_id
+                ))
+            },
+        )?;
 
     // Verifica que o caixa ainda está aberto.
     let status: Option<String> = with_conn(|conn| {
@@ -5510,8 +5842,15 @@ pub fn fechar_caixa_local(
         return Err(DbError("valor_informado não pode ser negativo".into()));
     }
 
-    let caixa_local_uuid = with_conn(|conn| resolve_caixa_local_uuid(conn, owner_id, &input.caixa_id))?
-        .ok_or_else(|| DbError(format!("caixa não encontrado localmente: {}", input.caixa_id)))?;
+    let caixa_local_uuid =
+        with_conn(|conn| resolve_caixa_local_uuid(conn, owner_id, &input.caixa_id))?.ok_or_else(
+            || {
+                DbError(format!(
+                    "caixa não encontrado localmente: {}",
+                    input.caixa_id
+                ))
+            },
+        )?;
 
     // Idempotência por client_uuid (no nível da outbox de fechamento).
     if let Some(cu) = input.client_uuid.as_deref() {
@@ -5677,7 +6016,9 @@ fn gerar_lancamentos_locais_para_caixa(
         *por_forma.entry(f).or_insert(0.0) += v;
     }
     for (forma, valor) in por_forma.iter() {
-        if (*valor).abs() < 0.005 { continue; }
+        if (*valor).abs() < 0.005 {
+            continue;
+        }
         let lid = random_uuid_v4();
         let categoria = format!("venda_{}", forma);
         let descricao = format!("Vendas — {}", forma);
@@ -5688,19 +6029,29 @@ fn gerar_lancamentos_locais_para_caixa(
                 status, data_competencia_ms, data_pagamento_ms
              ) VALUES (?1,?2,'entrada',?3,?4,?5,?6,'fechamento_caixa',NULL,?7,
                        'confirmado',?7,?7)",
-            params![lid, caixa_local_uuid, categoria, forma, valor, descricao, now_ms],
+            params![
+                lid,
+                caixa_local_uuid,
+                categoria,
+                forma,
+                valor,
+                descricao,
+                now_ms
+            ],
         )?;
     }
 
     // 2) Suprimentos / sangrias — totais agregados.
-    let (total_sup, total_san): (f64, f64) = tx.query_row(
-        "SELECT
+    let (total_sup, total_san): (f64, f64) = tx
+        .query_row(
+            "SELECT
             COALESCE(SUM(CASE WHEN tipo='suprimento' THEN valor ELSE 0 END),0),
             COALESCE(SUM(CASE WHEN tipo='sangria'    THEN valor ELSE 0 END),0)
            FROM caixa_movs_local WHERE caixa_local_uuid=?1",
-        params![caixa_local_uuid],
-        |r| Ok((r.get(0)?, r.get(1)?)),
-    ).unwrap_or((0.0, 0.0));
+            params![caixa_local_uuid],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap_or((0.0, 0.0));
 
     if total_sup.abs() >= 0.005 {
         let lid = random_uuid_v4();
@@ -5736,7 +6087,11 @@ fn gerar_lancamentos_locais_para_caixa(
 pub fn regenerar_lancamentos_locais_caixa(caixa_local_uuid: &str) -> DbResult<()> {
     with_conn(|conn| {
         let tx = conn.unchecked_transaction()?;
-        gerar_lancamentos_locais_para_caixa(&tx, caixa_local_uuid, chrono::Utc::now().timestamp_millis())?;
+        gerar_lancamentos_locais_para_caixa(
+            &tx,
+            caixa_local_uuid,
+            chrono::Utc::now().timestamp_millis(),
+        )?;
         tx.commit()?;
         Ok(())
     })
@@ -5814,7 +6169,9 @@ pub fn lancamentos_local_por_caixa(caixa_local_uuid: &str) -> DbResult<Vec<Lanca
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params![caixa_local_uuid], map_lanc_row)?;
         let mut out = Vec::new();
-        for r in rows { out.push(r?); }
+        for r in rows {
+            out.push(r?);
+        }
         Ok(out)
     })
 }
@@ -5825,10 +6182,10 @@ pub fn lancamentos_local_por_caixa(caixa_local_uuid: &str) -> DbResult<Vec<Lanca
 
 #[derive(Debug, Default, Deserialize)]
 pub struct FinanceiroFiltro {
-    pub tipo: Option<String>,            // 'entrada' | 'saida'
+    pub tipo: Option<String>, // 'entrada' | 'saida'
     pub categoria: Option<String>,
-    pub origem: Option<String>,          // 'fechamento_caixa' | 'manual' | ...
-    pub status: Option<String>,          // 'confirmado' | 'pendente' | 'cancelado'
+    pub origem: Option<String>, // 'fechamento_caixa' | 'manual' | ...
+    pub status: Option<String>, // 'confirmado' | 'pendente' | 'cancelado'
     pub caixa_local_uuid: Option<String>,
     pub venda_local_uuid: Option<String>,
     pub desde_ms: Option<i64>,
@@ -5862,12 +6219,39 @@ pub fn lancamentos_local_listar(filtro: &FinanceiroFiltro) -> DbResult<Vec<Lanca
         push_str_filter!(sql, args, &filtro.tipo, " AND tipo=?{}");
         push_str_filter!(sql, args, &filtro.categoria, " AND categoria=?{}");
         push_str_filter!(sql, args, &filtro.origem, " AND origem=?{}");
-        push_str_filter!(sql, args, &filtro.status, " AND COALESCE(status,'confirmado')=?{}");
-        push_str_filter!(sql, args, &filtro.caixa_local_uuid, " AND caixa_local_uuid=?{}");
-        push_str_filter!(sql, args, &filtro.venda_local_uuid, " AND venda_local_uuid=?{}");
-        push_i64_filter!(sql, args, filtro.desde_ms, " AND COALESCE(data_competencia_ms,created_at_ms)>=?{}");
-        push_i64_filter!(sql, args, filtro.ate_ms, " AND COALESCE(data_competencia_ms,created_at_ms)<=?{}");
-        sql.push_str(" ORDER BY COALESCE(data_competencia_ms,created_at_ms) DESC, created_at_ms DESC");
+        push_str_filter!(
+            sql,
+            args,
+            &filtro.status,
+            " AND COALESCE(status,'confirmado')=?{}"
+        );
+        push_str_filter!(
+            sql,
+            args,
+            &filtro.caixa_local_uuid,
+            " AND caixa_local_uuid=?{}"
+        );
+        push_str_filter!(
+            sql,
+            args,
+            &filtro.venda_local_uuid,
+            " AND venda_local_uuid=?{}"
+        );
+        push_i64_filter!(
+            sql,
+            args,
+            filtro.desde_ms,
+            " AND COALESCE(data_competencia_ms,created_at_ms)>=?{}"
+        );
+        push_i64_filter!(
+            sql,
+            args,
+            filtro.ate_ms,
+            " AND COALESCE(data_competencia_ms,created_at_ms)<=?{}"
+        );
+        sql.push_str(
+            " ORDER BY COALESCE(data_competencia_ms,created_at_ms) DESC, created_at_ms DESC",
+        );
         let limit = filtro.limit.unwrap_or(500).clamp(1, 5000);
         sql.push_str(&format!(" LIMIT {}", limit));
 
@@ -5875,7 +6259,9 @@ pub fn lancamentos_local_listar(filtro: &FinanceiroFiltro) -> DbResult<Vec<Lanca
         let params_refs: Vec<&dyn rusqlite::ToSql> = args.iter().map(|b| b.as_ref()).collect();
         let rows = stmt.query_map(params_refs.as_slice(), map_lanc_row)?;
         let mut out = Vec::new();
-        for r in rows { out.push(r?); }
+        for r in rows {
+            out.push(r?);
+        }
         Ok(out)
     })
 }
@@ -5901,13 +6287,18 @@ pub struct FinanceiroResumoCat {
 }
 
 pub fn financeiro_resumo_local(filtro: &FinanceiroFiltro) -> DbResult<FinanceiroResumo> {
-    let rows = lancamentos_local_listar(&FinanceiroFiltro { limit: Some(5000), ..clone_filtro(filtro) })?;
+    let rows = lancamentos_local_listar(&FinanceiroFiltro {
+        limit: Some(5000),
+        ..clone_filtro(filtro)
+    })?;
     let mut r = FinanceiroResumo::default();
     use std::collections::BTreeMap;
     let mut por_cat: BTreeMap<(String, String), (f64, i64)> = BTreeMap::new();
     let mut por_ori: BTreeMap<(String, String), (f64, i64)> = BTreeMap::new();
     for l in rows.iter() {
-        if l.status == "cancelado" { continue; }
+        if l.status == "cancelado" {
+            continue;
+        }
         if l.tipo == "entrada" {
             r.total_entradas += l.valor;
             r.qtd_entradas += 1;
@@ -5917,13 +6308,33 @@ pub fn financeiro_resumo_local(filtro: &FinanceiroFiltro) -> DbResult<Financeiro
         }
         r.qtd_lancamentos += 1;
         let kc = (l.categoria.clone(), l.tipo.clone());
-        let e = por_cat.entry(kc).or_insert((0.0, 0)); e.0 += l.valor; e.1 += 1;
+        let e = por_cat.entry(kc).or_insert((0.0, 0));
+        e.0 += l.valor;
+        e.1 += 1;
         let ko = (l.origem.clone(), l.tipo.clone());
-        let e = por_ori.entry(ko).or_insert((0.0, 0)); e.0 += l.valor; e.1 += 1;
+        let e = por_ori.entry(ko).or_insert((0.0, 0));
+        e.0 += l.valor;
+        e.1 += 1;
     }
     r.saldo = r.total_entradas - r.total_saidas;
-    r.por_categoria = por_cat.into_iter().map(|((chave, tipo), (valor, qtd))| FinanceiroResumoCat { chave, tipo, valor, qtd }).collect();
-    r.por_origem = por_ori.into_iter().map(|((chave, tipo), (valor, qtd))| FinanceiroResumoCat { chave, tipo, valor, qtd }).collect();
+    r.por_categoria = por_cat
+        .into_iter()
+        .map(|((chave, tipo), (valor, qtd))| FinanceiroResumoCat {
+            chave,
+            tipo,
+            valor,
+            qtd,
+        })
+        .collect();
+    r.por_origem = por_ori
+        .into_iter()
+        .map(|((chave, tipo), (valor, qtd))| FinanceiroResumoCat {
+            chave,
+            tipo,
+            valor,
+            qtd,
+        })
+        .collect();
     Ok(r)
 }
 
@@ -5943,12 +6354,12 @@ fn clone_filtro(f: &FinanceiroFiltro) -> FinanceiroFiltro {
 
 #[derive(Debug, Deserialize)]
 pub struct LancamentoManualInput {
-    pub tipo: String,                       // 'entrada' | 'saida'
+    pub tipo: String, // 'entrada' | 'saida'
     pub categoria: String,
     pub valor: f64,
     pub forma_pagamento: Option<String>,
     pub descricao: Option<String>,
-    pub status: Option<String>,             // default 'confirmado'
+    pub status: Option<String>, // default 'confirmado'
     pub caixa_local_uuid: Option<String>,
     pub venda_local_uuid: Option<String>,
     pub cliente_id: Option<String>,
@@ -5957,7 +6368,7 @@ pub struct LancamentoManualInput {
     pub data_vencimento_ms: Option<i64>,
     pub data_pagamento_ms: Option<i64>,
     pub operador_id: Option<String>,
-    pub client_uuid: Option<String>,        // idempotência
+    pub client_uuid: Option<String>, // idempotência
 }
 
 #[derive(Debug, Serialize)]
@@ -5966,7 +6377,9 @@ pub struct LancamentoManualResult {
     pub idempotente: bool,
 }
 
-pub fn lancamento_manual_inserir(input: &LancamentoManualInput) -> DbResult<LancamentoManualResult> {
+pub fn lancamento_manual_inserir(
+    input: &LancamentoManualInput,
+) -> DbResult<LancamentoManualResult> {
     if input.tipo != "entrada" && input.tipo != "saida" {
         return Err(DbError("tipo deve ser 'entrada' ou 'saida'".into()));
     }
@@ -5977,18 +6390,27 @@ pub fn lancamento_manual_inserir(input: &LancamentoManualInput) -> DbResult<Lanc
         return Err(DbError("categoria é obrigatória".into()));
     }
     let now_ms = chrono::Utc::now().timestamp_millis();
-    let status = input.status.clone().unwrap_or_else(|| "confirmado".to_string());
+    let status = input
+        .status
+        .clone()
+        .unwrap_or_else(|| "confirmado".to_string());
     let competencia = input.data_competencia_ms.unwrap_or(now_ms);
 
     with_conn(|conn| {
         // Idempotência via client_uuid (UNIQUE parcial).
         if let Some(cu) = input.client_uuid.as_deref() {
-            let existing: Option<String> = conn.query_row(
-                "SELECT local_uuid FROM lancamentos_financeiros_local WHERE client_uuid=?1",
-                params![cu], |r| r.get(0),
-            ).optional()?;
+            let existing: Option<String> = conn
+                .query_row(
+                    "SELECT local_uuid FROM lancamentos_financeiros_local WHERE client_uuid=?1",
+                    params![cu],
+                    |r| r.get(0),
+                )
+                .optional()?;
             if let Some(lu) = existing {
-                return Ok(LancamentoManualResult { local_uuid: lu, idempotente: true });
+                return Ok(LancamentoManualResult {
+                    local_uuid: lu,
+                    idempotente: true,
+                });
             }
         }
         let lid = random_uuid_v4();
@@ -6007,17 +6429,33 @@ pub fn lancamento_manual_inserir(input: &LancamentoManualInput) -> DbResult<Lanc
              ) VALUES (?1,?2,?3,?4,?5,?6,?7,'manual',NULL,?8,
                        ?9,?10,?11,?12,?13,?14,?15,?16,?17,'pending')",
             params![
-                lid, caixa, input.tipo, input.categoria, input.forma_pagamento,
-                input.valor, input.descricao, now_ms,
-                status, input.venda_local_uuid, input.cliente_id, input.fornecedor_id,
-                competencia, input.data_vencimento_ms, input.data_pagamento_ms,
-                input.client_uuid, input.operador_id
+                lid,
+                caixa,
+                input.tipo,
+                input.categoria,
+                input.forma_pagamento,
+                input.valor,
+                input.descricao,
+                now_ms,
+                status,
+                input.venda_local_uuid,
+                input.cliente_id,
+                input.fornecedor_id,
+                competencia,
+                input.data_vencimento_ms,
+                input.data_pagamento_ms,
+                input.client_uuid,
+                input.operador_id
             ],
         )?;
 
         // v12 — enfileira na outbox financeira para sync com o upstream.
         // Mapeia tipo local → tipo upstream (entrada→receita, saida→despesa).
-        let tipo_upstream = if input.tipo == "entrada" { "receita" } else { "despesa" };
+        let tipo_upstream = if input.tipo == "entrada" {
+            "receita"
+        } else {
+            "despesa"
+        };
         let date_iso = |ms: i64| {
             let dt = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms)
                 .unwrap_or_else(|| chrono::Utc::now());
@@ -6045,10 +6483,19 @@ pub fn lancamento_manual_inserir(input: &LancamentoManualInput) -> DbResult<Lanc
                 local_uuid, client_uuid, lanc_local_uuid, payload,
                 status, attempts, created_at_ms, updated_at_ms, next_attempt_at_ms
              ) VALUES (?1,?2,?3,?4,'pending',0,?5,?5,NULL)",
-            params![outbox_id, input.client_uuid, lid, payload.to_string(), now_ms],
+            params![
+                outbox_id,
+                input.client_uuid,
+                lid,
+                payload.to_string(),
+                now_ms
+            ],
         )?;
         tx.commit()?;
-        Ok(LancamentoManualResult { local_uuid: lid, idempotente: false })
+        Ok(LancamentoManualResult {
+            local_uuid: lid,
+            idempotente: false,
+        })
     })
 }
 
@@ -6098,20 +6545,46 @@ pub struct CaixaResumoLocal {
     pub por_forma: Vec<CaixaResumoFormaRow>,
 }
 
-pub fn caixa_resumo_local(owner_id: &str, caixa_local_uuid: &str) -> DbResult<Option<CaixaResumoLocal>> {
+pub fn caixa_resumo_local(
+    owner_id: &str,
+    caixa_local_uuid: &str,
+) -> DbResult<Option<CaixaResumoLocal>> {
     with_conn(|conn| {
         // Cabeçalho do caixa.
-        let cab: Option<(String, Option<String>, String, i64, Option<i64>,
-            Option<String>, Option<String>, f64, Option<f64>)> = conn.query_row(
-            "SELECT local_uuid, remote_id, status, data_abertura_ms, data_fechamento_ms,
+        let cab: Option<(
+            String,
+            Option<String>,
+            String,
+            i64,
+            Option<i64>,
+            Option<String>,
+            Option<String>,
+            f64,
+            Option<f64>,
+        )> = conn
+            .query_row(
+                "SELECT local_uuid, remote_id, status, data_abertura_ms, data_fechamento_ms,
                     operador_id, terminal_id, valor_inicial, valor_informado
                FROM caixa_local WHERE owner_id=?1 AND local_uuid=?2",
-            params![owner_id, caixa_local_uuid],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
-                    r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?)),
-        ).optional()?;
+                params![owner_id, caixa_local_uuid],
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                        r.get(6)?,
+                        r.get(7)?,
+                        r.get(8)?,
+                    ))
+                },
+            )
+            .optional()?;
         let Some(cab) = cab else { return Ok(None) };
-        let (clu, remote_id, status, dt_ab, dt_fc, oper, term, valor_inicial, valor_informado) = cab;
+        let (clu, remote_id, status, dt_ab, dt_fc, oper, term, valor_inicial, valor_informado) =
+            cab;
 
         // Totais por forma de pagamento (pagamentos detalhados).
         let mut stmt = conn.prepare(
@@ -6127,11 +6600,16 @@ pub fn caixa_resumo_local(owner_id: &str, caixa_local_uuid: &str) -> DbResult<Op
         let mut por_forma_map: std::collections::BTreeMap<String, (f64, i64)> =
             std::collections::BTreeMap::new();
         for row in stmt.query_map(params![owner_id, caixa_local_uuid], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?, r.get::<_, i64>(2)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, f64>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
         })? {
             let (f, t, q) = row?;
             let e = por_forma_map.entry(f).or_insert((0.0, 0));
-            e.0 += t; e.1 += q;
+            e.0 += t;
+            e.1 += q;
         }
         drop(stmt);
         // Fallback cabeçalho.
@@ -6149,37 +6627,50 @@ pub fn caixa_resumo_local(owner_id: &str, caixa_local_uuid: &str) -> DbResult<Op
               GROUP BY forma",
         )?;
         for row in stmt.query_map(params![owner_id, caixa_local_uuid], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?, r.get::<_, i64>(2)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, f64>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
         })? {
             let (f, t, q) = row?;
             let e = por_forma_map.entry(f).or_insert((0.0, 0));
-            e.0 += t; e.1 += q;
+            e.0 += t;
+            e.1 += q;
         }
         drop(stmt);
 
         let por_forma: Vec<CaixaResumoFormaRow> = por_forma_map
             .into_iter()
-            .map(|(forma, (total, q))| CaixaResumoFormaRow { forma_pagamento: forma, total, qtd_vendas: q })
+            .map(|(forma, (total, q))| CaixaResumoFormaRow {
+                forma_pagamento: forma,
+                total,
+                qtd_vendas: q,
+            })
             .collect();
 
         // Total geral + qtd vendas.
-        let (total_vendido, qtd_vendas): (f64, i64) = conn.query_row(
-            "SELECT COALESCE(SUM(total),0), COUNT(*)
+        let (total_vendido, qtd_vendas): (f64, i64) = conn
+            .query_row(
+                "SELECT COALESCE(SUM(total),0), COUNT(*)
                FROM vendas_local WHERE owner_id = ?1 AND caixa_local_uuid = ?2
                  AND COALESCE(status,'ativa') <> 'cancelada'",
-            params![owner_id, caixa_local_uuid],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        ).unwrap_or((0.0, 0));
+                params![owner_id, caixa_local_uuid],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap_or((0.0, 0));
 
         // Suprimentos / sangrias.
-        let (total_sup, total_san): (f64, f64) = conn.query_row(
-            "SELECT
+        let (total_sup, total_san): (f64, f64) = conn
+            .query_row(
+                "SELECT
                 COALESCE(SUM(CASE WHEN tipo='suprimento' THEN valor ELSE 0 END),0),
                 COALESCE(SUM(CASE WHEN tipo='sangria'    THEN valor ELSE 0 END),0)
                FROM caixa_movs_local WHERE owner_id=?1 AND caixa_local_uuid=?2",
-            params![owner_id, caixa_local_uuid],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        ).unwrap_or((0.0, 0.0));
+                params![owner_id, caixa_local_uuid],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap_or((0.0, 0.0));
 
         // Esperado em dinheiro: valor_inicial + (vendas em "dinheiro") + suprimentos - sangrias.
         let total_dinheiro: f64 = por_forma
@@ -6248,11 +6739,27 @@ pub struct CaixaLocalRow {
     pub total_sangrias: f64,
 }
 
-pub fn caixa_local_aberto(owner_id: &str, operador_id: Option<&str>) -> DbResult<Option<CaixaLocalRow>> {
+pub fn caixa_local_aberto(
+    owner_id: &str,
+    operador_id: Option<&str>,
+) -> DbResult<Option<CaixaLocalRow>> {
     with_conn(|conn| {
-        let row_opt: Option<(String, Option<String>, Option<String>, String, f64,
-            Option<f64>, Option<f64>, Option<f64>, Option<String>, Option<String>,
-            Option<String>, Option<String>, i64, Option<i64>)> = if let Some(op) = operador_id {
+        let row_opt: Option<(
+            String,
+            Option<String>,
+            Option<String>,
+            String,
+            f64,
+            Option<f64>,
+            Option<f64>,
+            Option<f64>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            i64,
+            Option<i64>,
+        )> = if let Some(op) = operador_id {
             conn.query_row(
                 "SELECT local_uuid, remote_id, client_uuid, status, valor_inicial,
                         valor_informado, valor_esperado, diferenca,
@@ -6263,12 +6770,26 @@ pub fn caixa_local_aberto(owner_id: &str, operador_id: Option<&str>) -> DbResult
                   WHERE owner_id=?1 AND status='aberto' AND operador_id = ?2
                ORDER BY data_abertura_ms DESC LIMIT 1",
                 params![owner_id, op],
-                |r| Ok((
-                    r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
-                    r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?,
-                    r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?,
-                )),
-            ).optional()?
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                        r.get(6)?,
+                        r.get(7)?,
+                        r.get(8)?,
+                        r.get(9)?,
+                        r.get(10)?,
+                        r.get(11)?,
+                        r.get(12)?,
+                        r.get(13)?,
+                    ))
+                },
+            )
+            .optional()?
         } else {
             conn.query_row(
                 "SELECT local_uuid, remote_id, client_uuid, status, valor_inicial,
@@ -6280,34 +6801,73 @@ pub fn caixa_local_aberto(owner_id: &str, operador_id: Option<&str>) -> DbResult
                   WHERE owner_id=?1 AND status='aberto'
                ORDER BY data_abertura_ms DESC LIMIT 1",
                 params![owner_id],
-                |r| Ok((
-                    r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
-                    r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?,
-                    r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?,
-                )),
-            ).optional()?
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                        r.get(6)?,
+                        r.get(7)?,
+                        r.get(8)?,
+                        r.get(9)?,
+                        r.get(10)?,
+                        r.get(11)?,
+                        r.get(12)?,
+                        r.get(13)?,
+                    ))
+                },
+            )
+            .optional()?
         };
         let Some(row) = row_opt else { return Ok(None) };
-        let (local_uuid, remote_id, client_uuid, status, valor_inicial,
-             valor_informado, valor_esperado, diferenca,
-             obs_ab, obs_fc, oper, term, dt_ab, dt_fc) = row;
-        let (qtd, sup, san): (i64, f64, f64) = conn.query_row(
-            "SELECT
+        let (
+            local_uuid,
+            remote_id,
+            client_uuid,
+            status,
+            valor_inicial,
+            valor_informado,
+            valor_esperado,
+            diferenca,
+            obs_ab,
+            obs_fc,
+            oper,
+            term,
+            dt_ab,
+            dt_fc,
+        ) = row;
+        let (qtd, sup, san): (i64, f64, f64) = conn
+            .query_row(
+                "SELECT
                 COUNT(*),
                 COALESCE(SUM(CASE WHEN tipo='suprimento' THEN valor ELSE 0 END),0),
                 COALESCE(SUM(CASE WHEN tipo='sangria' THEN valor ELSE 0 END),0)
                FROM caixa_movs_local WHERE owner_id=?1 AND caixa_local_uuid=?2",
-            params![owner_id, local_uuid],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        ).unwrap_or((0, 0.0, 0.0));
+                params![owner_id, local_uuid],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap_or((0, 0.0, 0.0));
         Ok(Some(CaixaLocalRow {
-            local_uuid, remote_id, client_uuid, status, valor_inicial,
-            valor_informado, valor_esperado, diferenca,
+            local_uuid,
+            remote_id,
+            client_uuid,
+            status,
+            valor_inicial,
+            valor_informado,
+            valor_esperado,
+            diferenca,
             observacao_abertura: obs_ab,
             observacao_fechamento: obs_fc,
-            operador_id: oper, terminal_id: term,
-            data_abertura_ms: dt_ab, data_fechamento_ms: dt_fc,
-            qtd_movimentos: qtd, total_suprimentos: sup, total_sangrias: san,
+            operador_id: oper,
+            terminal_id: term,
+            data_abertura_ms: dt_ab,
+            data_fechamento_ms: dt_fc,
+            qtd_movimentos: qtd,
+            total_suprimentos: sup,
+            total_sangrias: san,
         }))
     })
 }
@@ -6409,7 +6969,10 @@ pub fn caixa_local_historico(owner_id: &str, limit: Option<i64>) -> DbResult<Vec
     })
 }
 
-pub fn caixa_movimentos_local(owner_id: &str, caixa_local_uuid: &str) -> DbResult<Vec<CaixaMovimentoLocalRow>> {
+pub fn caixa_movimentos_local(
+    owner_id: &str,
+    caixa_local_uuid: &str,
+) -> DbResult<Vec<CaixaMovimentoLocalRow>> {
     with_conn(|conn| {
         let mut stmt = conn.prepare(
             "SELECT local_uuid, caixa_local_uuid, tipo, valor, motivo, operador_id, remote_id, created_at_ms
@@ -6417,16 +6980,18 @@ pub fn caixa_movimentos_local(owner_id: &str, caixa_local_uuid: &str) -> DbResul
               WHERE owner_id = ?1 AND caixa_local_uuid = ?2
            ORDER BY created_at_ms ASC",
         )?;
-        let rows = stmt.query_map(params![owner_id, caixa_local_uuid], |r| Ok(CaixaMovimentoLocalRow {
-            local_uuid: r.get(0)?,
-            caixa_local_uuid: r.get(1)?,
-            tipo: r.get(2)?,
-            valor: r.get(3)?,
-            motivo: r.get(4)?,
-            operador_id: r.get(5)?,
-            remote_id: r.get(6)?,
-            created_at_ms: r.get(7)?,
-        }))?;
+        let rows = stmt.query_map(params![owner_id, caixa_local_uuid], |r| {
+            Ok(CaixaMovimentoLocalRow {
+                local_uuid: r.get(0)?,
+                caixa_local_uuid: r.get(1)?,
+                tipo: r.get(2)?,
+                valor: r.get(3)?,
+                motivo: r.get(4)?,
+                operador_id: r.get(5)?,
+                remote_id: r.get(6)?,
+                created_at_ms: r.get(7)?,
+            })
+        })?;
         let mut result = Vec::new();
         for row in rows {
             result.push(row?);
@@ -6464,9 +7029,12 @@ pub struct OutboxCaixaStats {
 pub fn outbox_caixa_stats(owner_id: &str) -> DbResult<OutboxCaixaStats> {
     with_conn(|conn| {
         let mut s = OutboxCaixaStats::default();
-        let mut stmt = conn
-            .prepare("SELECT status, COUNT(*) FROM outbox_caixa WHERE owner_id=?1 GROUP BY status")?;
-        let rows = stmt.query_map(params![owner_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        let mut stmt = conn.prepare(
+            "SELECT status, COUNT(*) FROM outbox_caixa WHERE owner_id=?1 GROUP BY status",
+        )?;
+        let rows = stmt.query_map(params![owner_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })?;
         for r in rows {
             let (st, n) = r?;
             match st.as_str() {
@@ -6477,10 +7045,13 @@ pub fn outbox_caixa_stats(owner_id: &str) -> DbResult<OutboxCaixaStats> {
                 _ => {}
             }
         }
-        let mut stmt = conn
-            .prepare("SELECT action, COUNT(*) FROM outbox_caixa
-                       WHERE owner_id=?1 AND status='pending' GROUP BY action")?;
-        let rows = stmt.query_map(params![owner_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        let mut stmt = conn.prepare(
+            "SELECT action, COUNT(*) FROM outbox_caixa
+                       WHERE owner_id=?1 AND status='pending' GROUP BY action",
+        )?;
+        let rows = stmt.query_map(params![owner_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })?;
         for r in rows {
             let (act, n) = r?;
             match act.as_str() {
@@ -6490,26 +7061,42 @@ pub fn outbox_caixa_stats(owner_id: &str) -> DbResult<OutboxCaixaStats> {
                 _ => {}
             }
         }
-        s.last_sent_at_ms = conn.query_row(
-            "SELECT MAX(sent_at_ms) FROM outbox_caixa WHERE owner_id=?1 AND status='sent'",
-            params![owner_id], |r| r.get::<_, Option<i64>>(0),
-        ).optional()?.flatten();
-        s.last_error = conn.query_row(
-            "SELECT last_error FROM outbox_caixa
+        s.last_sent_at_ms = conn
+            .query_row(
+                "SELECT MAX(sent_at_ms) FROM outbox_caixa WHERE owner_id=?1 AND status='sent'",
+                params![owner_id],
+                |r| r.get::<_, Option<i64>>(0),
+            )
+            .optional()?
+            .flatten();
+        s.last_error = conn
+            .query_row(
+                "SELECT last_error FROM outbox_caixa
               WHERE owner_id=?1 AND status='error' ORDER BY updated_at_ms DESC LIMIT 1",
-            params![owner_id], |r| r.get::<_, Option<String>>(0),
-        ).optional()?.flatten();
+                params![owner_id],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten();
         let now = chrono::Utc::now().timestamp_millis();
-        s.due_now = conn.query_row(
-            "SELECT COUNT(*) FROM outbox_caixa
+        s.due_now = conn
+            .query_row(
+                "SELECT COUNT(*) FROM outbox_caixa
               WHERE owner_id=?1 AND status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?2",
-            params![owner_id, now], |r| r.get::<_, i64>(0),
-        ).optional()?.unwrap_or(0);
-        s.next_attempt_at_ms = conn.query_row(
-            "SELECT MIN(COALESCE(next_attempt_at_ms,0))
+                params![owner_id, now],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()?
+            .unwrap_or(0);
+        s.next_attempt_at_ms = conn
+            .query_row(
+                "SELECT MIN(COALESCE(next_attempt_at_ms,0))
                FROM outbox_caixa WHERE owner_id=?1 AND status='pending'",
-            params![owner_id], |r| r.get::<_, Option<i64>>(0),
-        ).optional()?.flatten();
+                params![owner_id],
+                |r| r.get::<_, Option<i64>>(0),
+            )
+            .optional()?
+            .flatten();
         s.last_auto_flush_ms = meta_get_i64(conn, "outbox_caixa_last_auto_flush_ms")?;
         s.last_auto_flush_sent_ms = meta_get_i64(conn, "outbox_caixa_last_auto_flush_sent_ms")?;
         s.last_auto_attempted = meta_get_i64(conn, "outbox_caixa_last_auto_attempted")?;
@@ -6521,7 +7108,11 @@ pub fn outbox_caixa_stats(owner_id: &str) -> DbResult<OutboxCaixaStats> {
 }
 
 pub fn outbox_caixa_record_flush_round(
-    kind: &str, now_ms: i64, attempted: i64, sent: i64, failed: i64,
+    kind: &str,
+    now_ms: i64,
+    attempted: i64,
+    sent: i64,
+    failed: i64,
 ) -> DbResult<()> {
     with_conn(|conn| {
         if kind == "auto" {
@@ -6574,7 +7165,11 @@ fn map_caixa_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<OutboxCaixaItem> {
     })
 }
 
-pub fn outbox_caixa_list(owner_id: &str, limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxCaixaItem>> {
+pub fn outbox_caixa_list(
+    owner_id: &str,
+    limit: i64,
+    only_status: Option<&str>,
+) -> DbResult<Vec<OutboxCaixaItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let mut out = Vec::new();
@@ -6587,7 +7182,9 @@ pub fn outbox_caixa_list(owner_id: &str, limit: i64, only_status: Option<&str>) 
                   ORDER BY created_at_ms DESC LIMIT ?3",
             )?;
             let rows = stmt.query_map(params![owner_id, st, limit], map_caixa_item)?;
-            for r in rows { out.push(r?); }
+            for r in rows {
+                out.push(r?);
+            }
         } else {
             let mut stmt = conn.prepare(
                 "SELECT local_uuid, owner_id, client_uuid, action, caixa_local_uuid, payload,
@@ -6596,7 +7193,9 @@ pub fn outbox_caixa_list(owner_id: &str, limit: i64, only_status: Option<&str>) 
                    FROM outbox_caixa WHERE owner_id = ?1 ORDER BY created_at_ms DESC LIMIT ?2",
             )?;
             let rows = stmt.query_map(params![owner_id, limit], map_caixa_item)?;
-            for r in rows { out.push(r?); }
+            for r in rows {
+                out.push(r?);
+            }
         }
         Ok(out)
     })
@@ -6620,12 +7219,17 @@ pub fn outbox_caixa_pending_batch(owner_id: &str, limit: i64) -> DbResult<Vec<Ou
         )?;
         let rows = stmt.query_map(params![owner_id, now, limit], map_caixa_item)?;
         let mut out = Vec::new();
-        for r in rows { out.push(r?); }
+        for r in rows {
+            out.push(r?);
+        }
         Ok(out)
     })
 }
 
-pub fn outbox_caixa_pending_batch_all(owner_id: &str, limit: i64) -> DbResult<Vec<OutboxCaixaItem>> {
+pub fn outbox_caixa_pending_batch_all(
+    owner_id: &str,
+    limit: i64,
+) -> DbResult<Vec<OutboxCaixaItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let mut stmt = conn.prepare(
@@ -6637,20 +7241,25 @@ pub fn outbox_caixa_pending_batch_all(owner_id: &str, limit: i64) -> DbResult<Ve
         )?;
         let rows = stmt.query_map(params![owner_id, limit], map_caixa_item)?;
         let mut out = Vec::new();
-        for r in rows { out.push(r?); }
+        for r in rows {
+            out.push(r?);
+        }
         Ok(out)
     })
 }
 
 pub fn outbox_caixa_get(local_uuid: &str) -> DbResult<Option<OutboxCaixaItem>> {
     with_conn(|conn| {
-        let r = conn.query_row(
-            "SELECT local_uuid, owner_id, client_uuid, action, caixa_local_uuid, payload,
+        let r = conn
+            .query_row(
+                "SELECT local_uuid, owner_id, client_uuid, action, caixa_local_uuid, payload,
                     status, attempts, last_error, remote_id,
                     created_at_ms, updated_at_ms, sent_at_ms
                FROM outbox_caixa WHERE local_uuid=?1",
-            params![local_uuid], map_caixa_item,
-        ).optional()?;
+                params![local_uuid],
+                map_caixa_item,
+            )
+            .optional()?;
         Ok(r)
     })
 }
@@ -6795,10 +7404,13 @@ pub fn outbox_caixa_mark_sent(local_uuid: &str, remote_id: &str, now_ms: i64) ->
         // Propaga o remote_id da abertura para a linha do caixa local — assim
         // futuras movimentações podem ser referenciadas tanto pelo local_uuid
         // quanto pelo remote_id que o front conhecer.
-        let action: Option<String> = tx.query_row(
-            "SELECT action FROM outbox_caixa WHERE local_uuid=?1",
-            params![local_uuid], |r| r.get::<_, String>(0),
-        ).optional()?;
+        let action: Option<String> = tx
+            .query_row(
+                "SELECT action FROM outbox_caixa WHERE local_uuid=?1",
+                params![local_uuid],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?;
         if action.as_deref() == Some("abrir") {
             tx.execute(
                 "UPDATE caixa_local SET remote_id=?1, updated_at_ms=?2
@@ -6819,10 +7431,14 @@ pub fn outbox_caixa_mark_sent(local_uuid: &str, remote_id: &str, now_ms: i64) ->
 
 pub fn outbox_caixa_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbResult<()> {
     with_conn(|conn| {
-        let attempts: i64 = conn.query_row(
-            "SELECT attempts FROM outbox_caixa WHERE local_uuid=?1",
-            params![local_uuid], |r| r.get(0),
-        ).optional()?.unwrap_or(1);
+        let attempts: i64 = conn
+            .query_row(
+                "SELECT attempts FROM outbox_caixa WHERE local_uuid=?1",
+                params![local_uuid],
+                |r| r.get(0),
+            )
+            .optional()?
+            .unwrap_or(1);
         if attempts >= MAX_AUTO_ATTEMPTS {
             conn.execute(
                 "UPDATE outbox_caixa
@@ -6921,30 +7537,38 @@ pub fn cancelar_venda_local(
     // Resolve venda. Aceita tanto local_uuid quanto client_uuid (sincronizado
     // ou não) — facilita o frontend que pode ter qualquer um dos dois.
     let venda_row: Option<(String, String, Option<String>, Option<String>)> = with_conn(|conn| {
-        let r = conn.query_row(
-            "SELECT local_uuid, COALESCE(status,'ativa'), caixa_local_uuid,
+        let r = conn
+            .query_row(
+                "SELECT local_uuid, COALESCE(status,'ativa'), caixa_local_uuid,
                     cancelamento_local_uuid
                FROM vendas_local
               WHERE owner_id = ?1 AND (local_uuid = ?2 OR client_uuid = ?2)
               LIMIT 1",
-            params![owner_id, input.venda_local_uuid],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-        ).optional()?;
+                params![owner_id, input.venda_local_uuid],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .optional()?;
         Ok(r)
     })?;
-    let (venda_uuid, status_atual, caixa_local_uuid, prev_canc) = venda_row
-        .ok_or_else(|| DbError(format!("venda local não encontrada: {}", input.venda_local_uuid)))?;
+    let (venda_uuid, status_atual, caixa_local_uuid, prev_canc) = venda_row.ok_or_else(|| {
+        DbError(format!(
+            "venda local não encontrada: {}",
+            input.venda_local_uuid
+        ))
+    })?;
 
     // Idempotente: já cancelada → devolve resumo anterior.
     if status_atual == "cancelada" {
         let canc_uuid = prev_canc.unwrap_or_default();
         let (qtd_itens, qtd_total) = with_conn(|conn| {
-            let r = conn.query_row(
-                "SELECT COUNT(*), COALESCE(SUM(quantidade),0)
+            let r = conn
+                .query_row(
+                    "SELECT COUNT(*), COALESCE(SUM(quantidade),0)
                    FROM venda_itens_local WHERE owner_id = ?1 AND venda_local_uuid = ?2",
-                params![owner_id, venda_uuid],
-                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?)),
-            ).optional()?;
+                    params![owner_id, venda_uuid],
+                    |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?)),
+                )
+                .optional()?;
             Ok(r.unwrap_or((0, 0.0)))
         })?;
         return Ok(LocalCancelarVendaResult {
@@ -6962,21 +7586,25 @@ pub fn cancelar_venda_local(
     if let Some(cu) = input.client_uuid.as_deref() {
         if !cu.is_empty() {
             if let Some(local_uuid) = with_conn(|conn| {
-                let r = conn.query_row(
-                    "SELECT local_uuid FROM outbox_cancelamentos_venda
+                let r = conn
+                    .query_row(
+                        "SELECT local_uuid FROM outbox_cancelamentos_venda
                        WHERE owner_id = ?1 AND client_uuid = ?2",
-                    params![owner_id, cu],
-                    |r| r.get::<_, String>(0),
-                ).optional()?;
+                        params![owner_id, cu],
+                        |r| r.get::<_, String>(0),
+                    )
+                    .optional()?;
                 Ok(r)
             })? {
                 let (qtd_itens, qtd_total) = with_conn(|conn| {
-                    let r = conn.query_row(
-                        "SELECT COUNT(*), COALESCE(SUM(quantidade),0)
+                    let r = conn
+                        .query_row(
+                            "SELECT COUNT(*), COALESCE(SUM(quantidade),0)
                            FROM venda_itens_local WHERE owner_id = ?1 AND venda_local_uuid = ?2",
-                        params![owner_id, venda_uuid],
-                        |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?)),
-                    ).optional()?;
+                            params![owner_id, venda_uuid],
+                            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?)),
+                        )
+                        .optional()?;
                     Ok(r.unwrap_or((0, 0.0)))
                 })?;
                 return Ok(LocalCancelarVendaResult {
@@ -6994,11 +7622,13 @@ pub fn cancelar_venda_local(
 
     // Lê venda_remote_id (se já sincronizada) — vai no payload de outbox.
     let venda_remote_id: Option<String> = with_conn(|conn| {
-        let r = conn.query_row(
-            "SELECT remote_id FROM outbox_vendas WHERE owner_id = ?1 AND local_uuid = ?2",
-            params![owner_id, venda_uuid],
-            |r| r.get::<_, Option<String>>(0),
-        ).optional()?;
+        let r = conn
+            .query_row(
+                "SELECT remote_id FROM outbox_vendas WHERE owner_id = ?1 AND local_uuid = ?2",
+                params![owner_id, venda_uuid],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .optional()?;
         Ok(r.flatten())
     })?;
 
@@ -7012,7 +7642,8 @@ pub fn cancelar_venda_local(
         "operador_id":       input.operador_id,
         "client_uuid":       input.client_uuid,
         "owner_id":          owner_id,
-    }).to_string();
+    })
+    .to_string();
 
     let res = with_conn(|conn| {
         let tx = conn.unchecked_transaction()?;
@@ -7047,7 +7678,9 @@ pub fn cancelar_venda_local(
               ORDER BY id ASC",
         )?;
         let itens: Vec<(String, f64)> = stmt
-            .query_map(params![owner_id, venda_uuid], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .query_map(params![owner_id, venda_uuid], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })?
             .collect::<rusqlite::Result<_>>()?;
         drop(stmt);
 
@@ -7070,7 +7703,8 @@ pub fn cancelar_venda_local(
                 "data_movimentacao": iso_from_ms_z_pub(now_ms),
                 "_pending": true,
                 "owner_id": owner_id,
-            }).to_string();
+            })
+            .to_string();
             tx.execute(
                 "INSERT OR IGNORE INTO estoque_movimentacoes_local(
                     id, owner_id, produto_id, variacao_id, tipo, quantidade,
@@ -7092,8 +7726,13 @@ pub fn cancelar_venda_local(
                 ],
             )?;
             apply_mov_to_saldo(
-                &tx, owner_id, produto_id, &variacao_id,
-                Some("devolucao"), *quantidade, now_ms,
+                &tx,
+                owner_id,
+                produto_id,
+                &variacao_id,
+                Some("devolucao"),
+                *quantidade,
+                now_ms,
             )?;
             qtd_itens += 1;
             qtd_total += *quantidade;
@@ -7164,7 +7803,9 @@ pub fn outbox_cancel_stats(owner_id: &str) -> DbResult<OutboxCancelStats> {
         let mut stmt = conn.prepare(
             "SELECT status, COUNT(*) FROM outbox_cancelamentos_venda WHERE owner_id=?1 GROUP BY status",
         )?;
-        for r in stmt.query_map(params![owner_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
+        for r in stmt.query_map(params![owner_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })? {
             let (st, n) = r?;
             match st.as_str() {
                 "pending" => s.pending = n,
@@ -7178,26 +7819,36 @@ pub fn outbox_cancel_stats(owner_id: &str) -> DbResult<OutboxCancelStats> {
             "SELECT MAX(sent_at_ms) FROM outbox_cancelamentos_venda WHERE owner_id=?1 AND status='sent'",
             params![owner_id], |r| r.get::<_, Option<i64>>(0),
         ).unwrap_or(None);
-        s.last_error = conn.query_row(
-            "SELECT last_error FROM outbox_cancelamentos_venda
+        s.last_error = conn
+            .query_row(
+                "SELECT last_error FROM outbox_cancelamentos_venda
               WHERE owner_id=?1 AND status='error' ORDER BY updated_at_ms DESC LIMIT 1",
-            params![owner_id], |r| r.get::<_, Option<String>>(0),
-        ).unwrap_or(None);
-        s.due_now = conn.query_row(
-            "SELECT COUNT(*) FROM outbox_cancelamentos_venda
+                params![owner_id],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .unwrap_or(None);
+        s.due_now = conn
+            .query_row(
+                "SELECT COUNT(*) FROM outbox_cancelamentos_venda
               WHERE owner_id=?1
                 AND status='pending'
                 AND (next_attempt_at_ms IS NULL OR next_attempt_at_ms <= ?2)",
-            params![owner_id, chrono::Utc::now().timestamp_millis()], |r| r.get::<_, i64>(0),
-        ).unwrap_or(0);
-        s.next_attempt_at_ms = conn.query_row(
-            "SELECT MIN(next_attempt_at_ms) FROM outbox_cancelamentos_venda
+                params![owner_id, chrono::Utc::now().timestamp_millis()],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(0);
+        s.next_attempt_at_ms = conn
+            .query_row(
+                "SELECT MIN(next_attempt_at_ms) FROM outbox_cancelamentos_venda
               WHERE owner_id=?1 AND status='pending'",
-            params![owner_id], |r| r.get::<_, Option<i64>>(0),
-        ).unwrap_or(None);
+                params![owner_id],
+                |r| r.get::<_, Option<i64>>(0),
+            )
+            .unwrap_or(None);
         // Cancelamentos pendentes cuja venda ainda não foi sincronizada.
-        s.waiting_venda_sync = conn.query_row(
-            "SELECT COUNT(*)
+        s.waiting_venda_sync = conn
+            .query_row(
+                "SELECT COUNT(*)
                FROM outbox_cancelamentos_venda c
               WHERE c.status='pending'
                 AND c.owner_id=?1
@@ -7209,8 +7860,10 @@ pub fn outbox_cancel_stats(owner_id: &str) -> DbResult<OutboxCancelStats> {
                        AND v.status='sent'
                        AND v.remote_id IS NOT NULL
                 )",
-            params![owner_id], |r| r.get::<_, i64>(0),
-        ).unwrap_or(0);
+                params![owner_id],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(0);
         Ok(s)
     })
 }
@@ -7250,7 +7903,11 @@ fn map_cancel_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<OutboxCancelItem> 
     })
 }
 
-pub fn outbox_cancel_list(owner_id: &str, limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxCancelItem>> {
+pub fn outbox_cancel_list(
+    owner_id: &str,
+    limit: i64,
+    only_status: Option<&str>,
+) -> DbResult<Vec<OutboxCancelItem>> {
     with_conn(|conn| {
         let (sql, has_status) = match only_status {
             Some(_) => (
@@ -7308,7 +7965,10 @@ pub fn outbox_cancel_pending_batch(owner_id: &str, limit: i64) -> DbResult<Vec<O
     })
 }
 
-pub fn outbox_cancel_pending_batch_all(owner_id: &str, limit: i64) -> DbResult<Vec<OutboxCancelItem>> {
+pub fn outbox_cancel_pending_batch_all(
+    owner_id: &str,
+    limit: i64,
+) -> DbResult<Vec<OutboxCancelItem>> {
     with_conn(|conn| {
         let mut stmt = conn.prepare(
             "SELECT local_uuid, owner_id, client_uuid, venda_local_uuid, venda_remote_id,
@@ -7339,20 +7999,27 @@ pub fn cancel_resolve_venda_remote(owner_id: &str, local_uuid: &str) -> DbResult
             |r| r.get::<_, Option<String>>(0),
         ).optional()?.flatten();
         if let Some(s) = stored {
-            if !s.is_empty() { return Ok(Some(s)); }
+            if !s.is_empty() {
+                return Ok(Some(s));
+            }
         }
         let venda_local: Option<String> = conn.query_row(
             "SELECT venda_local_uuid FROM outbox_cancelamentos_venda WHERE owner_id=?1 AND local_uuid=?2",
             params![owner_id, local_uuid],
             |r| r.get::<_, String>(0),
         ).optional()?;
-        let Some(vl) = venda_local else { return Ok(None) };
-        let remote: Option<String> = conn.query_row(
-            "SELECT remote_id FROM outbox_vendas
+        let Some(vl) = venda_local else {
+            return Ok(None);
+        };
+        let remote: Option<String> = conn
+            .query_row(
+                "SELECT remote_id FROM outbox_vendas
               WHERE owner_id=?1 AND local_uuid=?2 AND status='sent'",
-            params![owner_id, vl],
-            |r| r.get::<_, Option<String>>(0),
-        ).optional()?.flatten();
+                params![owner_id, vl],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten();
         // Persiste para próximas tentativas.
         if let Some(ref r) = remote {
             let _ = conn.execute(
@@ -7393,10 +8060,13 @@ pub fn outbox_cancel_mark_sent(local_uuid: &str, response_text: &str, now_ms: i6
 
 pub fn outbox_cancel_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbResult<()> {
     with_conn(|conn| {
-        let attempts: i64 = conn.query_row(
-            "SELECT attempts FROM outbox_cancelamentos_venda WHERE local_uuid=?1",
-            params![local_uuid], |r| r.get(0),
-        ).unwrap_or(0);
+        let attempts: i64 = conn
+            .query_row(
+                "SELECT attempts FROM outbox_cancelamentos_venda WHERE local_uuid=?1",
+                params![local_uuid],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
         let backoff = backoff_ms_for_attempts(attempts);
         // Mantém status='pending' para retry com backoff.
         conn.execute(
@@ -7485,9 +8155,12 @@ const FIN_COLS: &str =
 pub fn outbox_financeiro_stats(owner_id: &str) -> DbResult<OutboxFinanceiroStats> {
     with_conn(|conn| {
         let mut s = OutboxFinanceiroStats::default();
-        let mut stmt = conn
-            .prepare("SELECT status, COUNT(*) FROM outbox_financeiro WHERE owner_id=?1 GROUP BY status")?;
-        let rows = stmt.query_map(params![owner_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        let mut stmt = conn.prepare(
+            "SELECT status, COUNT(*) FROM outbox_financeiro WHERE owner_id=?1 GROUP BY status",
+        )?;
+        let rows = stmt.query_map(params![owner_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })?;
         for r in rows {
             let (st, n) = r?;
             match st.as_str() {
@@ -7498,26 +8171,42 @@ pub fn outbox_financeiro_stats(owner_id: &str) -> DbResult<OutboxFinanceiroStats
                 _ => {}
             }
         }
-        s.last_sent_at_ms = conn.query_row(
-            "SELECT MAX(sent_at_ms) FROM outbox_financeiro WHERE owner_id=?1 AND status='sent'",
-            params![owner_id], |r| r.get::<_, Option<i64>>(0),
-        ).optional()?.flatten();
-        s.last_error = conn.query_row(
-            "SELECT last_error FROM outbox_financeiro
+        s.last_sent_at_ms = conn
+            .query_row(
+                "SELECT MAX(sent_at_ms) FROM outbox_financeiro WHERE owner_id=?1 AND status='sent'",
+                params![owner_id],
+                |r| r.get::<_, Option<i64>>(0),
+            )
+            .optional()?
+            .flatten();
+        s.last_error = conn
+            .query_row(
+                "SELECT last_error FROM outbox_financeiro
               WHERE owner_id=?1 AND status='error' ORDER BY updated_at_ms DESC LIMIT 1",
-            params![owner_id], |r| r.get::<_, Option<String>>(0),
-        ).optional()?.flatten();
+                params![owner_id],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten();
         let now = chrono::Utc::now().timestamp_millis();
-        s.due_now = conn.query_row(
-            "SELECT COUNT(*) FROM outbox_financeiro
+        s.due_now = conn
+            .query_row(
+                "SELECT COUNT(*) FROM outbox_financeiro
               WHERE owner_id=?1 AND status='pending' AND COALESCE(next_attempt_at_ms,0) <= ?2",
-            params![owner_id, now], |r| r.get::<_, i64>(0),
-        ).optional()?.unwrap_or(0);
-        s.next_attempt_at_ms = conn.query_row(
-            "SELECT MIN(COALESCE(next_attempt_at_ms,0))
+                params![owner_id, now],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()?
+            .unwrap_or(0);
+        s.next_attempt_at_ms = conn
+            .query_row(
+                "SELECT MIN(COALESCE(next_attempt_at_ms,0))
                FROM outbox_financeiro WHERE owner_id=?1 AND status='pending'",
-            params![owner_id], |r| r.get::<_, Option<i64>>(0),
-        ).optional()?.flatten();
+                params![owner_id],
+                |r| r.get::<_, Option<i64>>(0),
+            )
+            .optional()?
+            .flatten();
         s.last_auto_flush_ms = meta_get_i64(conn, "outbox_fin_last_auto_flush_ms")?;
         s.last_auto_flush_sent_ms = meta_get_i64(conn, "outbox_fin_last_auto_flush_sent_ms")?;
         s.last_auto_attempted = meta_get_i64(conn, "outbox_fin_last_auto_attempted")?;
@@ -7529,7 +8218,11 @@ pub fn outbox_financeiro_stats(owner_id: &str) -> DbResult<OutboxFinanceiroStats
 }
 
 pub fn outbox_financeiro_record_flush_round(
-    kind: &str, now_ms: i64, attempted: i64, sent: i64, failed: i64,
+    kind: &str,
+    now_ms: i64,
+    attempted: i64,
+    sent: i64,
+    failed: i64,
 ) -> DbResult<()> {
     with_conn(|conn| {
         if kind == "auto" {
@@ -7547,7 +8240,11 @@ pub fn outbox_financeiro_record_flush_round(
     })
 }
 
-pub fn outbox_financeiro_list(owner_id: &str, limit: i64, only_status: Option<&str>) -> DbResult<Vec<OutboxFinanceiroItem>> {
+pub fn outbox_financeiro_list(
+    owner_id: &str,
+    limit: i64,
+    only_status: Option<&str>,
+) -> DbResult<Vec<OutboxFinanceiroItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let mut out = Vec::new();
@@ -7559,7 +8256,9 @@ pub fn outbox_financeiro_list(owner_id: &str, limit: i64, only_status: Option<&s
             );
             let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map(params![owner_id, st, limit], map_fin_item)?;
-            for r in rows { out.push(r?); }
+            for r in rows {
+                out.push(r?);
+            }
         } else {
             let sql = format!(
                 "SELECT {cols} FROM outbox_financeiro WHERE owner_id=?1
@@ -7568,13 +8267,18 @@ pub fn outbox_financeiro_list(owner_id: &str, limit: i64, only_status: Option<&s
             );
             let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map(params![owner_id, limit], map_fin_item)?;
-            for r in rows { out.push(r?); }
+            for r in rows {
+                out.push(r?);
+            }
         }
         Ok(out)
     })
 }
 
-pub fn outbox_financeiro_pending_batch(owner_id: &str, limit: i64) -> DbResult<Vec<OutboxFinanceiroItem>> {
+pub fn outbox_financeiro_pending_batch(
+    owner_id: &str,
+    limit: i64,
+) -> DbResult<Vec<OutboxFinanceiroItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let now = chrono::Utc::now().timestamp_millis();
@@ -7587,12 +8291,17 @@ pub fn outbox_financeiro_pending_batch(owner_id: &str, limit: i64) -> DbResult<V
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params![owner_id, now, limit], map_fin_item)?;
         let mut out = Vec::new();
-        for r in rows { out.push(r?); }
+        for r in rows {
+            out.push(r?);
+        }
         Ok(out)
     })
 }
 
-pub fn outbox_financeiro_pending_batch_all(owner_id: &str, limit: i64) -> DbResult<Vec<OutboxFinanceiroItem>> {
+pub fn outbox_financeiro_pending_batch_all(
+    owner_id: &str,
+    limit: i64,
+) -> DbResult<Vec<OutboxFinanceiroItem>> {
     with_conn(|conn| {
         let limit = limit.clamp(1, 1000);
         let sql = format!(
@@ -7603,7 +8312,9 @@ pub fn outbox_financeiro_pending_batch_all(owner_id: &str, limit: i64) -> DbResu
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params![owner_id, limit], map_fin_item)?;
         let mut out = Vec::new();
-        for r in rows { out.push(r?); }
+        for r in rows {
+            out.push(r?);
+        }
         Ok(out)
     })
 }
@@ -7614,7 +8325,9 @@ pub fn outbox_financeiro_get(local_uuid: &str) -> DbResult<Option<OutboxFinancei
             "SELECT {cols} FROM outbox_financeiro WHERE local_uuid=?1",
             cols = FIN_COLS,
         );
-        let r = conn.query_row(&sql, params![local_uuid], map_fin_item).optional()?;
+        let r = conn
+            .query_row(&sql, params![local_uuid], map_fin_item)
+            .optional()?;
         Ok(r)
     })
 }
@@ -7631,7 +8344,12 @@ pub fn outbox_financeiro_mark_sending(local_uuid: &str, now_ms: i64) -> DbResult
     })
 }
 
-pub fn outbox_financeiro_mark_sent(local_uuid: &str, remote_id: &str, response: &str, now_ms: i64) -> DbResult<()> {
+pub fn outbox_financeiro_mark_sent(
+    local_uuid: &str,
+    remote_id: &str,
+    response: &str,
+    now_ms: i64,
+) -> DbResult<()> {
     with_conn(|conn| {
         let tx = conn.unchecked_transaction()?;
         tx.execute(
@@ -7643,10 +8361,13 @@ pub fn outbox_financeiro_mark_sent(local_uuid: &str, remote_id: &str, response: 
             params![local_uuid, now_ms, remote_id, response],
         )?;
         // Propaga o remote_id para o lançamento local (leitura/UI).
-        let lanc: Option<String> = tx.query_row(
-            "SELECT lanc_local_uuid FROM outbox_financeiro WHERE local_uuid=?1",
-            params![local_uuid], |r| r.get(0),
-        ).optional()?;
+        let lanc: Option<String> = tx
+            .query_row(
+                "SELECT lanc_local_uuid FROM outbox_financeiro WHERE local_uuid=?1",
+                params![local_uuid],
+                |r| r.get(0),
+            )
+            .optional()?;
         if let Some(lu) = lanc {
             tx.execute(
                 "UPDATE lancamentos_financeiros_local
@@ -7662,10 +8383,14 @@ pub fn outbox_financeiro_mark_sent(local_uuid: &str, remote_id: &str, response: 
 
 pub fn outbox_financeiro_mark_error(local_uuid: &str, err: &str, now_ms: i64) -> DbResult<()> {
     with_conn(|conn| {
-        let attempts: i64 = conn.query_row(
-            "SELECT attempts FROM outbox_financeiro WHERE local_uuid=?1",
-            params![local_uuid], |r| r.get(0),
-        ).optional()?.unwrap_or(1);
+        let attempts: i64 = conn
+            .query_row(
+                "SELECT attempts FROM outbox_financeiro WHERE local_uuid=?1",
+                params![local_uuid],
+                |r| r.get(0),
+            )
+            .optional()?
+            .unwrap_or(1);
         if attempts >= MAX_AUTO_ATTEMPTS {
             conn.execute(
                 "UPDATE outbox_financeiro
@@ -7791,11 +8516,9 @@ mod legacy_owner_tests {
             .unwrap();
         assert_eq!(saldo, (OWNER.to_string(), 83.0));
         let venda: (String, String) = conn
-            .query_row(
-                "SELECT local_uuid, owner_id FROM vendas_local",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
+            .query_row("SELECT local_uuid, owner_id FROM vendas_local", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
             .unwrap();
         assert_eq!(venda, ("venda-uuid".into(), OWNER.into()));
     }

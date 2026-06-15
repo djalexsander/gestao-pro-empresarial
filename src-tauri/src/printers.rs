@@ -34,15 +34,43 @@ pub struct PrinterInfo {
 pub fn detect_thermal(name: &str) -> bool {
     let n = name.to_lowercase();
     const NEEDLES: &[&str] = &[
-        "pos-58", "pos58", "pos-80", "pos80", "pt-260", "pt260",
-        "tm-t", "tm-u", "tm-m", "epson tm", "epson-tm",
-        "bematech", "mp-4200", "mp4200", "mp-2800",
-        "daruma", "dr-700", "dr700",
-        "elgin", "i9", "i7", "vox",
-        "sweda", "sat",
-        "thermal", "term", "receipt", "ticket", "cupom", "non-fiscal", "rongta",
-        "xprinter", "x-printer", "zjiang", "zj-",
-        "gprinter", "gp-",
+        "pos-58",
+        "pos58",
+        "pos-80",
+        "pos80",
+        "pt-260",
+        "pt260",
+        "tm-t",
+        "tm-u",
+        "tm-m",
+        "epson tm",
+        "epson-tm",
+        "bematech",
+        "mp-4200",
+        "mp4200",
+        "mp-2800",
+        "daruma",
+        "dr-700",
+        "dr700",
+        "elgin",
+        "i9",
+        "i7",
+        "vox",
+        "sweda",
+        "sat",
+        "thermal",
+        "term",
+        "receipt",
+        "ticket",
+        "cupom",
+        "non-fiscal",
+        "rongta",
+        "xprinter",
+        "x-printer",
+        "zjiang",
+        "zj-",
+        "gprinter",
+        "gp-",
     ];
     NEEDLES.iter().any(|k| n.contains(k))
 }
@@ -261,7 +289,14 @@ pub fn print_image_png(
     for px in rgba.pixels() {
         bgra.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
     }
-    win_raw::gdi_print_bitmap(printer_name, doc_name, &bgra, w as i32, h as i32, copies.max(1))?;
+    win_raw::gdi_print_bitmap(
+        printer_name,
+        doc_name,
+        &bgra,
+        w as i32,
+        h as i32,
+        copies.max(1),
+    )?;
     Ok(format!(
         "Etiqueta enviada para '{}' ({}x{} px)",
         printer_name, w, h
@@ -293,7 +328,13 @@ pub fn print_image_png(
     std::fs::write(&path, png_bytes).map_err(|e| format!("temp png: {e}"))?;
     let n = copies.max(1).to_string();
     let out = Command::new("lp")
-        .args(["-d", printer_name, "-n", &n, path.to_string_lossy().as_ref()])
+        .args([
+            "-d",
+            printer_name,
+            "-n",
+            &n,
+            path.to_string_lossy().as_ref(),
+        ])
         .output()
         .map_err(|e| format!("lp indisponível: {e}"))?;
     if !out.status.success() {
@@ -441,10 +482,9 @@ mod win_raw {
     use winapi::shared::windef::HDC;
     use winapi::um::shellapi::ShellExecuteW;
     use winapi::um::wingdi::{
-        CreateDCW, DeleteDC, EndDoc, EndPage, GetDeviceCaps, StartDocW, StartPage,
-        StretchDIBits, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, DOCINFOW,
-        HORZRES, PHYSICALHEIGHT, PHYSICALOFFSETX, PHYSICALOFFSETY, PHYSICALWIDTH, SRCCOPY,
-        VERTRES,
+        CreateDCW, DeleteDC, EndDoc, EndPage, GetDeviceCaps, StartDocW, StartPage, StretchDIBits,
+        BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, DOCINFOW, HORZRES, PHYSICALHEIGHT,
+        PHYSICALOFFSETX, PHYSICALOFFSETY, PHYSICALWIDTH, SRCCOPY, VERTRES,
     };
     use winapi::um::winnt::HANDLE;
     use winapi::um::winspool::{
@@ -455,7 +495,10 @@ mod win_raw {
     use winapi::um::winuser::SW_HIDE;
 
     fn to_wide(s: &str) -> Vec<u16> {
-        OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+        OsStr::new(s)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
     }
 
     unsafe fn from_wide_ptr(p: *const u16) -> Option<String> {
@@ -527,14 +570,15 @@ mod win_raw {
                 &mut returned,
             );
             if ok == 0 {
-                return Err(format!("Falha ao consultar impressoras do Windows: {}", std::io::Error::last_os_error()));
+                return Err(format!(
+                    "Falha ao consultar impressoras do Windows: {}",
+                    std::io::Error::last_os_error()
+                ));
             }
 
             let default_name = default_printer_name();
-            let infos = slice::from_raw_parts(
-                buffer.as_ptr() as *const PRINTER_INFO_2W,
-                returned as usize,
-            );
+            let infos =
+                slice::from_raw_parts(buffer.as_ptr() as *const PRINTER_INFO_2W, returned as usize);
             let mut printers = Vec::with_capacity(returned as usize);
             for info in infos {
                 let Some(name) = from_wide_ptr(info.pPrinterName) else {
@@ -697,10 +741,7 @@ mod win_raw {
             );
 
             // Fit proporcional centralizado.
-            let scale = f64::min(
-                page_w as f64 / width as f64,
-                page_h as f64 / height as f64,
-            );
+            let scale = f64::min(page_w as f64 / width as f64, page_h as f64 / height as f64);
             let draw_w = ((width as f64) * scale).round() as i32;
             let draw_h = ((height as f64) * scale).round() as i32;
             let draw_x = ((page_w - draw_w) / 2).max(0);

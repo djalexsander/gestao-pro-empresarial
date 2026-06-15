@@ -68,9 +68,9 @@ fn ensure_backups_dir() -> DbResult<PathBuf> {
 #[derive(Debug, Serialize, Clone)]
 pub struct BackupEntry {
     pub id: i64,
-    pub kind: String,           // "manual" | "auto" | "pre_restore" | "export" | "restore"
+    pub kind: String, // "manual" | "auto" | "pre_restore" | "export" | "restore"
     pub path: String,
-    pub status: String,         // "ok" | "error"
+    pub status: String, // "ok" | "error"
     pub size_bytes: Option<i64>,
     pub message: Option<String>,
     pub created_at_ms: i64,
@@ -142,11 +142,15 @@ pub fn ensure_schema() -> DbResult<()> {
     })
 }
 
-fn now_ms() -> i64 { Utc::now().timestamp_millis() }
+fn now_ms() -> i64 {
+    Utc::now().timestamp_millis()
+}
 
 fn meta_get(conn: &Connection, key: &str) -> DbResult<Option<String>> {
     let v: Option<String> = conn
-        .query_row("SELECT value FROM meta WHERE key=?1", params![key], |r| r.get(0))
+        .query_row("SELECT value FROM meta WHERE key=?1", params![key], |r| {
+            r.get(0)
+        })
         .optional()?;
     Ok(v)
 }
@@ -166,7 +170,14 @@ fn log_entry(kind: &str, path: &Path, status: &str, message: Option<&str>) -> Db
         conn.execute(
             "INSERT INTO backup_log(kind, path, status, size_bytes, message, created_at_ms)
              VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-            params![kind, path.to_string_lossy().to_string(), status, size, message, now_ms()],
+            params![
+                kind,
+                path.to_string_lossy().to_string(),
+                status,
+                size,
+                message,
+                now_ms()
+            ],
         )?;
         Ok(conn.last_insert_rowid())
     })?;
@@ -186,7 +197,9 @@ pub fn create_backup(kind: &str) -> DbResult<BackupEntry> {
     let dest = dir.join(&filename);
 
     // VACUUM INTO requer que o destino NÃO exista.
-    if dest.exists() { let _ = fs::remove_file(&dest); }
+    if dest.exists() {
+        let _ = fs::remove_file(&dest);
+    }
 
     let res: DbResult<()> = db::with_raw_conn(|conn| {
         let path_str = dest.to_string_lossy().replace('\'', "''");
@@ -223,23 +236,35 @@ pub fn list_backup_files() -> DbResult<Vec<BackupFile>> {
     if let Ok(rd) = fs::read_dir(&dir) {
         for entry in rd.flatten() {
             let path = entry.path();
-            if !path.is_file() { continue; }
+            if !path.is_file() {
+                continue;
+            }
             let name = match path.file_name().and_then(|n| n.to_str()) {
                 Some(n) => n.to_string(),
                 None => continue,
             };
-            if !name.ends_with(".db") { continue; }
-            let meta = match entry.metadata() { Ok(m) => m, Err(_) => continue };
+            if !name.ends_with(".db") {
+                continue;
+            }
+            let meta = match entry.metadata() {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
             let modified_ms = meta
                 .modified()
                 .ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_millis() as i64)
                 .unwrap_or(0);
-            let kind = if name.contains("-auto-") { "auto" }
-                else if name.contains("-pre_restore-") { "pre_restore" }
-                else if name.contains("-manual-") { "manual" }
-                else { "outro" };
+            let kind = if name.contains("-auto-") {
+                "auto"
+            } else if name.contains("-pre_restore-") {
+                "pre_restore"
+            } else if name.contains("-manual-") {
+                "manual"
+            } else {
+                "outro"
+            };
             out.push(BackupFile {
                 name,
                 path: path.to_string_lossy().to_string(),
@@ -261,7 +286,9 @@ pub fn enforce_retention(keep: i64) -> DbResult<i64> {
     autos.sort_by(|a, b| b.modified_ms.cmp(&a.modified_ms));
     let mut removed = 0;
     for f in autos.iter().skip(keep.max(1) as usize) {
-        if fs::remove_file(&f.path).is_ok() { removed += 1; }
+        if fs::remove_file(&f.path).is_ok() {
+            removed += 1;
+        }
     }
     Ok(removed)
 }
@@ -271,7 +298,9 @@ pub fn export_backup(source_path: &str, dest_path: &str) -> DbResult<BackupEntry
     ensure_schema()?;
     let src = Path::new(source_path);
     if !src.exists() {
-        return Err(DbError(format!("arquivo de backup não encontrado: {source_path}")));
+        return Err(DbError(format!(
+            "arquivo de backup não encontrado: {source_path}"
+        )));
     }
     let dest = Path::new(dest_path);
     if let Some(parent) = dest.parent() {
@@ -315,9 +344,9 @@ pub fn restore_preflight() -> DbResult<RestorePreflight> {
                     COALESCE(SUM(CASE WHEN status='error'   THEN 1 ELSE 0 END),0)
                    FROM {t}"
             );
-            if let Ok((p, e)) =
-                conn.query_row(&q, [], |r| Ok::<(i64, i64), rusqlite::Error>((r.get(0)?, r.get(1)?)))
-            {
+            if let Ok((p, e)) = conn.query_row(&q, [], |r| {
+                Ok::<(i64, i64), rusqlite::Error>((r.get(0)?, r.get(1)?))
+            }) {
                 pending_total += p;
                 error_total += e;
             }
@@ -385,13 +414,20 @@ pub fn schedule_restore(source_path: &str, force: bool) -> DbResult<BackupEntry>
     let test_conn = Connection::open_with_flags(
         src,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    ).map_err(|e| DbError(format!("arquivo não parece um banco válido: {e}")))?;
+    )
+    .map_err(|e| DbError(format!("arquivo não parece um banco válido: {e}")))?;
     let schema: Option<String> = test_conn
-        .query_row("SELECT value FROM meta WHERE key='schema_version'", [], |r| r.get(0))
+        .query_row(
+            "SELECT value FROM meta WHERE key='schema_version'",
+            [],
+            |r| r.get(0),
+        )
         .optional()
         .map_err(|e| DbError(format!("backup sem tabela meta: {e}")))?;
     if schema.is_none() {
-        return Err(DbError("backup inválido: meta.schema_version ausente".into()));
+        return Err(DbError(
+            "backup inválido: meta.schema_version ausente".into(),
+        ));
     }
     drop(test_conn);
 
@@ -401,7 +437,9 @@ pub fn schedule_restore(source_path: &str, force: bool) -> DbResult<BackupEntry>
     // 3) Copia o arquivo para staging ao lado do DB principal.
     let main = db::db_file();
     let pending = with_suffix(&main, PENDING_SUFFIX);
-    if pending.exists() { let _ = fs::remove_file(&pending); }
+    if pending.exists() {
+        let _ = fs::remove_file(&pending);
+    }
     fs::copy(src, &pending)?;
 
     // 4) Marca flag em meta.
@@ -418,7 +456,10 @@ pub fn schedule_restore(source_path: &str, force: bool) -> DbResult<BackupEntry>
             "restore",
             src,
             "forced",
-            Some(&format!("override de preflight: {}", pre_check.reasons.join(" | "))),
+            Some(&format!(
+                "override de preflight: {}",
+                pre_check.reasons.join(" | ")
+            )),
         );
     }
 
@@ -426,7 +467,11 @@ pub fn schedule_restore(source_path: &str, force: bool) -> DbResult<BackupEntry>
         "restore",
         src,
         "scheduled",
-        Some(&format!("pending={}; pre_backup={}", pending.to_string_lossy(), pre.path)),
+        Some(&format!(
+            "pending={}; pre_backup={}",
+            pending.to_string_lossy(),
+            pre.path
+        )),
     )?;
     Ok(read_log_entry(id)?.expect("entry just inserted"))
 }
@@ -436,7 +481,9 @@ pub fn cancel_restore() -> DbResult<bool> {
     let main = db::db_file();
     let pending = with_suffix(&main, PENDING_SUFFIX);
     let had = pending.exists();
-    if had { let _ = fs::remove_file(&pending); }
+    if had {
+        let _ = fs::remove_file(&pending);
+    }
     db::with_raw_conn(|c| {
         meta_set(c, "restore_pending", "0")?;
         meta_set(c, "restore_pending_source", "")
@@ -453,7 +500,9 @@ pub fn cancel_restore() -> DbResult<bool> {
 pub fn apply_pending_restore_on_boot() -> Result<bool, String> {
     let main = db::db_file();
     let pending = with_suffix(&main, PENDING_SUFFIX);
-    if !pending.exists() { return Ok(false); }
+    if !pending.exists() {
+        return Ok(false);
+    }
 
     // Mover o atual para .pre-restore-<ts>
     let ts = Utc::now().format("%Y%m%d-%H%M%S");
@@ -489,7 +538,9 @@ pub fn apply_pending_restore_on_boot() -> Result<bool, String> {
 pub fn mark_restore_completed_after_boot() -> DbResult<()> {
     ensure_schema()?;
     let pending = db::with_raw_conn(|c| meta_get(c, "restore_pending")).unwrap_or(None);
-    if pending.as_deref() != Some("1") { return Ok(()); }
+    if pending.as_deref() != Some("1") {
+        return Ok(());
+    }
     let now = now_ms();
     db::with_raw_conn(|c| {
         meta_set(c, "restore_pending", "0")?;
@@ -545,29 +596,33 @@ pub fn recent_log(limit: i64) -> DbResult<Vec<BackupEntry>> {
             })
         })?;
         let mut out = Vec::new();
-        for r in rows { out.push(r?); }
+        for r in rows {
+            out.push(r?);
+        }
         Ok(out)
     })
 }
 
 fn read_log_entry(id: i64) -> DbResult<Option<BackupEntry>> {
     db::with_raw_conn(|conn| {
-        let r = conn.query_row(
-            "SELECT id, kind, path, status, size_bytes, message, created_at_ms
+        let r = conn
+            .query_row(
+                "SELECT id, kind, path, status, size_bytes, message, created_at_ms
                FROM backup_log WHERE id=?1",
-            params![id],
-            |r| {
-                Ok(BackupEntry {
-                    id: r.get(0)?,
-                    kind: r.get(1)?,
-                    path: r.get(2)?,
-                    status: r.get(3)?,
-                    size_bytes: r.get(4)?,
-                    message: r.get(5)?,
-                    created_at_ms: r.get(6)?,
-                })
-            },
-        ).optional()?;
+                params![id],
+                |r| {
+                    Ok(BackupEntry {
+                        id: r.get(0)?,
+                        kind: r.get(1)?,
+                        path: r.get(2)?,
+                        status: r.get(3)?,
+                        size_bytes: r.get(4)?,
+                        message: r.get(5)?,
+                        created_at_ms: r.get(6)?,
+                    })
+                },
+            )
+            .optional()?;
         Ok(r)
     })
 }
@@ -586,7 +641,7 @@ fn with_suffix(p: &Path, suffix: &str) -> PathBuf {
 // Scheduler de backup automático (no máximo 1× por dia)
 // ----------------------------------------------------------------------------
 
-pub async fn run_backup_scheduler(mut shutdown: oneshot::Receiver<()>) {
+pub async fn run_backup_scheduler(mut shutdown: oneshot::Receiver<()>, generation: u64) {
     // Tick inicial após 60s para não atrapalhar o boot.
     let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(SCHEDULER_TICK_MS));
     interval.tick().await; // imediato
@@ -594,6 +649,9 @@ pub async fn run_backup_scheduler(mut shutdown: oneshot::Receiver<()>) {
         tokio::select! {
             _ = &mut shutdown => break,
             _ = interval.tick() => {
+                if !crate::local_server::is_generation_current(generation) {
+                    break;
+                }
                 if let Err(e) = maybe_auto_backup() {
                     eprintln!("[backup] auto backup falhou: {}", e.0);
                 }
@@ -608,7 +666,9 @@ fn maybe_auto_backup() -> DbResult<()> {
         .and_then(|s| s.parse::<i64>().ok())
         .unwrap_or(0);
     let now = now_ms();
-    if now - last < AUTO_BACKUP_INTERVAL_MS { return Ok(()); }
+    if now - last < AUTO_BACKUP_INTERVAL_MS {
+        return Ok(());
+    }
     let _ = create_backup("auto")?;
     Ok(())
 }

@@ -1,13 +1,13 @@
-mod db;
 mod backup;
+mod db;
 mod local_server;
 mod printers;
 
+use bcrypt::hash;
+use chrono::Utc;
 use local_server::LocalServerStatus;
 use printers::PrinterInfo;
 use serde::{Deserialize, Serialize};
-use chrono::Utc;
-use bcrypt::hash;
 
 #[tauri::command]
 async fn start_local_server(
@@ -18,10 +18,24 @@ async fn start_local_server(
     upstream_anon_key: Option<String>,
     auth_token: Option<String>,
 ) -> Result<LocalServerStatus, String> {
-    eprintln!("[gestao-pro] start_local_server invoked port={port} name={:?} id={:?}", server_name, server_id);
-    let res = local_server::start(port, server_name, server_id, upstream_url, upstream_anon_key, auth_token).await;
+    eprintln!(
+        "[gestao-pro] start_local_server invoked port={port} name={:?} id={:?}",
+        server_name, server_id
+    );
+    let res = local_server::start(
+        port,
+        server_name,
+        server_id,
+        upstream_url,
+        upstream_anon_key,
+        auth_token,
+    )
+    .await;
     match &res {
-        Ok(st) => eprintln!("[gestao-pro] start_local_server OK running={} port={:?}", st.running, st.port),
+        Ok(st) => eprintln!(
+            "[gestao-pro] start_local_server OK running={} port={:?}",
+            st.running, st.port
+        ),
         Err(e) => eprintln!("[gestao-pro] start_local_server ERROR: {e}"),
     }
     res
@@ -33,9 +47,12 @@ async fn stop_local_server(requested_by: Option<String>) -> Result<LocalServerSt
         "[gestao-pro] stop_local_server invoked requested_by={}",
         requested_by.as_deref().unwrap_or("unknown")
     );
-    let res = local_server::stop();
+    let res = local_server::stop().await;
     match &res {
-        Ok(st) => eprintln!("[gestao-pro] stop_local_server OK running={} port={:?}", st.running, st.port),
+        Ok(st) => eprintln!(
+            "[gestao-pro] stop_local_server OK running={} port={:?}",
+            st.running, st.port
+        ),
         Err(e) => eprintln!("[gestao-pro] stop_local_server ERROR: {e}"),
     }
     res
@@ -45,7 +62,10 @@ async fn stop_local_server(requested_by: Option<String>) -> Result<LocalServerSt
 async fn local_server_status() -> LocalServerStatus {
     eprintln!("[gestao-pro] local_server_status invoked");
     let status = local_server::current_status_checked().await;
-    eprintln!("[gestao-pro] local_server_status result running={} port={:?} uptime={:?}", status.running, status.port, status.started_at);
+    eprintln!(
+        "[gestao-pro] local_server_status result running={} port={:?} uptime={:?}",
+        status.running, status.port, status.started_at
+    );
     status
 }
 
@@ -133,9 +153,7 @@ fn desktop_funcionario_pin_save(
 }
 
 #[tauri::command]
-fn desktop_funcionarios_cache(
-    funcionarios: Vec<DesktopFuncionarioLocalRow>,
-) -> Result<(), String> {
+fn desktop_funcionarios_cache(funcionarios: Vec<DesktopFuncionarioLocalRow>) -> Result<(), String> {
     for funcionario in funcionarios {
         db::upsert_funcionario_local(
             &funcionario.funcionario_id,
@@ -188,7 +206,11 @@ fn desktop_funcionario_pin_verify(
 #[tauri::command]
 fn backup_create(kind: Option<String>) -> Result<backup::BackupEntry, String> {
     let k = kind.unwrap_or_else(|| "manual".into());
-    let k = if k == "auto" || k == "manual" { k } else { "manual".into() };
+    let k = if k == "auto" || k == "manual" {
+        k
+    } else {
+        "manual".into()
+    };
     backup::create_backup(&k).map_err(|e| e.0)
 }
 
@@ -259,11 +281,7 @@ fn print_receipt_text(
     width_mm: Option<u32>,
     cut: Option<bool>,
 ) -> Result<String, String> {
-    let bytes = printers::build_escpos_receipt(
-        &text,
-        width_mm.unwrap_or(80),
-        cut.unwrap_or(true),
-    );
+    let bytes = printers::build_escpos_receipt(&text, width_mm.unwrap_or(80), cut.unwrap_or(true));
     printers::print_raw(&printer_name, "Gestao Pro Cupom", &bytes)
 }
 
