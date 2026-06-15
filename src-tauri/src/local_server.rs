@@ -1508,6 +1508,19 @@ async fn push_one_outbox_produto(
         serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
     db::outbox_produtos_mark_sending(&item.local_uuid, now).map_err(|e| e.to_string())?;
 
+    let equivalent =
+        find_remote_equivalent_product(ctx, &auth, &owner_id, &item.produto_local_id, &payload)
+            .await
+            .map_err(|error| {
+                let _ = db::outbox_produtos_mark_error(&item.local_uuid, &error, now);
+                error
+            })?;
+    if let Some(remote_id) = equivalent {
+        db::outbox_produtos_mark_sent(&item.local_uuid, &remote_id, now)
+            .map_err(|e| e.to_string())?;
+        return Ok(remote_id);
+    }
+
     let body = serde_json::json!({
         "_sku": payload.get("sku"),
         "_nome": payload.get("nome"),
@@ -1580,6 +1593,96 @@ async fn push_one_outbox_produto(
         .unwrap_or_else(|| text.trim().trim_matches('"').to_string());
     db::outbox_produtos_mark_sent(&item.local_uuid, &remote_id, now).map_err(|e| e.to_string())?;
     Ok(remote_id)
+}
+
+async fn find_remote_equivalent_product(
+    ctx: &AppCtx,
+    auth: &str,
+    owner_id: &str,
+    produto_local_id: &str,
+    payload: &serde_json::Value,
+) -> Result<Option<String>, String> {
+    let upstream = ctx.upstream.as_ref().ok_or("upstream nao configurado")?;
+    let mut filters = vec![("id", produto_local_id.to_string())];
+    for key in ["sku", "codigo_barras", "nome"] {
+        if let Some(value) = payload
+            .get(key)
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
+            filters.push((key, value.to_string()));
+        }
+    }
+    for (column, value) in filters {
+        let url = format!(
+            "{}/rest/v1/produtos",
+            upstream.base_url.trim_end_matches('/')
+        );
+        let params = vec![
+            ("select".to_string(), "id".to_string()),
+            ("owner_id".to_string(), format!("eq.{owner_id}")),
+            (column.to_string(), format!("eq.{value}")),
+            ("limit".to_string(), "2".to_string()),
+        ];
+        let response = ctx
+            .http
+            .get(&url)
+            .header("apikey", &upstream.anon_key)
+            .header(axum::http::header::AUTHORIZATION, auth)
+            .header(axum::http::header::ACCEPT, "application/json")
+            .query(&params)
+            .send()
+            .await
+            .map_err(|e| format!("rede ao consultar produto na nuvem: {e}"))?;
+        if !response.status().is_success() {
+            return Err(format!(
+                "HTTP {} ao consultar produto equivalente na nuvem",
+                response.status().as_u16()
+            ));
+        }
+        let rows: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| format!("resposta invalida ao consultar produto na nuvem: {e}"))?;
+        let items = rows.as_array().cloned().unwrap_or_default();
+        if items.len() > 1 {
+            return Err(format!(
+                "Mais de um produto equivalente encontrado na nuvem por {column}; ajuste o cadastro antes de sincronizar."
+            ));
+        }
+        if let Some(remote_id) = items
+            .first()
+            .and_then(|item| item.get("id"))
+            .and_then(|id| id.as_str())
+        {
+            return Ok(Some(remote_id.to_string()));
+        }
+    }
+    Ok(None)
+}
+
+async fn ensure_produto_remote(
+    ctx: &AppCtx,
+    headers: &HeaderMap,
+    owner_id: &str,
+    produto_id: &str,
+) -> Result<String, String> {
+    if let Some(remote_id) =
+        db::produto_remote_id(owner_id, produto_id).map_err(|e| e.to_string())?
+    {
+        return Ok(remote_id);
+    }
+    db::produto_prepare_sync(owner_id, produto_id, now_ms()).map_err(|_| {
+        "Produto existe localmente, mas não existe na nuvem. Reenvie o produto antes da venda/estoque."
+            .to_string()
+    })?;
+    push_one_outbox_produto(ctx, headers, produto_id)
+        .await
+        .map_err(|_| {
+            "Produto existe localmente, mas não existe na nuvem. Reenvie o produto antes da venda/estoque."
+                .to_string()
+        })
 }
 
 async fn registrar_produto_local_handler(
@@ -1901,15 +2004,19 @@ async fn push_one_outbox(
         }
     };
 
-    db::outbox_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
-
     let produto_id = payload
         .get("produto_id")
         .and_then(|value| value.as_str())
         .ok_or("movimento de estoque sem produto_id")?;
-    let produto_id_remoto = db::produto_remote_id(&owner_id, produto_id)
-        .map_err(|e| e.to_string())?
-        .ok_or("PRODUTO_PENDENTE_SYNC: movimento aguarda sincronizacao do produto")?;
+    let produto_id_remoto = match ensure_produto_remote(ctx, headers, &owner_id, produto_id).await {
+        Ok(remote_id) => remote_id,
+        Err(msg) => {
+            let _ = db::outbox_mark_error(local_uuid, &msg, now);
+            return Err(msg);
+        }
+    };
+
+    db::outbox_mark_sending(local_uuid, now).map_err(|e| e.to_string())?;
 
     let body = serde_json::json!({
         "_produto_id":     produto_id_remoto,
@@ -1957,7 +2064,13 @@ async fn push_one_outbox(
             let _ = db::outbox_mark_error(local_uuid, &msg, now);
             return Err(msg);
         }
-        let msg = format!("HTTP {}: {}", status.as_u16(), text);
+        let msg = if text.contains("23503") && text.to_lowercase().contains("produto") {
+            let _ = db::produto_prepare_sync(&owner_id, produto_id, now);
+            "Produto existe localmente, mas não existe na nuvem. Reenvie o produto antes da venda/estoque."
+                .to_string()
+        } else {
+            format!("HTTP {}: {}", status.as_u16(), text)
+        };
         let _ = db::outbox_mark_error(local_uuid, &msg, now);
         return Err(msg);
     }
@@ -2778,13 +2891,14 @@ async fn push_one_outbox_venda(
         let Some(produto_id) = item.get("produto_id").and_then(|value| value.as_str()) else {
             continue;
         };
-        let produto_id_remoto = db::produto_remote_id(&owner_id, produto_id)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| {
-                format!(
-                    "PRODUTO_PENDENTE_SYNC: venda aguarda sincronizacao do produto {produto_id}"
-                )
-            })?;
+        let produto_id_remoto =
+            match ensure_produto_remote(ctx, headers, &owner_id, produto_id).await {
+                Ok(remote_id) => remote_id,
+                Err(msg) => {
+                    let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
+                    return Err(msg);
+                }
+            };
         if let Some(obj) = item.as_object_mut() {
             obj.insert(
                 "produto_id".into(),
@@ -2850,7 +2964,15 @@ async fn push_one_outbox_venda(
             let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
             return Err(msg);
         }
-        let msg = format!("HTTP {}: {}", status.as_u16(), text);
+        let msg = if text.contains("23503") && text.to_lowercase().contains("produto") {
+            for produto_id in &produtos_da_venda {
+                let _ = db::produto_prepare_sync(&owner_id, produto_id, now);
+            }
+            "Produto existe localmente, mas não existe na nuvem. Reenvie o produto antes da venda/estoque."
+                .to_string()
+        } else {
+            format!("HTTP {}: {}", status.as_u16(), text)
+        };
         let _ = db::outbox_vendas_mark_error(local_uuid, &msg, now);
         return Err(msg);
     }
@@ -3138,6 +3260,22 @@ async fn run_outbox_scheduler(
             let _ = db::outbox_record_flush_round("auto", now_ms(), 0, 0, 0);
             continue;
         };
+        let empty_headers = HeaderMap::new();
+        if let Ok(produto_ids) = db::outbox_product_fk_error_ids(&owner_id, 20) {
+            for produto_id in produto_ids {
+                if db::produto_prepare_sync(&owner_id, &produto_id, now_ms()).is_ok() {
+                    let _ = push_one_outbox_produto(&ctx, &empty_headers, &produto_id).await;
+                }
+            }
+        }
+        if let Ok(produtos_pendentes) =
+            db::outbox_produtos_pending_batch(&owner_id, SCHEDULER_BATCH)
+        {
+            for produto in produtos_pendentes {
+                let _ =
+                    push_one_outbox_produto(&ctx, &empty_headers, &produto.produto_local_id).await;
+            }
+        }
         let pending = match db::outbox_pending_batch(&owner_id, SCHEDULER_BATCH) {
             Ok(p) => p,
             Err(e) => {
@@ -3153,7 +3291,6 @@ async fn run_outbox_scheduler(
             continue;
         }
 
-        let empty_headers = HeaderMap::new();
         let mut sent = 0i64;
         let mut failed = 0i64;
         for it in &pending {
@@ -4358,6 +4495,15 @@ async fn outbox_caixa_archive_error_handler(
     }
     let owner_id = require_owner_id(&ctx, &headers)?;
     let now = now_ms();
+    let can_archive = db::outbox_caixa_can_archive_old_error(&owner_id, req.local_uuid.trim())
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if !can_archive {
+        return Err((
+            StatusCode::CONFLICT,
+            "Somente erros antigos de caixa ja fechado, fechamento com diferenca sem observacao ou conflito antigo de abertura podem ser arquivados."
+                .into(),
+        ));
+    }
     let archived = if req.archive_group.unwrap_or(false) {
         let item = db::outbox_caixa_get(req.local_uuid.trim())
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?

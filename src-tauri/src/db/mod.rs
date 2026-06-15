@@ -153,6 +153,7 @@ pub fn init() -> DbResult<()> {
         CREATE TABLE IF NOT EXISTS produtos_local (
             id                   TEXT PRIMARY KEY,
             owner_id             TEXT,
+            remote_id            TEXT,
             sku                  TEXT,
             nome                 TEXT,
             status               TEXT,
@@ -161,6 +162,7 @@ pub fn init() -> DbResult<()> {
             preco_venda          REAL,
             estoque_atual        REAL,
             payload              TEXT NOT NULL,
+            sync_status          TEXT NOT NULL DEFAULT 'synced',
             updated_at_remote_ms INTEGER,
             synced_at_ms         INTEGER NOT NULL,
             deleted_at_ms        INTEGER
@@ -523,7 +525,9 @@ pub fn init() -> DbResult<()> {
             created_at_ms       INTEGER NOT NULL,
             updated_at_ms       INTEGER NOT NULL,
             sent_at_ms          INTEGER,
-            next_attempt_at_ms  INTEGER
+            next_attempt_at_ms  INTEGER,
+            archived_at_ms      INTEGER,
+            archive_reason      TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_outbox_caixa_status
             ON outbox_caixa(status, created_at_ms);
@@ -594,10 +598,14 @@ pub fn init() -> DbResult<()> {
         "ALTER TABLE outbox_produtos ADD COLUMN produto_local_id TEXT",
         "ALTER TABLE outbox_produtos ADD COLUMN next_attempt_at_ms INTEGER",
         "ALTER TABLE outbox_produtos ADD COLUMN owner_id TEXT",
+        "ALTER TABLE outbox_caixa ADD COLUMN archived_at_ms INTEGER",
+        "ALTER TABLE outbox_caixa ADD COLUMN archive_reason TEXT",
         // v16: isolamento multi-tenant fisico no SQLite local.
         // Em bancos existentes, a coluna fica nullable por compatibilidade;
         // todas as leituras novas exigem owner_id igual ao JWT.
         "ALTER TABLE produtos_local ADD COLUMN owner_id TEXT",
+        "ALTER TABLE produtos_local ADD COLUMN remote_id TEXT",
+        "ALTER TABLE produtos_local ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'synced'",
         "ALTER TABLE clientes_local ADD COLUMN owner_id TEXT",
         "ALTER TABLE estoque_saldos_local ADD COLUMN owner_id TEXT",
         "ALTER TABLE estoque_movimentacoes_local ADD COLUMN owner_id TEXT",
@@ -1557,12 +1565,13 @@ pub fn ingest_produtos(
         {
             let mut stmt = tx.prepare(
                 "INSERT INTO produtos_local(
-                    id, owner_id, sku, nome, status, categoria_id, categoria_nome,
-                    preco_venda, estoque_atual, payload,
+                    id, owner_id, remote_id, sku, nome, status, categoria_id, categoria_nome,
+                    preco_venda, estoque_atual, payload, sync_status,
                     updated_at_remote_ms, synced_at_ms, deleted_at_ms
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)
+                 ) VALUES (?1,?2,?1,?3,?4,?5,?6,?7,?8,?9,?10,'synced',?11,?12,?13)
                  ON CONFLICT(id) DO UPDATE SET
                     owner_id             = excluded.owner_id,
+                    remote_id            = excluded.remote_id,
                     sku                  = excluded.sku,
                     nome                 = excluded.nome,
                     status               = excluded.status,
@@ -1571,6 +1580,7 @@ pub fn ingest_produtos(
                     preco_venda          = excluded.preco_venda,
                     estoque_atual        = excluded.estoque_atual,
                     payload              = excluded.payload,
+                    sync_status          = 'synced',
                     updated_at_remote_ms = COALESCE(excluded.updated_at_remote_ms, produtos_local.updated_at_remote_ms),
                     synced_at_ms         = excluded.synced_at_ms,
                     deleted_at_ms        = excluded.deleted_at_ms",
@@ -2969,7 +2979,7 @@ pub fn registrar_produto_local(
 
         let tx = conn.unchecked_transaction()?;
         tx.execute(
-            "INSERT INTO produtos_local(id, owner_id, sku, nome, status, categoria_id, categoria_nome, preco_venda, estoque_atual, payload, updated_at_remote_ms, synced_at_ms, deleted_at_ms) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,NULL,?11,NULL)",
+            "INSERT INTO produtos_local(id, owner_id, remote_id, sku, nome, status, categoria_id, categoria_nome, preco_venda, estoque_atual, payload, sync_status, updated_at_remote_ms, synced_at_ms, deleted_at_ms) VALUES (?1,?2,NULL,?3,?4,?5,?6,?7,?8,?9,?10,'pending',NULL,?11,NULL)",
             params![
                 local_id,
                 owner_id,
@@ -3122,6 +3132,19 @@ pub fn outbox_produtos_list(
 
 pub fn produto_remote_id(owner_id: &str, produto_id: &str) -> DbResult<Option<String>> {
     with_conn(|conn| {
+        let local_mapping = conn
+            .query_row(
+                "SELECT remote_id FROM produtos_local
+                  WHERE owner_id=?1 AND id=?2 AND sync_status='synced'
+                    AND COALESCE(remote_id, '') <> ''
+                  LIMIT 1",
+                params![owner_id, produto_id],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?;
+        if local_mapping.is_some() {
+            return Ok(local_mapping);
+        }
         let mapped = conn
             .query_row(
                 "SELECT remote_id
@@ -3139,15 +3162,62 @@ pub fn produto_remote_id(owner_id: &str, produto_id: &str) -> DbResult<Option<St
         if mapped.is_some() {
             return Ok(mapped);
         }
-        let exists = conn
+        Ok(None)
+    })
+}
+
+pub fn produto_prepare_sync(owner_id: &str, produto_id: &str, now_ms: i64) -> DbResult<String> {
+    with_conn(|conn| {
+        let payload_text = conn
             .query_row(
-                "SELECT 1 FROM produtos_local WHERE owner_id=?1 AND id=?2 LIMIT 1",
+                "SELECT payload FROM produtos_local
+                  WHERE owner_id=?1 AND id=?2 AND deleted_at_ms IS NULL",
                 params![owner_id, produto_id],
-                |_| Ok(true),
+                |r| r.get::<_, String>(0),
             )
             .optional()?
-            .unwrap_or(false);
-        Ok(exists.then(|| produto_id.to_string()))
+            .ok_or_else(|| DbError("Produto local nao encontrado.".into()))?;
+        let mut payload: serde_json::Value =
+            serde_json::from_str(&payload_text).unwrap_or_else(|_| serde_json::json!({}));
+        if let Some(obj) = payload.as_object_mut() {
+            obj.insert(
+                "sync_status".into(),
+                serde_json::Value::String("pending".into()),
+            );
+            obj.insert("remote_id".into(), serde_json::Value::Null);
+        }
+        let payload_text = payload.to_string();
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            "UPDATE produtos_local
+                SET remote_id=NULL, sync_status='pending', payload=?3, synced_at_ms=?4
+              WHERE owner_id=?1 AND id=?2",
+            params![owner_id, produto_id, payload_text, now_ms],
+        )?;
+        let existing = tx
+            .query_row(
+                "SELECT local_uuid FROM outbox_produtos
+                  WHERE owner_id=?1 AND produto_local_id=?2
+                  ORDER BY created_at_ms DESC LIMIT 1",
+                params![owner_id, produto_id],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?;
+        let local_uuid = existing.unwrap_or_else(random_uuid_v4);
+        tx.execute(
+            "INSERT INTO outbox_produtos(
+                local_uuid, owner_id, client_uuid, produto_local_id, payload,
+                status, attempts, last_error, remote_id, created_at_ms,
+                updated_at_ms, sent_at_ms, next_attempt_at_ms
+             ) VALUES (?1,?2,?3,?3,?4,'pending',0,NULL,NULL,?5,?5,NULL,NULL)
+             ON CONFLICT(local_uuid) DO UPDATE SET
+                payload=excluded.payload, status='pending', attempts=0,
+                last_error=NULL, remote_id=NULL, updated_at_ms=excluded.updated_at_ms,
+                sent_at_ms=NULL, next_attempt_at_ms=NULL",
+            params![local_uuid, owner_id, produto_id, payload_text, now_ms],
+        )?;
+        tx.commit()?;
+        Ok(local_uuid)
     })
 }
 
@@ -3245,16 +3315,25 @@ pub fn outbox_produtos_mark_sent(local_uuid: &str, remote_id: &str, now_ms: i64)
             params![local_uuid, now_ms, remote_id],
         )?;
 
-        // Atualiza produtos_local: tenta alterar PK para remote_id, caso falhe insere novo
+        // Mantem a identidade local estavel e registra o vinculo remoto.
         let payload_text = payload.to_string();
         let n = tx.execute(
-            "UPDATE produtos_local SET id=?2, owner_id=?3, payload=?4, updated_at_remote_ms=?5, synced_at_ms=?5 WHERE id=?1",
-            params![item.produto_local_id, remote_id, json_str(&payload, "owner_id"), payload_text, now_ms],
+            "UPDATE produtos_local
+                SET remote_id=?2, owner_id=?3, payload=?4, sync_status='synced',
+                    updated_at_remote_ms=?5, synced_at_ms=?5
+              WHERE id=?1",
+            params![
+                item.produto_local_id,
+                remote_id,
+                json_str(&payload, "owner_id"),
+                payload_text,
+                now_ms
+            ],
         )?;
         if n == 0 {
             // não existia linha local com este id — insere nova
             tx.execute(
-                "INSERT INTO produtos_local(id, owner_id, sku, nome, status, categoria_id, categoria_nome, preco_venda, estoque_atual, payload, updated_at_remote_ms, synced_at_ms) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+                "INSERT INTO produtos_local(id, owner_id, remote_id, sku, nome, status, categoria_id, categoria_nome, preco_venda, estoque_atual, payload, sync_status, updated_at_remote_ms, synced_at_ms) VALUES (?1,?2,?1,?3,?4,?5,?6,?7,?8,?9,?10,'synced',?11,?12)",
                 params![
                     remote_id,
                     json_str(&payload, "owner_id"),
@@ -3271,6 +3350,27 @@ pub fn outbox_produtos_mark_sent(local_uuid: &str, remote_id: &str, now_ms: i64)
                 ],
             )?;
         }
+        tx.execute(
+            "UPDATE outbox_estoque_movs
+                SET status='pending', attempts=0, last_error=NULL,
+                    next_attempt_at_ms=NULL, updated_at_ms=?3
+              WHERE owner_id=?1
+                AND status IN ('pending','error')
+                AND json_extract(payload, '$.produto_id')=?2",
+            params![item.owner_id, item.produto_local_id, now_ms],
+        )?;
+        tx.execute(
+            "UPDATE outbox_vendas
+                SET status='pending', attempts=0, last_error=NULL,
+                    next_attempt_at_ms=NULL, updated_at_ms=?3
+              WHERE owner_id=?1
+                AND status IN ('pending','error')
+                AND EXISTS (
+                    SELECT 1 FROM json_each(outbox_vendas.payload, '$.itens')
+                     WHERE json_extract(value, '$.produto_id')=?2
+                )",
+            params![item.owner_id, item.produto_local_id, now_ms],
+        )?;
         tx.commit()?;
         Ok(())
     })
@@ -4172,6 +4272,36 @@ pub fn outbox_pending_batch_all(owner_id: &str, limit: i64) -> DbResult<Vec<Outb
             out.push(r?);
         }
         Ok(out)
+    })
+}
+
+pub fn outbox_product_fk_error_ids(owner_id: &str, limit: i64) -> DbResult<Vec<String>> {
+    with_conn(|conn| {
+        let limit = limit.clamp(1, 100);
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT json_extract(payload, '$.produto_id')
+               FROM outbox_estoque_movs
+              WHERE owner_id=?1
+                AND status='error'
+                AND json_extract(payload, '$.produto_id') IS NOT NULL
+                AND (
+                    last_error LIKE '%23503%'
+                    OR last_error LIKE '%Produto existe localmente, mas não existe na nuvem%'
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM outbox_produtos p
+                     WHERE p.owner_id=outbox_estoque_movs.owner_id
+                       AND p.produto_local_id=json_extract(outbox_estoque_movs.payload, '$.produto_id')
+                       AND p.status IN ('pending','sending','error')
+                )
+              LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![owner_id, limit], |r| r.get::<_, String>(0))?;
+        let mut ids = Vec::new();
+        for row in rows {
+            ids.push(row?);
+        }
+        Ok(ids)
     })
 }
 
@@ -7010,6 +7140,7 @@ pub struct OutboxCaixaStats {
     pub sending: i64,
     pub sent: i64,
     pub error: i64,
+    pub archived: i64,
     pub last_sent_at_ms: Option<i64>,
     pub last_error: Option<String>,
     pub due_now: i64,
@@ -7042,6 +7173,7 @@ pub fn outbox_caixa_stats(owner_id: &str) -> DbResult<OutboxCaixaStats> {
                 "sending" => s.sending = n,
                 "sent" => s.sent = n,
                 "error" => s.error = n,
+                "archived" => s.archived = n,
                 _ => {}
             }
         }
@@ -7264,6 +7396,59 @@ pub fn outbox_caixa_get(local_uuid: &str) -> DbResult<Option<OutboxCaixaItem>> {
     })
 }
 
+fn is_old_caixa_error_archivable(
+    action: &str,
+    error: Option<&str>,
+    caixa_status: Option<&str>,
+    diferenca: Option<f64>,
+    observacao: Option<&str>,
+) -> bool {
+    let old_open_conflict = action == "abrir"
+        && error
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .contains("caixa aberto");
+    let closed = caixa_status == Some("fechado");
+    let difference_without_note = diferenca.is_some_and(|v| v.abs() > 0.009)
+        && observacao.map(str::trim).unwrap_or("").is_empty();
+    old_open_conflict || (action == "fechar" && (closed || difference_without_note))
+}
+
+pub fn outbox_caixa_can_archive_old_error(owner_id: &str, local_uuid: &str) -> DbResult<bool> {
+    with_conn(|conn| {
+        let row = conn
+            .query_row(
+                "SELECT o.action, o.last_error, c.status, c.diferenca,
+                        c.observacao_fechamento
+                   FROM outbox_caixa o
+                   LEFT JOIN caixa_local c
+                     ON c.owner_id=o.owner_id AND c.local_uuid=o.caixa_local_uuid
+                  WHERE o.owner_id=?1 AND o.local_uuid=?2 AND o.status='error'",
+                params![owner_id, local_uuid],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, Option<String>>(2)?,
+                        r.get::<_, Option<f64>>(3)?,
+                        r.get::<_, Option<String>>(4)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((action, error, caixa_status, diferenca, observacao)) = row else {
+            return Ok(false);
+        };
+        Ok(is_old_caixa_error_archivable(
+            &action,
+            error.as_deref(),
+            caixa_status.as_deref(),
+            diferenca,
+            observacao.as_deref(),
+        ))
+    })
+}
+
 pub fn outbox_vendas_archive_error(
     owner_id: &str,
     local_uuid: &str,
@@ -7271,7 +7456,7 @@ pub fn outbox_vendas_archive_error(
     now_ms: i64,
 ) -> DbResult<bool> {
     with_conn(|conn| {
-        let msg = motivo
+        let reason = motivo
             .map(|m| m.trim())
             .filter(|m| !m.is_empty())
             .unwrap_or("Erro antigo arquivado manualmente; venda local preservada.");
@@ -7284,7 +7469,7 @@ pub fn outbox_vendas_archive_error(
               WHERE local_uuid=?1
                 AND owner_id=?4
                 AND status IN ('pending','error')",
-            params![local_uuid, msg, now_ms, owner_id],
+            params![local_uuid, reason, now_ms, owner_id],
         )?;
         Ok(n > 0)
     })
@@ -7297,20 +7482,21 @@ pub fn outbox_caixa_archive_error(
     now_ms: i64,
 ) -> DbResult<bool> {
     with_conn(|conn| {
-        let msg = motivo
+        let reason = motivo
             .map(|m| m.trim())
             .filter(|m| !m.is_empty())
             .unwrap_or("Erro antigo arquivado manualmente; caixa local preservado.");
         let n = conn.execute(
             "UPDATE outbox_caixa
                 SET status='archived',
-                    last_error=?2,
+                    archive_reason=?2,
+                    archived_at_ms=?3,
                     updated_at_ms=?3,
                     next_attempt_at_ms=NULL
               WHERE local_uuid=?1
                 AND owner_id=?4
                 AND status='error'",
-            params![local_uuid, msg, now_ms, owner_id],
+            params![local_uuid, reason, now_ms, owner_id],
         )?;
         Ok(n > 0)
     })
@@ -7323,20 +7509,21 @@ pub fn outbox_caixa_archive_local_group(
     now_ms: i64,
 ) -> DbResult<i64> {
     with_conn(|conn| {
-        let msg = motivo
+        let reason = motivo
             .map(|m| m.trim())
             .filter(|m| !m.is_empty())
             .unwrap_or("Erro antigo arquivado manualmente; caixa local preservado.");
         let n = conn.execute(
             "UPDATE outbox_caixa
                 SET status='archived',
-                    last_error=?3,
+                    archive_reason=?3,
+                    archived_at_ms=?4,
                     updated_at_ms=?4,
                     next_attempt_at_ms=NULL
               WHERE owner_id=?1
                 AND caixa_local_uuid=?2
                 AND status IN ('pending','error')",
-            params![owner_id, caixa_local_uuid, msg, now_ms],
+            params![owner_id, caixa_local_uuid, reason, now_ms],
         )?;
         Ok(n as i64)
     })
@@ -8577,5 +8764,37 @@ mod legacy_owner_tests {
             )
             .unwrap();
         assert_eq!(owner, None);
+    }
+
+    #[test]
+    fn archives_only_safe_old_cash_errors() {
+        assert!(is_old_caixa_error_archivable(
+            "fechar",
+            Some("caixa ja fechado"),
+            Some("fechado"),
+            Some(0.0),
+            None,
+        ));
+        assert!(is_old_caixa_error_archivable(
+            "fechar",
+            Some("justificativa obrigatoria"),
+            Some("aberto"),
+            Some(25.0),
+            None,
+        ));
+        assert!(is_old_caixa_error_archivable(
+            "abrir",
+            Some("Ja existe caixa aberto neste terminal"),
+            None,
+            None,
+            None,
+        ));
+        assert!(!is_old_caixa_error_archivable(
+            "fechar",
+            Some("falha de rede"),
+            Some("aberto"),
+            Some(0.0),
+            Some("conferencia normal"),
+        ));
     }
 }

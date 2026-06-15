@@ -37,7 +37,7 @@ export interface OutboxItem {
   local_uuid: string;
   client_uuid: string | null;
   payload: string;
-  status: "pending" | "sending" | "sent" | "error";
+  status: "pending" | "sending" | "sent" | "error" | "archived";
   attempts: number;
   last_error: string | null;
   remote_id: string | null;
@@ -282,6 +282,7 @@ export async function archiveOutboxVendaError(
 }
 
 export interface OutboxCaixaStats extends OutboxStats {
+  archived: number;
   pending_abrir: number;
   pending_movimento: number;
   pending_fechar: number;

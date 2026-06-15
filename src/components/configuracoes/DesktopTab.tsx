@@ -360,32 +360,26 @@ export function DesktopTab() {
         status: "error",
         limit: 50,
       });
-      const conflicts = items.filter((item) => {
-        const msg = (item.last_error ?? "").toLowerCase();
-        return (
-          msg.includes("caixa aberto neste terminal") ||
-          (msg.includes("caixa aberto") && msg.includes("abrir outro"))
-        );
-      });
       let archived = 0;
       const archivedGroups = new Set<string>();
-      for (const item of conflicts) {
+      for (const item of items) {
         if (archivedGroups.has(item.caixa_local_uuid)) continue;
+        const archiveGroup = item.action === "abrir";
         const ok = await archiveOutboxCaixaError(
           localCfg,
           item.local_uuid,
           "Erro antigo arquivado manualmente; caixa local preservado.",
-          true,
+          archiveGroup,
         );
         if (ok) {
-          archivedGroups.add(item.caixa_local_uuid);
+          if (archiveGroup) archivedGroups.add(item.caixa_local_uuid);
           archived += 1;
         }
       }
       if (archived > 0) {
         toast.success(`${archived} caixa(s) antigo(s) arquivado(s) na fila.`);
       } else {
-        toast.info("Nenhum conflito antigo de caixa foi encontrado para arquivar.");
+        toast.info("Nenhum erro antigo elegivel de caixa foi encontrado para arquivar.");
       }
       setOutboxCaixa(await fetchOutboxCaixaStats(localCfg));
       await recarregarOutboxStatus();
@@ -1416,27 +1410,19 @@ export function DesktopTab() {
                     >
                       Reenfileirar erros
                     </Button>
-                    {(() => {
-                      const msg = (outboxCaixa.last_error ?? "").toLowerCase();
-                      return (
-                        msg.includes("caixa aberto neste terminal") ||
-                        (msg.includes("caixa aberto") && msg.includes("abrir outro"))
-                      );
-                    })() && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={arquivandoCaixaErro}
-                        onClick={() => void handleArchiveCaixaConflictErrors()}
-                      >
-                        {arquivandoCaixaErro ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <CheckCircle2 className="mr-2 h-4 w-4" />
-                        )}
-                        Arquivar conflito antigo
-                      </Button>
-                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={arquivandoCaixaErro}
+                      onClick={() => void handleArchiveCaixaConflictErrors()}
+                    >
+                      {arquivandoCaixaErro ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                      )}
+                      Arquivar erro antigo de caixa
+                    </Button>
                   </>
                 )}
                 <Button
@@ -1462,6 +1448,7 @@ export function DesktopTab() {
                 <Field label="Fechamentos" value={String(outboxCaixa.pending_fechar)} />
                 <Field label="Enviadas" value={String(outboxCaixa.sent)} />
                 <Field label="Com erro" value={String(outboxCaixa.error)} />
+                <Field label="Erros antigos / arquivados" value={String(outboxCaixa.archived)} />
                 <Field
                   label="Próx. tentativa auto"
                   value={
@@ -1492,28 +1479,20 @@ export function DesktopTab() {
                     <div className="mt-0.5 text-xs text-destructive">
                       {classifyOutboxError(outboxCaixa.last_error).friendly}
                     </div>
-                    {(() => {
-                      const msg = (outboxCaixa.last_error ?? "").toLowerCase();
-                      return (
-                        msg.includes("caixa aberto neste terminal") ||
-                        (msg.includes("caixa aberto") && msg.includes("abrir outro"))
-                      );
-                    })() && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="mt-2"
-                        disabled={arquivandoCaixaErro}
-                        onClick={() => void handleArchiveCaixaConflictErrors()}
-                      >
-                        {arquivandoCaixaErro ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <CheckCircle2 className="mr-2 h-4 w-4" />
-                        )}
-                        Arquivar conflito antigo
-                      </Button>
-                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-2"
+                      disabled={arquivandoCaixaErro}
+                      onClick={() => void handleArchiveCaixaConflictErrors()}
+                    >
+                      {arquivandoCaixaErro ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                      )}
+                      Arquivar erro antigo de caixa
+                    </Button>
                     <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
                       {outboxCaixa.last_error}
                     </div>
@@ -2332,14 +2311,7 @@ function OutboxStatusPanel({
                 const canArchiveCaixaConflict =
                   d.domain === "caixa" &&
                   hasError &&
-                  onArchiveCaixaConflictErrors &&
-                  (() => {
-                    const msg = (d.last_error ?? "").toLowerCase();
-                    return (
-                      msg.includes("caixa aberto neste terminal") ||
-                      (msg.includes("caixa aberto") && msg.includes("abrir outro"))
-                    );
-                  })();
+                  onArchiveCaixaConflictErrors;
                 const badgeClass = hasError
                   ? "border-destructive/30 bg-destructive/10 text-destructive"
                   : hasPending
@@ -2425,7 +2397,7 @@ function OutboxStatusPanel({
                             >
                               {archivingCaixaErrors
                                 ? "Arquivando..."
-                                : "Arquivar conflito antigo"}
+                                : "Arquivar erro antigo de caixa"}
                             </button>
                           )}
                         </div>

@@ -17,10 +17,17 @@ interface Props {
   /** Texto opcional acima do detalhamento. */
   contexto?: string;
   className?: string;
+  caixaId?: string | null;
+  currentDayOnly?: boolean;
 }
 
-export function OutboxPendenciasAlert({ contexto, className }: Props) {
-  const summary = useOutboxPendingSummary();
+export function OutboxPendenciasAlert({
+  contexto,
+  className,
+  caixaId,
+  currentDayOnly,
+}: Props) {
+  const summary = useOutboxPendingSummary({ caixaId, currentDayOnly });
 
   if (!summary.enabled) return null;
   if (summary.totalPending === 0 && summary.totalError === 0) return null;

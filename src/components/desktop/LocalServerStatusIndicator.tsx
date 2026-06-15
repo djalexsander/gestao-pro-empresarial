@@ -7,10 +7,10 @@ export function LocalServerStatusIndicator() {
   const boot = useBootController();
 
   if (!isDesktop || role !== "server") return null;
-  if (boot.health === "active") return null;
+  if (boot.health === "active" || boot.health === "unstable") return null;
 
   const state =
-    boot.health === "reconnecting" || boot.health === "unstable"
+    boot.health === "reconnecting"
       ? {
           label: "Reconectando servidor local...",
           icon: Loader2,

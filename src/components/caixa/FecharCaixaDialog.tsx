@@ -177,6 +177,8 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
           {/* Alerta de pendências/erros nas filas offline (não bloqueia o fechamento) */}
           <OutboxPendenciasAlert
+            caixaId={caixaId}
+            currentDayOnly
             contexto="Pendências de sincronização não bloqueiam o fechamento local. Confira apenas para ciência antes de encerrar o turno."
           />
           {/* Resumo do caixa */}

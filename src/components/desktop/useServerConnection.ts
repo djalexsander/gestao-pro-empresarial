@@ -15,6 +15,7 @@ import {
 import type { TerminalConexaoConfig } from "@/integrations/desktop/types";
 import { setDesktopConfig } from "@/integrations/desktop/configStore";
 import { APP_VERSION } from "@/lib/version";
+import { useBootController } from "@/components/desktop/useLocalServerBoot";
 
 const POLL_MS = 15_000;
 const OFFLINE_FAILURE_THRESHOLD = 3;
@@ -39,6 +40,7 @@ interface UseServerConnectionResult {
 
 export function useServerConnection(): UseServerConnectionResult {
   const { isDesktop, role, config } = useDesktopRole();
+  const boot = useBootController();
   const [conn, setConn] = useState<ServerConnInfo>(INITIAL);
   const [info, setInfo] = useState<ServerInfoPayload | null>(null);
   const [daemon, setDaemon] = useState<LocalServerStatus | null>(null);
@@ -219,8 +221,34 @@ export function useServerConnection(): UseServerConnectionResult {
     return () => clearInterval(timer);
   }, [isDesktop, role, ping]);
 
-  return {
+  const visualConn = useMemo<ServerConnInfo>(() => {
+    if (!isDesktop || role !== "server") return conn;
+    if (boot.health === "unavailable") {
+      return {
+        ...conn,
+        status: "offline",
+        mensagem: boot.lastError ?? "Servidor local indisponível.",
+      };
+    }
+    if (boot.health === "reconnecting" || boot.starting) {
+      return {
+        ...conn,
+        status: "unknown",
+        mensagem: "Reconectando servidor local...",
+      };
+    }
+    return conn;
+  }, [
+    isDesktop,
+    role,
     conn,
+    boot.health,
+    boot.starting,
+    boot.lastError,
+  ]);
+
+  return {
+    conn: visualConn,
     info,
     daemon,
     serverMatch,
