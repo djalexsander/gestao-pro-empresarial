@@ -3,6 +3,8 @@ import { toast } from "sonner";
 import { useDesktopRole } from "./DesktopRoleProvider";
 import {
   isLocalServerStartInProgress,
+  isLocalServerLifecycleTransition,
+  getLocalServerStatus,
   startLocalServer,
   stopLocalServer,
   type LocalServerStatus,
@@ -87,6 +89,30 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function waitForStopped(timeoutMs = 8_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const status = await getLocalServerStatus().catch(() => null);
+    if (status && !status.running) return true;
+    await delay(250);
+  }
+  return false;
+}
+
+async function startWithLifecycleRecovery(
+  options: Parameters<typeof startLocalServer>[0],
+): Promise<LocalServerStatus> {
+  try {
+    return await startLocalServer(options);
+  } catch (error) {
+    if (!isLocalServerLifecycleTransition(error)) throw error;
+    const stopped = await waitForStopped();
+    if (!stopped) throw error;
+    await delay(250);
+    return startLocalServer(options);
+  }
+}
+
 function connectionOptions() {
   const config = getDesktopConfig();
   const port = config.serverPort ?? config.terminal?.porta ?? DEFAULT_LOCAL_PORT;
@@ -144,7 +170,7 @@ async function doStart(
   notify();
 
   try {
-    const status = await startLocalServer({
+    const status = await startWithLifecycleRecovery({
       port: opts.port,
       serverName: opts.serverName,
       serverId: opts.serverId,
@@ -456,8 +482,14 @@ export function useBootController(): BootState {
       console.warn("[local-server-watchdog] restart manual iniciado", {
         port: config.serverPort ?? DEFAULT_LOCAL_PORT,
       });
-      await stopLocalServer("manual-restart");
-      await delay(1_000);
+      try {
+        await stopLocalServer("manual-restart");
+      } catch (error) {
+        if (!isLocalServerLifecycleTransition(error)) throw error;
+        const stopped = await waitForStopped();
+        if (!stopped) throw error;
+      }
+      await delay(500);
       resetRecoveryBackoff();
       return await doStart(
         {

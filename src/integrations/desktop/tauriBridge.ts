@@ -51,6 +51,14 @@ export function isLocalServerStartInProgress(): boolean {
   return nativeStartInFlight !== null;
 }
 
+export function isLocalServerLifecycleTransition(error: unknown): boolean {
+  const message = String(error).toLowerCase();
+  return (
+    message.includes("stop_in_progress") ||
+    message.includes("start_in_progress")
+  );
+}
+
 function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -204,7 +212,7 @@ export async function stopLocalServer(
   }
   const status = await withTimeout(
     invoke<LocalServerStatus>("stop_local_server", { requestedBy }),
-    5_000,
+    10_000,
     "stop_local_server",
   );
   lastLocalServerStatus = status;

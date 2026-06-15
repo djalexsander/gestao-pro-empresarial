@@ -250,6 +250,7 @@ pub(crate) fn is_generation_current(generation: u64) -> bool {
 const APP_NAME: &str = "Gestao Pro";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const PROTOCOL_VERSION: u32 = 1;
+const LIFECYCLE_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(6);
 
 #[derive(Clone)]
 struct AppCtx {
@@ -4940,8 +4941,20 @@ pub async fn start(
 ) -> Result<LocalServerStatus, String> {
     eprintln!("[START REQUEST] port={port}");
     if SERVER_STOP_IN_PROGRESS.load(Ordering::Acquire) {
-        eprintln!("[START REJECTED_ALREADY_RUNNING] port={port} reason=stop_in_progress");
-        return Err("STOP_IN_PROGRESS: o servidor local esta sendo encerrado.".into());
+        eprintln!("[START WAITING] port={port} reason=stop_in_progress");
+        let deadline = tokio::time::Instant::now() + LIFECYCLE_WAIT_TIMEOUT;
+        while SERVER_STOP_IN_PROGRESS.load(Ordering::Acquire)
+            && tokio::time::Instant::now() < deadline
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        if SERVER_STOP_IN_PROGRESS.load(Ordering::Acquire) {
+            eprintln!("[START REJECTED] port={port} reason=stop_timeout");
+            return Err(
+                "STOP_IN_PROGRESS: o encerramento do servidor local excedeu o tempo limite. Tente novamente."
+                    .into(),
+            );
+        }
     }
     if SERVER_START_IN_PROGRESS
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -5230,7 +5243,15 @@ pub async fn stop() -> Result<LocalServerStatus, String> {
         return Err("STOP_IN_PROGRESS: o servidor local ja esta sendo encerrado.".into());
     }
     let _stop_guard = StopGuard;
+    let deadline = tokio::time::Instant::now() + LIFECYCLE_WAIT_TIMEOUT;
     while SERVER_START_IN_PROGRESS.load(Ordering::Acquire) {
+        if tokio::time::Instant::now() >= deadline {
+            eprintln!("[STOP CANCELLED] reason=start_timeout");
+            return Err(
+                "START_IN_PROGRESS: a inicializacao do servidor local ainda esta em andamento. Aguarde e tente novamente."
+                    .into(),
+            );
+        }
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     }
     stop_internal().await
