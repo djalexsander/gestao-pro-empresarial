@@ -126,8 +126,18 @@ export function useCaixaResumo(caixaId: string | null | undefined) {
   // inteiro — aqui queremos refrescar apenas o caixa visível.
   useEffect(() => {
     if (!caixaId) return;
+    const channelName = `caixa-resumo-${caixaId}`;
+    const topic = `realtime:${channelName}`;
+
+    const existingChannels = (supabase as any).realtime?.channels;
+    if (Array.isArray(existingChannels)) {
+      for (const existing of existingChannels.filter((ch) => ch.topic === topic)) {
+        void supabase.removeChannel(existing);
+      }
+    }
+
     const channel = supabase
-      .channel(`caixa-resumo-${caixaId}`)
+      .channel(channelName)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "caixa_movimentos", filter: `caixa_id=eq.${caixaId}` },
@@ -145,7 +155,7 @@ export function useCaixaResumo(caixaId: string | null | undefined) {
       )
       .subscribe();
     return () => {
-      supabase.removeChannel(channel);
+      void supabase.removeChannel(channel);
     };
   }, [caixaId, qc]);
 
