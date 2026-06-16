@@ -164,6 +164,48 @@ export interface RegistrarVendaLocalResponse {
   remote_id: string | null;
 }
 
+interface VendaLocalDetalheMin {
+  id: string;
+  total: number;
+  itens?: unknown[];
+  sync_status?: string | null;
+  sync_remote_id?: string | null;
+}
+
+async function recuperarVendaLocalPorClientUuid(
+  baseUrl: string,
+  clientUuid: string | null | undefined,
+  authToken?: string | null,
+): Promise<RegistrarVendaLocalResponse | null> {
+  if (!clientUuid) return null;
+
+  const url = new URL(`${baseUrl}/api/vendas/detalhe`);
+  url.searchParams.set("venda_id", clientUuid);
+  const headers: Record<string, string> = { Accept: "application/json" };
+  const localToken = resolveTokenForUrl(baseUrl);
+  if (localToken) headers["X-Gestao-Token"] = localToken;
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+  const res = await fetchWithTimeout(
+    url.toString(),
+    { headers, cache: "no-store" },
+    5_000,
+  );
+  if (!res.ok) return null;
+
+  const detalhe = (await res.json()) as VendaLocalDetalheMin | null;
+  if (!detalhe?.id) return null;
+
+  return {
+    venda_id: detalhe.id,
+    idempotente: true,
+    qtd_itens: Array.isArray(detalhe.itens) ? detalhe.itens.length : 0,
+    total: detalhe.total,
+    outbox_status: detalhe.sync_status === "sent" ? "sent" : "pending",
+    remote_id: detalhe.sync_remote_id ?? null,
+  };
+}
+
 export async function registrarVendaLocal(
   cfg: TerminalConexaoConfig | undefined,
   payload: RegistrarVendaLocalRequest,
@@ -210,6 +252,27 @@ export async function registrarVendaLocal(
     clearTimeout(timer);
     const isAbort = error instanceof DOMException && error.name === "AbortError";
     console.error("[local-offline-core] POST venda local error", { url, error });
+    if (isAbort) {
+      const recovered = await recuperarVendaLocalPorClientUuid(
+        baseUrl,
+        payload.client_uuid,
+        authToken,
+      ).catch((recoveryError) => {
+        console.warn("[local-offline-core] recuperacao de venda apos timeout falhou", {
+          url,
+          recoveryError,
+        });
+        return null;
+      });
+      if (recovered) {
+        console.warn("[local-offline-core] venda local recuperada apos timeout", {
+          url,
+          vendaId: recovered.venda_id,
+          remoteId: recovered.remote_id,
+        });
+        return recovered;
+      }
+    }
     if (isAbort) {
       throw new Error("Servidor local demorou para responder em /api/vendas/registrar. A venda não foi confirmada; tente novamente.");
     }

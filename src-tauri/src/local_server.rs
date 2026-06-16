@@ -5236,6 +5236,13 @@ pub async fn start(
 }
 
 pub async fn stop() -> Result<LocalServerStatus, String> {
+    if SERVER_START_IN_PROGRESS.load(Ordering::Acquire) {
+        eprintln!("[STOP REJECTED] reason=start_in_progress");
+        return Err(
+            "START_IN_PROGRESS: a inicializacao do servidor local ainda esta em andamento. Aguarde e tente novamente."
+                .into(),
+        );
+    }
     if SERVER_STOP_IN_PROGRESS
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
         .is_err()
@@ -5243,17 +5250,6 @@ pub async fn stop() -> Result<LocalServerStatus, String> {
         return Err("STOP_IN_PROGRESS: o servidor local ja esta sendo encerrado.".into());
     }
     let _stop_guard = StopGuard;
-    let deadline = tokio::time::Instant::now() + LIFECYCLE_WAIT_TIMEOUT;
-    while SERVER_START_IN_PROGRESS.load(Ordering::Acquire) {
-        if tokio::time::Instant::now() >= deadline {
-            eprintln!("[STOP CANCELLED] reason=start_timeout");
-            return Err(
-                "START_IN_PROGRESS: a inicializacao do servidor local ainda esta em andamento. Aguarde e tente novamente."
-                    .into(),
-            );
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-    }
     stop_internal().await
 }
 
