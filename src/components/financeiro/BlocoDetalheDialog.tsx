@@ -174,13 +174,12 @@ export function BlocoDetalheDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="flex max-w-3xl flex-col">
         <DialogHeader>
           <DialogTitle>{titulo}</DialogTitle>
           {subtitulo && <DialogDescription>{subtitulo}</DialogDescription>}
         </DialogHeader>
-
-        <div className="space-y-4 bg-background p-1">
+        <div className="space-y-4 bg-background p-1 flex-1 min-h-0">
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <Badge variant="outline" className="font-normal">
               Origem: {origem}
@@ -218,7 +217,7 @@ export function BlocoDetalheDialog({
             </div>
           )}
 
-          <ScrollArea className="max-h-[50vh] rounded-md border">
+          <ScrollArea className="flex-1 min-h-0 rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>

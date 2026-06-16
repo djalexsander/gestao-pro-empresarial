@@ -307,9 +307,11 @@ function FinanceContent() {
     (l) => l.tipo === "pagar" && l.status !== "pago" && l.status !== "cancelado",
   );
 
-  const totalRec = receber.reduce((s, l) => s + Number(l.valor) - Number(l.valor_pago ?? 0), 0);
-  const totalPay = pagar.reduce((s, l) => s + Number(l.valor) - Number(l.valor_pago ?? 0), 0);
-  const saldo = totalRec - totalPay;
+  const totalRecComputed = receber.reduce((s, l) => s + Number(l.valor) - Number(l.valor_pago ?? 0), 0);
+  const totalPayComputed = pagar.reduce((s, l) => s + Number(l.valor) - Number(l.valor_pago ?? 0), 0);
+  const totalRec = posicao?.totalReceber ?? totalRecComputed;
+  const totalPay = posicao?.totalPagar ?? totalPayComputed;
+  const saldo = posicao?.saldo ?? totalRec - totalPay;
 
   const consolidado = useMemo(
     () => buildConsolidado({ totalRec, totalPay, saldo, receber, pagar, ind }),
@@ -703,6 +705,7 @@ function FinanceContent() {
         totalPay={totalPay}
         saldo={saldo}
         ind={ind}
+        periodo={posicao?.periodo}
       />
 
       <ExportFormatDialog
@@ -725,6 +728,7 @@ function BlocoModais({
   totalPay,
   saldo,
   ind,
+  periodo,
 }: {
   bloco: BlocoChave | null;
   onClose: () => void;
@@ -734,8 +738,33 @@ function BlocoModais({
   totalPay: number;
   saldo: number;
   ind: ReturnType<typeof useFinanceiroIndicadores>["data"] | undefined;
+  periodo?: { inicio: string; fim: string } | null;
 }) {
   if (!bloco) return null;
+
+  const periodoFilter = periodo ?? null;
+  const inPeriodo = (l: Lancamento) => {
+    if (!periodoFilter) return true;
+    if (!l.data_vencimento) return false;
+    return l.data_vencimento >= periodoFilter.inicio && l.data_vencimento <= periodoFilter.fim;
+  };
+
+  const receberFiltered = receber.filter(
+    (l) =>
+      l.tipo === "receber" &&
+      l.status !== "recebido" &&
+      l.status !== "cancelado" &&
+      Number(l.valor) - Number(l.valor_pago ?? 0) > 0 &&
+      inPeriodo(l),
+  );
+  const pagarFiltered = pagar.filter(
+    (l) =>
+      l.tipo === "pagar" &&
+      l.status !== "pago" &&
+      l.status !== "cancelado" &&
+      Number(l.valor) - Number(l.valor_pago ?? 0) > 0 &&
+      inPeriodo(l),
+  );
 
   const lancamentoCols: DetalheColumn[] = [
     { key: "descricao", header: "Descrição" },
@@ -763,10 +792,10 @@ function BlocoModais({
         origem="financeiro_lancamentos"
         resumo={[
           { label: "Total em aberto", valor: formatBRL(totalRec), tone: "success" },
-          { label: "Qtd. títulos", valor: String(receber.length) },
+          { label: "Qtd. títulos", valor: String(receberFiltered.length) },
         ]}
         colunas={lancamentoCols}
-        rows={lancRows(receber)}
+        rows={lancRows(receberFiltered)}
       />
     );
   }
@@ -780,10 +809,10 @@ function BlocoModais({
         origem="financeiro_lancamentos"
         resumo={[
           { label: "Total em aberto", valor: formatBRL(totalPay), tone: "danger" },
-          { label: "Qtd. títulos", valor: String(pagar.length) },
+          { label: "Qtd. títulos", valor: String(pagarFiltered.length) },
         ]}
         colunas={lancamentoCols}
-        rows={lancRows(pagar)}
+        rows={lancRows(pagarFiltered)}
       />
     );
   }
@@ -909,7 +938,7 @@ function BlocoModais({
     );
   }
   if (bloco === "fiado") {
-    const fiadosLanc = receber.filter((l) => l.forma_pagamento === "fiado");
+    const fiadosLanc = receberFiltered.filter((l) => l.forma_pagamento === "fiado");
     return (
       <BlocoDetalheDialog
         open
@@ -938,7 +967,7 @@ function BlocoModais({
     );
   }
   if (bloco === "ifood") {
-    const ifoodLanc = receber.filter((l) => l.forma_pagamento === "ifood" && !l.conciliado_em);
+    const ifoodLanc = receberFiltered.filter((l) => l.forma_pagamento === "ifood" && !l.conciliado_em);
     return (
       <BlocoDetalheDialog
         open
@@ -990,7 +1019,7 @@ function BlocoModais({
     );
   }
   if (bloco === "vencidos") {
-    const vencidosLanc = [...receber, ...pagar].filter((l) => {
+    const vencidosLanc = [...receberFiltered, ...pagarFiltered].filter((l) => {
       if (!l.data_vencimento) return false;
       return new Date(l.data_vencimento) < new Date(new Date().toDateString());
     });

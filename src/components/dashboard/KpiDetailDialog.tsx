@@ -247,23 +247,28 @@ export function KpiDetailDialog({
 
       if (tipo === "contas-pagar" || tipo === "contas-receber") {
         const isPagar = tipo === "contas-pagar";
-        const { data: lancs } = await supabase
+        // Use the same logic as usePosicaoFinanceira: filter by data_vencimento range,
+        // exclude cancelled, compute aberto = valor - valor_pago and only include aberto>0.
+        const { data: lancs, error } = await supabase
           .from("financeiro_lancamentos")
           .select(
-            "id, descricao, valor, valor_pago, status, data_vencimento, tipo, fornecedor_id, cliente_id",
+            "id, descricao, valor, valor_pago, status, data_vencimento, tipo, fornecedor_id, cliente_id, forma_pagamento, conciliado_em",
           )
-          .eq("tipo", isPagar ? "despesa" : "receita")
-          .neq("status", "pago")
+          .eq("tipo", isPagar ? "pagar" : "receber")
+          .gte("data_vencimento", inicioISO)
+          .lte("data_vencimento", fimISO)
           .neq("status", "cancelado")
-          .order("data_vencimento", { ascending: true });
+          .order("data_vencimento", { ascending: true })
+          .limit(5000);
+        if (error) throw error;
 
         const fornIds = [
           ...new Set(
-            (lancs ?? []).map((l) => l.fornecedor_id).filter(Boolean) as string[],
+            (lancs ?? []).map((l) => (l as any).fornecedor_id).filter(Boolean) as string[],
           ),
         ];
         const cliIds = [
-          ...new Set((lancs ?? []).map((l) => l.cliente_id).filter(Boolean) as string[]),
+          ...new Set((lancs ?? []).map((l) => (l as any).cliente_id).filter(Boolean) as string[]),
         ];
         const [fornRes, cliRes] = await Promise.all([
           fornIds.length
@@ -282,27 +287,33 @@ export function KpiDetailDialog({
         const cliMap = new Map((cliRes.data ?? []).map((c) => [c.id, c.nome]));
 
         const hojeStr = new Date().toISOString().slice(0, 10);
-        const rows: DetalheRow[] = (lancs ?? []).map((l) => {
-          const aberto = Number(l.valor) - Number(l.valor_pago ?? 0);
-          const contraparte = isPagar
-            ? l.fornecedor_id
-              ? (fornMap.get(l.fornecedor_id) ?? "—")
-              : "—"
-            : l.cliente_id
-              ? (cliMap.get(l.cliente_id) ?? "—")
-              : "—";
-          const venc = l.data_vencimento ?? "";
-          const status =
-            venc && venc < hojeStr ? "vencido" : (l.status ?? "aberto");
-          return {
-            identificador: contraparte,
-            data: venc,
-            descricao: l.descricao,
-            valor: aberto,
-            status,
-          };
-        });
-        const total = rows.reduce((s, r) => s + r.valor, 0);
+        const rows: DetalheRow[] = (lancs ?? [])
+          .map((l: any) => {
+            const aberto = Number(l.valor) - Number(l.valor_pago ?? 0);
+            return { raw: l, aberto };
+          })
+          .filter((r: any) => (r.aberto ?? 0) > 0)
+          .map((r: any) => {
+            const l = r.raw as any;
+            const aberto = r.aberto as number;
+            const contraparte = isPagar
+              ? l.fornecedor_id
+                ? (fornMap.get(l.fornecedor_id) ?? "—")
+                : "—"
+              : l.cliente_id
+                ? (cliMap.get(l.cliente_id) ?? "—")
+                : "—";
+            const venc = l.data_vencimento ?? "";
+            const status = venc && venc < hojeStr ? "vencido" : l.status ?? "aberto";
+            return {
+              identificador: contraparte,
+              data: venc,
+              descricao: l.descricao,
+              valor: aberto,
+              status,
+            } as DetalheRow;
+          });
+        const total = rows.reduce((s, r) => s + (r.valor ?? 0), 0);
         const vencidos = rows.filter((r) => r.status === "vencido");
         return {
           rows,
@@ -315,7 +326,7 @@ export function KpiDetailDialog({
             { label: "Quantidade", valor: String(rows.length), tone: "info" },
             {
               label: "Vencidos",
-              valor: `${vencidos.length} (${formatBRL(vencidos.reduce((s, r) => s + r.valor, 0))})`,
+              valor: `${vencidos.length} (${formatBRL(vencidos.reduce((s, r) => s + (r.valor ?? 0), 0))})`,
               tone: vencidos.length > 0 ? "danger" : "muted",
             },
           ],
@@ -472,7 +483,7 @@ export function KpiDetailDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-3xl">
+        <DialogContent className="flex sm:max-w-3xl flex-col">
           <DialogHeader>
             <DialogTitle>{titulo}</DialogTitle>
             <DialogDescription>
@@ -508,7 +519,8 @@ export function KpiDetailDialog({
           )}
 
           {/* Tabela */}
-          <ScrollArea className="max-h-[50vh] rounded-md border">
+          <div className="flex-1 min-h-0">
+            <ScrollArea className="flex-1 min-h-0 max-h-[60vh] rounded-md border">
             {query.isLoading ? (
               <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -610,7 +622,8 @@ export function KpiDetailDialog({
                 </TableBody>
               </Table>
             )}
-          </ScrollArea>
+            </ScrollArea>
+          </div>
           {rows.length > 100 && (
             <p className="text-xs text-muted-foreground">
               Exibindo os primeiros 100 registros. A exportação inclui todos os {rows.length} itens.

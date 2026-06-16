@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Eye, EyeOff, Lock, Loader2, Mail, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
@@ -52,6 +52,8 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
   const formInstanceId = useId();
   const [openCount, setOpenCount] = useState(0);
   const pwdFieldName = `erp-pwd-${formInstanceId}-${openCount}`;
+  const emailRef = useRef<HTMLInputElement | null>(null);
+  const pwdRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -61,10 +63,19 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
     } catch {
       /* noop */
     }
-    setEmail(user?.email ?? remembered);
+    const initialEmail = user?.email ?? remembered;
+    setEmail(initialEmail);
     setPassword("");
     setShowPwd(false);
     setOpenCount((n) => n + 1);
+    // If email is already filled, focus password; otherwise focus email.
+    setTimeout(() => {
+      if (initialEmail && initialEmail.trim().length > 0) {
+        pwdRef.current?.focus();
+      } else {
+        emailRef.current?.focus();
+      }
+    }, 0);
   }, [open, user?.email]);
 
   async function onSubmit(e: React.FormEvent) {
@@ -173,6 +184,7 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
                 placeholder="admin@empresa.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                ref={emailRef}
                 className="pl-10"
               />
             </div>
@@ -191,6 +203,7 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
                 placeholder="Sua senha"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                ref={pwdRef}
                 className="pl-10 pr-10"
               />
               <button
