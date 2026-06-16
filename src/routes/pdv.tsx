@@ -70,7 +70,6 @@ import {
   type ClienteLite,
 } from "@/hooks/useClientes";
 import { useSaldosLote, type FormaPagamento, type StatusPagamento } from "@/hooks/useVendas";
-import { getDataMode } from "@/integrations/data/mode";
 import { useSomPDV } from "@/hooks/useSomPDV";
 import { ClienteDialog } from "@/components/clientes/ClienteDialog";
 import { UserPlus, IdCard, AlertCircle } from "lucide-react";
@@ -241,7 +240,6 @@ function PDVPage() {
   const [quickView, setQuickView] = useState<PdvQuickViewKey | null>(null);
   const { isCaixa, isAdminLike } = useUserRole();
   const podeAcessarRapido = isCaixa || isAdminLike;
-  const isLocalMode = getDataMode() === "local-server" || getDataMode() === "local-terminal";
   const [vendaConcluida, setVendaConcluida] = useState<null | {
     id: string;
     numero: string | null;
@@ -1702,11 +1700,6 @@ function PDVPage() {
             })),
             data: new Date(),
           });
-          if (isLocalMode) {
-            toast.success(
-              "Venda salva localmente e será sincronizada quando a internet voltar.",
-            );
-          }
           setSucessoOpen(true);
           // Limpa o carrinho mas mantém cliente para próxima venda rápida
           clearVenda();

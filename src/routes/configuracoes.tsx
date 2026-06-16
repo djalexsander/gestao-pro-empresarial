@@ -13,7 +13,6 @@ import { TerminaisTab } from "@/components/configuracoes/TerminaisTab";
 import { SociosTab } from "@/components/configuracoes/SociosTab";
 import { PlanosModulosTab } from "@/components/configuracoes/PlanosModulosTab";
 import { BalancaTab } from "@/components/configuracoes/BalancaTab";
-import { DesktopTab } from "@/components/configuracoes/DesktopTab";
 import { IntegracoesTab } from "@/components/configuracoes/IntegracoesTab";
 import { ImpressoraConfigCard } from "@/components/configuracoes/ImpressoraConfigCard";
 
@@ -34,7 +33,6 @@ const TAB_VALUES = [
   "funcionarios",
   "terminais",
   "balanca",
-  "desktop",
   "impressoras",
   "prefs",
   "integracoes",
@@ -73,9 +71,6 @@ function SettingsPage() {
           </KeepMountedTab>
           <KeepMountedTab value="balanca" active={tab}>
             <BalancaTab />
-          </KeepMountedTab>
-          <KeepMountedTab value="desktop" active={tab}>
-            <DesktopTab />
           </KeepMountedTab>
           <KeepMountedTab value="impressoras" active={tab}>
             <ImpressoraConfigCard />

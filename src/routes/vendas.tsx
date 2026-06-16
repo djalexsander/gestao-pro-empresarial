@@ -44,7 +44,6 @@ import {
 import { useClientesFull } from "@/hooks/useClientes";
 import { CancelarVendaDialog } from "@/components/vendas/CancelarVendaDialog";
 import { DetalheVendaDialog } from "@/components/vendas/DetalheVendaDialog";
-import { getDataMode } from "@/integrations/data/mode";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -122,8 +121,6 @@ function rangeFromPeriodo(p: Periodo): { inicio: string; fim: string } {
 
 function SalesPage() {
   const navigate = useNavigate();
-  const dataMode = getDataMode();
-  const isLocalMode = dataMode === "local-server" || dataMode === "local-terminal";
   const { data: vendas = [], isLoading } = useVendas();
   const { data: clientes = [] } = useClientesFull();
   const [query, setQuery] = useState("");
@@ -177,9 +174,7 @@ function SalesPage() {
 
   return (
     <div className="space-y-6">
-      {!isLocalMode && (
-        <CloudDependencyNotice title="Lista de vendas vem da nuvem" message="A listagem de vendas ainda lê da nuvem. Vendas registradas neste terminal e ainda não sincronizadas podem aparecer com atraso. Após a sincronização a lista é atualizada." />
-      )}
+      <CloudDependencyNotice title="Lista de vendas vem da nuvem" message="A listagem de vendas ainda lê da nuvem. Vendas registradas neste terminal e ainda não sincronizadas podem aparecer com atraso. Após a sincronização a lista é atualizada." />
       <PageHeader
         title="Vendas"
         description="Pedidos de venda registrados no sistema."
@@ -421,7 +416,7 @@ function SalesPage() {
                               <X className="h-3.5 w-3.5" />
                             </Button>
                           )}
-                          {cancelada && !isLocalMode && (
+                          {cancelada && (
                             <Button
                               variant="ghost"
                               size="icon"

@@ -134,7 +134,6 @@ export const MODULES: ModuleDef[] = [
       { to: "/configuracoes?tab=funcionarios", label: "Funcionários", icon: Users, description: "Equipe" },
       { to: "/configuracoes?tab=terminais", label: "Terminais", icon: Settings, description: "Caixas e PDVs" },
       { to: "/configuracoes?tab=balanca", label: "Balança", icon: Settings, description: "Integração de balança" },
-      { to: "/configuracoes?tab=desktop", label: "Desktop", icon: Settings, description: "Aplicativo desktop" },
       { to: "/configuracoes?tab=impressoras", label: "Impressoras", icon: Settings, description: "Configurar impressoras" },
       { to: "/configuracoes?tab=prefs", label: "Preferências", icon: Settings, description: "Tema e notificações" },
       { to: "/configuracoes?tab=integracoes", label: "Integrações", icon: Settings, description: "Serviços externos" },

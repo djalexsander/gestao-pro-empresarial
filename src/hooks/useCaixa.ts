@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { dataClient } from "@/integrations/data";
-import { getDataMode } from "@/integrations/data/mode";
 
 export type CaixaStatus = "aberto" | "fechado";
 
@@ -127,8 +126,6 @@ export function useCaixaResumo(caixaId: string | null | undefined) {
   // inteiro — aqui queremos refrescar apenas o caixa visível.
   useEffect(() => {
     if (!caixaId) return;
-    const mode = getDataMode();
-    if (mode === "local-server" || mode === "local-terminal") return;
     const channel = supabase
       .channel(`caixa-resumo-${caixaId}`)
       .on(
@@ -243,12 +240,7 @@ export function useFecharCaixa() {
       qc.invalidateQueries({ queryKey: ["caixa"] });
       qc.invalidateQueries({ queryKey: ["vendas"] });
       qc.invalidateQueries({ queryKey: ["financeiro_lancamentos"] });
-      const mode = getDataMode();
-      toast.success(
-        mode === "local-server" || mode === "local-terminal"
-          ? "Caixa fechado localmente. A sincronização continuará em segundo plano."
-          : "Caixa fechado. Movimentos enviados ao Financeiro.",
-      );
+      toast.success("Caixa fechado. Movimentos enviados ao Financeiro.");
     },
     onError: (e: Error) => toast.error(caixaErrorMessage(e)),
   });

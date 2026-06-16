@@ -1,10 +1,9 @@
 import { useEffect, useId, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Eye, EyeOff, Lock, Loader2, ShieldCheck, Mail, Info } from "lucide-react";
+import { Eye, EyeOff, Lock, Loader2, Mail, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/components/auth/AuthProvider";
-import type { User as SupabaseUser } from "@supabase/supabase-js";
 import {
   Dialog,
   DialogContent,
@@ -16,29 +15,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { unlockErp } from "@/lib/erpUnlock";
-import { isDesktop } from "@/integrations/data/mode";
-import {
-  getDesktopAuthorizedUserStatus,
-  saveDesktopAuthorizedUser,
-  verifyDesktopAuthorizedUser,
-} from "@/integrations/desktop/tauriBridge";
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-/**
- * Dialog de reconfirmação para acesso ao ERP.
- *
- * Mesmo com sessão ativa, exige login + senha de um usuário
- * com role admin / gerente / super_admin. Operadores de caixa
- * são bloqueados.
- */
 const REMEMBER_EMAIL_KEY = "erp_admin_remember_email";
-const ERP_OFFLINE_ALLOWED_KEY = "gp.erp.offline.allowed_admin_users";
-const OFFLINE_AUTH_UNAVAILABLE_MESSAGE =
-  "Este usuário ainda não foi sincronizado neste computador. Conecte à internet uma vez para liberar login offline.";
+const INTERNET_REQUIRED_MESSAGE =
+  "Sem conexão com a internet. Este recurso exige conexão.";
 
 function isNetworkAuthError(error: unknown): boolean {
   const message =
@@ -56,61 +41,30 @@ function isNetworkAuthError(error: unknown): boolean {
   );
 }
 
-function getOfflineAllowedAdmins(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(ERP_OFFLINE_ALLOWED_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.filter((id) => typeof id === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function markOfflineErpAllowed(userId: string) {
-  if (typeof window === "undefined") return;
-  try {
-    const next = Array.from(new Set([...getOfflineAllowedAdmins(), userId]));
-    localStorage.setItem(ERP_OFFLINE_ALLOWED_KEY, JSON.stringify(next));
-  } catch {
-    /* noop */
-  }
-}
-
-function isOfflineErpAllowed(userId: string): boolean {
-  return getOfflineAllowedAdmins().includes(userId);
-}
-
 export function AdminAuthDialog({ open, onOpenChange }: Props) {
-  const { user, signInOffline } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [busy, setBusy] = useState(false);
-
-  // Nome aleatório do campo de senha + key do form a cada abertura.
-  // Isso evita que o navegador faça autofill / salve a senha do ERP.
   const formInstanceId = useId();
   const [openCount, setOpenCount] = useState(0);
   const pwdFieldName = `erp-pwd-${formInstanceId}-${openCount}`;
 
-  // Pré-preenche apenas o e-mail (sessão atual ou último lembrado).
-  // A senha SEMPRE inicia vazia — nunca é persistida em lugar algum.
   useEffect(() => {
-    if (open) {
-      let remembered = "";
-      try {
-        remembered = localStorage.getItem(REMEMBER_EMAIL_KEY) ?? "";
-      } catch {
-        /* noop */
-      }
-      setEmail(user?.email ?? remembered ?? "");
-      setPassword("");
-      setShowPwd(false);
-      setOpenCount((n) => n + 1);
+    if (!open) return;
+    let remembered = "";
+    try {
+      remembered = localStorage.getItem(REMEMBER_EMAIL_KEY) ?? "";
+    } catch {
+      /* noop */
     }
+    setEmail(user?.email ?? remembered);
+    setPassword("");
+    setShowPwd(false);
+    setOpenCount((n) => n + 1);
   }, [open, user?.email]);
 
   async function onSubmit(e: React.FormEvent) {
@@ -119,7 +73,6 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
     setBusy(true);
 
     try {
-      // 1) Reautenticação obrigatória (não confia na sessão existente).
       let signInData: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>["data"] | null = null;
       let signInError: Error | null = null;
       try {
@@ -134,66 +87,17 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
       }
 
       if (signInError || !signInData?.user) {
-        const isInvalidCredentials =
-          signInError?.message === "Invalid login credentials";
-        if (isDesktop() && !isInvalidCredentials) {
-          const local = await verifyDesktopAuthorizedUser(email.trim(), password);
-          const allowedAdmins = getOfflineAllowedAdmins();
-          const allowedByMigration =
-            allowedAdmins.length === 0 && local?.user_id === user?.id;
-          if (local && (isOfflineErpAllowed(local.user_id) || allowedByMigration)) {
-            signInOffline({
-              id: local.user_id,
-              email: email.trim(),
-              aud: "authenticated",
-              app_metadata: {},
-              user_metadata: {},
-              created_at: new Date().toISOString(),
-            } as SupabaseUser);
-            try {
-              localStorage.setItem(REMEMBER_EMAIL_KEY, email.trim());
-            } catch {
-              /* noop */
-            }
-            setPassword("");
-            markOfflineErpAllowed(local.user_id);
-            unlockErp(local.user_id);
-            toast.success("Acesso autorizado. (modo offline)");
-            onOpenChange(false);
-            navigate({ to: "/" });
-            return;
-          }
-
-          if (local) {
-            toast.error(
-              "Este usuário ainda não foi autorizado para acesso ERP offline neste computador. Conecte uma vez à internet e entre no ERP para liberar o cache seguro.",
-            );
-            setBusy(false);
-            return;
-          }
-          if (isNetworkAuthError(signInError)) {
-            const status = await getDesktopAuthorizedUserStatus(email.trim());
-            toast.error(
-              status.exists
-                ? "E-mail ou senha inválidos."
-                : OFFLINE_AUTH_UNAVAILABLE_MESSAGE,
-            );
-            setBusy(false);
-            return;
-          }
-        }
         toast.error(
-          isInvalidCredentials
-            ? "E-mail ou senha inválidos."
-            : signInError?.message ?? "Não foi possível autenticar.",
+          isNetworkAuthError(signInError)
+            ? INTERNET_REQUIRED_MESSAGE
+            : signInError?.message === "Invalid login credentials"
+              ? "E-mail ou senha inválidos."
+              : signInError?.message ?? "Não foi possível autenticar.",
         );
-        setBusy(false);
         return;
       }
 
       const authedUserId = signInData.user.id;
-
-      // 2) Verifica papel: somente admin/gerente/super_admin entram no ERP.
       const { data: roles, error: rolesError } = await supabase
         .from("user_roles")
         .select("role")
@@ -201,43 +105,27 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
 
       if (rolesError) {
         toast.error("Falha ao validar permissões.");
-        setBusy(false);
         return;
       }
 
       const roleList = (roles ?? []).map((r) => r.role as string);
       const hasErpAccess =
-        roleList.length === 0 || // primeiro usuário (sem roles) é tratado como admin
+        roleList.length === 0 ||
         roleList.includes("super_admin") ||
         roleList.includes("admin") ||
         roleList.includes("gerente");
 
-      const isCaixaOnly =
-        roleList.includes("caixa") && !hasErpAccess;
-
-      if (isCaixaOnly || !hasErpAccess) {
-        toast.error(
-          "Acesso negado. Esta conta não tem permissão para acessar o ERP.",
-        );
-        setBusy(false);
+      if (!hasErpAccess || (roleList.includes("caixa") && !hasErpAccess)) {
+        toast.error("Acesso negado. Esta conta não tem permissão para acessar o ERP.");
         return;
       }
 
-      // 3) Libera acesso e navega para o ERP.
-      // Lembra apenas o e-mail — NUNCA a senha.
       try {
         localStorage.setItem(REMEMBER_EMAIL_KEY, email.trim());
       } catch {
         /* noop */
       }
-      // Garante que a senha digitada não permanece em memória após sucesso.
       setPassword("");
-      if (isDesktop()) {
-        saveDesktopAuthorizedUser(email.trim(), authedUserId, password).catch(() => {
-          /* ignore local cache failures */
-        });
-        markOfflineErpAllowed(authedUserId);
-      }
       unlockErp(authedUserId);
       toast.success("Acesso autorizado.");
       onOpenChange(false);
@@ -260,14 +148,12 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
           </div>
           <DialogTitle>Acesso ao ERP</DialogTitle>
           <DialogDescription>
-            Por segurança, confirme suas credenciais administrativas para
-            entrar no sistema. Apenas contas com perfil <strong>admin</strong> ou{" "}
+            Por segurança, confirme suas credenciais administrativas para entrar
+            no sistema. Apenas contas com perfil <strong>admin</strong> ou{" "}
             <strong>gerente</strong> podem acessar.
           </DialogDescription>
         </DialogHeader>
 
-        {/* key força React a remontar o form (e seus inputs) a cada abertura,
-            o que descarta qualquer estado anterior e bloqueia autofill persistente */}
         <form
           key={pwdFieldName}
           onSubmit={onSubmit}
@@ -275,16 +161,6 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
           autoComplete="off"
           spellCheck={false}
         >
-          {/* Campos-isca: alguns navegadores ignoram autocomplete="off" se
-              não houver um par usuário+senha "consumível" antes do campo real */}
-          <div
-            aria-hidden="true"
-            style={{ position: "absolute", top: -9999, left: -9999, height: 0, width: 0, overflow: "hidden" }}
-          >
-            <input type="text" name="fakeuser" tabIndex={-1} autoComplete="username" />
-            <input type="password" name="fakepassword" tabIndex={-1} autoComplete="new-password" />
-          </div>
-
           <div className="space-y-1.5">
             <Label htmlFor="admin-email">E-mail</Label>
             <div className="relative">
@@ -298,7 +174,6 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="pl-10"
-                disabled={busy}
               />
             </div>
           </div>
@@ -309,67 +184,30 @@ export function AdminAuthDialog({ open, onOpenChange }: Props) {
               <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 id="admin-password"
-                /* nome dinâmico impede o navegador de associar essa senha
-                   a um login salvo e a auto-preencher na próxima abertura */
                 name={pwdFieldName}
                 type={showPwd ? "text" : "password"}
                 required
                 autoComplete="new-password"
-                data-lpignore="true"
-                data-1p-ignore="true"
-                data-bwignore="true"
-                data-form-type="other"
-                placeholder="Digite sua senha"
+                placeholder="Sua senha"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="pl-10 pr-10"
-                disabled={busy}
-                autoFocus
               />
               <button
                 type="button"
-                onClick={() => setShowPwd((v) => !v)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => setShowPwd((v) => !v)}
                 aria-label={showPwd ? "Ocultar senha" : "Mostrar senha"}
-                tabIndex={-1}
               >
-                {showPwd ? (
-                  <EyeOff className="h-4 w-4" />
-                ) : (
-                  <Eye className="h-4 w-4" />
-                )}
+                {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
-            <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
-              <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-              <span>
-                Por segurança, a senha nunca é salva. Você precisa digitá-la
-                a cada acesso ao ERP.
-              </span>
-            </p>
           </div>
 
-          <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => onOpenChange(false)}
-              disabled={busy}
-            >
-              Cancelar
-            </Button>
-            <Button type="submit" disabled={busy || !email || !password}>
-              {busy ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" /> Autenticando...
-                </>
-              ) : (
-                <>
-                  <ShieldCheck className="h-4 w-4" /> Entrar no ERP
-                </>
-              )}
-            </Button>
-          </div>
+          <Button type="submit" className="w-full" disabled={busy}>
+            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Confirmar acesso
+          </Button>
         </form>
       </DialogContent>
     </Dialog>

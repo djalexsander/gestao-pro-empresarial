@@ -2,16 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { dataClient } from "@/integrations/data";
-import { getDataMode } from "@/integrations/data/mode";
 import type { Produto, ProdutoComCategoria, TipoIdentificacao } from "@/integrations/data";
 
 // Re-exports para preservar a API pública anterior deste módulo.
 export type { Produto, TipoIdentificacao };
-
-function isLocalProdutosMode(): boolean {
-  const mode = getDataMode();
-  return mode === "local-server" || mode === "local-terminal";
-}
 
 export type Categoria = {
   id: string;
@@ -41,7 +35,7 @@ export function useCategorias() {
     queryKey: ["categorias"],
     queryFn: async () => {
       console.info("[categorias-produto] LISTAR CATEGORIAS", {
-        source: getDataMode(),
+        source: "cloud",
       });
       const categorias = (await dataClient.categoriasProduto.list()) as Categoria[];
       console.info("[categorias-produto] CATEGORIA RETORNADA", {
@@ -63,7 +57,7 @@ export function useCreateCategoria() {
       console.info("[categorias-produto] CREATE CATEGORIA", {
         nome,
         client_uuid,
-        source: getDataMode(),
+        source: "cloud",
       });
       const r = await dataClient.produtos.criarCategoria({ nome, client_uuid });
       console.info("[categorias-produto] CREATE CATEGORIA result", {
@@ -186,11 +180,6 @@ export function useCreateProduto() {
       const client_uuid = crypto.randomUUID();
       try {
         const r = await dataClient.produtos.criar({ ...input, client_uuid });
-        if (isLocalProdutosMode()) {
-          const produtos = await dataClient.produtos.listar();
-          const local = produtos.find((p) => p.id === r.produto_id);
-          if (local) return local;
-        }
         return await fetchProdutoRow(r.produto_id);
       } catch (e) {
         throw mapProdutoErr(e);
@@ -214,11 +203,6 @@ export function useUpdateProduto() {
           produto_id: id,
           ...input,
         });
-        if (isLocalProdutosMode()) {
-          const produtos = await dataClient.produtos.listar();
-          const local = produtos.find((p) => p.id === r.produto_id);
-          if (local) return local;
-        }
         return await fetchProdutoRow(r.produto_id);
       } catch (e) {
         throw mapProdutoErr(e);

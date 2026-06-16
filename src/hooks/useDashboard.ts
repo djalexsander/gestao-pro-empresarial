@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { getDesktopConfig } from "@/integrations/desktop/configStore";
-import { getBaseUrl } from "@/integrations/desktop/serverConnection";
 import {
   calcAbertoLanc,
   calcLucroBruto,
