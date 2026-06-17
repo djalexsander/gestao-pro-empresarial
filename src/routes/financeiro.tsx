@@ -1724,7 +1724,7 @@ function FluxoCaixaPanel() {
       )}
 
       {/* Barra de filtros — sticky para auditoria contínua */}
-      <Card className="sticky top-0 z-10 border-border/60">
+      <Card className="sticky top-3 z-10 border-border/60 bg-background">
         <CardContent className="space-y-3 p-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <div className="relative flex-1">
