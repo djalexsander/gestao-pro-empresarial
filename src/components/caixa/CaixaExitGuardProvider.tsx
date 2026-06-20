@@ -105,9 +105,22 @@ export function CaixaExitGuardProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!user) {
-      setHasCaixaAbertoKnown(false);
-      void setDesktopCaixaExitGuard(false);
-      return;
+      let alive = true;
+      hasDesktopCaixaAberto()
+        .then((desktopOpen) => {
+          if (!alive) return;
+          const hasOpen = !!desktopOpen;
+          setHasCaixaAbertoKnown(hasOpen);
+          void setDesktopCaixaExitGuard(hasOpen);
+        })
+        .catch(() => {
+          if (!alive) return;
+          setHasCaixaAbertoKnown(false);
+          void setDesktopCaixaExitGuard(false);
+        });
+      return () => {
+        alive = false;
+      };
     }
     let alive = true;
     const refresh = () => {

@@ -510,6 +510,9 @@ function PDVPage() {
     return { subtotal, descontoTotal, total, totalItens };
   }, [activeItems]);
 
+  const vendaTemEstado =
+    items.length > 0 || !!cliente || observacao.trim().length > 0 || multiplicador !== 1;
+
   // ============ Adicionar item ============
   function addItemFromProduto(
     p: {
@@ -754,9 +757,10 @@ function PDVPage() {
         allowInInputs: true,
         handler: () => {
           flashHotkey("F7");
-          if (items.length > 0) {
+          if (vendaTemEstado) {
             setConfirmClear("clear");
           } else {
+            clearClienteVenda();
             scanInputRef.current?.focus();
           }
         },
@@ -766,7 +770,7 @@ function PDVPage() {
         allowInInputs: true,
         handler: () => {
           flashHotkey("F8");
-          if (items.length > 0) setConfirmClear("clear");
+          if (vendaTemEstado) setConfirmClear("clear");
         },
       },
       {
@@ -843,7 +847,7 @@ function PDVPage() {
             return;
           }
           if (
-            items.length > 0 &&
+            vendaTemEstado &&
             !finalizarOpen &&
             !sucessoOpen &&
             !confirmClear &&
@@ -885,13 +889,19 @@ function PDVPage() {
     if (lastAddedKey === key) setLastAddedKey(null);
   }
 
-  function clearVenda() {
-    setItems([]);
+  function clearClienteVenda() {
     setCliente(null);
     setClientePopoverOpen(false);
     setDocQuery("");
     setDocBuscaSemResultado(false);
+    setNovoClienteDoc(null);
+  }
+
+  function clearVenda() {
+    setItems([]);
+    clearClienteVenda();
     setObservacao("");
+    setMultiplicador(1);
     setLastAddedKey(null);
     // Renova o client_uuid: a próxima venda terá uma nova chave de idempotência.
     setCartUuid(crypto.randomUUID());
@@ -1232,7 +1242,7 @@ function PDVPage() {
                   <CommandGroup>
                     <CommandItem
                       onSelect={() => {
-                        setCliente(null);
+                        clearClienteVenda();
                         setClientePopoverOpen(false);
                       }}
                     >
@@ -1616,7 +1626,7 @@ function PDVPage() {
               <Button
                 variant="outline"
                 onClick={() => setConfirmClear("clear")}
-                disabled={items.length === 0}
+                disabled={!vendaTemEstado}
                 className={cn(
                   hotkeyFlash === "F8" && "ring-2 ring-primary ring-offset-2 ring-offset-background",
                 )}
@@ -1748,7 +1758,7 @@ function PDVPage() {
           // Apenas fecha o resumo e mantém o operador no PDV.
           setSucessoOpen(false);
           setVendaConcluida(null);
-          setCliente(null);
+          clearClienteVenda();
         }}
       />
 

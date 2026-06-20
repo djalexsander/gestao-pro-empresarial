@@ -3,14 +3,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { getDesktopConfig } from "@/integrations/desktop/configStore";
 import {
-  calcAbertoLanc,
   calcLucroBruto,
   calcMargemPct,
   isLancPagar,
   isLancReceber,
   isLancRealizado,
-  isLancCancelado,
 } from "@/lib/financeiro-canonico";
+import { fetchDashboardFinanceiroKpi } from "@/lib/dashboard-financeiro-kpis";
 
 export type DashboardData = {
   indisponivel?: boolean;
@@ -243,20 +242,14 @@ export function useDashboard() {
       });
 
       // === Financeiro: contas a pagar / receber pendentes (canônico) ===
-      // BUGFIX: filtros antigos usavam tipo "receita"/"despesa", mas o schema
-      // canônico é "receber"/"pagar". Helpers aceitam ambos por segurança.
       const { data: lancamentos } = await supabase
         .from("financeiro_lancamentos")
         .select("id, tipo, valor, valor_pago, status, data_vencimento, data_pagamento, conciliado_em");
 
-      const contasPagarLancs = (lancamentos ?? []).filter(
-        (l) => isLancPagar(l) && !isLancRealizado(l) && !isLancCancelado(l),
-      );
-      const contasReceberLancs = (lancamentos ?? []).filter(
-        (l) => isLancReceber(l) && !isLancRealizado(l) && !isLancCancelado(l) && !l.conciliado_em,
-      );
-      const contasPagar = contasPagarLancs.reduce((s, l) => s + calcAbertoLanc(l), 0);
-      const contasReceber = contasReceberLancs.reduce((s, l) => s + calcAbertoLanc(l), 0);
+      const [contasPagarKpi, contasReceberKpi] = await Promise.all([
+        fetchDashboardFinanceiroKpi("pagar"),
+        fetchDashboardFinanceiroKpi("receber"),
+      ]);
 
       // === Fluxo de caixa do mês (somente pagamentos realizados) ===
       const fluxoMap = new Map<number, { entrada: number; saida: number }>();
@@ -334,10 +327,10 @@ export function useDashboard() {
         comprasMesAnterior,
         lucroMes,
         margem,
-        contasPagar,
-        qtdContasPagar: contasPagarLancs.length,
-        contasReceber,
-        qtdContasReceber: contasReceberLancs.length,
+        contasPagar: contasPagarKpi.total,
+        qtdContasPagar: contasPagarKpi.quantidade,
+        contasReceber: contasReceberKpi.total,
+        qtdContasReceber: contasReceberKpi.quantidade,
         estoqueBaixo,
         vendasPorMes,
         fluxoCaixa,
