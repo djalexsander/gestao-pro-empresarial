@@ -8,6 +8,18 @@ use chrono::Utc;
 use local_server::LocalServerStatus;
 use printers::PrinterInfo;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::{Emitter, Manager, State, WindowEvent};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+
+const CAIXA_ABERTO_EXIT_MESSAGE: &str =
+    "Existe um caixa aberto. Feche o caixa antes de encerrar o aplicativo.";
+
+#[derive(Default)]
+struct DesktopExitGuardState {
+    initialized: AtomicBool,
+    has_caixa_aberto: AtomicBool,
+}
 
 #[tauri::command]
 async fn start_local_server(
@@ -67,6 +79,20 @@ async fn local_server_status() -> LocalServerStatus {
         status.running, status.port, status.started_at
     );
     status
+}
+
+#[tauri::command]
+fn desktop_has_caixa_aberto() -> Result<bool, String> {
+    db::existe_caixa_local_aberto().map_err(|e| e.0)
+}
+
+#[tauri::command]
+fn desktop_set_caixa_exit_guard(
+    state: State<'_, DesktopExitGuardState>,
+    has_caixa_aberto: bool,
+) {
+    state.has_caixa_aberto.store(has_caixa_aberto, Ordering::SeqCst);
+    state.initialized.store(true, Ordering::SeqCst);
 }
 
 #[derive(Debug, Serialize)]
@@ -305,6 +331,7 @@ fn print_label_image(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(DesktopExitGuardState::default())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
@@ -315,6 +342,8 @@ pub fn run() {
             start_local_server,
             stop_local_server,
             local_server_status,
+            desktop_has_caixa_aberto,
+            desktop_set_caixa_exit_guard,
             backup_create,
             backup_status,
             backup_list,
@@ -359,6 +388,28 @@ pub fn run() {
                 }
             }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let state = window.state::<DesktopExitGuardState>();
+                let should_block = if state.initialized.load(Ordering::SeqCst) {
+                    state.has_caixa_aberto.load(Ordering::SeqCst)
+                } else {
+                    db::existe_caixa_local_aberto().unwrap_or(true)
+                };
+                if should_block {
+                    api.prevent_close();
+                    let _ = window.emit("gp://caixa-close-blocked", CAIXA_ABERTO_EXIT_MESSAGE);
+                    window
+                        .dialog()
+                        .message(CAIXA_ABERTO_EXIT_MESSAGE)
+                        .title("Caixa aberto")
+                        .kind(MessageDialogKind::Warning)
+                        .buttons(MessageDialogButtons::Ok)
+                        .parent(window)
+                        .show(|_| {});
+                }
+            }
         })
         .run(tauri::generate_context!())
         .expect("error while running Gestão Pro desktop app");

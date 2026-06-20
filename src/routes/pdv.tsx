@@ -94,6 +94,10 @@ import { useUserRole } from "@/hooks/useUserRole";
 import { useCaixaAberto, useCaixaResumo } from "@/hooks/useCaixa";
 import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
 import { MovimentoCaixaDialog } from "@/components/caixa/MovimentoCaixaDialog";
+import {
+  CAIXA_EXIT_BLOCK_MESSAGE,
+  useCaixaExitGuard,
+} from "@/components/caixa/CaixaExitGuardProvider";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatBRL } from "@/lib/mock-data";
@@ -162,6 +166,7 @@ function PDVPage() {
   const { user } = useAuth();
   const { operador, trocarOperador } = useOperador();
   const { terminal } = useTerminal();
+  const { blockAndOpenFechamento } = useCaixaExitGuard();
   const { data: produtos = [], isLoading: loadingProdutos } = useProdutos();
   const { data: clientes = [] } = useClientes();
   const { data: caixaAberto } = useCaixaAberto(operador?.id ?? null);
@@ -190,7 +195,7 @@ function PDVPage() {
     if (!caixaAberto) return;
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
-      e.returnValue = "";
+      e.returnValue = CAIXA_EXIT_BLOCK_MESSAGE;
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
@@ -198,9 +203,7 @@ function PDVPage() {
 
   function handleSair() {
     if (caixaAberto) {
-      exitAfterCloseRef.current = true;
-      setFecharCaixaOpen(true);
-      toast.info("É necessário fechar o caixa antes de sair.");
+      void blockAndOpenFechamento();
       return;
     }
     // sem caixa aberto (estado raro): apenas encerra operador e volta ao HUB
@@ -884,6 +887,10 @@ function PDVPage() {
 
   function clearVenda() {
     setItems([]);
+    setCliente(null);
+    setClientePopoverOpen(false);
+    setDocQuery("");
+    setDocBuscaSemResultado(false);
     setObservacao("");
     setLastAddedKey(null);
     // Renova o client_uuid: a próxima venda terá uma nova chave de idempotência.
@@ -894,7 +901,6 @@ function PDVPage() {
   function cancelVenda() {
     // Cancelar venda NUNCA sai do PDV — apenas limpa o que foi montado.
     clearVenda();
-    setCliente(null);
   }
 
   async function finalizarVenda() {
@@ -1701,7 +1707,7 @@ function PDVPage() {
             data: new Date(),
           });
           setSucessoOpen(true);
-          // Limpa o carrinho mas mantém cliente para próxima venda rápida
+          // Limpa a venda concluída para a próxima abrir como consumidor avulso.
           clearVenda();
         }}
       />

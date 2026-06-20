@@ -24,6 +24,7 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   caixaId: string;
   resumo: CaixaResumo | null;
+  onFechado?: () => void;
 }
 
 function Row({
@@ -53,7 +54,7 @@ function Row({
   );
 }
 
-export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props) {
+export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo, onFechado }: Props) {
   const [valorInformado, setValorInformado] = useState("");
   const [observacao, setObservacao] = useState("");
   const [resumoAtual, setResumoAtual] = useState<CaixaResumo | null>(null);
@@ -135,6 +136,7 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
       valor_informado: informadoNum,
       observacao: observacao.trim() || null,
     });
+    onFechado?.();
     onOpenChange(false);
   }
 

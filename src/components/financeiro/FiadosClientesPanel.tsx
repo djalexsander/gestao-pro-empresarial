@@ -283,8 +283,8 @@ export function FiadosClientesPanel({ receber, loading }: Props) {
         open={!!clienteAberto}
         onOpenChange={(o) => !o && setClienteAberto(null)}
       >
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[90vh] max-w-3xl flex-col overflow-hidden">
+          <DialogHeader className="shrink-0">
             <DialogTitle>{clienteAbertoLive?.nome ?? clienteAberto?.nome}</DialogTitle>
             <DialogDescription>
               {clienteAberto?.documento ? `CPF/CNPJ: ${clienteAberto.documento}` : null}
@@ -294,7 +294,7 @@ export function FiadosClientesPanel({ receber, loading }: Props) {
           </DialogHeader>
 
           {clienteAbertoLive && (
-            <div className="grid grid-cols-3 gap-3 rounded-md border bg-muted/30 p-3 text-sm">
+            <div className="shrink-0 grid grid-cols-3 gap-3 rounded-md border bg-muted/30 p-3 text-sm">
               <div>
                 <p className="text-xs text-muted-foreground">Total em aberto</p>
                 <p className="font-mono font-semibold tabular-nums text-warning">
@@ -314,7 +314,7 @@ export function FiadosClientesPanel({ receber, loading }: Props) {
             </div>
           )}
 
-          <div className="max-h-[55vh] overflow-auto rounded-md border">
+          <div className="min-h-0 flex-1 overflow-auto rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>

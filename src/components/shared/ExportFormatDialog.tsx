@@ -34,15 +34,15 @@ export function ExportFormatDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden sm:max-w-md">
+        <DialogHeader className="shrink-0">
           <DialogTitle>Exportar relatório</DialogTitle>
           <DialogDescription>
             Escolha o formato para exportar &quot;{titulo}&quot;.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-2 py-2">
+        <div className="grid min-h-0 flex-1 gap-2 overflow-y-auto px-1 py-2 pr-2">
           <Button
             variant="outline"
             className="h-auto justify-start gap-3 px-4 py-3"
@@ -89,7 +89,7 @@ export function ExportFormatDialog({
           </Button>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0 border-t border-border pt-4">
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={loading}>
             Cancelar
           </Button>

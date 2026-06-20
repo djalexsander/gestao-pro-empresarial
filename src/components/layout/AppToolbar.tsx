@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { useCaixaExitGuard } from "@/components/caixa/CaixaExitGuardProvider";
 import { NotificationsBell } from "./NotificationsBell";
 import { type ModuleKey } from "./navigation";
 import { useFilteredModules } from "./useFilteredModules";
@@ -53,6 +54,7 @@ export function AppToolbar({ activeModule, onMobileMenuClick }: AppToolbarProps)
 
 function UserMenu() {
   const { user, signOut } = useAuth();
+  const { guardedSignOut } = useCaixaExitGuard();
   const displayName =
     (user?.user_metadata?.nome as string | undefined) ||
     (user?.user_metadata?.full_name as string | undefined) ||
@@ -77,7 +79,12 @@ function UserMenu() {
           <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => signOut()} className="text-destructive">
+        <DropdownMenuItem
+          onSelect={() => {
+            void guardedSignOut(signOut);
+          }}
+          className="text-destructive"
+        >
           Sair
         </DropdownMenuItem>
       </DropdownMenuContent>

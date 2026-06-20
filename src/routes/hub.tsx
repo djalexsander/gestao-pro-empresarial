@@ -12,6 +12,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { useCaixaExitGuard } from "@/components/caixa/CaixaExitGuardProvider";
 import { AdminAuthDialog } from "@/components/auth/AdminAuthDialog";
 import { useMode } from "@/components/modes/ModeProvider";
 import type { ModoDisponivel } from "@/hooks/useSaasAdmin";
@@ -39,6 +40,7 @@ function iconePorChave(chave: string, fallback: string | null): LucideIcon {
 
 function HubPage() {
   const { user, loading, signOut } = useAuth();
+  const { guardedSignOut } = useCaixaExitGuard();
   const navigate = useNavigate();
   const { modos, isLoading: modosLoading, setModo } = useMode();
   const [adminAuthOpen, setAdminAuthOpen] = useState(false);
@@ -108,7 +110,9 @@ function HubPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => signOut()}
+            onClick={() => {
+              void guardedSignOut(signOut);
+            }}
             className="text-white/70 hover:bg-white/10 hover:text-white"
           >
             <LogOut className="mr-1 h-4 w-4" /> Sair

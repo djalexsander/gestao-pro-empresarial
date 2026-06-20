@@ -11,6 +11,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { UpdateBanner } from "@/components/shared/UpdateBanner";
 import { CartProvider } from "@/components/saas/CartContext";
 import { DesktopRoleProvider } from "@/components/desktop/DesktopRoleProvider";
+import { CaixaExitGuardProvider } from "@/components/caixa/CaixaExitGuardProvider";
 
 import appCss from "../styles.css?url";
 
@@ -98,9 +99,11 @@ function RootComponent() {
                 <TerminalProvider>
                   <DesktopRoleProvider>
                     <CartProvider>
-                      <AppLayout />
-                      <UpdateBanner />
-                      <Toaster richColors position="top-right" />
+                      <CaixaExitGuardProvider>
+                        <AppLayout />
+                        <UpdateBanner />
+                        <Toaster richColors position="top-right" />
+                      </CaixaExitGuardProvider>
                     </CartProvider>
                   </DesktopRoleProvider>
                 </TerminalProvider>

@@ -332,8 +332,8 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto overflow-x-hidden sm:max-w-3xl lg:max-w-4xl">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden sm:max-w-3xl lg:max-w-4xl">
+          <DialogHeader className="shrink-0">
             <DialogTitle className="flex items-center justify-between gap-3">
               <span className="truncate">{lancamento.descricao}</span>
               <StatusBadge status={info.label} tone={info.tone} />
@@ -343,7 +343,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-2">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden px-1 py-2 pr-2">
             {/* Resumo financeiro */}
             <div className="grid grid-cols-3 gap-3 rounded-md border bg-muted/30 p-3">
               <div>
@@ -570,13 +570,12 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
                 </div>
               </>
             )}
+            {!isPagar && !jaResolvido && (
+              <CobrancaActions lancamento={lancamento} saldoRestante={saldoRestante} />
+            )}
           </div>
 
-          {!isPagar && !jaResolvido && (
-            <CobrancaActions lancamento={lancamento} saldoRestante={saldoRestante} />
-          )}
-
-          <DialogFooter className="flex flex-col-reverse flex-wrap gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <DialogFooter className="shrink-0 border-t border-border pt-4 flex flex-col-reverse flex-wrap gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap gap-2 sm:flex-row">
               <Button
                 variant="outline"

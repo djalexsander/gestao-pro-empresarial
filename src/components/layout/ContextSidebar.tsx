@@ -4,6 +4,7 @@ import { type ModuleKey } from "./navigation";
 import { useFilteredModules } from "./useFilteredModules";
 import { ChevronRight, LogOut } from "lucide-react";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { useCaixaExitGuard } from "@/components/caixa/CaixaExitGuardProvider";
 import { APP_VERSION } from "@/lib/version";
 
 interface ContextSidebarProps {
@@ -27,6 +28,7 @@ export function ContextSidebar({ activeModule }: ContextSidebarProps) {
   const location = useLocation();
   const modules = useFilteredModules();
   const { signOut } = useAuth();
+  const { guardedSignOut } = useCaixaExitGuard();
   const mod = modules.find((m) => m.key === activeModule) ?? modules[0];
 
   // Parse current search params
@@ -119,7 +121,9 @@ export function ContextSidebar({ activeModule }: ContextSidebarProps) {
       {/* Rodapé fixo: Sair + versão do app */}
       <div className="shrink-0 border-t border-border/70 p-3">
         <button
-          onClick={() => signOut()}
+          onClick={() => {
+            void guardedSignOut(signOut);
+          }}
           className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
         >
           <LogOut className="h-[18px] w-[18px]" />

@@ -7002,6 +7002,24 @@ pub fn caixa_local_aberto(
     })
 }
 
+/// Trava operacional do desktop: existe qualquer caixa local aberto?
+///
+/// Usada no evento nativo de fechamento da janela. Nao filtra por owner,
+/// operador ou terminal porque o pedido de fechar a janela nao carrega
+/// contexto confiavel da sessao React; se ha caixa aberto no banco local,
+/// o processo nao deve encerrar.
+pub fn existe_caixa_local_aberto() -> DbResult<bool> {
+    with_conn(|conn| {
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM caixa_local
+              WHERE status='aberto' AND data_fechamento_ms IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok(count > 0)
+    })
+}
+
 #[derive(Debug, Serialize)]
 pub struct CaixaMovimentoLocalRow {
     pub local_uuid: String,

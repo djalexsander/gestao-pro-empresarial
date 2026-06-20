@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { useCaixaExitGuard } from "@/components/caixa/CaixaExitGuardProvider";
 import { NotificationsBell } from "./NotificationsBell";
 import { EmpresaSwitcher } from "./EmpresaSwitcher";
 import { TerminalVinculoDialog } from "@/components/auth/TerminalVinculoDialog";
@@ -143,6 +144,7 @@ function TerminalVinculoButton() {
 
 function UserMenu() {
   const { user, signOut } = useAuth();
+  const { guardedSignOut } = useCaixaExitGuard();
   const initials = (user?.user_metadata?.nome ?? user?.email ?? "?")
     .split(" ").map((s: string) => s[0]).join("").slice(0, 2).toUpperCase();
   return (
@@ -168,7 +170,14 @@ function UserMenu() {
           <Link to="/cobrancas">Cobranças e faturas</Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => signOut()} className="text-destructive">Sair</DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => {
+            void guardedSignOut(signOut);
+          }}
+          className="text-destructive"
+        >
+          Sair
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
