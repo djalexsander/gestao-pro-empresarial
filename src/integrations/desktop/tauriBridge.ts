@@ -241,12 +241,24 @@ export async function getLocalServerStatus(): Promise<LocalServerStatus> {
   }
 }
 
-export async function hasDesktopCaixaAberto(): Promise<boolean | null> {
+export interface DesktopCaixaContext {
+  ownerId?: string | null;
+  operadorId?: string | null;
+  terminalId?: string | null;
+}
+
+export async function hasDesktopCaixaAberto(
+  context: DesktopCaixaContext = {},
+): Promise<boolean | null> {
   const invoke = await getInvoke();
   if (!invoke) return null;
   try {
     return await withTimeout(
-      invoke<boolean>("desktop_has_caixa_aberto"),
+      invoke<boolean>("desktop_has_caixa_aberto", {
+        ownerId: context.ownerId ?? null,
+        operadorId: context.operadorId ?? null,
+        terminalId: context.terminalId ?? null,
+      }),
       2_000,
       "desktop_has_caixa_aberto",
     );

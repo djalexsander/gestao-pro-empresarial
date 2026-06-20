@@ -559,6 +559,7 @@ const caixa: DataAdapter["caixa"] = {
       if (filtro?.operador_id) q = q.eq("operador_id", filtro.operador_id);
       else q = q.is("operador_id", null);
     }
+    if (filtro?.terminal_id) q = q.eq("terminal_id", filtro.terminal_id);
     const { data, error } = await q
       .order("data_abertura", { ascending: false })
       .limit(1)

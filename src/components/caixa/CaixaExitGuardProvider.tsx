@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useOperador } from "@/components/auth/OperadorProvider";
+import { useTerminal } from "@/components/auth/TerminalProvider";
 import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
 import {
   useCaixaResumo,
@@ -31,6 +32,7 @@ const CaixaExitGuardContext = createContext<CaixaExitGuardContextValue | null>(n
 export function CaixaExitGuardProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const { operador } = useOperador();
+  const { terminal } = useTerminal();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [caixaParaFechar, setCaixaParaFechar] = useState<Caixa | null>(null);
@@ -38,24 +40,40 @@ export function CaixaExitGuardProvider({ children }: { children: ReactNode }) {
   const { data: resumoCaixa } = useCaixaResumo(caixaParaFechar?.id);
 
   const findCaixaAberto = useCallback(async (): Promise<Caixa | "desktop-known" | null> => {
-    const desktopOpen = await hasDesktopCaixaAberto();
-    if (!user && !desktopOpen) return null;
+    if (!user) {
+      setHasCaixaAbertoKnown(false);
+      void setDesktopCaixaExitGuard(false);
+      return null;
+    }
 
     const operadorId = operador?.id ?? null;
-    const [caixaOperador, qualquerCaixa] = await Promise.all([
-      user && operadorId
-        ? dataClient.caixa.aberto({ operador_id: operadorId }).catch(() => null)
+    const terminalId = terminal?.id ?? null;
+    const operadorIdSeguro = terminalId ? operadorId : null;
+    const [caixaOperador, caixaTerminal, desktopOpen] = await Promise.all([
+      operadorIdSeguro && terminalId
+        ? dataClient.caixa.aberto({ operador_id: operadorIdSeguro, terminal_id: terminalId }).catch((error) => {
+            console.warn("[CaixaExitGuard] falha ao consultar caixa do operador", error);
+            return null;
+          })
         : Promise.resolve(null),
-      user
-        ? dataClient.caixa.aberto({ qualquer: true }).catch(() => null)
+      terminalId
+        ? dataClient.caixa.aberto({ qualquer: true, terminal_id: terminalId }).catch((error) => {
+            console.warn("[CaixaExitGuard] falha ao consultar caixa do terminal", error);
+            return null;
+          })
         : Promise.resolve(null),
+      hasDesktopCaixaAberto({
+        ownerId: user.id,
+        operadorId: operadorIdSeguro,
+        terminalId,
+      }),
     ]);
 
-    const caixaAberto = caixaOperador ?? qualquerCaixa ?? (!user && desktopOpen ? "desktop-known" : null);
+    const caixaAberto = caixaOperador ?? caixaTerminal ?? (desktopOpen ? "desktop-known" : null);
     setHasCaixaAbertoKnown(!!caixaAberto);
     void setDesktopCaixaExitGuard(!!caixaAberto);
     return caixaAberto;
-  }, [operador?.id, user]);
+  }, [operador?.id, terminal?.id, user]);
 
   const blockAndOpenFechamento = useCallback(
     async (message = CAIXA_EXIT_BLOCK_MESSAGE) => {
@@ -105,27 +123,17 @@ export function CaixaExitGuardProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!user) {
-      let alive = true;
-      hasDesktopCaixaAberto()
-        .then((desktopOpen) => {
-          if (!alive) return;
-          const hasOpen = !!desktopOpen;
-          setHasCaixaAbertoKnown(hasOpen);
-          void setDesktopCaixaExitGuard(hasOpen);
-        })
-        .catch(() => {
-          if (!alive) return;
-          setHasCaixaAbertoKnown(false);
-          void setDesktopCaixaExitGuard(false);
-        });
-      return () => {
-        alive = false;
-      };
+      setHasCaixaAbertoKnown(false);
+      void setDesktopCaixaExitGuard(false);
+      return;
     }
     let alive = true;
     const refresh = () => {
       findCaixaAberto().catch(() => {
-        if (alive) setHasCaixaAbertoKnown(false);
+        if (!alive) return;
+        console.warn("[CaixaExitGuard] falha ao atualizar trava de caixa");
+        setHasCaixaAbertoKnown(false);
+        void setDesktopCaixaExitGuard(false);
       });
     };
     refresh();

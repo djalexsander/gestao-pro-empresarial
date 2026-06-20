@@ -3575,7 +3575,8 @@ async fn caixa_local_aberto_handler(
 ) -> Result<Json<Option<db::CaixaLocalRow>>, (StatusCode, String)> {
     let owner_id = require_owner_id(&ctx, &headers)?;
     let op = q.get("operador_id").map(|s| s.as_str());
-    let row = db::caixa_local_aberto(&owner_id, op)
+    let terminal_id = q.get("terminal_id").map(|s| s.as_str());
+    let row = db::caixa_local_aberto(&owner_id, op, terminal_id)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(row))
 }
@@ -3594,7 +3595,8 @@ async fn caixa_resumo_handler(
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     } else {
         let op = q.get("operador_id").map(|s| s.as_str());
-        db::caixa_local_aberto(&owner_id, op)
+        let terminal_id = q.get("terminal_id").map(|s| s.as_str());
+        db::caixa_local_aberto(&owner_id, op, terminal_id)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
             .map(|r| r.local_uuid)
     };
@@ -3619,7 +3621,8 @@ async fn caixa_lancamentos_handler(
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     } else {
         let op = q.get("operador_id").map(|s| s.as_str());
-        db::caixa_local_aberto(&owner_id, op)
+        let terminal_id = q.get("terminal_id").map(|s| s.as_str());
+        db::caixa_local_aberto(&owner_id, op, terminal_id)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
             .map(|r| r.local_uuid)
     };

@@ -82,8 +82,21 @@ async fn local_server_status() -> LocalServerStatus {
 }
 
 #[tauri::command]
-fn desktop_has_caixa_aberto() -> Result<bool, String> {
-    db::existe_caixa_local_aberto().map_err(|e| e.0)
+fn desktop_has_caixa_aberto(
+    owner_id: Option<String>,
+    operador_id: Option<String>,
+    terminal_id: Option<String>,
+) -> Result<bool, String> {
+    let Some(owner_id) = owner_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
+        eprintln!("[gestao-pro] desktop_has_caixa_aberto sem owner_id; liberando fechamento");
+        return Ok(false);
+    };
+    db::existe_caixa_local_aberto(
+        Some(owner_id),
+        operador_id.as_deref().map(str::trim).filter(|s| !s.is_empty()),
+        terminal_id.as_deref().map(str::trim).filter(|s| !s.is_empty()),
+    )
+    .map_err(|e| e.0)
 }
 
 #[tauri::command]
@@ -392,11 +405,8 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let state = window.state::<DesktopExitGuardState>();
-                let should_block = if state.initialized.load(Ordering::SeqCst) {
-                    state.has_caixa_aberto.load(Ordering::SeqCst)
-                } else {
-                    db::existe_caixa_local_aberto().unwrap_or(true)
-                };
+                let should_block = state.initialized.load(Ordering::SeqCst)
+                    && state.has_caixa_aberto.load(Ordering::SeqCst);
                 if should_block {
                     api.prevent_close();
                     let _ = window.emit("gp://caixa-close-blocked", CAIXA_ABERTO_EXIT_MESSAGE);
