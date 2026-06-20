@@ -89,7 +89,7 @@ export function ExportFormatDialog({
           </Button>
         </div>
 
-        <DialogFooter className="shrink-0 border-t border-border pt-4">
+        <DialogFooter className="z-10 shrink-0 border-t border-border bg-background pt-4">
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={loading}>
             Cancelar
           </Button>

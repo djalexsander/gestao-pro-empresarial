@@ -395,7 +395,7 @@ export function FiadosClientesPanel({ receber, loading }: Props) {
               </TableBody>
             </Table>
           </div>
-          <DialogFooter className="shrink-0 border-t border-border pt-4">
+          <DialogFooter className="z-10 shrink-0 border-t border-border bg-background pt-4">
             <Button variant="outline" onClick={() => setClienteAberto(null)}>
               Fechar
             </Button>

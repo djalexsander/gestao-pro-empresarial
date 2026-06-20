@@ -179,7 +179,7 @@ export function BlocoDetalheDialog({
           <DialogTitle>{titulo}</DialogTitle>
           {subtitulo && <DialogDescription>{subtitulo}</DialogDescription>}
         </DialogHeader>
-        <div className="flex min-h-0 flex-1 flex-col space-y-4 overflow-hidden bg-background p-1">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden bg-background p-1 pr-2">
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <Badge variant="outline" className="font-normal">
               Origem: {origem}
@@ -217,7 +217,8 @@ export function BlocoDetalheDialog({
             </div>
           )}
 
-          <ScrollArea className="min-h-0 flex-1 rounded-md border">
+          <div className="min-h-0 flex-1 rounded-md border">
+          <ScrollArea className="min-h-0">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -266,9 +267,10 @@ export function BlocoDetalheDialog({
               </TableBody>
             </Table>
           </ScrollArea>
+          </div>
         </div>
 
-        <DialogFooter className="shrink-0 border-t border-border pt-4 flex flex-row justify-between gap-2 sm:justify-between">
+        <DialogFooter className="z-10 shrink-0 border-t border-border bg-background pt-4 flex flex-row justify-between gap-2 sm:justify-between">
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
             Fechar
           </Button>

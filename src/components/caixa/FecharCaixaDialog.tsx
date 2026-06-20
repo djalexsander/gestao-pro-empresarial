@@ -18,6 +18,7 @@ import { formatBRL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { OutboxPendenciasAlert } from "@/components/shared/OutboxPendenciasAlert";
+import { useCaixaExitGuard } from "@/components/caixa/CaixaExitGuardProvider";
 
 interface Props {
   open: boolean;
@@ -60,6 +61,7 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo, onFecha
   const [resumoAtual, setResumoAtual] = useState<CaixaResumo | null>(null);
   const [resumoErro, setResumoErro] = useState<string | null>(null);
   const fechar = useFecharCaixa();
+  const { markCaixaFechado } = useCaixaExitGuard();
   const {
     refetch: refetchResumo,
   } = useCaixaResumo(open ? caixaId : null);
@@ -136,6 +138,7 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo, onFecha
       valor_informado: informadoNum,
       observacao: observacao.trim() || null,
     });
+    markCaixaFechado();
     onFechado?.();
     onOpenChange(false);
   }

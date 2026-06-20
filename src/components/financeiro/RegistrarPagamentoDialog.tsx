@@ -226,7 +226,7 @@ export function RegistrarPagamentoDialog({
         </div>
         </div>
 
-        <DialogFooter className="shrink-0 gap-2 border-t border-border pt-4">
+        <DialogFooter className="z-10 shrink-0 gap-2 border-t border-border bg-background pt-4">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}

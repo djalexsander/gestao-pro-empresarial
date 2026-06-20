@@ -575,7 +575,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
             )}
           </div>
 
-          <DialogFooter className="shrink-0 border-t border-border pt-4 flex flex-col-reverse flex-wrap gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <DialogFooter className="z-10 shrink-0 border-t border-border bg-background pt-4 flex flex-col-reverse flex-wrap gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap gap-2 sm:flex-row">
               <Button
                 variant="outline"

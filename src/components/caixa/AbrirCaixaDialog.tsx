@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Power, Loader2 } from "lucide-react";
 import { useAbrirCaixa } from "@/hooks/useCaixa";
 import { useTerminal } from "@/components/auth/TerminalProvider";
+import { useCaixaExitGuard } from "@/components/caixa/CaixaExitGuardProvider";
 
 interface Props {
   open: boolean;
@@ -30,6 +31,7 @@ export function AbrirCaixaDialog({ open, onOpenChange, onAberto, operadorId, ter
   const [observacao, setObservacao] = useState("");
   const abrir = useAbrirCaixa();
   const { terminal } = useTerminal();
+  const { markCaixaAberto } = useCaixaExitGuard();
   const terminalEfetivo = terminalId ?? terminal?.id ?? null;
 
   useEffect(() => {
@@ -49,6 +51,7 @@ export function AbrirCaixaDialog({ open, onOpenChange, onAberto, operadorId, ter
       operador_id: operadorId ?? null,
       terminal_id: terminalEfetivo,
     });
+    markCaixaAberto();
     onAberto?.(id);
     onOpenChange(false);
   }

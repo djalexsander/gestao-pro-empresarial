@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -25,6 +25,8 @@ interface CaixaExitGuardContextValue {
   ensureCanExit: () => Promise<boolean>;
   guardedSignOut: (signOut: () => Promise<void>) => Promise<void>;
   blockAndOpenFechamento: (message?: string) => Promise<void>;
+  markCaixaAberto: () => void;
+  markCaixaFechado: () => void;
 }
 
 const CaixaExitGuardContext = createContext<CaixaExitGuardContextValue | null>(null);
@@ -37,43 +39,75 @@ export function CaixaExitGuardProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [caixaParaFechar, setCaixaParaFechar] = useState<Caixa | null>(null);
   const [hasCaixaAbertoKnown, setHasCaixaAbertoKnown] = useState(false);
+  const hasCaixaAbertoKnownRef = useRef(false);
   const { data: resumoCaixa } = useCaixaResumo(caixaParaFechar?.id);
+
+  const setCaixaAbertoKnown = useCallback((value: boolean) => {
+    hasCaixaAbertoKnownRef.current = value;
+    setHasCaixaAbertoKnown(value);
+    void setDesktopCaixaExitGuard(value);
+  }, []);
+
+  const markCaixaAberto = useCallback(() => {
+    setCaixaAbertoKnown(true);
+  }, [setCaixaAbertoKnown]);
+
+  const markCaixaFechado = useCallback(() => {
+    setCaixaParaFechar(null);
+    setCaixaAbertoKnown(false);
+  }, [setCaixaAbertoKnown]);
 
   const findCaixaAberto = useCallback(async (): Promise<Caixa | "desktop-known" | null> => {
     if (!user) {
-      setHasCaixaAbertoKnown(false);
-      void setDesktopCaixaExitGuard(false);
+      setCaixaAbertoKnown(false);
       return null;
     }
 
     const operadorId = operador?.id ?? null;
     const terminalId = terminal?.id ?? null;
     const operadorIdSeguro = terminalId ? operadorId : null;
+    type CaixaLookupResult = Caixa | null | "error";
     const [caixaOperador, caixaTerminal, desktopOpen] = await Promise.all([
       operadorIdSeguro && terminalId
-        ? dataClient.caixa.aberto({ operador_id: operadorIdSeguro, terminal_id: terminalId }).catch((error) => {
+        ? dataClient.caixa.aberto({ operador_id: operadorIdSeguro, terminal_id: terminalId }).catch((error): CaixaLookupResult => {
             console.warn("[CaixaExitGuard] falha ao consultar caixa do operador", error);
-            return null;
+            return "error";
           })
         : Promise.resolve(null),
       terminalId
-        ? dataClient.caixa.aberto({ qualquer: true, terminal_id: terminalId }).catch((error) => {
+        ? dataClient.caixa.aberto({ qualquer: true, terminal_id: terminalId }).catch((error): CaixaLookupResult => {
             console.warn("[CaixaExitGuard] falha ao consultar caixa do terminal", error);
-            return null;
+            return "error";
           })
         : Promise.resolve(null),
-      hasDesktopCaixaAberto({
-        ownerId: user.id,
-        operadorId: operadorIdSeguro,
-        terminalId,
-      }),
+      terminalId || operadorIdSeguro
+        ? hasDesktopCaixaAberto({
+            ownerId: user.id,
+            operadorId: operadorIdSeguro,
+            terminalId,
+          })
+        : Promise.resolve(null),
     ]);
 
-    const caixaAberto = caixaOperador ?? caixaTerminal ?? (desktopOpen ? "desktop-known" : null);
-    setHasCaixaAbertoKnown(!!caixaAberto);
-    void setDesktopCaixaExitGuard(!!caixaAberto);
+    const lookupFailed = caixaOperador === "error" || caixaTerminal === "error";
+    const caixaOperadorOk = caixaOperador === "error" ? null : caixaOperador;
+    const caixaTerminalOk = caixaTerminal === "error" ? null : caixaTerminal;
+    const caixaAberto =
+      caixaOperadorOk ?? caixaTerminalOk ?? (desktopOpen ? "desktop-known" : null);
+
+    if (caixaAberto) {
+      setCaixaAbertoKnown(true);
+      return caixaAberto;
+    }
+
+    if (lookupFailed && hasCaixaAbertoKnownRef.current) {
+      void setDesktopCaixaExitGuard(true);
+      return "desktop-known";
+    }
+
+    setCaixaAbertoKnown(false);
     return caixaAberto;
-  }, [operador?.id, terminal?.id, user]);
+  }, [operador?.id, setCaixaAbertoKnown, terminal?.id, user]);
 
   const blockAndOpenFechamento = useCallback(
     async (message = CAIXA_EXIT_BLOCK_MESSAGE) => {
@@ -123,8 +157,7 @@ export function CaixaExitGuardProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!user) {
-      setHasCaixaAbertoKnown(false);
-      void setDesktopCaixaExitGuard(false);
+      setCaixaAbertoKnown(false);
       return;
     }
     let alive = true;
@@ -132,8 +165,9 @@ export function CaixaExitGuardProvider({ children }: { children: ReactNode }) {
       findCaixaAberto().catch(() => {
         if (!alive) return;
         console.warn("[CaixaExitGuard] falha ao atualizar trava de caixa");
-        setHasCaixaAbertoKnown(false);
-        void setDesktopCaixaExitGuard(false);
+        if (hasCaixaAbertoKnownRef.current) {
+          void setDesktopCaixaExitGuard(true);
+        }
       });
     };
     refresh();
@@ -144,7 +178,7 @@ export function CaixaExitGuardProvider({ children }: { children: ReactNode }) {
       window.clearInterval(interval);
       window.removeEventListener("focus", refresh);
     };
-  }, [findCaixaAberto, user]);
+  }, [findCaixaAberto, setCaixaAbertoKnown, user]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -168,7 +202,13 @@ export function CaixaExitGuardProvider({ children }: { children: ReactNode }) {
 
   return (
     <CaixaExitGuardContext.Provider
-      value={{ ensureCanExit, guardedSignOut, blockAndOpenFechamento }}
+      value={{
+        ensureCanExit,
+        guardedSignOut,
+        blockAndOpenFechamento,
+        markCaixaAberto,
+        markCaixaFechado,
+      }}
     >
       {children}
       {caixaParaFechar && (
@@ -186,8 +226,7 @@ export function CaixaExitGuardProvider({ children }: { children: ReactNode }) {
           caixaId={caixaParaFechar.id}
           resumo={resumoCaixa ?? null}
           onFechado={() => {
-            setHasCaixaAbertoKnown(false);
-            void setDesktopCaixaExitGuard(false);
+            markCaixaFechado();
           }}
         />
       )}

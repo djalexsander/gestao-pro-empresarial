@@ -460,7 +460,7 @@ export function LancamentoFormDialog(props: Props) {
           </div>
         </div>
 
-        <DialogFooter className="shrink-0 gap-2 border-t border-border pt-4">
+        <DialogFooter className="z-10 shrink-0 gap-2 border-t border-border bg-background pt-4">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={salvar.isPending}>
             Cancelar <kbd className="ml-2 rounded bg-muted px-1.5 text-[10px]">Esc</kbd>
           </Button>
