@@ -83,6 +83,13 @@ import { ExportFormatDialog } from "@/components/shared/ExportFormatDialog";
 import { exportarRelatorioCard, type ExportFormato } from "@/lib/export-relatorio-card";
 import { toast } from "sonner";
 import { dateTimeFromMs } from "@/lib/date-ms";
+import {
+  calcAbertoLanc,
+  isLancCancelado,
+  isLancPagar,
+  isLancRealizado,
+  isLancReceber,
+} from "@/lib/financeiro-canonico";
 
 type FinTab = "receber" | "pagar" | "fluxo" | "fiados";
 
@@ -113,6 +120,14 @@ function statusLabel(l: Lancamento): string {
     return "Vencido";
   }
   return "Pendente";
+}
+
+function normalizeLancTipo(tipo: string | null): "receber" | "pagar" {
+  return tipo === "despesa" || tipo === "pagar" ? "pagar" : "receber";
+}
+
+function isLancAberto(l: Lancamento): boolean {
+  return !isLancCancelado(l) && !isLancRealizado(l) && calcAbertoLanc(l) > 0;
 }
 
 function formatDate(d: string | null): string {
@@ -231,7 +246,7 @@ function FinanceContent() {
         data_vencimento: string;
         data_pagamento: string | null;
         data_emissao: string | null;
-        tipo: "receber" | "pagar";
+        tipo: "receber" | "pagar" | "receita" | "despesa";
         status: Lancamento["status"];
         observacoes: string | null;
         numero_documento: string | null;
@@ -272,7 +287,7 @@ function FinanceContent() {
         data_vencimento: r.data_vencimento,
         data_pagamento: r.data_pagamento,
         data_emissao: r.data_emissao,
-        tipo: r.tipo,
+        tipo: normalizeLancTipo(r.tipo),
         status: r.status,
         observacoes: r.observacoes,
         numero_documento: r.numero_documento,
@@ -300,18 +315,30 @@ function FinanceContent() {
     },
   });
 
-  const receber = lancamentos.filter(
-    (l) => l.tipo === "receber" && l.status !== "recebido" && l.status !== "cancelado",
-  );
-  const pagar = lancamentos.filter(
-    (l) => l.tipo === "pagar" && l.status !== "pago" && l.status !== "cancelado",
-  );
+  const receber = lancamentos.filter((l) => isLancReceber(l) && isLancAberto(l));
+  const pagar = lancamentos.filter((l) => isLancPagar(l) && isLancAberto(l));
 
-  const totalRecComputed = receber.reduce((s, l) => s + Number(l.valor) - Number(l.valor_pago ?? 0), 0);
-  const totalPayComputed = pagar.reduce((s, l) => s + Number(l.valor) - Number(l.valor_pago ?? 0), 0);
+  const totalRecComputed = receber.reduce((s, l) => s + calcAbertoLanc(l), 0);
+  const totalPayComputed = pagar.reduce((s, l) => s + calcAbertoLanc(l), 0);
   const totalRec = posicao?.totalReceber ?? totalRecComputed;
   const totalPay = posicao?.totalPagar ?? totalPayComputed;
   const saldo = posicao?.saldo ?? totalRec - totalPay;
+  const receberListagem = posicao
+    ? receber.filter(
+        (l) =>
+          !!l.data_vencimento &&
+          l.data_vencimento >= posicao.periodo.inicio &&
+          l.data_vencimento <= posicao.periodo.fim,
+      )
+    : receber;
+  const pagarListagem = posicao
+    ? pagar.filter(
+        (l) =>
+          !!l.data_vencimento &&
+          l.data_vencimento >= posicao.periodo.inicio &&
+          l.data_vencimento <= posicao.periodo.fim,
+      )
+    : pagar;
 
   const consolidado = useMemo(
     () => buildConsolidado({ totalRec, totalPay, saldo, receber, pagar, ind }),
@@ -443,7 +470,7 @@ function FinanceContent() {
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <StatCard
-            label="Total a receber"
+            label="Total a receber em aberto"
             value={formatBRL(posicao?.totalReceber ?? 0)}
             icon={ArrowDownToLine}
             iconTone="success"
@@ -451,7 +478,7 @@ function FinanceContent() {
             onClick={() => setBlocoAberto("receber")}
           />
           <StatCard
-            label="Total a pagar"
+            label="Total a pagar em aberto"
             value={formatBRL(posicao?.totalPagar ?? 0)}
             icon={ArrowUpFromLine}
             iconTone="warning"
@@ -661,18 +688,18 @@ function FinanceContent() {
 
       {activeTab === "receber" && (
         <LancamentosTable
-          items={receber}
+          items={receberListagem}
           loading={isLoading}
-          emptyMsg="Nenhuma conta a receber."
+          emptyMsg="Nenhuma conta a receber em aberto."
           onSelect={setSelected}
         />
       )}
 
       {activeTab === "pagar" && (
         <LancamentosTable
-          items={pagar}
+          items={pagarListagem}
           loading={isLoading}
-          emptyMsg="Nenhuma conta a pagar."
+          emptyMsg="Nenhuma conta a pagar em aberto."
           onSelect={setSelected}
         />
       )}
@@ -751,18 +778,14 @@ function BlocoModais({
 
   const receberFiltered = receber.filter(
     (l) =>
-      l.tipo === "receber" &&
-      l.status !== "recebido" &&
-      l.status !== "cancelado" &&
-      Number(l.valor) - Number(l.valor_pago ?? 0) > 0 &&
+      isLancReceber(l) &&
+      isLancAberto(l) &&
       inPeriodo(l),
   );
   const pagarFiltered = pagar.filter(
     (l) =>
-      l.tipo === "pagar" &&
-      l.status !== "pago" &&
-      l.status !== "cancelado" &&
-      Number(l.valor) - Number(l.valor_pago ?? 0) > 0 &&
+      isLancPagar(l) &&
+      isLancAberto(l) &&
       inPeriodo(l),
   );
 
@@ -778,7 +801,7 @@ function BlocoModais({
       id: l.id,
       descricao: l.descricao,
       vencimento: l.data_vencimento,
-      valor: Number(l.valor) - Number(l.valor_pago ?? 0),
+      valor: calcAbertoLanc(l),
       status: statusLabel(l),
     }));
 
@@ -961,7 +984,7 @@ function BlocoModais({
           descricao: l.descricao,
           cliente: l.cliente_nome ?? "—",
           vencimento: l.data_vencimento,
-          valor: Number(l.valor) - Number(l.valor_pago ?? 0),
+          valor: calcAbertoLanc(l),
         }))}
       />
     );
@@ -988,7 +1011,7 @@ function BlocoModais({
           id: l.id,
           descricao: l.descricao,
           vencimento: l.data_vencimento,
-          valor: Number(l.valor) - Number(l.valor_pago ?? 0),
+          valor: calcAbertoLanc(l),
         }))}
       />
     );
@@ -1045,7 +1068,7 @@ function BlocoModais({
           descricao: l.descricao,
           tipo: l.tipo === "receber" ? "A receber" : "A pagar",
           vencimento: l.data_vencimento,
-          valor: Number(l.valor) - Number(l.valor_pago ?? 0),
+          valor: calcAbertoLanc(l),
         }))}
       />
     );
@@ -1103,7 +1126,7 @@ function LancamentosTable({
                     {formatDate(i.data_vencimento)}
                   </TableCell>
                   <TableCell className="text-right font-medium">
-                    {formatBRL(Number(i.valor))}
+                    {formatBRL(calcAbertoLanc(i))}
                   </TableCell>
                   <TableCell>
                     <StatusBadge status={statusLabel(i)} />
@@ -1697,7 +1720,7 @@ function FluxoCaixaPanel() {
         <Card>
           <CardContent className="p-4">
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold">Recebido por forma de pagamento</h3>
+              <h3 className="text-sm font-semibold">Vendas por forma de pagamento</h3>
               <span className="text-[11px] text-muted-foreground">
                 Vendas finalizadas no período
               </span>
@@ -1709,8 +1732,13 @@ function FluxoCaixaPanel() {
                     {FORMA_LABELS[p.forma] ?? p.forma}
                   </p>
                   <p className="font-mono text-base font-semibold tabular-nums">
-                    {formatBRL(p.recebido)}
+                    {formatBRL(p.recebido + p.aReceber)}
                   </p>
+                  {p.recebido > 0.005 && (
+                    <p className="mt-0.5 text-[11px] text-success">
+                      Recebido: {formatBRL(p.recebido)}
+                    </p>
+                  )}
                   {p.aReceber > 0.005 && (
                     <p className="mt-0.5 text-[11px] text-warning">
                       A receber: {formatBRL(p.aReceber)}

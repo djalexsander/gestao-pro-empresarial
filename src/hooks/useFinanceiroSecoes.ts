@@ -2,6 +2,14 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { computePeriodo, type PeriodoRange } from "@/lib/dateRange";
 import type { SecaoFiltroValue, FormaFiltro } from "@/components/financeiro/SecaoFiltro";
+import {
+  calcAbertoLanc,
+  calcValorRealizado,
+  isLancCancelado,
+  isLancPagar,
+  isLancRealizado,
+  isLancReceber,
+} from "@/lib/financeiro-canonico";
 // Local desktop finance helpers are intentionally not used for cloud-only reports.
 
 function toRange(v: SecaoFiltroValue): PeriodoRange {
@@ -27,10 +35,9 @@ export function usePosicaoFinanceira(filtro: SecaoFiltroValue) {
     queryFn: async (): Promise<PosicaoFinanceiraData> => {
       const { data, error } = await supabase
         .from("financeiro_lancamentos")
-        .select("id, tipo, valor, valor_pago, status, data_vencimento")
+        .select("id, tipo, valor, valor_pago, status, data_vencimento, conciliado_em")
         .gte("data_vencimento", periodo.inicio)
         .lte("data_vencimento", periodo.fim)
-        .neq("status", "cancelado")
         .limit(5000);
       if (error) throw error;
 
@@ -43,14 +50,16 @@ export function usePosicaoFinanceira(filtro: SecaoFiltroValue) {
         valor: number;
         valor_pago: number | null;
         status: string;
+        conciliado_em: string | null;
       }>) {
-        if (l.status === "pago" || l.status === "recebido") continue;
-        const aberto = (Number(l.valor) || 0) - (Number(l.valor_pago) || 0);
+        if (isLancCancelado(l) || isLancRealizado(l)) continue;
+        const aberto = calcAbertoLanc(l);
         if (aberto <= 0) continue;
-        if (l.tipo === "receber") {
+        if (isLancReceber(l)) {
+          if (l.conciliado_em) continue;
           totalReceber += aberto;
           qtdReceber += 1;
-        } else if (l.tipo === "pagar") {
+        } else if (isLancPagar(l)) {
           totalPagar += aberto;
           qtdPagar += 1;
         }
@@ -176,9 +185,8 @@ export function useReceberOrigem(filtro: SecaoFiltroValue) {
     queryFn: async (): Promise<ReceberOrigemData> => {
       const { data: abertos } = await supabase
         .from("financeiro_lancamentos")
-        .select("valor, valor_pago, forma_pagamento, conciliado_em, status")
-        .eq("tipo", "receber")
-        .in("status", ["pendente"])
+        .select("valor, valor_pago, forma_pagamento, conciliado_em, status, tipo")
+        .in("tipo", ["receber", "receita"])
         .limit(5000);
 
       let fiadoEmAberto = 0;
@@ -190,10 +198,13 @@ export function useReceberOrigem(filtro: SecaoFiltroValue) {
         valor_pago: number | null;
         forma_pagamento: string | null;
         conciliado_em: string | null;
+        status: string;
+        tipo: string;
       }>) {
+        if (isLancCancelado(l) || isLancRealizado(l)) continue;
         if (l.conciliado_em) continue;
         if (!matchForma(forma, l.forma_pagamento)) continue;
-        const aberto = (Number(l.valor) || 0) - (Number(l.valor_pago) || 0);
+        const aberto = calcAbertoLanc(l);
         if (aberto <= 0) continue;
         if (l.forma_pagamento === "fiado") {
           fiadoEmAberto += aberto;
@@ -207,8 +218,8 @@ export function useReceberOrigem(filtro: SecaoFiltroValue) {
       // Recebido no período
       const { data: pagos } = await supabase
         .from("financeiro_lancamentos")
-        .select("valor, valor_pago, forma_pagamento")
-        .eq("tipo", "receber")
+        .select("valor, valor_pago, forma_pagamento, tipo, status")
+        .in("tipo", ["receber", "receita"])
         .in("status", ["pago", "recebido"])
         .gte("data_pagamento", periodo.inicio)
         .lte("data_pagamento", periodo.fim)
@@ -220,9 +231,11 @@ export function useReceberOrigem(filtro: SecaoFiltroValue) {
         valor: number;
         valor_pago: number | null;
         forma_pagamento: string | null;
+        tipo: string;
+        status: string;
       }>) {
         if (!matchForma(forma, l.forma_pagamento)) continue;
-        recebidoPeriodo += Number(l.valor_pago ?? l.valor) || 0;
+        recebidoPeriodo += calcValorRealizado(l);
         qtdRecebimentos += 1;
       }
 
@@ -230,9 +243,9 @@ export function useReceberOrigem(filtro: SecaoFiltroValue) {
       const hoje = new Date().toISOString().slice(0, 10);
       const { data: vencidos } = await supabase
         .from("financeiro_lancamentos")
-        .select("valor, valor_pago, forma_pagamento")
-        .eq("tipo", "receber")
-        .in("status", ["pendente"])
+        .select("valor, valor_pago, forma_pagamento, tipo, status")
+        .in("tipo", ["receber", "receita"])
+        .in("status", ["pendente", "parcial", "vencido"])
         .gte("data_vencimento", periodo.inicio)
         .lte("data_vencimento", periodo.fim < hoje ? periodo.fim : hoje)
         .lt("data_vencimento", hoje)
@@ -244,9 +257,11 @@ export function useReceberOrigem(filtro: SecaoFiltroValue) {
         valor: number;
         valor_pago: number | null;
         forma_pagamento: string | null;
+        tipo: string;
+        status: string;
       }>) {
         if (!matchForma(forma, l.forma_pagamento)) continue;
-        const aberto = (Number(l.valor) || 0) - (Number(l.valor_pago) || 0);
+        const aberto = calcAbertoLanc(l);
         if (aberto > 0) {
           vencidosTotal += aberto;
           qtdVencidos += 1;
