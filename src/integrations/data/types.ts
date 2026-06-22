@@ -1276,6 +1276,7 @@ export interface CaixaDomain {
   owner_id: string;
   usuario_id: string;
   operador_id: string | null;
+  terminal_id: string | null;
   data_abertura: string;
   data_fechamento: string | null;
   valor_inicial: number;

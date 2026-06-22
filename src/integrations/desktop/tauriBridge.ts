@@ -268,12 +268,31 @@ export async function hasDesktopCaixaAberto(
   }
 }
 
-export async function setDesktopCaixaExitGuard(hasCaixaAberto: boolean): Promise<void> {
+export interface DesktopCaixaExitGuardSnapshot extends DesktopCaixaContext {
+  hasCaixaAberto: boolean;
+  caixaId?: string | null;
+  source?: string | null;
+}
+
+export async function setDesktopCaixaExitGuard(
+  snapshot: boolean | DesktopCaixaExitGuardSnapshot,
+): Promise<void> {
   const invoke = await getInvoke();
   if (!invoke) return;
+  const payload =
+    typeof snapshot === "boolean"
+      ? { hasCaixaAberto: snapshot }
+      : {
+          hasCaixaAberto: snapshot.hasCaixaAberto,
+          caixaId: snapshot.caixaId ?? null,
+          ownerId: snapshot.ownerId ?? null,
+          operadorId: snapshot.operadorId ?? null,
+          terminalId: snapshot.terminalId ?? null,
+          source: snapshot.source ?? null,
+        };
   try {
     await invoke<void>("desktop_set_caixa_exit_guard", {
-      hasCaixaAberto,
+      ...payload,
     });
   } catch (error) {
     console.warn("[tauriBridge] desktop_set_caixa_exit_guard falhou", error);

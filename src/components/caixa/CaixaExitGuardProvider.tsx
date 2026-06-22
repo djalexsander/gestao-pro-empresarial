@@ -42,71 +42,71 @@ export function CaixaExitGuardProvider({ children }: { children: ReactNode }) {
   const hasCaixaAbertoKnownRef = useRef(false);
   const { data: resumoCaixa } = useCaixaResumo(caixaParaFechar?.id);
 
-  const setCaixaAbertoKnown = useCallback((value: boolean) => {
+  const setCaixaAbertoKnown = useCallback((value: boolean, caixa?: Caixa | null, source = "unknown") => {
     hasCaixaAbertoKnownRef.current = value;
     setHasCaixaAbertoKnown(value);
-    void setDesktopCaixaExitGuard(value);
-  }, []);
+    void setDesktopCaixaExitGuard({
+      hasCaixaAberto: value,
+      caixaId: caixa?.id ?? null,
+      ownerId: caixa?.owner_id ?? user?.id ?? null,
+      operadorId: caixa?.operador_id ?? operador?.id ?? null,
+      terminalId: caixa?.terminal_id ?? terminal?.id ?? null,
+      source,
+    });
+  }, [operador?.id, terminal?.id, user?.id]);
 
   const markCaixaAberto = useCallback(() => {
-    setCaixaAbertoKnown(true);
+    setCaixaAbertoKnown(true, null, "markCaixaAberto");
   }, [setCaixaAbertoKnown]);
 
   const markCaixaFechado = useCallback(() => {
     setCaixaParaFechar(null);
-    setCaixaAbertoKnown(false);
+    setCaixaAbertoKnown(false, null, "markCaixaFechado");
   }, [setCaixaAbertoKnown]);
 
-  const findCaixaAberto = useCallback(async (): Promise<Caixa | "desktop-known" | null> => {
+  const findCaixaAberto = useCallback(async (): Promise<Caixa | null> => {
     if (!user) {
-      setCaixaAbertoKnown(false);
+      setCaixaAbertoKnown(false, null, "sem-usuario");
+      console.info("[CaixaExitGuard] liberado: sem usuario autenticado");
       return null;
     }
 
     const operadorId = operador?.id ?? null;
     const terminalId = terminal?.id ?? null;
-    const operadorIdSeguro = terminalId ? operadorId : null;
-    type CaixaLookupResult = Caixa | null | "error";
-    const [caixaOperador, caixaTerminal, desktopOpen] = await Promise.all([
-      operadorIdSeguro && terminalId
-        ? dataClient.caixa.aberto({ operador_id: operadorIdSeguro, terminal_id: terminalId }).catch((error): CaixaLookupResult => {
-            console.warn("[CaixaExitGuard] falha ao consultar caixa do operador", error);
-            return "error";
-          })
-        : Promise.resolve(null),
-      terminalId
-        ? dataClient.caixa.aberto({ qualquer: true, terminal_id: terminalId }).catch((error): CaixaLookupResult => {
-            console.warn("[CaixaExitGuard] falha ao consultar caixa do terminal", error);
-            return "error";
-          })
-        : Promise.resolve(null),
-      terminalId || operadorIdSeguro
-        ? hasDesktopCaixaAberto({
-            ownerId: user.id,
-            operadorId: operadorIdSeguro,
-            terminalId,
-          })
-        : Promise.resolve(null),
+    const [caixaAberto, desktopOpen] = await Promise.all([
+      dataClient.caixa.aberto({ qualquer: true }).catch((error): null => {
+        console.warn("[CaixaExitGuard] falha ao consultar fonte canonica da tela Caixa", error);
+        return null;
+      }) as Promise<Caixa | null>,
+      hasDesktopCaixaAberto({
+        ownerId: user.id,
+        operadorId,
+        terminalId,
+      }),
     ]);
 
-    const lookupFailed = caixaOperador === "error" || caixaTerminal === "error";
-    const caixaOperadorOk = caixaOperador === "error" ? null : caixaOperador;
-    const caixaTerminalOk = caixaTerminal === "error" ? null : caixaTerminal;
-    const caixaAberto =
-      caixaOperadorOk ?? caixaTerminalOk ?? (desktopOpen ? "desktop-known" : null);
-
     if (caixaAberto) {
-      setCaixaAbertoKnown(true);
+      console.info("[CaixaExitGuard] bloqueio: fonte canonica encontrou caixa aberto", {
+        id: caixaAberto.id,
+        owner_id: caixaAberto.owner_id ?? user.id,
+        operador_id: caixaAberto.operador_id ?? null,
+        terminal_id: caixaAberto.terminal_id ?? null,
+        status: caixaAberto.status,
+        desktop_backend_aberto: desktopOpen,
+      });
+      setCaixaAbertoKnown(true, caixaAberto, "dataClient.caixa.aberto({qualquer:true})");
       return caixaAberto;
     }
 
-    if (lookupFailed && hasCaixaAbertoKnownRef.current) {
-      void setDesktopCaixaExitGuard(true);
-      return "desktop-known";
-    }
-
-    setCaixaAbertoKnown(false);
-    return caixaAberto;
+    console.info("[CaixaExitGuard] liberado: tela Caixa/fonte canonica nao encontrou caixa aberto", {
+      owner_id: user.id,
+      operador_id: operadorId,
+      terminal_id: terminalId,
+      desktop_backend_aberto: desktopOpen,
+      estado_anterior_react: hasCaixaAbertoKnownRef.current,
+    });
+    setCaixaAbertoKnown(false, null, "dataClient.caixa.aberto({qualquer:true})");
+    return null;
   }, [operador?.id, setCaixaAbertoKnown, terminal?.id, user]);
 
   const blockAndOpenFechamento = useCallback(
@@ -114,7 +114,7 @@ export function CaixaExitGuardProvider({ children }: { children: ReactNode }) {
       toast.error(message);
       const caixaAberto = await findCaixaAberto();
 
-      if (caixaAberto && caixaAberto !== "desktop-known") {
+      if (caixaAberto) {
         setCaixaParaFechar(caixaAberto);
         if (operador?.id && caixaAberto.operador_id === operador.id) {
           navigate({ to: "/pdv" });
@@ -132,9 +132,16 @@ export function CaixaExitGuardProvider({ children }: { children: ReactNode }) {
   const ensureCanExit = useCallback(async () => {
     const caixaAberto = await findCaixaAberto();
     if (!caixaAberto) return true;
+    console.warn("[CaixaExitGuard] ensureCanExit bloqueado", {
+      motivo: CAIXA_EXIT_BLOCK_MESSAGE,
+      id: caixaAberto.id,
+      owner_id: caixaAberto.owner_id ?? user?.id ?? null,
+      operador_id: caixaAberto.operador_id ?? null,
+      terminal_id: caixaAberto.terminal_id ?? null,
+    });
     await blockAndOpenFechamento();
     return false;
-  }, [blockAndOpenFechamento, findCaixaAberto]);
+  }, [blockAndOpenFechamento, findCaixaAberto, user?.id]);
 
   const guardedSignOut = useCallback(
     async (signOut: () => Promise<void>) => {
@@ -157,7 +164,7 @@ export function CaixaExitGuardProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!user) {
-      setCaixaAbertoKnown(false);
+      setCaixaAbertoKnown(false, null, "effect-sem-usuario");
       return;
     }
     let alive = true;
@@ -165,9 +172,7 @@ export function CaixaExitGuardProvider({ children }: { children: ReactNode }) {
       findCaixaAberto().catch(() => {
         if (!alive) return;
         console.warn("[CaixaExitGuard] falha ao atualizar trava de caixa");
-        if (hasCaixaAbertoKnownRef.current) {
-          void setDesktopCaixaExitGuard(true);
-        }
+        setCaixaAbertoKnown(false, null, "refresh-error");
       });
     };
     refresh();
