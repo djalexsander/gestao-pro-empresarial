@@ -28,6 +28,7 @@ import {
 } from "@/lib/export-relatorio-card";
 import type { CsvColumn } from "@/lib/export-csv";
 import { fetchDashboardFinanceiroKpi } from "@/lib/dashboard-financeiro-kpis";
+import { fetchDashboardLucroBruto } from "@/lib/dashboard-lucro-bruto";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/components/auth/AuthProvider";
 
@@ -176,71 +177,39 @@ export function KpiDetailDialog({
       }
 
       if (tipo === "lucro") {
-        const [vendasRes, comprasRes] = await Promise.all([
-          supabase
-            .from("vendas")
-            .select("total, data_emissao")
-            .gte("data_emissao", inicioISO)
-            .lte("data_emissao", fimISO)
-            .neq("status", "cancelada"),
-          supabase
-            .from("compras")
-            .select("total, data_emissao")
-            .gte("data_emissao", inicioISO)
-            .lte("data_emissao", fimISO),
-        ]);
-        const totalVendas = (vendasRes.data ?? []).reduce(
-          (s, v) => s + Number(v.total ?? 0),
-          0,
+        const lucroBruto = await fetchDashboardLucroBruto(
+          `${inicioISO}T00:00:00`,
+          `${fimISO}T23:59:59.999`,
         );
-        const totalCompras = (comprasRes.data ?? []).reduce(
-          (s, c) => s + Number(c.total ?? 0),
-          0,
-        );
-        const lucro = totalVendas - totalCompras;
-        const margem = totalVendas > 0 ? (lucro / totalVendas) * 100 : 0;
         // Linha por mês (até 6 meses do período)
-        const porMes = new Map<string, { vendas: number; compras: number }>();
-        for (const v of vendasRes.data ?? []) {
-          const d = new Date(v.data_emissao);
-          const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-          const ref = porMes.get(k) ?? { vendas: 0, compras: 0 };
-          ref.vendas += Number(v.total ?? 0);
-          porMes.set(k, ref);
-        }
-        for (const c of comprasRes.data ?? []) {
-          const d = new Date(c.data_emissao);
-          const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-          const ref = porMes.get(k) ?? { vendas: 0, compras: 0 };
-          ref.compras += Number(c.total ?? 0);
-          porMes.set(k, ref);
-        }
-        const rows: DetalheRow[] = Array.from(porMes.entries())
-          .sort(([a], [b]) => (a < b ? 1 : -1))
-          .map(([k, val]) => {
-            const lucroMes = val.vendas - val.compras;
-            return {
-              identificador: k,
-              data: `${k}-01`,
-              descricao: `Vendas ${formatBRL(val.vendas)} · Compras ${formatBRL(val.compras)}`,
-              valor: lucroMes,
-              status: lucroMes >= 0 ? "lucro" : "prejuizo",
-            };
-          });
+        const rows: DetalheRow[] = lucroBruto.porMes.map((mes) => ({
+          identificador: mes.chave,
+          data: `${mes.chave}-01`,
+          descricao: `Receita ${formatBRL(mes.receita)} - CMV ${formatBRL(mes.custo)}${
+            mes.qtdItensSemCusto > 0 ? ` - ${mes.qtdItensSemCusto} itens sem custo` : ""
+          }`,
+          valor: mes.lucro,
+          status: mes.lucro >= 0 ? "lucro" : "prejuizo",
+        }));
         return {
           rows,
           resumo: [
-            { label: "Receita total", valor: formatBRL(totalVendas), tone: "success" },
-            { label: "Custo total", valor: formatBRL(totalCompras), tone: "info" },
+            { label: "Receita total", valor: formatBRL(lucroBruto.receita), tone: "success" },
+            { label: "Custo dos vendidos", valor: formatBRL(lucroBruto.custo), tone: "info" },
             {
               label: "Lucro do período",
-              valor: formatBRL(lucro),
-              tone: lucro >= 0 ? "success" : "danger",
+              valor: formatBRL(lucroBruto.lucro),
+              tone: lucroBruto.lucro >= 0 ? "success" : "danger",
             },
             {
               label: "Margem",
-              valor: `${margem.toFixed(1)}%`,
-              tone: lucro >= 0 ? "success" : "danger",
+              valor: `${lucroBruto.margem.toFixed(1)}%`,
+              tone: lucroBruto.lucro >= 0 ? "success" : "danger",
+            },
+            {
+              label: "Itens sem custo",
+              valor: `${lucroBruto.qtdItensSemCusto}/${lucroBruto.qtdItens}`,
+              tone: lucroBruto.qtdItensSemCusto > 0 ? "warning" : "muted",
             },
           ],
         };

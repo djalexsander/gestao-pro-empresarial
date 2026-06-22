@@ -3,13 +3,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { getDesktopConfig } from "@/integrations/desktop/configStore";
 import {
-  calcLucroBruto,
-  calcMargemPct,
   isLancPagar,
   isLancReceber,
   isLancRealizado,
 } from "@/lib/financeiro-canonico";
 import { fetchDashboardFinanceiroKpi } from "@/lib/dashboard-financeiro-kpis";
+import { fetchDashboardLucroBruto } from "@/lib/dashboard-lucro-bruto";
 
 export type DashboardData = {
   indisponivel?: boolean;
@@ -123,6 +122,7 @@ export function useDashboard() {
       const inicioMes = inicioDoMes(hoje);
       const inicioMesAnt = inicioDoMesAnterior(hoje);
       const inicio6Meses = new Date(hoje.getFullYear(), hoje.getMonth() - 5, 1);
+      const fimHoje = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate(), 23, 59, 59, 999);
 
       // === Vendas dos últimos 6 meses (finalizadas) ===
       // Canônico: usar data_finalizacao (mesma base do Financeiro/Relatórios).
@@ -187,35 +187,13 @@ export function useDashboard() {
       // === Custo das mercadorias vendidas no mês (CMV) ===
       // Hoje usa produtos.preco_custo; quando venda_itens passar a persistir
       // custo no momento da venda, esse valor deve ter preferência.
-      const vendasIdsMes = (vendas ?? [])
-        .filter((v) => dataVenda(v) >= inicioMes)
-        .map((v) => v.id);
-
-      let custoMes = 0;
-      if (vendasIdsMes.length > 0) {
-        const { data: itens } = await supabase
-          .from("venda_itens")
-          .select("quantidade, produto_id")
-          .in("venda_id", vendasIdsMes);
-
-        const prodIds = [...new Set((itens ?? []).map((i) => i.produto_id).filter(Boolean) as string[])];
-        const custoMap = new Map<string, number>();
-        if (prodIds.length > 0) {
-          const { data: prods } = await supabase
-            .from("produtos")
-            .select("id, preco_custo")
-            .in("id", prodIds);
-          for (const p of prods ?? []) custoMap.set(p.id, Number(p.preco_custo ?? 0));
-        }
-        custoMes = (itens ?? []).reduce(
-          (s, i) => s + Number(i.quantidade ?? 0) * (custoMap.get(i.produto_id) ?? 0),
-          0,
-        );
-      }
-
       // Canônico: lucro bruto e margem
-      const lucroMes = calcLucroBruto(vendasMes, custoMes);
-      const margem = calcMargemPct(vendasMes, lucroMes);
+      const lucroBrutoMes = await fetchDashboardLucroBruto(
+        inicioMes.toISOString(),
+        fimHoje.toISOString(),
+      );
+      const lucroMes = lucroBrutoMes.lucro;
+      const margem = lucroBrutoMes.margem;
 
       // === Séries por mês ===
       const seriesMap = new Map<string, { vendas: number; compras: number }>();
