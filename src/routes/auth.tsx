@@ -48,6 +48,8 @@ export const Route = createFileRoute("/auth")({
 const REMEMBER_LOGIN_KEY = "auth_remember_email";
 const INTERNET_REQUIRED_MESSAGE =
   "Sem conexão com a internet. Este recurso exige conexão.";
+const WEAK_PASSWORD_MESSAGE =
+  "Senha muito fraca ou comum. Utilize uma senha com letras maiúsculas, minúsculas, números e caracteres especiais.";
 
 const features = [
   { icon: LayoutDashboard, title: "Gestão completa", desc: "Vendas, compras, estoque e financeiro em um só lugar." },
@@ -71,6 +73,22 @@ function isNetworkAuthError(error: unknown): boolean {
     message.includes("Load failed") ||
     message.includes("fetch failed")
   );
+}
+
+function getAuthErrorMessage(error: unknown): string {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" && error && "message" in error
+        ? String((error as { message?: unknown }).message)
+        : String(error ?? "");
+
+  if (isNetworkAuthError(error)) return INTERNET_REQUIRED_MESSAGE;
+  if (message.includes("Password is known to be weak and easy to guess")) {
+    return WEAK_PASSWORD_MESSAGE;
+  }
+
+  return message || "Não foi possível concluir a autenticação.";
 }
 
 function AuthPage() {
@@ -316,7 +334,7 @@ function SignUpForm({ redirect }: { redirect: string }) {
         options: { data: { nome } },
       });
       if (error) {
-        toast.error(isNetworkAuthError(error) ? INTERNET_REQUIRED_MESSAGE : error.message);
+        toast.error(getAuthErrorMessage(error));
         return;
       }
       if (data.user) {
