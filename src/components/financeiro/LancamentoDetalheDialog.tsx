@@ -36,6 +36,7 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { supabase } from "@/integrations/supabase/client";
 import { dataClient } from "@/integrations/data";
 import { formatBRL } from "@/lib/mock-data";
+import { formatDateBR, formatDateTimeBR } from "@/lib/date-format";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { ConciliarIfoodDialog } from "./ConciliarIfoodDialog";
 import { RegistrarPagamentoDialog } from "./RegistrarPagamentoDialog";
@@ -88,14 +89,6 @@ interface PagamentoHist {
   forma_pagamento: string | null;
   observacao: string | null;
   created_at: string;
-}
-
-function formatDate(d: string | null | undefined): string {
-  if (!d) return "—";
-  const onlyDate = d.length === 10 ? d : d.slice(0, 10);
-  const [y, m, day] = onlyDate.split("-");
-  if (!y || !m || !day) return d;
-  return `${day}/${m}/${y}`;
 }
 
 function statusInfo(l: LancamentoDetalhe): {
@@ -378,13 +371,13 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
             {/* Datas e status */}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field icon={Calendar} label="Vencimento">
-                {formatDate(lancamento.data_vencimento)}
+                {formatDateBR(lancamento.data_vencimento)}
               </Field>
               <Field icon={Calendar} label="Emissão">
-                {formatDate(lancamento.data_emissao ?? null)}
+                {formatDateBR(lancamento.data_emissao ?? null)}
               </Field>
               <Field icon={CheckCircle2} label="Último pagamento">
-                {formatDate(lancamento.data_pagamento)}
+                {formatDateBR(lancamento.data_pagamento)}
               </Field>
               {lancamento.forma_pagamento && (
                 <Field icon={Wallet} label="Forma original">
@@ -403,7 +396,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
               )}
               {lancamento.created_at && (
                 <Field icon={Clock} label="Criado em">
-                  {formatDate(lancamento.created_at)}
+                  {formatDateTimeBR(lancamento.created_at)}
                 </Field>
               )}
             </div>
@@ -453,7 +446,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
                       {lancamento.venda_numero ?? "—"}
                     </Field>
                     <Field icon={Calendar} label="Data">
-                      {formatDate(lancamento.venda_data ?? null)}
+                      {formatDateBR(lancamento.venda_data ?? null)}
                     </Field>
                     <Field icon={Wallet} label="Total">
                       {formatBRL(Number(lancamento.venda_total ?? 0))}
@@ -480,7 +473,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
                       >
                         <div className="min-w-0 flex-1">
                           <p className="font-medium">
-                            {formatDate(p.data_pagamento)}
+                            {formatDateBR(p.data_pagamento)}
                             {p.forma_pagamento && (
                               <span className="ml-2 text-xs text-muted-foreground">
                                 {p.forma_pagamento}
@@ -527,9 +520,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
                     <div>
                       <p className="text-muted-foreground">Conciliado em</p>
                       <p className="font-medium">
-                        {lancamento.conciliado_em
-                          ? new Date(lancamento.conciliado_em).toLocaleString("pt-BR")
-                          : "—"}
+                        {formatDateTimeBR(lancamento.conciliado_em)}
                       </p>
                     </div>
                     <div>
@@ -759,11 +750,7 @@ function CobrancaActions({ lancamento, saldoRestante }: CobrancaActionsProps) {
     v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const buildVenc = () => {
-    const d = lancamento.data_vencimento.length === 10
-      ? lancamento.data_vencimento
-      : lancamento.data_vencimento.slice(0, 10);
-    const [y, m, day] = d.split("-");
-    return `${day}/${m}/${y}`;
+    return formatDateBR(lancamento.data_vencimento);
   };
 
   const gerarPix = () => {

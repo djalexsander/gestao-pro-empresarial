@@ -21,6 +21,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatBRL } from "@/lib/mock-data";
+import { formatDateBR } from "@/lib/date-format";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { LancamentoDetalheDialog, type LancamentoDetalhe } from "./LancamentoDetalheDialog";
 import { RegistrarPagamentoDialog } from "./RegistrarPagamentoDialog";
@@ -51,12 +52,6 @@ function statusLabel(l: Lanc): "Pago" | "Parcial" | "Vencido" | "Pendente" | "Ca
     return "Vencido";
   }
   return "Pendente";
-}
-
-function formatDateBR(d: string | null | undefined): string {
-  if (!d) return "—";
-  const [y, m, day] = d.split("-");
-  return `${day}/${m}/${y}`;
 }
 
 function onlyDigits(s: string): string {

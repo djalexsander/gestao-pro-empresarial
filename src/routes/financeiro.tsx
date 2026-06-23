@@ -54,6 +54,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatBRL } from "@/lib/mock-data";
+import { formatDateBR, formatDateTimeBR } from "@/lib/date-format";
 import { ModuloGate } from "@/components/saas/ModuloGate";
 import { RequirePermission } from "@/components/auth/RequirePermission";
 import { supabase } from "@/integrations/supabase/client";
@@ -131,9 +132,7 @@ function isLancAberto(l: Lancamento): boolean {
 }
 
 function formatDate(d: string | null): string {
-  if (!d) return "—";
-  const [y, m, day] = d.split("-");
-  return `${day}/${m}/${y}`;
+  return formatDateBR(d);
 }
 
 function FinancePage() {
@@ -1204,14 +1203,7 @@ function calcRangeFluxo(p: FluxoPeriodo): { inicio: string; fim: string } {
 }
 
 function formatDateTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mi = String(d.getMinutes()).padStart(2, "0");
-  return `${dd}/${mm}/${yyyy} ${hh}:${mi}`;
+  return formatDateTimeBR(iso);
 }
 
 const TIPO_LABEL: Record<FluxoTipo, string> = {
