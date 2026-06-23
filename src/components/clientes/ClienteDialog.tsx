@@ -194,10 +194,11 @@ export function ClienteDialog({
     const changedCliente = Boolean(cliente && loadedClienteIdRef.current !== cliente.id);
 
     if (openedNow || changedCliente) {
+      const initialDocumento = openedNow ? defaultDocumento : null;
       setDocConflict(null);
       setCheckingDoc(false);
       setActiveTab("dados");
-      setForm(cliente ? clienteToForm(cliente) : newClienteForm(defaultDocumento));
+      setForm(cliente ? clienteToForm(cliente) : newClienteForm(initialDocumento));
       loadedClienteIdRef.current = cliente?.id ?? null;
     }
 

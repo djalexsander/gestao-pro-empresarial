@@ -241,6 +241,14 @@ function PDVPage() {
   const [finalizarOpen, setFinalizarOpen] = useState(false);
   const [sucessoOpen, setSucessoOpen] = useState(false);
   const [quickView, setQuickView] = useState<PdvQuickViewKey | null>(null);
+  const [pesoDialog, setPesoDialog] = useState<{
+    produto_id: string;
+    sku: string;
+    nome: string;
+    unidade: string;
+    preco_venda: number;
+    casas_decimais: number;
+  } | null>(null);
   const { isCaixa, isAdminLike } = useUserRole();
   const podeAcessarRapido = isCaixa || isAdminLike;
   const [vendaConcluida, setVendaConcluida] = useState<null | {
@@ -404,6 +412,7 @@ function PDVPage() {
   // recupere foco quando NENHUM fluxo prioritário estiver ativo.
   const hasPriorityOverlay =
     scannerOpen ||
+    novoClienteOpen ||
     clientePopoverOpen ||
     searchPopoverOpen ||
     confirmClear !== null ||
@@ -411,6 +420,9 @@ function PDVPage() {
     sucessoOpen ||
     multDialogOpen ||
     consultaPrecoOpen ||
+    pesoDialog !== null ||
+    fecharCaixaOpen ||
+    movCaixaDialog !== null ||
     quickView !== null;
 
   hasPriorityOverlayRef.current = hasPriorityOverlay;
@@ -577,15 +589,6 @@ function PDVPage() {
 
   // ============ Balança / peso ============
   const { data: balancaCfg } = useBalancaConfig();
-  const [pesoDialog, setPesoDialog] = useState<{
-    produto_id: string;
-    sku: string;
-    nome: string;
-    unidade: string;
-    preco_venda: number;
-    casas_decimais: number;
-  } | null>(null);
-
   // ============ Buscar por código ============
   async function handleScanCode(value: string) {
     const v = value.trim();
@@ -866,9 +869,16 @@ function PDVPage() {
         !finalizarOpen &&
         !sucessoOpen &&
         !scannerOpen &&
+        !novoClienteOpen &&
+        !clientePopoverOpen &&
+        !searchPopoverOpen &&
+        !confirmClear &&
         !quickView &&
         !consultaPrecoOpen &&
-        !multDialogOpen,
+        !multDialogOpen &&
+        !pesoDialog &&
+        !fecharCaixaOpen &&
+        movCaixaDialog === null,
       scope: "page",
     },
   );
