@@ -145,6 +145,8 @@ export interface VendaDetalhe {
   data_finalizacao: string | null;
   subtotal: number;
   desconto: number;
+  frete: number;
+  outros: number;
   total: number;
   valor_recebido: number | null;
   troco: number | null;
@@ -168,9 +170,13 @@ export interface VendaDetalhe {
     quantidade: number;
     preco_unitario: number;
     desconto: number;
+    acrescimo: number;
     total: number;
+    unidade: string | null;
     produto_nome: string | null;
     sku: string | null;
+    variacao_nome: string | null;
+    observacoes: string[];
   }>;
   pagamentos: Array<{
     id: string;
@@ -192,7 +198,7 @@ export function useVendaDetalhe(vendaId: string | null) {
       const { data: v, error } = await supabase
         .from("vendas")
         .select(
-          "id, numero, data_emissao, data_finalizacao, subtotal, desconto, total, valor_recebido, troco, status, status_pagamento, forma_pagamento, observacoes, cliente:clientes(nome)",
+          "id, numero, data_emissao, data_finalizacao, subtotal, desconto, frete, outros, total, valor_recebido, troco, status, status_pagamento, forma_pagamento, observacoes, cliente:clientes(nome)",
         )
         .eq("id", vendaId)
         .single();
@@ -201,9 +207,10 @@ export function useVendaDetalhe(vendaId: string | null) {
       const { data: itens, error: e2 } = await supabase
         .from("venda_itens")
         .select(
-          "id, produto_id, descricao, quantidade, preco_unitario, desconto, total, produto:produtos(nome, sku)",
+          "id, produto_id, descricao, quantidade, preco_unitario, desconto, total, codigo_lido, vendido_por_peso, peso_extraido, preco_por_kg, tipo_interpretacao, produto:produtos(nome, sku, unidade), variacao:produto_variacoes(nome, sku)",
         )
-        .eq("venda_id", vendaId);
+        .eq("venda_id", vendaId)
+        .order("created_at", { ascending: true });
       if (e2) throw e2;
 
       const { data: pagamentos, error: e3 } = await supabase
@@ -237,6 +244,8 @@ export function useVendaDetalhe(vendaId: string | null) {
         data_finalizacao: vAny.data_finalizacao,
         subtotal: Number(vAny.subtotal) || 0,
         desconto: Number(vAny.desconto) || 0,
+        frete: Number(vAny.frete) || 0,
+        outros: Number(vAny.outros) || 0,
         total,
         valor_recebido: vAny.valor_recebido,
         troco: vAny.troco,
@@ -254,9 +263,29 @@ export function useVendaDetalhe(vendaId: string | null) {
           quantidade: Number(i.quantidade) || 0,
           preco_unitario: Number(i.preco_unitario) || 0,
           desconto: Number(i.desconto) || 0,
+          acrescimo: 0,
           total: Number(i.total) || 0,
+          unidade: i.produto?.unidade ?? null,
           produto_nome: i.produto?.nome ?? null,
           sku: i.produto?.sku ?? null,
+          variacao_nome: i.variacao?.nome ?? null,
+          observacoes: [
+            i.variacao?.nome ? `Variacao: ${i.variacao.nome}` : null,
+            i.variacao?.sku ? `SKU variacao: ${i.variacao.sku}` : null,
+            i.vendido_por_peso && i.peso_extraido != null
+              ? `Peso: ${Number(i.peso_extraido).toLocaleString("pt-BR", {
+                  maximumFractionDigits: 3,
+                })} kg`
+              : null,
+            i.preco_por_kg != null
+              ? `Preco/kg: ${Number(i.preco_por_kg).toLocaleString("pt-BR", {
+                  style: "currency",
+                  currency: "BRL",
+                })}`
+              : null,
+            i.codigo_lido ? `Codigo lido: ${i.codigo_lido}` : null,
+            i.tipo_interpretacao ? `Interpretacao: ${i.tipo_interpretacao}` : null,
+          ].filter(Boolean) as string[],
         })),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         pagamentos: (pagamentos ?? []).map((p: any) => ({

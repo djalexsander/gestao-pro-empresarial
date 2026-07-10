@@ -6,6 +6,7 @@
   "identifier": "com.alexproapps.gestaopro",
   "build": {
     "beforeDevCommand": "npm run dev:desktop",
+    "beforeBuildCommand": "npm run build:desktop",
     "devUrl": "http://localhost:8080",
     "frontendDist": "tauri-dist"
   },

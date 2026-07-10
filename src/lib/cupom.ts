@@ -33,20 +33,30 @@ export interface CupomItem {
 }
 
 export interface CupomData {
+  titulo?: string;
   numero: string | null;
   data: Date;
+  dataVenda?: string | null;
+  dataEmissao?: string | null;
+  vencimento?: string | null;
+  impressoEm?: Date;
   operador?: string | null;
-  cliente?: { nome: string; documento?: string | null } | null;
+  cliente?: { nome: string; documento?: string | null; telefone?: string | null } | null;
   itens: CupomItem[];
   subtotal: number;
   desconto: number;
+  outros?: number;
+  frete?: number;
   total: number;
   totalItens: number;
   forma: FormaPagamento;
   status: StatusPagamento;
   valorRecebido?: number | null;
+  valorPago?: number;
+  saldoRestante?: number;
   troco: number;
   observacao?: string | null;
+  mensagemRodape?: string | null;
 }
 
 function escapeHtml(s: string): string {
@@ -82,9 +92,10 @@ function fmtDate(d: Date): string {
 export function gerarCupomHtml(
   empresa: ConfigEmpresa | null,
   cupom: CupomData,
-  options: { autoPrint?: boolean } = {},
+  options: { autoPrint?: boolean; widthMm?: 58 | 80 } = {},
 ): string {
   const autoPrint = options.autoPrint ?? false;
+  const widthMm = options.widthMm ?? 80;
   const itensHtml = cupom.itens
     .map((it, i) => {
       const linhaTopo = `${String(i + 1).padStart(3, "0")} ${escapeHtml(it.descricao)}`;
@@ -162,7 +173,7 @@ export function gerarCupomHtml(
     font-size: 12px;
     line-height: 1.35;
     padding: 6mm 4mm;
-    width: 80mm;
+    width: ${widthMm}mm;
   }
   .center { text-align: center; }
   .bold { font-weight: 700; }
@@ -179,7 +190,7 @@ export function gerarCupomHtml(
     justify-content: space-between;
     gap: 6px;
   }
-  .block { margin: 4px 0; }
+  .block { margin: 4px 0; white-space: pre-wrap; }
   .header { margin-bottom: 4px; }
   .item { margin: 2px 0 4px 0; }
   .item-top { word-break: break-word; }
@@ -203,8 +214,8 @@ export function gerarCupomHtml(
     color: #444;
   }
   @media print {
-    @page { size: 80mm auto; margin: 0; }
-    body { padding: 4mm; width: 80mm; }
+    @page { size: ${widthMm}mm auto; margin: 0; }
+    body { padding: 4mm; width: ${widthMm}mm; }
   }
 </style>
 </head>
@@ -212,8 +223,8 @@ export function gerarCupomHtml(
   ${empresaHtml}
   <hr class="sep" />
 
-  <div class="center bold">CUPOM NAO FISCAL</div>
-  <div class="center muted small">SEM VALOR FISCAL</div>
+  <div class="center bold">${escapeHtml(cupom.titulo ?? "CUPOM NAO FISCAL")}</div>
+  ${cupom.titulo ? "" : '<div class="center muted small">SEM VALOR FISCAL</div>'}
   <hr class="sep" />
 
   <div class="row"><span>Cupom:</span><span class="bold">${escapeHtml(cupom.numero ?? "—")}</span></div>
@@ -248,7 +259,8 @@ export function gerarCupomHtml(
 
   <hr class="sep" />
   <div class="footer">
-    Obrigado pela preferencia!<br/>
+    ${cupom.impressoEm ? `Impresso em ${fmtDate(cupom.impressoEm)}<br/>` : ""}
+    ${cupom.mensagemRodape ? escapeHtml(cupom.mensagemRodape) : "Obrigado pela preferencia!<br/>Volte sempre."}
     Volte sempre.
   </div>
 

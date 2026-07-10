@@ -47,7 +47,7 @@ export function imprimirCupomIframe(
   cupom: CupomData,
 ): boolean {
   try {
-    const html = gerarCupomHtml(empresa, cupom, { autoPrint: false });
+    const html = gerarCupomHtml(empresa, cupom, { autoPrint: false, widthMm: getReceiptWidthMm() });
     const iframe = document.createElement("iframe");
     iframe.style.position = "fixed";
     iframe.style.right = "0";
@@ -252,8 +252,8 @@ function gerarCupomTextoPlano(
     linhas.push(center("CUPOM DE VENDA"));
   }
   linhas.push(sep());
-  linhas.push(center("CUPOM NAO FISCAL"));
-  linhas.push(center("SEM VALOR FISCAL"));
+  linhas.push(center(cupom.titulo ?? "CUPOM NAO FISCAL"));
+  if (!cupom.titulo) linhas.push(center("SEM VALOR FISCAL"));
   linhas.push(sep());
 
   linhas.push(row("Cupom:", cupom.numero ?? "—"));
@@ -293,11 +293,15 @@ function gerarCupomTextoPlano(
   }
   if (cupom.observacao) {
     linhas.push(sep());
-    linhas.push(`Obs.: ${cupom.observacao}`.slice(0, cols));
+    linhas.push(`Obs.: ${cupom.observacao}`);
   }
   linhas.push(sep());
-  linhas.push(center("Obrigado pela preferencia!"));
-  linhas.push(center("Volte sempre."));
+  if (cupom.impressoEm) linhas.push(center(`Impresso em ${fmtDate(cupom.impressoEm)}`));
+  if (cupom.mensagemRodape) linhas.push(cupom.mensagemRodape);
+  else {
+    linhas.push(center("Obrigado pela preferencia!"));
+    linhas.push(center("Volte sempre."));
+  }
 
   return linhas.join("\n");
 }
@@ -394,8 +398,8 @@ function gerarPdfCupom(
   y += 1;
   sep();
 
-  writeCenter("CUPOM NAO FISCAL", 9, true);
-  writeCenter("SEM VALOR FISCAL", 7);
+  writeCenter(cupom.titulo ?? "CUPOM NAO FISCAL", 9, true);
+  if (!cupom.titulo) writeCenter("SEM VALOR FISCAL", 7);
   sep();
 
   writeRow("Cupom:", cupom.numero ?? "—", 8, true);
@@ -450,8 +454,12 @@ function gerarPdfCupom(
     writeLine(`Obs.: ${cupom.observacao}`, 7);
   }
   sep();
-  writeCenter("Obrigado pela preferencia!", 8);
-  writeCenter("Volte sempre.", 8);
+  if (cupom.impressoEm) writeCenter(`Impresso em ${fmtDate(cupom.impressoEm)}`, 7);
+  if (cupom.mensagemRodape) writeCenter(cupom.mensagemRodape, 7);
+  else {
+    writeCenter("Obrigado pela preferencia!", 8);
+    writeCenter("Volte sempre.", 8);
+  }
 
   return doc;
 }
