@@ -1,8 +1,15 @@
 import { createRouter, useRouter } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { routeTree } from "./routeTree.gen";
+import { reportAppError } from "./components/shared/AppErrorBoundary";
 
 function DefaultErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   const router = useRouter();
+
+  useEffect(() => {
+    const componentStack = (error as Error & { componentStack?: string }).componentStack;
+    reportAppError(error, componentStack, "TanStack Router ErrorBoundary");
+  }, [error]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
