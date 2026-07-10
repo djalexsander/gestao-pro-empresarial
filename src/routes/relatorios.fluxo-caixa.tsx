@@ -423,7 +423,7 @@ function Conteudo() {
       { key: "credito", label: "Crédito", valor: formasPagamento.credito },
       { key: "boleto", label: "Boleto", valor: formasPagamento.boleto },
       { key: "ifood", label: "iFood", valor: formasPagamento.ifood },
-      { key: "fiado", label: "Fiado", valor: formasPagamento.fiado },
+      { key: "fiado", label: "Fiado (a receber)", valor: formasPagamento.fiado },
       { key: "outros", label: "Outros", valor: formasPagamento.outros },
     ];
     if (forma !== "todas") return items.filter((i) => i.key === forma);
@@ -739,6 +739,11 @@ function Conteudo() {
                   <p className="mt-1 text-lg font-semibold tabular-nums">
                     {formatBRL(f.valor)}
                   </p>
+                  {f.key === "fiado" && (
+                    <p className="mt-1 text-[11px] text-warning">
+                      Nao entra como recebido efetivo
+                    </p>
+                  )}
                 </div>
               ))}
             </div>

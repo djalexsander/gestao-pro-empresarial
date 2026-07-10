@@ -140,14 +140,15 @@ export function RegistrarPagamentoDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden sm:max-w-md">
+        <DialogHeader className="shrink-0">
           <DialogTitle>
             Registrar {tipo === "pagar" ? "pagamento" : "recebimento"}
           </DialogTitle>
           <DialogDescription className="truncate">{descricao}</DialogDescription>
         </DialogHeader>
 
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-1 py-1 pr-2">
         <div className="grid grid-cols-2 gap-3 rounded-md border bg-muted/30 p-3 text-sm">
           <div>
             <p className="text-xs text-muted-foreground">Valor do título</p>
@@ -223,8 +224,9 @@ export function RegistrarPagamentoDialog({
             </p>
           )}
         </div>
+        </div>
 
-        <DialogFooter className="gap-2">
+        <DialogFooter className="z-10 shrink-0 gap-2 border-t border-border bg-background pt-4">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}

@@ -42,6 +42,7 @@ const STATUS_OFF: LocalServerStatus = {
 };
 
 type TauriInvoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
+type TauriUnlisten = () => void;
 
 let cachedInvoke: TauriInvoke | null = null;
 let lastLocalServerStatus: LocalServerStatus | null = null;
@@ -237,6 +238,89 @@ export async function getLocalServerStatus(): Promise<LocalServerStatus> {
   } catch (error) {
     console.warn("[tauriBridge] local_server_status falhou; preservando ultimo status conhecido", error);
     return lastLocalServerStatus ?? STATUS_OFF;
+  }
+}
+
+export interface DesktopCaixaContext {
+  ownerId?: string | null;
+  operadorId?: string | null;
+  terminalId?: string | null;
+}
+
+export async function hasDesktopCaixaAberto(
+  context: DesktopCaixaContext = {},
+): Promise<boolean | null> {
+  const invoke = await getInvoke();
+  if (!invoke) return null;
+  try {
+    return await withTimeout(
+      invoke<boolean>("desktop_has_caixa_aberto", {
+        ownerId: context.ownerId ?? null,
+        operadorId: context.operadorId ?? null,
+        terminalId: context.terminalId ?? null,
+      }),
+      2_000,
+      "desktop_has_caixa_aberto",
+    );
+  } catch (error) {
+    console.warn("[tauriBridge] desktop_has_caixa_aberto falhou", error);
+    return null;
+  }
+}
+
+export interface DesktopCaixaExitGuardSnapshot extends DesktopCaixaContext {
+  hasCaixaAberto: boolean;
+  caixaId?: string | null;
+  source?: string | null;
+}
+
+export async function setDesktopCaixaExitGuard(
+  snapshot: boolean | DesktopCaixaExitGuardSnapshot,
+): Promise<void> {
+  const invoke = await getInvoke();
+  if (!invoke) return;
+  const payload =
+    typeof snapshot === "boolean"
+      ? { hasCaixaAberto: snapshot }
+      : {
+          hasCaixaAberto: snapshot.hasCaixaAberto,
+          caixaId: snapshot.caixaId ?? null,
+          ownerId: snapshot.ownerId ?? null,
+          operadorId: snapshot.operadorId ?? null,
+          terminalId: snapshot.terminalId ?? null,
+          source: snapshot.source ?? null,
+        };
+  try {
+    await invoke<void>("desktop_set_caixa_exit_guard", {
+      ...payload,
+    });
+  } catch (error) {
+    console.warn("[tauriBridge] desktop_set_caixa_exit_guard falhou", error);
+  }
+}
+
+export async function listenDesktopCaixaCloseBlocked(
+  callback: (message: string) => void,
+): Promise<TauriUnlisten | null> {
+  if (!isDesktop()) return null;
+  try {
+    const mod = (await import(/* @vite-ignore */ "@tauri-apps/api/event")) as {
+      listen?: (
+        event: string,
+        handler: (event: { payload?: unknown }) => void,
+      ) => Promise<TauriUnlisten>;
+    };
+    if (typeof mod.listen !== "function") return null;
+    return await mod.listen("gp://caixa-close-blocked", (event) => {
+      callback(
+        typeof event.payload === "string"
+          ? event.payload
+          : "Existe um caixa aberto. Feche o caixa antes de encerrar o aplicativo.",
+      );
+    });
+  } catch (error) {
+    console.warn("[tauriBridge] listenDesktopCaixaCloseBlocked falhou", error);
+    return null;
   }
 }
 

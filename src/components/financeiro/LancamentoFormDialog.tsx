@@ -263,8 +263,8 @@ export function LancamentoFormDialog(props: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden sm:max-w-xl">
+        <DialogHeader className="shrink-0">
           <DialogTitle>
             {isEdit
               ? "Editar lançamento"
@@ -279,7 +279,7 @@ export function LancamentoFormDialog(props: Props) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 py-1">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-1 py-1 pr-2">
           {/* Tipo */}
           <div className="space-y-1.5">
             <Label>Tipo</Label>
@@ -460,7 +460,7 @@ export function LancamentoFormDialog(props: Props) {
           </div>
         </div>
 
-        <DialogFooter className="gap-2">
+        <DialogFooter className="z-10 shrink-0 gap-2 border-t border-border bg-background pt-4">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={salvar.isPending}>
             Cancelar <kbd className="ml-2 rounded bg-muted px-1.5 text-[10px]">Esc</kbd>
           </Button>

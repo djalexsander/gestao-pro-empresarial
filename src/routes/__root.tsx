@@ -11,6 +11,8 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { UpdateBanner } from "@/components/shared/UpdateBanner";
 import { CartProvider } from "@/components/saas/CartContext";
 import { DesktopRoleProvider } from "@/components/desktop/DesktopRoleProvider";
+import { CaixaExitGuardProvider } from "@/components/caixa/CaixaExitGuardProvider";
+import { AppErrorBoundary } from "@/components/shared/AppErrorBoundary";
 
 import appCss from "../styles.css?url";
 
@@ -42,10 +44,16 @@ export const Route = createRootRoute({
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Gestão Pro — Sistema de Gestão Empresarial" },
-      { name: "description", content: "Sistema completo de gestão: estoque, vendas, compras, financeiro e relatórios." },
+      {
+        name: "description",
+        content: "Sistema completo de gestão: estoque, vendas, compras, financeiro e relatórios.",
+      },
       { name: "author", content: "Gestão Pro" },
       { property: "og:title", content: "Gestão Pro — Sistema de Gestão Empresarial" },
-      { property: "og:description", content: "Sistema completo de gestão: estoque, vendas, compras, financeiro e relatórios." },
+      {
+        property: "og:description",
+        content: "Sistema completo de gestão: estoque, vendas, compras, financeiro e relatórios.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "theme-color", content: "#6d28d9" },
@@ -53,9 +61,20 @@ export const Route = createRootRoute({
       { name: "apple-mobile-web-app-title", content: "Gestão Pro" },
       { name: "application-name", content: "Gestão Pro" },
       { name: "twitter:title", content: "Gestão Pro — Sistema de Gestão Empresarial" },
-      { name: "twitter:description", content: "Sistema completo de gestão: estoque, vendas, compras, financeiro e relatórios." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/fa640c1d-96bd-4d08-8463-14aa4cbe1ff2/id-preview-f233302a--d496f5c9-6c16-45ff-b55b-2b12904c1c94.lovable.app-1776900095095.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/fa640c1d-96bd-4d08-8463-14aa4cbe1ff2/id-preview-f233302a--d496f5c9-6c16-45ff-b55b-2b12904c1c94.lovable.app-1776900095095.png" },
+      {
+        name: "twitter:description",
+        content: "Sistema completo de gestão: estoque, vendas, compras, financeiro e relatórios.",
+      },
+      {
+        property: "og:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/fa640c1d-96bd-4d08-8463-14aa4cbe1ff2/id-preview-f233302a--d496f5c9-6c16-45ff-b55b-2b12904c1c94.lovable.app-1776900095095.png",
+      },
+      {
+        name: "twitter:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/fa640c1d-96bd-4d08-8463-14aa4cbe1ff2/id-preview-f233302a--d496f5c9-6c16-45ff-b55b-2b12904c1c94.lovable.app-1776900095095.png",
+      },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
@@ -89,26 +108,30 @@ function RootShell({ children }: { children: React.ReactNode }) {
 
 function RootComponent() {
   return (
-    <ThemeProvider>
-      <QueryProvider>
-        <AuthProvider>
-          <MasterContextProvider>
-            <ModeProvider>
-              <OperadorProvider>
-                <TerminalProvider>
-                  <DesktopRoleProvider>
-                    <CartProvider>
-                      <AppLayout />
-                      <UpdateBanner />
-                      <Toaster richColors position="top-right" />
-                    </CartProvider>
-                  </DesktopRoleProvider>
-                </TerminalProvider>
-              </OperadorProvider>
-            </ModeProvider>
-          </MasterContextProvider>
-        </AuthProvider>
-      </QueryProvider>
-    </ThemeProvider>
+    <AppErrorBoundary>
+      <ThemeProvider>
+        <QueryProvider>
+          <AuthProvider>
+            <MasterContextProvider>
+              <ModeProvider>
+                <OperadorProvider>
+                  <TerminalProvider>
+                    <DesktopRoleProvider>
+                      <CartProvider>
+                        <CaixaExitGuardProvider>
+                          <AppLayout />
+                          <UpdateBanner />
+                          <Toaster richColors position="top-right" />
+                        </CaixaExitGuardProvider>
+                      </CartProvider>
+                    </DesktopRoleProvider>
+                  </TerminalProvider>
+                </OperadorProvider>
+              </ModeProvider>
+            </MasterContextProvider>
+          </AuthProvider>
+        </QueryProvider>
+      </ThemeProvider>
+    </AppErrorBoundary>
   );
 }

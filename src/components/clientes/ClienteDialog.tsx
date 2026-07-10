@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Loader2 } from "lucide-react";
@@ -86,6 +86,8 @@ const empty: Form = {
   status: "ativo",
 };
 
+type ClienteTab = "dados" | "endereco" | "extras";
+
 interface Props {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -128,6 +130,36 @@ function maskCep(value: string) {
     .replace(/^(\d{5})(\d)/, "$1-$2");
 }
 
+function clienteToForm(cliente: Cliente): Form {
+  return {
+    tipo: cliente.tipo,
+    nome: cliente.nome,
+    nome_fantasia: cliente.nome_fantasia ?? "",
+    documento: cliente.documento ? maskDoc(cliente.documento, cliente.tipo) : "",
+    inscricao_estadual: cliente.inscricao_estadual ?? "",
+    email: cliente.email ?? "",
+    telefone: cliente.telefone ?? "",
+    celular: cliente.celular ?? "",
+    cep: cliente.cep ?? "",
+    logradouro: cliente.logradouro ?? "",
+    numero: cliente.numero ?? "",
+    complemento: cliente.complemento ?? "",
+    bairro: cliente.bairro ?? "",
+    cidade: cliente.cidade ?? "",
+    estado: cliente.estado ?? "",
+    observacoes: cliente.observacoes ?? "",
+    status: cliente.status,
+  };
+}
+
+function newClienteForm(defaultDocumento?: string | null): Form {
+  if (!defaultDocumento) return { ...empty };
+
+  const digits = defaultDocumento.replace(/\D+/g, "");
+  const tipo: PessoaTipo = digits.length > 11 ? "PJ" : "PF";
+  return { ...empty, tipo, documento: maskDoc(digits, tipo) };
+}
+
 export function ClienteDialog({
   open,
   onOpenChange,
@@ -140,40 +172,37 @@ export function ClienteDialog({
   const create = useCreateCliente();
   const update = useUpdateCliente();
   const [form, setForm] = useState<Form>(empty);
+  const [activeTab, setActiveTab] = useState<ClienteTab>("dados");
   const [docConflict, setDocConflict] = useState<string | null>(null);
   const [checkingDoc, setCheckingDoc] = useState(false);
+  const wasOpenRef = useRef(false);
+  const loadedClienteIdRef = useRef<string | null>(null);
   const isLoading = create.isPending || update.isPending;
 
   useEffect(() => {
-    if (!open) return;
-    setDocConflict(null);
-    if (cliente) {
-      setForm({
-        tipo: cliente.tipo,
-        nome: cliente.nome,
-        nome_fantasia: cliente.nome_fantasia ?? "",
-        documento: cliente.documento ? maskDoc(cliente.documento, cliente.tipo) : "",
-        inscricao_estadual: cliente.inscricao_estadual ?? "",
-        email: cliente.email ?? "",
-        telefone: cliente.telefone ?? "",
-        celular: cliente.celular ?? "",
-        cep: cliente.cep ?? "",
-        logradouro: cliente.logradouro ?? "",
-        numero: cliente.numero ?? "",
-        complemento: cliente.complemento ?? "",
-        bairro: cliente.bairro ?? "",
-        cidade: cliente.cidade ?? "",
-        estado: cliente.estado ?? "",
-        observacoes: cliente.observacoes ?? "",
-        status: cliente.status,
-      });
-    } else if (defaultDocumento) {
-      const digits = defaultDocumento.replace(/\D+/g, "");
-      const tipo: PessoaTipo = digits.length > 11 ? "PJ" : "PF";
-      setForm({ ...empty, tipo, documento: maskDoc(digits, tipo) });
-    } else {
-      setForm(empty);
+    if (!open) {
+      wasOpenRef.current = false;
+      loadedClienteIdRef.current = null;
+      setForm({ ...empty });
+      setDocConflict(null);
+      setCheckingDoc(false);
+      setActiveTab("dados");
+      return;
     }
+
+    const openedNow = !wasOpenRef.current;
+    const changedCliente = Boolean(cliente && loadedClienteIdRef.current !== cliente.id);
+
+    if (openedNow || changedCliente) {
+      const initialDocumento = openedNow ? defaultDocumento : null;
+      setDocConflict(null);
+      setCheckingDoc(false);
+      setActiveTab("dados");
+      setForm(cliente ? clienteToForm(cliente) : newClienteForm(initialDocumento));
+      loadedClienteIdRef.current = cliente?.id ?? null;
+    }
+
+    wasOpenRef.current = true;
   }, [open, cliente, defaultDocumento]);
 
   function update_<K extends keyof Form>(k: K, v: Form[K]) {
@@ -261,15 +290,11 @@ export function ClienteDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="dados">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as ClienteTab)}>
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="dados">Dados</TabsTrigger>
-            <TabsTrigger value="endereco" disabled={quickMode}>
-              Endereço
-            </TabsTrigger>
-            <TabsTrigger value="extras" disabled={quickMode}>
-              Extras
-            </TabsTrigger>
+            <TabsTrigger value="endereco">Endereço</TabsTrigger>
+            <TabsTrigger value="extras">Extras</TabsTrigger>
           </TabsList>
 
           <TabsContent value="dados" className="space-y-3 pt-3">

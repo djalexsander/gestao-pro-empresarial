@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { dataClient } from "@/integrations/data";
-import { getDataMode } from "@/integrations/data/mode";
 
 export type CaixaStatus = "aberto" | "fechado";
 
@@ -12,6 +11,7 @@ export interface Caixa {
   owner_id: string;
   usuario_id: string;
   operador_id: string | null;
+  terminal_id: string | null;
   data_abertura: string;
   data_fechamento: string | null;
   valor_inicial: number;
@@ -127,10 +127,18 @@ export function useCaixaResumo(caixaId: string | null | undefined) {
   // inteiro — aqui queremos refrescar apenas o caixa visível.
   useEffect(() => {
     if (!caixaId) return;
-    const mode = getDataMode();
-    if (mode === "local-server" || mode === "local-terminal") return;
+    const channelName = `caixa-resumo-${caixaId}`;
+    const topic = `realtime:${channelName}`;
+
+    const existingChannels = (supabase as any).realtime?.channels;
+    if (Array.isArray(existingChannels)) {
+      for (const existing of existingChannels.filter((ch) => ch.topic === topic)) {
+        void supabase.removeChannel(existing);
+      }
+    }
+
     const channel = supabase
-      .channel(`caixa-resumo-${caixaId}`)
+      .channel(channelName)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "caixa_movimentos", filter: `caixa_id=eq.${caixaId}` },
@@ -148,7 +156,7 @@ export function useCaixaResumo(caixaId: string | null | undefined) {
       )
       .subscribe();
     return () => {
-      supabase.removeChannel(channel);
+      void supabase.removeChannel(channel);
     };
   }, [caixaId, qc]);
 
@@ -243,12 +251,7 @@ export function useFecharCaixa() {
       qc.invalidateQueries({ queryKey: ["caixa"] });
       qc.invalidateQueries({ queryKey: ["vendas"] });
       qc.invalidateQueries({ queryKey: ["financeiro_lancamentos"] });
-      const mode = getDataMode();
-      toast.success(
-        mode === "local-server" || mode === "local-terminal"
-          ? "Caixa fechado localmente. A sincronização continuará em segundo plano."
-          : "Caixa fechado. Movimentos enviados ao Financeiro.",
-      );
+      toast.success("Caixa fechado. Movimentos enviados ao Financeiro.");
     },
     onError: (e: Error) => toast.error(caixaErrorMessage(e)),
   });

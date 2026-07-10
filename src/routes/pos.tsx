@@ -19,6 +19,7 @@ import { ConexaoStatusBanner } from "@/components/auth/ConexaoStatusBanner";
 import { useCaixaAberto, useCaixaResumo } from "@/hooks/useCaixa";
 import { AbrirCaixaDialog } from "@/components/caixa/AbrirCaixaDialog";
 import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
+import { useCaixaExitGuard } from "@/components/caixa/CaixaExitGuardProvider";
 import { useMode } from "@/components/modes/ModeProvider";
 import { useTerminalHeartbeat } from "@/hooks/useTerminalHeartbeat";
 
@@ -138,6 +139,7 @@ function PosLoginScreen() {
 function PosHomeScreen() {
   const navigate = useNavigate();
   const { operador, trocarOperador } = useOperador();
+  const { blockAndOpenFechamento } = useCaixaExitGuard();
   const { data: caixaAberto, isLoading: loadingCaixa } = useCaixaAberto(operador?.id ?? null);
   const { data: resumoCaixa } = useCaixaResumo(caixaAberto?.id);
   const [abrirOpen, setAbrirOpen] = useState(false);
@@ -151,6 +153,10 @@ function PosHomeScreen() {
   }, [loadingCaixa, caixaAberto, fecharOpen, abrirOpen, navigate]);
 
   function handleEncerrarSessao() {
+    if (caixaAberto) {
+      void blockAndOpenFechamento();
+      return;
+    }
     // Encerra o operador atual e volta para a tela HUB.
     // NUNCA leva direto para o ERP — operador deve passar pelo HUB
     // (que exige login admin para entrar no ERP).

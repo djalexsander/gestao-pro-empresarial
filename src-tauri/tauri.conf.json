@@ -2,17 +2,18 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "gestao-pro",
   "mainBinaryName": "gestao-pro",
-  "version": "1.1.18",
+  "version": "1.1.22",
   "identifier": "com.alexproapps.gestaopro",
   "build": {
     "beforeDevCommand": "npm run dev:desktop",
+    "beforeBuildCommand": "npm run build:desktop",
     "devUrl": "http://localhost:8080",
     "frontendDist": "tauri-dist"
   },
   "app": {
     "windows": [
       {
-        "title": "Gestão Pro",
+        "title": "GestÃƒÂ£o Pro",
         "width": 1440,
         "height": 900,
         "minWidth": 1024,
@@ -38,8 +39,8 @@
       "icons/icon.ico"
     ],
     "category": "Business",
-    "shortDescription": "Sistema de gestão empresarial",
-    "longDescription": "Gestão Pro — sistema completo de gestão: estoque, vendas, compras, financeiro e relatórios.",
+    "shortDescription": "Sistema de gestÃƒÂ£o empresarial",
+    "longDescription": "GestÃƒÂ£o Pro Ã¢â‚¬â€ sistema completo de gestÃƒÂ£o: estoque, vendas, compras, financeiro e relatÃƒÂ³rios.",
     "createUpdaterArtifacts": true,
     "windows": {
       "wix": {
@@ -58,3 +59,5 @@
     }
   }
 }
+
+

@@ -6872,8 +6872,11 @@ pub struct CaixaLocalRow {
 pub fn caixa_local_aberto(
     owner_id: &str,
     operador_id: Option<&str>,
+    terminal_id: Option<&str>,
 ) -> DbResult<Option<CaixaLocalRow>> {
     with_conn(|conn| {
+        let operador_id = operador_id.map(str::trim).filter(|s| !s.is_empty());
+        let terminal_id = terminal_id.map(str::trim).filter(|s| !s.is_empty());
         let row_opt: Option<(
             String,
             Option<String>,
@@ -6889,8 +6892,39 @@ pub fn caixa_local_aberto(
             Option<String>,
             i64,
             Option<i64>,
-        )> = if let Some(op) = operador_id {
-            conn.query_row(
+        )> = match (operador_id, terminal_id) {
+            (Some(op), Some(term)) => conn.query_row(
+                "SELECT local_uuid, remote_id, client_uuid, status, valor_inicial,
+                        valor_informado, valor_esperado, diferenca,
+                        observacao_abertura, observacao_fechamento,
+                        operador_id, terminal_id,
+                        data_abertura_ms, data_fechamento_ms
+                   FROM caixa_local
+                  WHERE owner_id=?1 AND status='aberto'
+                    AND operador_id = ?2 AND terminal_id = ?3
+               ORDER BY data_abertura_ms DESC LIMIT 1",
+                params![owner_id, op, term],
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                        r.get(6)?,
+                        r.get(7)?,
+                        r.get(8)?,
+                        r.get(9)?,
+                        r.get(10)?,
+                        r.get(11)?,
+                        r.get(12)?,
+                        r.get(13)?,
+                    ))
+                },
+            )
+            .optional()?,
+            (Some(op), None) => conn.query_row(
                 "SELECT local_uuid, remote_id, client_uuid, status, valor_inicial,
                         valor_informado, valor_esperado, diferenca,
                         observacao_abertura, observacao_fechamento,
@@ -6919,9 +6953,38 @@ pub fn caixa_local_aberto(
                     ))
                 },
             )
-            .optional()?
-        } else {
-            conn.query_row(
+            .optional()?,
+            (None, Some(term)) => conn.query_row(
+                "SELECT local_uuid, remote_id, client_uuid, status, valor_inicial,
+                        valor_informado, valor_esperado, diferenca,
+                        observacao_abertura, observacao_fechamento,
+                        operador_id, terminal_id,
+                        data_abertura_ms, data_fechamento_ms
+                   FROM caixa_local
+                  WHERE owner_id=?1 AND status='aberto' AND terminal_id = ?2
+               ORDER BY data_abertura_ms DESC LIMIT 1",
+                params![owner_id, term],
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                        r.get(6)?,
+                        r.get(7)?,
+                        r.get(8)?,
+                        r.get(9)?,
+                        r.get(10)?,
+                        r.get(11)?,
+                        r.get(12)?,
+                        r.get(13)?,
+                    ))
+                },
+            )
+            .optional()?,
+            (None, None) => conn.query_row(
                 "SELECT local_uuid, remote_id, client_uuid, status, valor_inicial,
                         valor_informado, valor_esperado, diferenca,
                         observacao_abertura, observacao_fechamento,
@@ -6950,7 +7013,7 @@ pub fn caixa_local_aberto(
                     ))
                 },
             )
-            .optional()?
+            .optional()?,
         };
         let Some(row) = row_opt else { return Ok(None) };
         let (
@@ -7000,6 +7063,68 @@ pub fn caixa_local_aberto(
             total_sangrias: san,
         }))
     })
+}
+
+/// Trava operacional do desktop: existe caixa local aberto no contexto atual?
+///
+/// Sem owner autenticado a resposta e sempre falsa: caixa antigo no SQLite nao
+/// pode quebrar boot/login. Quando terminal ou operador estao disponiveis,
+/// ambos entram no filtro para evitar bloqueio por outro contexto.
+pub fn existe_caixa_local_aberto(
+    owner_id: Option<&str>,
+    operador_id: Option<&str>,
+    terminal_id: Option<&str>,
+) -> DbResult<bool> {
+    let Some(owner_id) = owner_id.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(false);
+    };
+    with_conn(|conn| {
+        Ok(existe_caixa_local_aberto_with_conn(conn, owner_id, operador_id, terminal_id)?.is_some())
+    })
+}
+
+fn existe_caixa_local_aberto_with_conn(
+    conn: &Connection,
+    owner_id: &str,
+    operador_id: Option<&str>,
+    terminal_id: Option<&str>,
+) -> DbResult<Option<String>> {
+    let operador_id = operador_id.map(str::trim).filter(|s| !s.is_empty());
+    let terminal_id = terminal_id.map(str::trim).filter(|s| !s.is_empty());
+    let result = match (operador_id, terminal_id) {
+        (Some(op), Some(term)) => conn
+            .query_row(
+                "SELECT local_uuid FROM caixa_local
+                  WHERE owner_id=?1 AND status='aberto' AND data_fechamento_ms IS NULL
+                    AND operador_id=?2 AND terminal_id=?3
+               ORDER BY data_abertura_ms DESC LIMIT 1",
+                params![owner_id, op, term],
+                |r| r.get(0),
+            )
+            .optional()?,
+        (Some(op), None) => conn
+            .query_row(
+                "SELECT local_uuid FROM caixa_local
+                  WHERE owner_id=?1 AND status='aberto' AND data_fechamento_ms IS NULL
+                    AND operador_id=?2
+               ORDER BY data_abertura_ms DESC LIMIT 1",
+                params![owner_id, op],
+                |r| r.get(0),
+            )
+            .optional()?,
+        (None, Some(term)) => conn
+            .query_row(
+                "SELECT local_uuid FROM caixa_local
+                  WHERE owner_id=?1 AND status='aberto' AND data_fechamento_ms IS NULL
+                    AND terminal_id=?2
+               ORDER BY data_abertura_ms DESC LIMIT 1",
+                params![owner_id, term],
+                |r| r.get(0),
+            )
+            .optional()?,
+        (None, None) => None,
+    };
+    Ok(result)
 }
 
 #[derive(Debug, Serialize)]

@@ -70,7 +70,6 @@ import {
   type ClienteLite,
 } from "@/hooks/useClientes";
 import { useSaldosLote, type FormaPagamento, type StatusPagamento } from "@/hooks/useVendas";
-import { getDataMode } from "@/integrations/data/mode";
 import { useSomPDV } from "@/hooks/useSomPDV";
 import { ClienteDialog } from "@/components/clientes/ClienteDialog";
 import { UserPlus, IdCard, AlertCircle } from "lucide-react";
@@ -95,6 +94,10 @@ import { useUserRole } from "@/hooks/useUserRole";
 import { useCaixaAberto, useCaixaResumo } from "@/hooks/useCaixa";
 import { FecharCaixaDialog } from "@/components/caixa/FecharCaixaDialog";
 import { MovimentoCaixaDialog } from "@/components/caixa/MovimentoCaixaDialog";
+import {
+  CAIXA_EXIT_BLOCK_MESSAGE,
+  useCaixaExitGuard,
+} from "@/components/caixa/CaixaExitGuardProvider";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatBRL } from "@/lib/mock-data";
@@ -163,6 +166,7 @@ function PDVPage() {
   const { user } = useAuth();
   const { operador, trocarOperador } = useOperador();
   const { terminal } = useTerminal();
+  const { blockAndOpenFechamento } = useCaixaExitGuard();
   const { data: produtos = [], isLoading: loadingProdutos } = useProdutos();
   const { data: clientes = [] } = useClientes();
   const { data: caixaAberto } = useCaixaAberto(operador?.id ?? null);
@@ -191,7 +195,7 @@ function PDVPage() {
     if (!caixaAberto) return;
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
-      e.returnValue = "";
+      e.returnValue = CAIXA_EXIT_BLOCK_MESSAGE;
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
@@ -199,9 +203,7 @@ function PDVPage() {
 
   function handleSair() {
     if (caixaAberto) {
-      exitAfterCloseRef.current = true;
-      setFecharCaixaOpen(true);
-      toast.info("É necessário fechar o caixa antes de sair.");
+      void blockAndOpenFechamento();
       return;
     }
     // sem caixa aberto (estado raro): apenas encerra operador e volta ao HUB
@@ -239,9 +241,16 @@ function PDVPage() {
   const [finalizarOpen, setFinalizarOpen] = useState(false);
   const [sucessoOpen, setSucessoOpen] = useState(false);
   const [quickView, setQuickView] = useState<PdvQuickViewKey | null>(null);
+  const [pesoDialog, setPesoDialog] = useState<{
+    produto_id: string;
+    sku: string;
+    nome: string;
+    unidade: string;
+    preco_venda: number;
+    casas_decimais: number;
+  } | null>(null);
   const { isCaixa, isAdminLike } = useUserRole();
   const podeAcessarRapido = isCaixa || isAdminLike;
-  const isLocalMode = getDataMode() === "local-server" || getDataMode() === "local-terminal";
   const [vendaConcluida, setVendaConcluida] = useState<null | {
     id: string;
     numero: string | null;
@@ -403,6 +412,7 @@ function PDVPage() {
   // recupere foco quando NENHUM fluxo prioritário estiver ativo.
   const hasPriorityOverlay =
     scannerOpen ||
+    novoClienteOpen ||
     clientePopoverOpen ||
     searchPopoverOpen ||
     confirmClear !== null ||
@@ -410,6 +420,9 @@ function PDVPage() {
     sucessoOpen ||
     multDialogOpen ||
     consultaPrecoOpen ||
+    pesoDialog !== null ||
+    fecharCaixaOpen ||
+    movCaixaDialog !== null ||
     quickView !== null;
 
   hasPriorityOverlayRef.current = hasPriorityOverlay;
@@ -509,6 +522,9 @@ function PDVPage() {
     return { subtotal, descontoTotal, total, totalItens };
   }, [activeItems]);
 
+  const vendaTemEstado =
+    items.length > 0 || !!cliente || observacao.trim().length > 0 || multiplicador !== 1;
+
   // ============ Adicionar item ============
   function addItemFromProduto(
     p: {
@@ -573,15 +589,6 @@ function PDVPage() {
 
   // ============ Balança / peso ============
   const { data: balancaCfg } = useBalancaConfig();
-  const [pesoDialog, setPesoDialog] = useState<{
-    produto_id: string;
-    sku: string;
-    nome: string;
-    unidade: string;
-    preco_venda: number;
-    casas_decimais: number;
-  } | null>(null);
-
   // ============ Buscar por código ============
   async function handleScanCode(value: string) {
     const v = value.trim();
@@ -753,9 +760,10 @@ function PDVPage() {
         allowInInputs: true,
         handler: () => {
           flashHotkey("F7");
-          if (items.length > 0) {
+          if (vendaTemEstado) {
             setConfirmClear("clear");
           } else {
+            clearClienteVenda();
             scanInputRef.current?.focus();
           }
         },
@@ -765,7 +773,7 @@ function PDVPage() {
         allowInInputs: true,
         handler: () => {
           flashHotkey("F8");
-          if (items.length > 0) setConfirmClear("clear");
+          if (vendaTemEstado) setConfirmClear("clear");
         },
       },
       {
@@ -842,7 +850,7 @@ function PDVPage() {
             return;
           }
           if (
-            items.length > 0 &&
+            vendaTemEstado &&
             !finalizarOpen &&
             !sucessoOpen &&
             !confirmClear &&
@@ -861,9 +869,16 @@ function PDVPage() {
         !finalizarOpen &&
         !sucessoOpen &&
         !scannerOpen &&
+        !novoClienteOpen &&
+        !clientePopoverOpen &&
+        !searchPopoverOpen &&
+        !confirmClear &&
         !quickView &&
         !consultaPrecoOpen &&
-        !multDialogOpen,
+        !multDialogOpen &&
+        !pesoDialog &&
+        !fecharCaixaOpen &&
+        movCaixaDialog === null,
       scope: "page",
     },
   );
@@ -884,9 +899,19 @@ function PDVPage() {
     if (lastAddedKey === key) setLastAddedKey(null);
   }
 
+  function clearClienteVenda() {
+    setCliente(null);
+    setClientePopoverOpen(false);
+    setDocQuery("");
+    setDocBuscaSemResultado(false);
+    setNovoClienteDoc(null);
+  }
+
   function clearVenda() {
     setItems([]);
+    clearClienteVenda();
     setObservacao("");
+    setMultiplicador(1);
     setLastAddedKey(null);
     // Renova o client_uuid: a próxima venda terá uma nova chave de idempotência.
     setCartUuid(crypto.randomUUID());
@@ -896,7 +921,6 @@ function PDVPage() {
   function cancelVenda() {
     // Cancelar venda NUNCA sai do PDV — apenas limpa o que foi montado.
     clearVenda();
-    setCliente(null);
   }
 
   async function finalizarVenda() {
@@ -1228,7 +1252,7 @@ function PDVPage() {
                   <CommandGroup>
                     <CommandItem
                       onSelect={() => {
-                        setCliente(null);
+                        clearClienteVenda();
                         setClientePopoverOpen(false);
                       }}
                     >
@@ -1612,7 +1636,7 @@ function PDVPage() {
               <Button
                 variant="outline"
                 onClick={() => setConfirmClear("clear")}
-                disabled={items.length === 0}
+                disabled={!vendaTemEstado}
                 className={cn(
                   hotkeyFlash === "F8" && "ring-2 ring-primary ring-offset-2 ring-offset-background",
                 )}
@@ -1702,13 +1726,8 @@ function PDVPage() {
             })),
             data: new Date(),
           });
-          if (isLocalMode) {
-            toast.success(
-              "Venda salva localmente e será sincronizada quando a internet voltar.",
-            );
-          }
           setSucessoOpen(true);
-          // Limpa o carrinho mas mantém cliente para próxima venda rápida
+          // Limpa a venda concluída para a próxima abrir como consumidor avulso.
           clearVenda();
         }}
       />
@@ -1749,7 +1768,7 @@ function PDVPage() {
           // Apenas fecha o resumo e mantém o operador no PDV.
           setSucessoOpen(false);
           setVendaConcluida(null);
-          setCliente(null);
+          clearClienteVenda();
         }}
       />
 

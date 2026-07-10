@@ -18,12 +18,14 @@ import { formatBRL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { OutboxPendenciasAlert } from "@/components/shared/OutboxPendenciasAlert";
+import { useCaixaExitGuard } from "@/components/caixa/CaixaExitGuardProvider";
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   caixaId: string;
   resumo: CaixaResumo | null;
+  onFechado?: () => void;
 }
 
 function Row({
@@ -53,12 +55,13 @@ function Row({
   );
 }
 
-export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props) {
+export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo, onFechado }: Props) {
   const [valorInformado, setValorInformado] = useState("");
   const [observacao, setObservacao] = useState("");
   const [resumoAtual, setResumoAtual] = useState<CaixaResumo | null>(null);
   const [resumoErro, setResumoErro] = useState<string | null>(null);
   const fechar = useFecharCaixa();
+  const { markCaixaFechado } = useCaixaExitGuard();
   const {
     refetch: refetchResumo,
   } = useCaixaResumo(open ? caixaId : null);
@@ -135,6 +138,8 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo }: Props
       valor_informado: informadoNum,
       observacao: observacao.trim() || null,
     });
+    markCaixaFechado();
+    onFechado?.();
     onOpenChange(false);
   }
 

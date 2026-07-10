@@ -17,10 +17,6 @@ import { AssinaturaBanner } from "./AssinaturaBanner";
 import { useMode } from "@/components/modes/ModeProvider";
 import { useMasterContext } from "@/components/admin/MasterContextProvider";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { useDesktopRole } from "@/components/desktop/DesktopRoleProvider";
-import { DesktopSetupWizard } from "@/components/desktop/DesktopSetupWizard";
-import { DesktopRoleBadge } from "@/components/desktop/DesktopRoleBadge";
-import { isTerminalPathAllowed, TERMINAL_HOME } from "@/components/desktop/terminalRoutes";
 
 // Rotas que usam layout próprio (sem o shell do ERP)
 const STANDALONE_ROUTES = new Set(["/auth", "/hub", "/pos", "/pdv"]);
@@ -30,7 +26,6 @@ export function AppLayout() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { modoAtual, isRouteAllowed, isLoading: modosLoading } = useMode();
-  const { isDesktop: rodandoDesktop, role: desktopRole, precisaConfigurar } = useDesktopRole();
 
   const pathname = location.pathname;
   const isStandalone = STANDALONE_ROUTES.has(pathname);
@@ -51,21 +46,10 @@ export function AppLayout() {
   }, [pathname, modoAtual, modosLoading, user, isRouteAllowed, isStandalone, isAdminRoute, navigate]);
 
   // Guard de papel desktop: terminal só pode acessar PDV e consultas básicas.
-  useEffect(() => {
-    if (!rodandoDesktop || desktopRole !== "terminal") return;
-    if (pathname === "/auth") return;
-    if (!isTerminalPathAllowed(pathname)) {
-      navigate({ to: TERMINAL_HOME, replace: true });
-    }
-  }, [rodandoDesktop, desktopRole, pathname, navigate]);
 
   // Wizard de primeiro uso: bloqueia o app inteiro até a máquina estar configurada.
   // Importante: NÃO mostrar antes de autenticar — o wizard fica acima do conteúdo
   // mas só faz sentido após o usuário entrar no app.
-  if (precisaConfigurar && pathname !== "/auth") {
-    return <DesktopSetupWizard />;
-  }
-
   if (pathname === "/auth") {
     return <Outlet />;
   }
@@ -156,7 +140,6 @@ function AppShell() {
           <div className="flex-1">
             <AppMenubar activeModule={activeModule} onModuleSelect={setOverrideModule} />
           </div>
-          <DesktopRoleBadge />
           {modoAtual && (
             <button
               type="button"

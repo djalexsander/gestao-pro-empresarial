@@ -54,6 +54,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatBRL } from "@/lib/mock-data";
+import { formatDateBR, formatDateTimeBR } from "@/lib/date-format";
 import { ModuloGate } from "@/components/saas/ModuloGate";
 import { RequirePermission } from "@/components/auth/RequirePermission";
 import { supabase } from "@/integrations/supabase/client";
@@ -82,7 +83,14 @@ import { exportarBlocoCSV, exportarBlocoPDF } from "@/lib/export-bloco";
 import { ExportFormatDialog } from "@/components/shared/ExportFormatDialog";
 import { exportarRelatorioCard, type ExportFormato } from "@/lib/export-relatorio-card";
 import { toast } from "sonner";
-import { dateTimeFromMs } from "@/lib/financeiro-local";
+import { dateTimeFromMs } from "@/lib/date-ms";
+import {
+  calcAbertoLanc,
+  isLancCancelado,
+  isLancPagar,
+  isLancRealizado,
+  isLancReceber,
+} from "@/lib/financeiro-canonico";
 
 type FinTab = "receber" | "pagar" | "fluxo" | "fiados";
 
@@ -115,10 +123,16 @@ function statusLabel(l: Lancamento): string {
   return "Pendente";
 }
 
+function normalizeLancTipo(tipo: string | null): "receber" | "pagar" {
+  return tipo === "despesa" || tipo === "pagar" ? "pagar" : "receber";
+}
+
+function isLancAberto(l: Lancamento): boolean {
+  return !isLancCancelado(l) && !isLancRealizado(l) && calcAbertoLanc(l) > 0;
+}
+
 function formatDate(d: string | null): string {
-  if (!d) return "—";
-  const [y, m, day] = d.split("-");
-  return `${day}/${m}/${y}`;
+  return formatDateBR(d);
 }
 
 function FinancePage() {
@@ -231,7 +245,7 @@ function FinanceContent() {
         data_vencimento: string;
         data_pagamento: string | null;
         data_emissao: string | null;
-        tipo: "receber" | "pagar";
+        tipo: "receber" | "pagar" | "receita" | "despesa";
         status: Lancamento["status"];
         observacoes: string | null;
         numero_documento: string | null;
@@ -272,7 +286,7 @@ function FinanceContent() {
         data_vencimento: r.data_vencimento,
         data_pagamento: r.data_pagamento,
         data_emissao: r.data_emissao,
-        tipo: r.tipo,
+        tipo: normalizeLancTipo(r.tipo),
         status: r.status,
         observacoes: r.observacoes,
         numero_documento: r.numero_documento,
@@ -300,16 +314,30 @@ function FinanceContent() {
     },
   });
 
-  const receber = lancamentos.filter(
-    (l) => l.tipo === "receber" && l.status !== "recebido" && l.status !== "cancelado",
-  );
-  const pagar = lancamentos.filter(
-    (l) => l.tipo === "pagar" && l.status !== "pago" && l.status !== "cancelado",
-  );
+  const receber = lancamentos.filter((l) => isLancReceber(l) && isLancAberto(l));
+  const pagar = lancamentos.filter((l) => isLancPagar(l) && isLancAberto(l));
 
-  const totalRec = receber.reduce((s, l) => s + Number(l.valor) - Number(l.valor_pago ?? 0), 0);
-  const totalPay = pagar.reduce((s, l) => s + Number(l.valor) - Number(l.valor_pago ?? 0), 0);
-  const saldo = totalRec - totalPay;
+  const totalRecComputed = receber.reduce((s, l) => s + calcAbertoLanc(l), 0);
+  const totalPayComputed = pagar.reduce((s, l) => s + calcAbertoLanc(l), 0);
+  const totalRec = posicao?.totalReceber ?? totalRecComputed;
+  const totalPay = posicao?.totalPagar ?? totalPayComputed;
+  const saldo = posicao?.saldo ?? totalRec - totalPay;
+  const receberListagem = posicao
+    ? receber.filter(
+        (l) =>
+          !!l.data_vencimento &&
+          l.data_vencimento >= posicao.periodo.inicio &&
+          l.data_vencimento <= posicao.periodo.fim,
+      )
+    : receber;
+  const pagarListagem = posicao
+    ? pagar.filter(
+        (l) =>
+          !!l.data_vencimento &&
+          l.data_vencimento >= posicao.periodo.inicio &&
+          l.data_vencimento <= posicao.periodo.fim,
+      )
+    : pagar;
 
   const consolidado = useMemo(
     () => buildConsolidado({ totalRec, totalPay, saldo, receber, pagar, ind }),
@@ -441,7 +469,7 @@ function FinanceContent() {
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <StatCard
-            label="Total a receber"
+            label="Total a receber em aberto"
             value={formatBRL(posicao?.totalReceber ?? 0)}
             icon={ArrowDownToLine}
             iconTone="success"
@@ -449,7 +477,7 @@ function FinanceContent() {
             onClick={() => setBlocoAberto("receber")}
           />
           <StatCard
-            label="Total a pagar"
+            label="Total a pagar em aberto"
             value={formatBRL(posicao?.totalPagar ?? 0)}
             icon={ArrowUpFromLine}
             iconTone="warning"
@@ -659,18 +687,18 @@ function FinanceContent() {
 
       {activeTab === "receber" && (
         <LancamentosTable
-          items={receber}
+          items={receberListagem}
           loading={isLoading}
-          emptyMsg="Nenhuma conta a receber."
+          emptyMsg="Nenhuma conta a receber em aberto."
           onSelect={setSelected}
         />
       )}
 
       {activeTab === "pagar" && (
         <LancamentosTable
-          items={pagar}
+          items={pagarListagem}
           loading={isLoading}
-          emptyMsg="Nenhuma conta a pagar."
+          emptyMsg="Nenhuma conta a pagar em aberto."
           onSelect={setSelected}
         />
       )}
@@ -703,6 +731,7 @@ function FinanceContent() {
         totalPay={totalPay}
         saldo={saldo}
         ind={ind}
+        periodo={posicao?.periodo}
       />
 
       <ExportFormatDialog
@@ -725,6 +754,7 @@ function BlocoModais({
   totalPay,
   saldo,
   ind,
+  periodo,
 }: {
   bloco: BlocoChave | null;
   onClose: () => void;
@@ -734,8 +764,29 @@ function BlocoModais({
   totalPay: number;
   saldo: number;
   ind: ReturnType<typeof useFinanceiroIndicadores>["data"] | undefined;
+  periodo?: { inicio: string; fim: string } | null;
 }) {
   if (!bloco) return null;
+
+  const periodoFilter = periodo ?? null;
+  const inPeriodo = (l: Lancamento) => {
+    if (!periodoFilter) return true;
+    if (!l.data_vencimento) return false;
+    return l.data_vencimento >= periodoFilter.inicio && l.data_vencimento <= periodoFilter.fim;
+  };
+
+  const receberFiltered = receber.filter(
+    (l) =>
+      isLancReceber(l) &&
+      isLancAberto(l) &&
+      inPeriodo(l),
+  );
+  const pagarFiltered = pagar.filter(
+    (l) =>
+      isLancPagar(l) &&
+      isLancAberto(l) &&
+      inPeriodo(l),
+  );
 
   const lancamentoCols: DetalheColumn[] = [
     { key: "descricao", header: "Descrição" },
@@ -749,7 +800,7 @@ function BlocoModais({
       id: l.id,
       descricao: l.descricao,
       vencimento: l.data_vencimento,
-      valor: Number(l.valor) - Number(l.valor_pago ?? 0),
+      valor: calcAbertoLanc(l),
       status: statusLabel(l),
     }));
 
@@ -763,10 +814,10 @@ function BlocoModais({
         origem="financeiro_lancamentos"
         resumo={[
           { label: "Total em aberto", valor: formatBRL(totalRec), tone: "success" },
-          { label: "Qtd. títulos", valor: String(receber.length) },
+          { label: "Qtd. títulos", valor: String(receberFiltered.length) },
         ]}
         colunas={lancamentoCols}
-        rows={lancRows(receber)}
+        rows={lancRows(receberFiltered)}
       />
     );
   }
@@ -780,10 +831,10 @@ function BlocoModais({
         origem="financeiro_lancamentos"
         resumo={[
           { label: "Total em aberto", valor: formatBRL(totalPay), tone: "danger" },
-          { label: "Qtd. títulos", valor: String(pagar.length) },
+          { label: "Qtd. títulos", valor: String(pagarFiltered.length) },
         ]}
         colunas={lancamentoCols}
-        rows={lancRows(pagar)}
+        rows={lancRows(pagarFiltered)}
       />
     );
   }
@@ -909,7 +960,7 @@ function BlocoModais({
     );
   }
   if (bloco === "fiado") {
-    const fiadosLanc = receber.filter((l) => l.forma_pagamento === "fiado");
+    const fiadosLanc = receberFiltered.filter((l) => l.forma_pagamento === "fiado");
     return (
       <BlocoDetalheDialog
         open
@@ -932,13 +983,13 @@ function BlocoModais({
           descricao: l.descricao,
           cliente: l.cliente_nome ?? "—",
           vencimento: l.data_vencimento,
-          valor: Number(l.valor) - Number(l.valor_pago ?? 0),
+          valor: calcAbertoLanc(l),
         }))}
       />
     );
   }
   if (bloco === "ifood") {
-    const ifoodLanc = receber.filter((l) => l.forma_pagamento === "ifood" && !l.conciliado_em);
+    const ifoodLanc = receberFiltered.filter((l) => l.forma_pagamento === "ifood" && !l.conciliado_em);
     return (
       <BlocoDetalheDialog
         open
@@ -959,7 +1010,7 @@ function BlocoModais({
           id: l.id,
           descricao: l.descricao,
           vencimento: l.data_vencimento,
-          valor: Number(l.valor) - Number(l.valor_pago ?? 0),
+          valor: calcAbertoLanc(l),
         }))}
       />
     );
@@ -990,7 +1041,7 @@ function BlocoModais({
     );
   }
   if (bloco === "vencidos") {
-    const vencidosLanc = [...receber, ...pagar].filter((l) => {
+    const vencidosLanc = [...receberFiltered, ...pagarFiltered].filter((l) => {
       if (!l.data_vencimento) return false;
       return new Date(l.data_vencimento) < new Date(new Date().toDateString());
     });
@@ -1016,7 +1067,7 @@ function BlocoModais({
           descricao: l.descricao,
           tipo: l.tipo === "receber" ? "A receber" : "A pagar",
           vencimento: l.data_vencimento,
-          valor: Number(l.valor) - Number(l.valor_pago ?? 0),
+          valor: calcAbertoLanc(l),
         }))}
       />
     );
@@ -1074,7 +1125,7 @@ function LancamentosTable({
                     {formatDate(i.data_vencimento)}
                   </TableCell>
                   <TableCell className="text-right font-medium">
-                    {formatBRL(Number(i.valor))}
+                    {formatBRL(calcAbertoLanc(i))}
                   </TableCell>
                   <TableCell>
                     <StatusBadge status={statusLabel(i)} />
@@ -1152,14 +1203,7 @@ function calcRangeFluxo(p: FluxoPeriodo): { inicio: string; fim: string } {
 }
 
 function formatDateTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mi = String(d.getMinutes()).padStart(2, "0");
-  return `${dd}/${mm}/${yyyy} ${hh}:${mi}`;
+  return formatDateTimeBR(iso);
 }
 
 const TIPO_LABEL: Record<FluxoTipo, string> = {
@@ -1668,7 +1712,7 @@ function FluxoCaixaPanel() {
         <Card>
           <CardContent className="p-4">
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold">Recebido por forma de pagamento</h3>
+              <h3 className="text-sm font-semibold">Vendas por forma de pagamento</h3>
               <span className="text-[11px] text-muted-foreground">
                 Vendas finalizadas no período
               </span>
@@ -1680,8 +1724,13 @@ function FluxoCaixaPanel() {
                     {FORMA_LABELS[p.forma] ?? p.forma}
                   </p>
                   <p className="font-mono text-base font-semibold tabular-nums">
-                    {formatBRL(p.recebido)}
+                    {formatBRL(p.recebido + p.aReceber)}
                   </p>
+                  {p.recebido > 0.005 && (
+                    <p className="mt-0.5 text-[11px] text-success">
+                      Recebido: {formatBRL(p.recebido)}
+                    </p>
+                  )}
                   {p.aReceber > 0.005 && (
                     <p className="mt-0.5 text-[11px] text-warning">
                       A receber: {formatBRL(p.aReceber)}
@@ -1695,7 +1744,7 @@ function FluxoCaixaPanel() {
       )}
 
       {/* Barra de filtros — sticky para auditoria contínua */}
-      <Card className="sticky top-0 z-10 border-border/60">
+      <Card className="sticky top-3 z-10 border-border/60 bg-background">
         <CardContent className="space-y-3 p-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <div className="relative flex-1">

@@ -8,6 +8,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -20,6 +21,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatBRL } from "@/lib/mock-data";
+import { formatDateBR } from "@/lib/date-format";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { LancamentoDetalheDialog, type LancamentoDetalhe } from "./LancamentoDetalheDialog";
 import { RegistrarPagamentoDialog } from "./RegistrarPagamentoDialog";
@@ -50,12 +52,6 @@ function statusLabel(l: Lanc): "Pago" | "Parcial" | "Vencido" | "Pendente" | "Ca
     return "Vencido";
   }
   return "Pendente";
-}
-
-function formatDateBR(d: string | null | undefined): string {
-  if (!d) return "—";
-  const [y, m, day] = d.split("-");
-  return `${day}/${m}/${y}`;
 }
 
 function onlyDigits(s: string): string {
@@ -283,8 +279,8 @@ export function FiadosClientesPanel({ receber, loading }: Props) {
         open={!!clienteAberto}
         onOpenChange={(o) => !o && setClienteAberto(null)}
       >
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[90vh] max-w-3xl flex-col overflow-hidden">
+          <DialogHeader className="shrink-0">
             <DialogTitle>{clienteAbertoLive?.nome ?? clienteAberto?.nome}</DialogTitle>
             <DialogDescription>
               {clienteAberto?.documento ? `CPF/CNPJ: ${clienteAberto.documento}` : null}
@@ -294,7 +290,7 @@ export function FiadosClientesPanel({ receber, loading }: Props) {
           </DialogHeader>
 
           {clienteAbertoLive && (
-            <div className="grid grid-cols-3 gap-3 rounded-md border bg-muted/30 p-3 text-sm">
+            <div className="shrink-0 grid grid-cols-3 gap-3 rounded-md border bg-muted/30 p-3 text-sm">
               <div>
                 <p className="text-xs text-muted-foreground">Total em aberto</p>
                 <p className="font-mono font-semibold tabular-nums text-warning">
@@ -314,7 +310,7 @@ export function FiadosClientesPanel({ receber, loading }: Props) {
             </div>
           )}
 
-          <div className="max-h-[55vh] overflow-auto rounded-md border">
+          <div className="min-h-0 flex-1 overflow-auto rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -394,6 +390,11 @@ export function FiadosClientesPanel({ receber, loading }: Props) {
               </TableBody>
             </Table>
           </div>
+          <DialogFooter className="z-10 shrink-0 border-t border-border bg-background pt-4">
+            <Button variant="outline" onClick={() => setClienteAberto(null)}>
+              Fechar
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

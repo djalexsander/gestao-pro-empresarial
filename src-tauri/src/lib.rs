@@ -8,6 +8,31 @@ use chrono::Utc;
 use local_server::LocalServerStatus;
 use printers::PrinterInfo;
 use serde::{Deserialize, Serialize};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
+use tauri::{Emitter, Manager, State, WindowEvent};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+
+const CAIXA_ABERTO_EXIT_MESSAGE: &str =
+    "Existe um caixa aberto. Feche o caixa antes de encerrar o aplicativo.";
+
+#[derive(Default)]
+struct DesktopExitGuardState {
+    initialized: AtomicBool,
+    has_caixa_aberto: AtomicBool,
+    snapshot: Mutex<Option<DesktopExitGuardSnapshot>>,
+}
+
+#[derive(Debug, Clone)]
+struct DesktopExitGuardSnapshot {
+    caixa_id: Option<String>,
+    owner_id: Option<String>,
+    operador_id: Option<String>,
+    terminal_id: Option<String>,
+    source: Option<String>,
+}
 
 #[tauri::command]
 async fn start_local_server(
@@ -67,6 +92,62 @@ async fn local_server_status() -> LocalServerStatus {
         status.running, status.port, status.started_at
     );
     status
+}
+
+#[tauri::command]
+fn desktop_has_caixa_aberto(
+    owner_id: Option<String>,
+    operador_id: Option<String>,
+    terminal_id: Option<String>,
+) -> Result<bool, String> {
+    let Some(owner_id) = owner_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
+        eprintln!("[gestao-pro] desktop_has_caixa_aberto sem owner_id; liberando fechamento");
+        return Ok(false);
+    };
+    let operador = operador_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let terminal = terminal_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let result = db::existe_caixa_local_aberto(Some(owner_id), operador, terminal);
+    eprintln!(
+        "[gestao-pro] desktop_has_caixa_aberto diagnostico owner_id={} operador_id={:?} terminal_id={:?} result={:?}",
+        owner_id,
+        operador,
+        terminal,
+        result.as_ref().ok()
+    );
+    result.map_err(|e| e.0)
+}
+
+#[tauri::command]
+fn desktop_set_caixa_exit_guard(
+    state: State<'_, DesktopExitGuardState>,
+    has_caixa_aberto: bool,
+    caixa_id: Option<String>,
+    owner_id: Option<String>,
+    operador_id: Option<String>,
+    terminal_id: Option<String>,
+    source: Option<String>,
+) {
+    state.has_caixa_aberto.store(has_caixa_aberto, Ordering::SeqCst);
+    state.initialized.store(true, Ordering::SeqCst);
+    let snapshot = DesktopExitGuardSnapshot {
+        caixa_id,
+        owner_id,
+        operador_id,
+        terminal_id,
+        source,
+    };
+    eprintln!(
+        "[gestao-pro] desktop_set_caixa_exit_guard react_state has_caixa_aberto={} caixa_id={:?} owner_id={:?} operador_id={:?} terminal_id={:?} source={:?}",
+        has_caixa_aberto,
+        snapshot.caixa_id.as_deref(),
+        snapshot.owner_id.as_deref(),
+        snapshot.operador_id.as_deref(),
+        snapshot.terminal_id.as_deref(),
+        snapshot.source.as_deref()
+    );
+    if let Ok(mut guard) = state.snapshot.lock() {
+        *guard = Some(snapshot);
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -305,6 +386,7 @@ fn print_label_image(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(DesktopExitGuardState::default())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
@@ -315,6 +397,8 @@ pub fn run() {
             start_local_server,
             stop_local_server,
             local_server_status,
+            desktop_has_caixa_aberto,
+            desktop_set_caixa_exit_guard,
             backup_create,
             backup_status,
             backup_list,
@@ -359,6 +443,60 @@ pub fn run() {
                 }
             }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let state = window.state::<DesktopExitGuardState>();
+                let react_initialized = state.initialized.load(Ordering::SeqCst);
+                let react_has_caixa = state.has_caixa_aberto.load(Ordering::SeqCst);
+                let snapshot = state
+                    .snapshot
+                    .lock()
+                    .ok()
+                    .and_then(|guard| guard.clone());
+                let backend_has_caixa = snapshot.as_ref().and_then(|s| {
+                    db::existe_caixa_local_aberto(
+                        s.owner_id.as_deref(),
+                        s.operador_id.as_deref(),
+                        s.terminal_id.as_deref(),
+                    )
+                    .ok()
+                });
+                let snapshot_caixa_id = snapshot.as_ref().and_then(|s| s.caixa_id.as_deref());
+                let snapshot_owner_id = snapshot.as_ref().and_then(|s| s.owner_id.as_deref());
+                let snapshot_operador_id =
+                    snapshot.as_ref().and_then(|s| s.operador_id.as_deref());
+                let snapshot_terminal_id =
+                    snapshot.as_ref().and_then(|s| s.terminal_id.as_deref());
+                let snapshot_source = snapshot.as_ref().and_then(|s| s.source.as_deref());
+                eprintln!(
+                    "[gestao-pro] CloseRequested caixa_exit_guard react_initialized={} react_has_caixa={} caixa_id={:?} owner_id={:?} operador_id={:?} terminal_id={:?} source={:?} backend_has_caixa_local={:?}",
+                    react_initialized,
+                    react_has_caixa,
+                    snapshot_caixa_id,
+                    snapshot_owner_id,
+                    snapshot_operador_id,
+                    snapshot_terminal_id,
+                    snapshot_source,
+                    backend_has_caixa
+                );
+                let should_block = react_initialized && react_has_caixa;
+                if should_block {
+                    eprintln!(
+                        "[gestao-pro] CloseRequested bloqueado pela fonte React/canonica; backend local e apenas diagnostico"
+                    );
+                    api.prevent_close();
+                    let _ = window.emit("gp://caixa-close-blocked", CAIXA_ABERTO_EXIT_MESSAGE);
+                    window
+                        .dialog()
+                        .message(CAIXA_ABERTO_EXIT_MESSAGE)
+                        .title("Caixa aberto")
+                        .kind(MessageDialogKind::Warning)
+                        .buttons(MessageDialogButtons::Ok)
+                        .parent(window)
+                        .show(|_| {});
+                }
+            }
         })
         .run(tauri::generate_context!())
         .expect("error while running Gestão Pro desktop app");

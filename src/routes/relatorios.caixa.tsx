@@ -51,7 +51,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { ModuloGate } from "@/components/saas/ModuloGate";
 import { supabase } from "@/integrations/supabase/client";
-import { dateTimeFromMs } from "@/lib/financeiro-local";
+import { dateTimeFromMs } from "@/lib/date-ms";
 import { formatBRL } from "@/lib/mock-data";
 import { exportRowsToCSV, type CsvColumn } from "@/lib/export-csv";
 import { cn } from "@/lib/utils";

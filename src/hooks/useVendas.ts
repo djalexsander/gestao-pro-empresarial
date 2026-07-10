@@ -2,9 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { dataClient } from "@/integrations/data";
-import { getDataMode } from "@/integrations/data/mode";
-import { getDesktopConfig } from "@/integrations/desktop/configStore";
-import { getBaseUrl } from "@/integrations/desktop/serverConnection";
 import type {
   CancelarVendaResumo as DataCancelarVendaResumo,
   FinalizarVendaInput as DataFinalizarVendaInput,
@@ -29,20 +26,6 @@ export type VendaStatus =
   | "cancelada"
   | string;
 
-function isLocalVendasMode(): boolean {
-  const mode = getDataMode();
-  return mode === "local-server" || mode === "local-terminal";
-}
-
-function getLocalVendasBaseUrl(): string | null {
-  const cfg = getDesktopConfig();
-  if (cfg.role === "server") {
-    const porta = cfg.terminal?.porta ?? 3333;
-    return `http://127.0.0.1:${porta}`;
-  }
-  return getBaseUrl(cfg.terminal);
-}
-
 function vendasErrorMessage(error: Error): string {
   const message = error.message || "";
   if (
@@ -53,28 +36,6 @@ function vendasErrorMessage(error: Error): string {
     return "Servidor local demorou para responder. Verifique a conexão local e tente novamente.";
   }
   return message || "Não foi possível concluir a venda.";
-}
-
-async function fetchLocalVendasJson<T>(
-  path: string,
-  query?: Record<string, string | undefined>,
-): Promise<T> {
-  const baseUrl = getLocalVendasBaseUrl();
-  if (!baseUrl) throw new Error("Servidor local nao configurado");
-  const url = new URL(`${baseUrl}${path}`);
-  for (const [key, value] of Object.entries(query ?? {})) {
-    if (value != null && value !== "") url.searchParams.set(key, value);
-  }
-  const res = await fetch(url.toString(), {
-    method: "GET",
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(await res.text());
-  const json = (await res.json()) as { data?: T } | T;
-  return json && typeof json === "object" && "data" in json
-    ? (json as { data: T }).data
-    : (json as T);
 }
 
 /**
@@ -96,9 +57,6 @@ export function useFinalizarVendaPDV() {
       qc.invalidateQueries({ queryKey: ["estoque-saldos"] });
       qc.invalidateQueries({ queryKey: ["movimentacoes"] });
       qc.invalidateQueries({ queryKey: ["financeiro"] });
-      if (isLocalVendasMode()) {
-        toast.success("Venda salva localmente e será sincronizada quando a conexão estiver disponível.");
-      }
     },
     onError: (e: Error) => toast.error(vendasErrorMessage(e)),
   });
@@ -110,22 +68,6 @@ export function useSaldosLote() {
   return useMutation({
     mutationFn: async (produtoIds: string[]) => {
       if (produtoIds.length === 0) return new Map<string, number>();
-      if (isLocalVendasMode()) {
-        const linhas = await dataClient.estoque.saldosLinhas();
-        const solicitados = new Set(produtoIds);
-        const map = new Map<string, number>();
-        for (const linha of linhas) {
-          if (!solicitados.has(linha.produto_id)) continue;
-          const qtd = Number(linha.quantidade) || 0;
-          const delta =
-            linha.tipo === "saida" || linha.tipo === "transferencia" ? -qtd : qtd;
-          map.set(
-            linha.produto_id,
-            (map.get(linha.produto_id) ?? 0) + delta,
-          );
-        }
-        return map;
-      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await (supabase as any).rpc("saldos_estoque_lote", {
         _produto_ids: produtoIds,
@@ -166,11 +108,6 @@ export function useVendas() {
   return useQuery({
     queryKey: ["vendas", "list"],
     queryFn: async (): Promise<VendaListItem[]> => {
-      if (isLocalVendasMode()) {
-        return fetchLocalVendasJson<VendaListItem[]>("/api/vendas/list", {
-          limit: "500",
-        });
-      }
       const { data, error } = await supabase
         .from("vendas")
         .select(
@@ -208,6 +145,8 @@ export interface VendaDetalhe {
   data_finalizacao: string | null;
   subtotal: number;
   desconto: number;
+  frete: number;
+  outros: number;
   total: number;
   valor_recebido: number | null;
   troco: number | null;
@@ -231,9 +170,13 @@ export interface VendaDetalhe {
     quantidade: number;
     preco_unitario: number;
     desconto: number;
+    acrescimo: number;
     total: number;
+    unidade: string | null;
     produto_nome: string | null;
     sku: string | null;
+    variacao_nome: string | null;
+    observacoes: string[];
   }>;
   pagamentos: Array<{
     id: string;
@@ -252,15 +195,10 @@ export function useVendaDetalhe(vendaId: string | null) {
     enabled: !!vendaId,
     queryFn: async (): Promise<VendaDetalhe | null> => {
       if (!vendaId) return null;
-      if (isLocalVendasMode()) {
-        return fetchLocalVendasJson<VendaDetalhe | null>("/api/vendas/detalhe", {
-          venda_id: vendaId,
-        });
-      }
       const { data: v, error } = await supabase
         .from("vendas")
         .select(
-          "id, numero, data_emissao, data_finalizacao, subtotal, desconto, total, valor_recebido, troco, status, status_pagamento, forma_pagamento, observacoes, cliente:clientes(nome)",
+          "id, numero, data_emissao, data_finalizacao, subtotal, desconto, frete, outros, total, valor_recebido, troco, status, status_pagamento, forma_pagamento, observacoes, cliente:clientes(nome)",
         )
         .eq("id", vendaId)
         .single();
@@ -269,9 +207,10 @@ export function useVendaDetalhe(vendaId: string | null) {
       const { data: itens, error: e2 } = await supabase
         .from("venda_itens")
         .select(
-          "id, produto_id, descricao, quantidade, preco_unitario, desconto, total, produto:produtos(nome, sku)",
+          "id, produto_id, descricao, quantidade, preco_unitario, desconto, total, codigo_lido, vendido_por_peso, peso_extraido, preco_por_kg, tipo_interpretacao, produto:produtos(nome, sku, unidade), variacao:produto_variacoes(nome, sku)",
         )
-        .eq("venda_id", vendaId);
+        .eq("venda_id", vendaId)
+        .order("created_at", { ascending: true });
       if (e2) throw e2;
 
       const { data: pagamentos, error: e3 } = await supabase
@@ -305,6 +244,8 @@ export function useVendaDetalhe(vendaId: string | null) {
         data_finalizacao: vAny.data_finalizacao,
         subtotal: Number(vAny.subtotal) || 0,
         desconto: Number(vAny.desconto) || 0,
+        frete: Number(vAny.frete) || 0,
+        outros: Number(vAny.outros) || 0,
         total,
         valor_recebido: vAny.valor_recebido,
         troco: vAny.troco,
@@ -322,9 +263,29 @@ export function useVendaDetalhe(vendaId: string | null) {
           quantidade: Number(i.quantidade) || 0,
           preco_unitario: Number(i.preco_unitario) || 0,
           desconto: Number(i.desconto) || 0,
+          acrescimo: 0,
           total: Number(i.total) || 0,
+          unidade: i.produto?.unidade ?? null,
           produto_nome: i.produto?.nome ?? null,
           sku: i.produto?.sku ?? null,
+          variacao_nome: i.variacao?.nome ?? null,
+          observacoes: [
+            i.variacao?.nome ? `Variacao: ${i.variacao.nome}` : null,
+            i.variacao?.sku ? `SKU variacao: ${i.variacao.sku}` : null,
+            i.vendido_por_peso && i.peso_extraido != null
+              ? `Peso: ${Number(i.peso_extraido).toLocaleString("pt-BR", {
+                  maximumFractionDigits: 3,
+                })} kg`
+              : null,
+            i.preco_por_kg != null
+              ? `Preco/kg: ${Number(i.preco_por_kg).toLocaleString("pt-BR", {
+                  style: "currency",
+                  currency: "BRL",
+                })}`
+              : null,
+            i.codigo_lido ? `Codigo lido: ${i.codigo_lido}` : null,
+            i.tipo_interpretacao ? `Interpretacao: ${i.tipo_interpretacao}` : null,
+          ].filter(Boolean) as string[],
         })),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         pagamentos: (pagamentos ?? []).map((p: any) => ({
@@ -358,7 +319,6 @@ export function useVendaStatusHistorico(vendaId: string | null) {
     enabled: !!vendaId,
     queryFn: async (): Promise<VendaStatusHistoricoItem[]> => {
       if (!vendaId) return [];
-      if (isLocalVendasMode()) return [];
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await (supabase as any)
         .from("vendas_status_historico")
@@ -438,12 +398,6 @@ export function useVendaMetricasPeriodo(dataInicio: string, dataFim: string) {
   return useQuery({
     queryKey: ["vendas", "metricas", dataInicio, dataFim],
     queryFn: async (): Promise<VendaMetricas> => {
-      if (isLocalVendasMode()) {
-        return fetchLocalVendasJson<VendaMetricas>("/api/vendas/resumo", {
-          data_inicio: dataInicio,
-          data_fim: dataFim,
-        });
-      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await (supabase as any).rpc("venda_metricas_periodo", {
         _data_inicio: dataInicio,

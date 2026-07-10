@@ -27,6 +27,8 @@ import {
   type ExportFormato,
 } from "@/lib/export-relatorio-card";
 import type { CsvColumn } from "@/lib/export-csv";
+import { fetchDashboardFinanceiroKpi } from "@/lib/dashboard-financeiro-kpis";
+import { fetchDashboardLucroBruto } from "@/lib/dashboard-lucro-bruto";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/components/auth/AuthProvider";
 
@@ -175,71 +177,39 @@ export function KpiDetailDialog({
       }
 
       if (tipo === "lucro") {
-        const [vendasRes, comprasRes] = await Promise.all([
-          supabase
-            .from("vendas")
-            .select("total, data_emissao")
-            .gte("data_emissao", inicioISO)
-            .lte("data_emissao", fimISO)
-            .neq("status", "cancelada"),
-          supabase
-            .from("compras")
-            .select("total, data_emissao")
-            .gte("data_emissao", inicioISO)
-            .lte("data_emissao", fimISO),
-        ]);
-        const totalVendas = (vendasRes.data ?? []).reduce(
-          (s, v) => s + Number(v.total ?? 0),
-          0,
+        const lucroBruto = await fetchDashboardLucroBruto(
+          `${inicioISO}T00:00:00`,
+          `${fimISO}T23:59:59.999`,
         );
-        const totalCompras = (comprasRes.data ?? []).reduce(
-          (s, c) => s + Number(c.total ?? 0),
-          0,
-        );
-        const lucro = totalVendas - totalCompras;
-        const margem = totalVendas > 0 ? (lucro / totalVendas) * 100 : 0;
         // Linha por mês (até 6 meses do período)
-        const porMes = new Map<string, { vendas: number; compras: number }>();
-        for (const v of vendasRes.data ?? []) {
-          const d = new Date(v.data_emissao);
-          const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-          const ref = porMes.get(k) ?? { vendas: 0, compras: 0 };
-          ref.vendas += Number(v.total ?? 0);
-          porMes.set(k, ref);
-        }
-        for (const c of comprasRes.data ?? []) {
-          const d = new Date(c.data_emissao);
-          const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-          const ref = porMes.get(k) ?? { vendas: 0, compras: 0 };
-          ref.compras += Number(c.total ?? 0);
-          porMes.set(k, ref);
-        }
-        const rows: DetalheRow[] = Array.from(porMes.entries())
-          .sort(([a], [b]) => (a < b ? 1 : -1))
-          .map(([k, val]) => {
-            const lucroMes = val.vendas - val.compras;
-            return {
-              identificador: k,
-              data: `${k}-01`,
-              descricao: `Vendas ${formatBRL(val.vendas)} · Compras ${formatBRL(val.compras)}`,
-              valor: lucroMes,
-              status: lucroMes >= 0 ? "lucro" : "prejuizo",
-            };
-          });
+        const rows: DetalheRow[] = lucroBruto.porMes.map((mes) => ({
+          identificador: mes.chave,
+          data: `${mes.chave}-01`,
+          descricao: `Receita ${formatBRL(mes.receita)} - CMV ${formatBRL(mes.custo)}${
+            mes.qtdItensSemCusto > 0 ? ` - ${mes.qtdItensSemCusto} itens sem custo` : ""
+          }`,
+          valor: mes.lucro,
+          status: mes.lucro >= 0 ? "lucro" : "prejuizo",
+        }));
         return {
           rows,
           resumo: [
-            { label: "Receita total", valor: formatBRL(totalVendas), tone: "success" },
-            { label: "Custo total", valor: formatBRL(totalCompras), tone: "info" },
+            { label: "Receita total", valor: formatBRL(lucroBruto.receita), tone: "success" },
+            { label: "Custo dos vendidos", valor: formatBRL(lucroBruto.custo), tone: "info" },
             {
               label: "Lucro do período",
-              valor: formatBRL(lucro),
-              tone: lucro >= 0 ? "success" : "danger",
+              valor: formatBRL(lucroBruto.lucro),
+              tone: lucroBruto.lucro >= 0 ? "success" : "danger",
             },
             {
               label: "Margem",
-              valor: `${margem.toFixed(1)}%`,
-              tone: lucro >= 0 ? "success" : "danger",
+              valor: `${lucroBruto.margem.toFixed(1)}%`,
+              tone: lucroBruto.lucro >= 0 ? "success" : "danger",
+            },
+            {
+              label: "Itens sem custo",
+              valor: `${lucroBruto.qtdItensSemCusto}/${lucroBruto.qtdItens}`,
+              tone: lucroBruto.qtdItensSemCusto > 0 ? "warning" : "muted",
             },
           ],
         };
@@ -247,76 +217,21 @@ export function KpiDetailDialog({
 
       if (tipo === "contas-pagar" || tipo === "contas-receber") {
         const isPagar = tipo === "contas-pagar";
-        const { data: lancs } = await supabase
-          .from("financeiro_lancamentos")
-          .select(
-            "id, descricao, valor, valor_pago, status, data_vencimento, tipo, fornecedor_id, cliente_id",
-          )
-          .eq("tipo", isPagar ? "despesa" : "receita")
-          .neq("status", "pago")
-          .neq("status", "cancelado")
-          .order("data_vencimento", { ascending: true });
-
-        const fornIds = [
-          ...new Set(
-            (lancs ?? []).map((l) => l.fornecedor_id).filter(Boolean) as string[],
-          ),
-        ];
-        const cliIds = [
-          ...new Set((lancs ?? []).map((l) => l.cliente_id).filter(Boolean) as string[]),
-        ];
-        const [fornRes, cliRes] = await Promise.all([
-          fornIds.length
-            ? supabase
-                .from("fornecedores")
-                .select("id, razao_social, nome_fantasia")
-                .in("id", fornIds)
-            : Promise.resolve({ data: [] as { id: string; razao_social: string; nome_fantasia: string | null }[] }),
-          cliIds.length
-            ? supabase.from("clientes").select("id, nome").in("id", cliIds)
-            : Promise.resolve({ data: [] as { id: string; nome: string }[] }),
-        ]);
-        const fornMap = new Map(
-          (fornRes.data ?? []).map((f) => [f.id, f.nome_fantasia || f.razao_social]),
-        );
-        const cliMap = new Map((cliRes.data ?? []).map((c) => [c.id, c.nome]));
-
-        const hojeStr = new Date().toISOString().slice(0, 10);
-        const rows: DetalheRow[] = (lancs ?? []).map((l) => {
-          const aberto = Number(l.valor) - Number(l.valor_pago ?? 0);
-          const contraparte = isPagar
-            ? l.fornecedor_id
-              ? (fornMap.get(l.fornecedor_id) ?? "—")
-              : "—"
-            : l.cliente_id
-              ? (cliMap.get(l.cliente_id) ?? "—")
-              : "—";
-          const venc = l.data_vencimento ?? "";
-          const status =
-            venc && venc < hojeStr ? "vencido" : (l.status ?? "aberto");
-          return {
-            identificador: contraparte,
-            data: venc,
-            descricao: l.descricao,
-            valor: aberto,
-            status,
-          };
-        });
-        const total = rows.reduce((s, r) => s + r.valor, 0);
-        const vencidos = rows.filter((r) => r.status === "vencido");
+        const kpi = await fetchDashboardFinanceiroKpi(isPagar ? "pagar" : "receber");
+        const rows: DetalheRow[] = kpi.rows;
         return {
           rows,
           resumo: [
             {
               label: "Total em aberto",
-              valor: formatBRL(total),
+              valor: formatBRL(kpi.total),
               tone: isPagar ? "warning" : "success",
             },
-            { label: "Quantidade", valor: String(rows.length), tone: "info" },
+            { label: "Quantidade", valor: String(kpi.quantidade), tone: "info" },
             {
               label: "Vencidos",
-              valor: `${vencidos.length} (${formatBRL(vencidos.reduce((s, r) => s + r.valor, 0))})`,
-              tone: vencidos.length > 0 ? "danger" : "muted",
+              valor: `${kpi.vencidosQuantidade} (${formatBRL(kpi.vencidosTotal)})`,
+              tone: kpi.vencidosQuantidade > 0 ? "danger" : "muted",
             },
           ],
         };
@@ -438,7 +353,7 @@ export function KpiDetailDialog({
       await exportarRelatorioCard(formato, {
         prefix: `dashboard_${tipo}`,
         titulo: `Dashboard — ${TITULOS[tipo]}`,
-        periodo: periodo.label,
+        periodo: isFin ? "Carteira em aberto atual" : periodo.label,
         resumo: resumo.map((r) => ({ label: r.label, valor: r.valor, tone: r.tone })),
         rows,
         columns,
@@ -456,6 +371,7 @@ export function KpiDetailDialog({
 
   const titulo = tipo ? TITULOS[tipo] : "";
   const descricao = tipo ? DESCRICOES[tipo] : "";
+  const isFinanceiroAberto = tipo === "contas-pagar" || tipo === "contas-receber";
 
   function formatDataCelula(d: string | null) {
     if (!d) return "—";
@@ -472,14 +388,20 @@ export function KpiDetailDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-3xl">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden sm:max-w-3xl">
+          <DialogHeader className="shrink-0">
             <DialogTitle>{titulo}</DialogTitle>
             <DialogDescription>
-              {descricao} {periodo.label ? `Período: ${periodo.label}` : null}
+              {descricao}{" "}
+              {isFinanceiroAberto
+                ? "Carteira em aberto atual."
+                : periodo.label
+                  ? `Periodo: ${periodo.label}`
+                  : null}
             </DialogDescription>
           </DialogHeader>
 
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden px-1 py-2 pr-2">
           {/* Resumo */}
           {resumo.length > 0 && (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -508,7 +430,8 @@ export function KpiDetailDialog({
           )}
 
           {/* Tabela */}
-          <ScrollArea className="max-h-[50vh] rounded-md border">
+          <div className="flex-1 min-h-0">
+            <ScrollArea className="rounded-md border">
             {query.isLoading ? (
               <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -535,7 +458,7 @@ export function KpiDetailDialog({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.slice(0, 100).map((r, idx) => {
+                  {rows.map((r, idx) => {
                     if (tipo === "estoque-baixo") {
                       return (
                         <TableRow key={`${r.identificador}-${idx}`}>
@@ -610,14 +533,11 @@ export function KpiDetailDialog({
                 </TableBody>
               </Table>
             )}
-          </ScrollArea>
-          {rows.length > 100 && (
-            <p className="text-xs text-muted-foreground">
-              Exibindo os primeiros 100 registros. A exportação inclui todos os {rows.length} itens.
-            </p>
-          )}
+            </ScrollArea>
+          </div>
+          </div>
 
-          <DialogFooter className="gap-2 sm:space-x-0">
+          <DialogFooter className="shrink-0 gap-2 border-t border-border pt-4 sm:space-x-0">
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               Fechar
             </Button>

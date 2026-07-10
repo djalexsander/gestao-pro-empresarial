@@ -19,6 +19,9 @@ import {
   Pencil,
   MessageCircle,
   Copy,
+  Loader2,
+  AlertTriangle,
+  Printer,
 } from "lucide-react";
 import { gerarPixCopiaCola } from "@/lib/pix";
 import { toast } from "sonner";
@@ -36,7 +39,12 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { supabase } from "@/integrations/supabase/client";
 import { dataClient } from "@/integrations/data";
 import { formatBRL } from "@/lib/mock-data";
+import { formatDateBR, formatDateTimeBR } from "@/lib/date-format";
 import { useHotkeys } from "@/hooks/useHotkeys";
+import { useVendaDetalhe, type VendaDetalhe } from "@/hooks/useVendas";
+import { useConfigEmpresa } from "@/hooks/useConfigEmpresa";
+import { imprimirCupom } from "@/lib/cupom-print";
+import type { CupomData } from "@/lib/cupom";
 import { ConciliarIfoodDialog } from "./ConciliarIfoodDialog";
 import { RegistrarPagamentoDialog } from "./RegistrarPagamentoDialog";
 import { LancamentoFormDialog } from "./LancamentoFormDialog";
@@ -90,14 +98,6 @@ interface PagamentoHist {
   created_at: string;
 }
 
-function formatDate(d: string | null | undefined): string {
-  if (!d) return "—";
-  const onlyDate = d.length === 10 ? d : d.slice(0, 10);
-  const [y, m, day] = onlyDate.split("-");
-  if (!y || !m || !day) return d;
-  return `${day}/${m}/${y}`;
-}
-
 function statusInfo(l: LancamentoDetalhe): {
   label: string;
   tone: "success" | "warning" | "danger" | "neutral" | "info";
@@ -145,6 +145,8 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
   const [pagamentoOpen, setPagamentoOpen] = useState(false);
   const [pagamentoModoTotal, setPagamentoModoTotal] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [imprimindo, setImprimindo] = useState(false);
+  const { data: empresa } = useConfigEmpresa();
 
   // owner_id atual (usuário autenticado) para inserção do pagamento
   const { data: ownerId = "" } = useQuery({
@@ -184,6 +186,48 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
       return data ?? [];
     },
   });
+
+  // Resolve o vínculo pela FK canônica. Para títulos antigos cuja FK não foi
+  // gravada, recupera primeiro o lançamento no banco e só então usa o número
+  // exato da venda, sempre limitado ao mesmo owner.
+  const vendaResolvida = useQuery({
+    queryKey: ["lancamento_venda_resolvida", lancamento?.id, lancamento?.venda_id, lancamento?.venda_numero],
+    enabled: open && !!lancamento?.id && !!(lancamento?.venda_id || lancamento?.venda_numero || lancamento?.numero_documento),
+    queryFn: async (): Promise<string | null> => {
+      if (!lancamento) return null;
+      if (lancamento.venda_id) return lancamento.venda_id;
+      const { data: lancamentoDb, error: lancamentoError } = await supabase
+        .from("financeiro_lancamentos")
+        .select("venda_id, numero_documento, descricao, owner_id")
+        .eq("id", lancamento.id)
+        .single();
+      if (lancamentoError) throw lancamentoError;
+      if (lancamentoDb.venda_id) return lancamentoDb.venda_id;
+
+      const candidatos = [
+        lancamento.venda_numero,
+        lancamento.numero_documento,
+        lancamentoDb.numero_documento,
+        lancamento.descricao.match(/\bVND-\d+\b/i)?.[0],
+        lancamentoDb.descricao.match(/\bVND-\d+\b/i)?.[0],
+      ]
+        .filter((numero): numero is string => !!numero && /^VND-\d+$/i.test(numero.trim()))
+        .map((numero) => numero.trim().toUpperCase());
+      const numeroVenda = [...new Set(candidatos)][0];
+      if (!numeroVenda || !lancamentoDb.owner_id) return null;
+      const { data: venda, error: vendaError } = await supabase
+        .from("vendas")
+        .select("id")
+        .eq("numero", numeroVenda)
+        .eq("owner_id", lancamentoDb.owner_id)
+        .maybeSingle();
+      if (vendaError) throw vendaError;
+      return venda?.id ?? null;
+    },
+  });
+
+  const vendaIdResolvida = lancamento?.venda_id ?? vendaResolvida.data ?? null;
+  const vendaDetalhe = useVendaDetalhe(open && vendaIdResolvida ? vendaIdResolvida : null);
 
   const cancelarTitulo = useMutation({
     mutationFn: async () => {
@@ -329,11 +373,76 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
     totalPago === 0 &&
     (lancamento.status === "pendente" || lancamento.status === "cancelado");
 
+  async function handleImprimir() {
+    if (!lancamento) return;
+    const venda = vendaDetalhe.data;
+    if (!venda) {
+      toast.error("Não foi possível carregar os dados da venda para impressão.");
+      return;
+    }
+    const statusCupom = saldoRestante <= 0 ? "pago" : totalPago > 0 ? "parcial" : "pendente";
+    const cupom: CupomData = {
+      titulo: "COMPROVANTE DE VENDA FIADO",
+      numero: lancamento.venda_numero ?? venda.numero,
+      data: new Date(lancamento.venda_data ?? venda.data_finalizacao ?? venda.data_emissao),
+      impressoEm: new Date(),
+      cliente: lancamento.cliente_nome ? { nome: lancamento.cliente_nome, documento: lancamento.cliente_documento, telefone: lancamento.cliente_telefone } : null,
+      itens: venda.itens.map((item) => ({
+        descricao: [item.produto_nome ?? item.descricao ?? "Produto", item.variacao_nome].filter(Boolean).join(" - "),
+        sku: item.sku,
+        quantidade: item.quantidade,
+        unidade: item.unidade,
+        preco_unitario: item.preco_unitario,
+        desconto: item.desconto,
+        total: item.total,
+      })),
+      subtotal: venda.subtotal,
+      desconto: venda.desconto,
+      outros: venda.outros,
+      frete: venda.frete,
+      total: venda.total,
+      totalItens: venda.itens.reduce((total, item) => total + item.quantidade, 0),
+      forma: "fiado",
+      status: statusCupom,
+      valorPago: totalPago,
+      saldoRestante,
+      troco: 0,
+      observacao: [
+        `Telefone do cliente: ${lancamento.cliente_telefone ?? "—"}`,
+        `Data da venda: ${formatDateBR(lancamento.venda_data ?? venda.data_finalizacao ?? venda.data_emissao)}`,
+        `Emissão: ${formatDateBR(lancamento.data_emissao ?? null)}`,
+        `Vencimento: ${formatDateBR(lancamento.data_vencimento)}`,
+        `Forma original: ${lancamento.forma_pagamento ?? "fiado"}`,
+        `Status atual: ${info.label}`,
+        `Acréscimos/outros: ${formatBRL(venda.outros)}`,
+        `Frete: ${formatBRL(venda.frete)}`,
+        `Valor já pago: ${formatBRL(totalPago)}`,
+        `Saldo restante: ${formatBRL(saldoRestante)}`,
+      ].join("\n"),
+      mensagemRodape: saldoRestante <= 0 ? "Título quitado." : "Este comprovante não representa quitação enquanto houver saldo em aberto.",
+    };
+    setImprimindo(true);
+    try {
+      const resultado = await imprimirCupom(empresa ?? null, cupom);
+      if (resultado.ok) {
+        toast.success(resultado.printerName ? `Comprovante enviado para "${resultado.printerName}".` : "Impressão aberta.");
+      } else if (resultado.needsPicker || resultado.noPrinters) {
+        toast.error(resultado.warning ?? "Nenhuma impressora configurada. Configure a impressora de cupons em Configurações → Impressoras.");
+      } else {
+        toast.error(resultado.error ?? resultado.warning ?? "Não foi possível imprimir o comprovante.");
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível imprimir o comprovante.");
+    } finally {
+      setImprimindo(false);
+    }
+  }
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto overflow-x-hidden sm:max-w-3xl lg:max-w-4xl">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden sm:max-w-3xl lg:max-w-4xl">
+          <DialogHeader className="shrink-0">
             <DialogTitle className="flex items-center justify-between gap-3">
               <span className="truncate">{lancamento.descricao}</span>
               <StatusBadge status={info.label} tone={info.tone} />
@@ -343,7 +452,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-2">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden px-1 py-2 pr-2">
             {/* Resumo financeiro */}
             <div className="grid grid-cols-3 gap-3 rounded-md border bg-muted/30 p-3">
               <div>
@@ -378,13 +487,13 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
             {/* Datas e status */}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field icon={Calendar} label="Vencimento">
-                {formatDate(lancamento.data_vencimento)}
+                {formatDateBR(lancamento.data_vencimento)}
               </Field>
               <Field icon={Calendar} label="Emissão">
-                {formatDate(lancamento.data_emissao ?? null)}
+                {formatDateBR(lancamento.data_emissao ?? null)}
               </Field>
               <Field icon={CheckCircle2} label="Último pagamento">
-                {formatDate(lancamento.data_pagamento)}
+                {formatDateBR(lancamento.data_pagamento)}
               </Field>
               {lancamento.forma_pagamento && (
                 <Field icon={Wallet} label="Forma original">
@@ -403,7 +512,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
               )}
               {lancamento.created_at && (
                 <Field icon={Clock} label="Criado em">
-                  {formatDate(lancamento.created_at)}
+                  {formatDateTimeBR(lancamento.created_at)}
                 </Field>
               )}
             </div>
@@ -453,7 +562,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
                       {lancamento.venda_numero ?? "—"}
                     </Field>
                     <Field icon={Calendar} label="Data">
-                      {formatDate(lancamento.venda_data ?? null)}
+                      {formatDateBR(lancamento.venda_data ?? null)}
                     </Field>
                     <Field icon={Wallet} label="Total">
                       {formatBRL(Number(lancamento.venda_total ?? 0))}
@@ -464,6 +573,17 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
             )}
 
             {/* Histórico de pagamentos */}
+            {temVenda && (
+              <>
+                <Separator />
+                <ItensVendaSection
+                  venda={vendaDetalhe.data}
+                  isLoading={vendaResolvida.isLoading || vendaDetalhe.isLoading}
+                  isError={vendaResolvida.isError || vendaDetalhe.isError}
+                />
+              </>
+            )}
+
             {pagamentos.length > 0 && (
               <>
                 <Separator />
@@ -480,7 +600,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
                       >
                         <div className="min-w-0 flex-1">
                           <p className="font-medium">
-                            {formatDate(p.data_pagamento)}
+                            {formatDateBR(p.data_pagamento)}
                             {p.forma_pagamento && (
                               <span className="ml-2 text-xs text-muted-foreground">
                                 {p.forma_pagamento}
@@ -527,9 +647,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
                     <div>
                       <p className="text-muted-foreground">Conciliado em</p>
                       <p className="font-medium">
-                        {lancamento.conciliado_em
-                          ? new Date(lancamento.conciliado_em).toLocaleString("pt-BR")
-                          : "—"}
+                        {formatDateTimeBR(lancamento.conciliado_em)}
                       </p>
                     </div>
                     <div>
@@ -570,13 +688,12 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
                 </div>
               </>
             )}
+            {!isPagar && !jaResolvido && (
+              <CobrancaActions lancamento={lancamento} saldoRestante={saldoRestante} />
+            )}
           </div>
 
-          {!isPagar && !jaResolvido && (
-            <CobrancaActions lancamento={lancamento} saldoRestante={saldoRestante} />
-          )}
-
-          <DialogFooter className="flex flex-col-reverse flex-wrap gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <DialogFooter className="z-10 shrink-0 border-t border-border bg-background pt-4 flex flex-col-reverse flex-wrap gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap gap-2 sm:flex-row">
               <Button
                 variant="outline"
@@ -642,6 +759,21 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
                 >
                   <Receipt className="h-4 w-4" />
                   Conciliar iFood
+                </Button>
+              )}
+              {temVenda && (
+                <Button
+                  variant="outline"
+                  onClick={() => void handleImprimir()}
+                  disabled={imprimindo || vendaResolvida.isLoading || vendaDetalhe.isLoading}
+                  className="gap-1.5"
+                >
+                  {imprimindo ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Printer className="h-4 w-4" />
+                  )}
+                  {imprimindo ? "Imprimindo..." : "Imprimir"}
                 </Button>
               )}
               {!jaResolvido && !isIfoodPendente && (
@@ -728,6 +860,191 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
   );
 }
 
+function formatQuantidade(valor: number): string {
+  return valor.toLocaleString("pt-BR", { maximumFractionDigits: 3 });
+}
+
+function ItensVendaSection({
+  venda,
+  isLoading,
+  isError,
+}: {
+  venda: VendaDetalhe | null | undefined;
+  isLoading: boolean;
+  isError: boolean;
+}) {
+  const itens = venda?.itens ?? [];
+
+  return (
+    <div>
+      <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <Receipt className="h-3.5 w-3.5" />
+        Itens da venda
+      </p>
+
+      {isLoading && (
+        <div className="flex items-center justify-center gap-2 rounded-md border bg-muted/20 px-3 py-6 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Carregando itens da venda...
+        </div>
+      )}
+
+      {!isLoading && isError && (
+        <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-sm text-muted-foreground">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+          Nao foi possivel carregar os itens da venda vinculada.
+        </div>
+      )}
+
+      {!isLoading && !isError && itens.length === 0 && (
+        <div className="rounded-md border bg-muted/20 px-3 py-4 text-sm text-muted-foreground">
+          Nenhum item encontrado para esta venda.
+        </div>
+      )}
+
+      {!isLoading && !isError && itens.length > 0 && (
+        <>
+          <div className="hidden overflow-hidden rounded-md border sm:block">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2 text-left">Produto</th>
+                  <th className="px-3 py-2 text-center">Qtde</th>
+                  <th className="px-3 py-2 text-right">Unitario</th>
+                  <th className="px-3 py-2 text-right">Desconto</th>
+                  <th className="px-3 py-2 text-right">Acrescimo</th>
+                  <th className="px-3 py-2 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itens.map((it) => {
+                  const descricao = it.produto_nome ?? it.descricao ?? "-";
+                  return (
+                    <tr key={it.id} className="border-t border-border/60">
+                      <td className="px-3 py-2 align-top">
+                        <div className="font-medium">{descricao}</div>
+                        <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                          {it.sku && <span className="font-mono">SKU {it.sku}</span>}
+                          {it.unidade && <span>Unidade {it.unidade}</span>}
+                        </div>
+                        {it.observacoes.length > 0 && (
+                          <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                            {it.observacoes.map((obs) => (
+                              <p key={obs}>{obs}</p>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-center align-top font-mono tabular-nums">
+                        {formatQuantidade(it.quantidade)}
+                      </td>
+                      <td className="px-3 py-2 text-right align-top font-mono tabular-nums">
+                        {formatBRL(it.preco_unitario)}
+                      </td>
+                      <td className="px-3 py-2 text-right align-top font-mono tabular-nums text-warning">
+                        {it.desconto > 0 ? `- ${formatBRL(it.desconto)}` : "-"}
+                      </td>
+                      <td className="px-3 py-2 text-right align-top font-mono tabular-nums">
+                        {it.acrescimo > 0 ? formatBRL(it.acrescimo) : "-"}
+                      </td>
+                      <td className="px-3 py-2 text-right align-top font-mono font-semibold tabular-nums">
+                        {formatBRL(it.total)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="space-y-2 sm:hidden">
+            {itens.map((it) => {
+              const descricao = it.produto_nome ?? it.descricao ?? "-";
+              return (
+                <div key={it.id} className="rounded-md border p-3 text-sm">
+                  <div className="font-medium">{descricao}</div>
+                  <div className="mt-1 grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <p className="text-muted-foreground">Qtde</p>
+                      <p className="font-mono tabular-nums">
+                        {formatQuantidade(it.quantidade)} {it.unidade ?? ""}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-muted-foreground">Unitario</p>
+                      <p className="font-mono tabular-nums">{formatBRL(it.preco_unitario)}</p>
+                    </div>
+                    {it.desconto > 0 && (
+                      <div>
+                        <p className="text-muted-foreground">Desconto</p>
+                        <p className="font-mono tabular-nums text-warning">
+                          - {formatBRL(it.desconto)}
+                        </p>
+                      </div>
+                    )}
+                    {it.acrescimo > 0 && (
+                      <div>
+                        <p className="text-muted-foreground">Acrescimo</p>
+                        <p className="font-mono tabular-nums">{formatBRL(it.acrescimo)}</p>
+                      </div>
+                    )}
+                    <div className="col-span-2 flex items-center justify-between border-t pt-2">
+                      <span className="text-muted-foreground">Total</span>
+                      <span className="font-mono font-semibold tabular-nums">
+                        {formatBRL(it.total)}
+                      </span>
+                    </div>
+                  </div>
+                  {(it.sku || it.observacoes.length > 0) && (
+                    <div className="mt-2 space-y-0.5 text-xs text-muted-foreground">
+                      {it.sku && <p className="font-mono">SKU {it.sku}</p>}
+                      {it.observacoes.map((obs) => (
+                        <p key={obs}>{obs}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-3 flex justify-end">
+            <div className="w-full max-w-sm space-y-1.5 rounded-md border bg-muted/20 p-3 text-sm">
+              <VendaResumoRow label="Subtotal">{formatBRL(venda!.subtotal)}</VendaResumoRow>
+              {venda!.desconto > 0 && (
+                <VendaResumoRow label="Desconto geral">
+                  <span className="text-warning">- {formatBRL(venda!.desconto)}</span>
+                </VendaResumoRow>
+              )}
+              {venda!.outros > 0 && (
+                <VendaResumoRow label="Acrescimos">{formatBRL(venda!.outros)}</VendaResumoRow>
+              )}
+              {venda!.frete > 0 && (
+                <VendaResumoRow label="Frete">{formatBRL(venda!.frete)}</VendaResumoRow>
+              )}
+              <div className="flex items-center justify-between border-t border-border pt-2 font-semibold">
+                <span>Total da venda</span>
+                <span className="font-mono tabular-nums text-primary">
+                  {formatBRL(venda!.total)}
+                </span>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function VendaResumoRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-mono tabular-nums">{children}</span>
+    </div>
+  );
+}
+
 interface CobrancaActionsProps {
   lancamento: LancamentoDetalhe;
   saldoRestante: number;
@@ -760,11 +1077,7 @@ function CobrancaActions({ lancamento, saldoRestante }: CobrancaActionsProps) {
     v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const buildVenc = () => {
-    const d = lancamento.data_vencimento.length === 10
-      ? lancamento.data_vencimento
-      : lancamento.data_vencimento.slice(0, 10);
-    const [y, m, day] = d.split("-");
-    return `${day}/${m}/${y}`;
+    return formatDateBR(lancamento.data_vencimento);
   };
 
   const gerarPix = () => {

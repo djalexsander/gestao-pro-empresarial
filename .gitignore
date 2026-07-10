@@ -33,3 +33,4 @@ dist-ssr
 
 # Tauri desktop build output
 dist-desktop/
+.env

@@ -45,7 +45,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useVendas, useVendaMetricasPeriodo } from "@/hooks/useVendas";
+import { useVendas } from "@/hooks/useVendas";
 import { useClientesFull } from "@/hooks/useClientes";
 import { useFuncionariosAtivos } from "@/hooks/useFuncionarios";
 import { useCaixasHistorico } from "@/hooks/useCaixa";
@@ -76,7 +76,8 @@ const FORMA_LABEL: Record<string, string> = {
   boleto: "Boleto",
   transferencia: "Transferência",
   cheque: "Cheque",
-  outro: "Fiado",
+  fiado: "Fiado",
+  outro: "Outro",
 };
 
 const STATUS_BADGE: Record<string, string> = {
@@ -172,9 +173,6 @@ function Conteudo() {
     [inicio, fim],
   );
 
-  const { data: metricas } = useVendaMetricasPeriodo(inicio, fim);
-  const { data: metricasPrev } = useVendaMetricasPeriodo(inicioPrev, fimPrev);
-
   // Mapa de caixa_id → data_abertura (para filtro por data de abertura)
   const aberturasOptions = useMemo(() => {
     const set = new Map<string, string>(); // chave YYYY-MM-DD → label legível
@@ -218,7 +216,9 @@ function Conteudo() {
   const filtered = useMemo(() => {
     const q = busca.trim().toLowerCase();
     return vendas.filter((v) => {
-      if (v.data_emissao < inicio || v.data_emissao > fim) return false;
+      const dataVenda = v.data_finalizacao?.slice(0, 10);
+      if (!dataVenda || dataVenda < inicio || dataVenda > fim) return false;
+      if (v.status === "cancelada") return false;
       if (clienteFiltro !== "todos") {
         if (clienteFiltro === "_sem") {
           if (v.cliente_id) return false;
@@ -254,6 +254,33 @@ function Conteudo() {
     caixasNaAbertura,
   ]);
 
+  const filteredPrev = useMemo(() => {
+    return vendas.filter((v) => {
+      const dataVenda = v.data_finalizacao?.slice(0, 10);
+      return !!dataVenda && dataVenda >= inicioPrev && dataVenda <= fimPrev && v.status !== "cancelada";
+    });
+  }, [vendas, inicioPrev, fimPrev]);
+
+  const metricas = useMemo(() => {
+    const totalVendido = filtered.reduce((s, v) => s + v.total, 0);
+    const qtdVendas = filtered.length;
+    return {
+      total_vendido: totalVendido,
+      qtd_vendas: qtdVendas,
+      ticket_medio: qtdVendas > 0 ? totalVendido / qtdVendas : 0,
+    };
+  }, [filtered]);
+
+  const metricasPrev = useMemo(() => {
+    const totalVendido = filteredPrev.reduce((s, v) => s + v.total, 0);
+    const qtdVendas = filteredPrev.length;
+    return {
+      total_vendido: totalVendido,
+      qtd_vendas: qtdVendas,
+      ticket_medio: qtdVendas > 0 ? totalVendido / qtdVendas : 0,
+    };
+  }, [filteredPrev]);
+
   // Dados do gráfico (linha por dia)
   const chartData = useMemo(() => {
     const map = new Map<string, number>();
@@ -264,7 +291,9 @@ function Conteudo() {
       map.set(d.toISOString().slice(0, 10), 0);
     }
     for (const v of filtered) {
-      map.set(v.data_emissao, (map.get(v.data_emissao) ?? 0) + v.total);
+      const dataVenda = v.data_finalizacao?.slice(0, 10);
+      if (!dataVenda) continue;
+      map.set(dataVenda, (map.get(dataVenda) ?? 0) + v.total);
     }
     return Array.from(map.entries()).map(([data, total]) => ({
       data: format(new Date(data + "T00:00:00"), "dd/MM"),
@@ -306,7 +335,7 @@ function Conteudo() {
     try {
       const columns: CsvColumn<typeof filtered[number]>[] = [
         { header: "Numero", accessor: (v) => v.numero, type: "text" },
-        { header: "Data", accessor: (v) => v.data_emissao, type: "datetime" },
+        { header: "Data finalizacao", accessor: (v) => v.data_finalizacao ?? "", type: "datetime" },
         { header: "Cliente", accessor: (v) => v.cliente_nome ?? "Consumidor", type: "text" },
         {
           header: "Forma pagamento",
@@ -451,7 +480,8 @@ function Conteudo() {
                   <SelectItem value="cartao_credito">Crédito</SelectItem>
                   <SelectItem value="boleto">Boleto</SelectItem>
                   <SelectItem value="transferencia">Transferência</SelectItem>
-                  <SelectItem value="outro">Fiado</SelectItem>
+                  <SelectItem value="fiado">Fiado</SelectItem>
+                  <SelectItem value="outro">Outro</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -625,7 +655,9 @@ function Conteudo() {
                         {v.numero}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {new Date(v.data_emissao + "T00:00:00").toLocaleDateString("pt-BR")}
+                        {v.data_finalizacao
+                          ? new Date(v.data_finalizacao).toLocaleString("pt-BR")
+                          : "—"}
                       </TableCell>
                       <TableCell className="font-medium">
                         {v.cliente_nome ?? (

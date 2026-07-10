@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Power,
   PowerOff,
@@ -63,6 +63,7 @@ import { formatBRL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useFuncionarios } from "@/hooks/useFuncionarios";
+import { setDesktopCaixaExitGuard } from "@/integrations/desktop/tauriBridge";
 
 export const Route = createFileRoute("/caixa")({
   head: () => ({
@@ -115,6 +116,25 @@ function CaixaPage() {
   const caixaParaFechar = fecharCaixaAlvo ?? caixaAtual;
   const { data: resumo } = useCaixaResumo((fecharOpen ? caixaParaFechar : caixaAtual)?.id);
   const { data: movimentos = [] } = useCaixaMovimentos(caixaAtual?.id);
+
+  useEffect(() => {
+    console.info("[Tela Caixa] caixaAbertoAtual", {
+      aberto: !!caixaAtual,
+      id: caixaAtual?.id ?? null,
+      owner_id: caixaAtual?.owner_id ?? user?.id ?? null,
+      operador_id: caixaAtual?.operador_id ?? null,
+      terminal_id: caixaAtual?.terminal_id ?? null,
+      status: caixaAtual?.status ?? null,
+    });
+    void setDesktopCaixaExitGuard({
+      hasCaixaAberto: !!caixaAtual,
+      caixaId: caixaAtual?.id ?? null,
+      ownerId: caixaAtual?.owner_id ?? user?.id ?? null,
+      operadorId: caixaAtual?.operador_id ?? null,
+      terminalId: caixaAtual?.terminal_id ?? null,
+      source: "Tela Caixa useQualquerCaixaAberto",
+    });
+  }, [caixaAtual, user?.id]);
 
   const operadorNome = caixaAtual?.operador_id
     ? funcionarios.find((f) => f.id === caixaAtual.operador_id)?.nome ?? "Operador"

@@ -216,8 +216,8 @@ export function ConciliarIfoodDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[90vh] flex-col sm:max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden sm:max-w-2xl">
+        <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Receipt className="h-5 w-5" />
             {mode === "individual" ? "Conciliar repasse iFood" : "Conciliar repasse iFood em lote"}
@@ -229,7 +229,7 @@ export function ConciliarIfoodDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 space-y-4 overflow-y-auto pr-1">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-1 pr-2">
           {mode === "lote" && (
             <div className="rounded-md border border-border">
               <ScrollArea className="h-[260px]">
@@ -378,7 +378,7 @@ export function ConciliarIfoodDialog({
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="z-10 shrink-0 border-t border-border bg-background pt-4">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}

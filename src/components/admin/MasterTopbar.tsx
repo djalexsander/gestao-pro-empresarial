@@ -6,6 +6,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { useCaixaExitGuard } from "@/components/caixa/CaixaExitGuardProvider";
 import { useAdminStats } from "@/hooks/useAdmin";
 import { useNavigate } from "@tanstack/react-router";
 import { useMasterContext } from "./MasterContextProvider";
@@ -61,6 +62,7 @@ function KpiPill({
 
 function UserMenu() {
   const { user, signOut } = useAuth();
+  const { guardedSignOut } = useCaixaExitGuard();
   const { exitMasterMode } = useMasterContext();
   const navigate = useNavigate();
   const initials = (user?.email ?? "?")
@@ -88,7 +90,12 @@ function UserMenu() {
           Ir para o app principal
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => signOut()} className="text-destructive">
+        <DropdownMenuItem
+          onSelect={() => {
+            void guardedSignOut(signOut);
+          }}
+          className="text-destructive"
+        >
           Sair
         </DropdownMenuItem>
       </DropdownMenuContent>

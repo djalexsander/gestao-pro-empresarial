@@ -101,7 +101,8 @@ const FORMA_LABEL: Record<string, string> = {
   boleto: "Boleto",
   transferencia: "Transferência",
   cheque: "Cheque",
-  outro: "Fiado",
+  fiado: "Fiado",
+  outro: "Outro",
 };
 
 function isoDate(d: Date): string {
@@ -175,15 +176,16 @@ function useItensVendidos(
         .select(
           `id, numero, data_emissao, data_finalizacao, forma_pagamento, status,
            operador_id, caixa_id, terminal_id,
+           caixa:caixas(operador_id),
            cliente:clientes(nome, nome_fantasia),
            itens:venda_itens(
              id, produto_id, descricao, quantidade, preco_unitario, desconto, total,
              produto:produtos(nome, sku, codigo_barras, preco_custo)
            )`,
         )
-        .gte("data_emissao", inicio)
-        .lte("data_emissao", fim)
-        .order("data_emissao", { ascending: false })
+        .gte("data_finalizacao", `${inicio}T00:00:00`)
+        .lte("data_finalizacao", `${fim}T23:59:59.999`)
+        .order("data_finalizacao", { ascending: false })
         .limit(5000);
 
       if (!incluirCanceladas) {
@@ -197,6 +199,10 @@ function useItensVendidos(
       for (const v of (data ?? []) as Array<Record<string, unknown>>) {
         const itens = (v.itens as Array<Record<string, unknown>> | null) ?? [];
         const cli = v.cliente as Record<string, unknown> | null;
+        const caixa = v.caixa as Record<string, unknown> | null;
+        const operadorId =
+          (v.operador_id as string | null) ??
+          ((caixa?.operador_id as string | null) || null);
         const clienteNome = cli
           ? ((cli.nome_fantasia as string) || (cli.nome as string) || null)
           : null;
@@ -229,7 +235,7 @@ function useItensVendidos(
             lucro,
             margem,
             forma_pagamento: (v.forma_pagamento as string | null) ?? null,
-            operador_id: (v.operador_id as string | null) ?? null,
+            operador_id: operadorId,
             caixa_id: (v.caixa_id as string | null) ?? null,
             terminal_id: (v.terminal_id as string | null) ?? null,
             cliente_nome: clienteNome,

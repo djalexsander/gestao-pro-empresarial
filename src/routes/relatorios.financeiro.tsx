@@ -56,7 +56,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { formatBRL } from "@/lib/mock-data";
 import { exportRowsToCSV, type CsvColumn } from "@/lib/export-csv";
 import { cn } from "@/lib/utils";
-import { dateFromMs } from "@/lib/financeiro-local";
+import { dateFromMs } from "@/lib/date-ms";
 
 export const Route = createFileRoute("/relatorios/financeiro")({
   head: () => ({

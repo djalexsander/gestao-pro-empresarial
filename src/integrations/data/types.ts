@@ -1276,6 +1276,7 @@ export interface CaixaDomain {
   owner_id: string;
   usuario_id: string;
   operador_id: string | null;
+  terminal_id: string | null;
   data_abertura: string;
   data_fechamento: string | null;
   valor_inicial: number;
@@ -1346,6 +1347,8 @@ export interface CaixaMovimentoDomain {
 export interface CaixaAbertoFiltro {
   /** `null` = busca caixa aberto sem operador (admin direto). */
   operador_id?: string | null;
+  /** Terminal atual do PDV/desktop, quando conhecido. */
+  terminal_id?: string | null;
   /** Se true, ignora `operador_id` e pega qualquer caixa aberto do tenant. */
   qualquer?: boolean;
 }
