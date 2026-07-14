@@ -75,11 +75,30 @@ jobs:
           }
           Write-Host "Chave de assinatura do updater configurada."
 
+      - name: Validar variáveis públicas do Supabase
+        shell: pwsh
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:VITE_SUPABASE_URL)) {
+            throw "VITE_SUPABASE_URL não configurada."
+          }
+          if ([string]::IsNullOrWhiteSpace($env:VITE_SUPABASE_PUBLISHABLE_KEY)) {
+            throw "VITE_SUPABASE_PUBLISHABLE_KEY não configurada."
+          }
+          npm run validate:public-env
+
       - name: Build assinado (Tauri)
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
         run: npm run tauri:build:signed
+
+      - name: Validar Supabase incorporado ao bundle desktop
+        run: npm run validate:desktop-bundle
 
       - name: Gerar latest.json (passo explícito, idempotente)
         env:
