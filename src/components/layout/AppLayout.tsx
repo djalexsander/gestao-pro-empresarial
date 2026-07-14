@@ -17,11 +17,13 @@ import { AssinaturaBanner } from "./AssinaturaBanner";
 import { useMode } from "@/components/modes/ModeProvider";
 import { useMasterContext } from "@/components/admin/MasterContextProvider";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { markBootStep } from "@/lib/desktopErrorLogger";
 
 // Rotas que usam layout próprio (sem o shell do ERP)
 const STANDALONE_ROUTES = new Set(["/auth", "/hub", "/pos", "/pdv"]);
 
 export function AppLayout() {
+  markBootStep("root-layout-rendered");
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();

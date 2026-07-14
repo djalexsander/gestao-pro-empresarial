@@ -13,6 +13,8 @@ import { CartProvider } from "@/components/saas/CartContext";
 import { DesktopRoleProvider } from "@/components/desktop/DesktopRoleProvider";
 import { CaixaExitGuardProvider } from "@/components/caixa/CaixaExitGuardProvider";
 import { AppErrorBoundary } from "@/components/shared/AppErrorBoundary";
+import { markBootStep } from "@/lib/desktopErrorLogger";
+import { useEffect } from "react";
 
 import appCss from "../styles.css?url";
 
@@ -107,6 +109,12 @@ function RootShell({ children }: { children: React.ReactNode }) {
 }
 
 function RootComponent() {
+  markBootStep("react-root-created");
+  markBootStep("providers-render-started");
+  useEffect(() => {
+    markBootStep("application-mounted");
+  }, []);
+
   return (
     <AppErrorBoundary>
       <ThemeProvider>

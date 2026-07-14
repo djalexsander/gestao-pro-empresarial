@@ -3,6 +3,7 @@ import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { registrarAuditLog } from "@/hooks/useAdmin";
 import { lockErp } from "@/lib/erpUnlock";
+import { markBootStep } from "@/lib/desktopErrorLogger";
 
 interface AuthContextValue {
   user: User | null;
@@ -14,6 +15,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  markBootStep("authentication-provider-mounted");
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);

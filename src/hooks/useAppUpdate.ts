@@ -180,8 +180,6 @@ export function useAppUpdate(): AppUpdateState {
             return;
           }
           await update.downloadAndInstall();
-          const { relaunch } = await import("@tauri-apps/plugin-process");
-          await relaunch();
         } catch {
           setIsApplying(false);
         }

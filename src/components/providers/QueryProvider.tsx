@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { invalidationBus, type DataDomain } from "@/integrations/data/realtime";
+import { markBootStep } from "@/lib/desktopErrorLogger";
 
 /**
  * Mapeamento global domínio → queryKeys impactadas.
@@ -27,8 +28,8 @@ const DOMAIN_TO_KEYS: Record<DataDomain, string[][]> = {
   modulos: [["empresa-modulos"], ["modulos"], ["planos"], ["saas-resumo"]],
 };
 
-
 export function QueryProvider({ children }: { children: React.ReactNode }) {
+  markBootStep("query-provider-mounted");
   const [client] = useState(
     () =>
       new QueryClient({

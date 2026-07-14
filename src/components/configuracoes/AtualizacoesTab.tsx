@@ -1,10 +1,19 @@
 import { useEffect, useState } from "react";
-import { Download, Loader2, RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
+import {
+  ClipboardCopy,
+  Download,
+  FileText,
+  Loader2,
+  RefreshCw,
+  ShieldCheck,
+  Sparkles,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
+import { getDiagnosticLogPath, readDiagnosticLog } from "@/lib/desktopErrorLogger";
 
 /**
  * Bloco de Atualização do App Desktop.
@@ -12,7 +21,7 @@ import { toast } from "sonner";
  * Usa `@tauri-apps/plugin-updater` para consultar o endpoint configurado em
  * `tauri.conf.json` (plugins.updater.endpoints) e fazer download/install
  * verificados pela chave pública (assinatura). O reinício é feito via
- * `@tauri-apps/plugin-process`.
+ * pelo instalador NSIS iniciado pelo updater.
  *
  * Renderiza somente quando rodando dentro do Tauri (desktop). Na web fica
  * inerte — o módulo de atualização só faz sentido no app instalado.
@@ -32,6 +41,9 @@ export function AtualizacoesTab() {
   } | null>(null);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [diagnosticText, setDiagnosticText] = useState<string | null>(null);
+  const [diagnosticPath, setDiagnosticPath] = useState<string | null>(null);
+  const [diagnosticLoading, setDiagnosticLoading] = useState(false);
 
   useEffect(() => {
     const inTauri =
@@ -50,6 +62,40 @@ export function AtualizacoesTab() {
     })();
   }, []);
 
+  useEffect(() => {
+    if (!isTauri) return;
+    void getDiagnosticLogPath()
+      .then(setDiagnosticPath)
+      .catch(() => undefined);
+  }, [isTauri]);
+
+  const carregarDiagnostico = async () => {
+    setDiagnosticLoading(true);
+    try {
+      const text = await readDiagnosticLog();
+      setDiagnosticText(text || "Nenhum diagnóstico registrado até o momento.");
+      setDiagnosticPath(await getDiagnosticLogPath());
+    } catch (e) {
+      toast.error(`Falha ao ler diagnóstico: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setDiagnosticLoading(false);
+    }
+  };
+
+  const copiarDiagnostico = async () => {
+    try {
+      const text = diagnosticText ?? (await readDiagnosticLog());
+      if (!text) {
+        toast.info("Nenhum diagnóstico registrado até o momento.");
+        return;
+      }
+      await navigator.clipboard.writeText(text);
+      setDiagnosticText(text);
+      toast.success("Diagnóstico copiado.");
+    } catch (e) {
+      toast.error(`Falha ao copiar diagnóstico: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
   const verificar = async () => {
     setError(null);
     setAvailable(null);
@@ -109,8 +155,6 @@ export function AtualizacoesTab() {
         }
       });
       toast.success("Atualização instalada. Reiniciando…");
-      const { relaunch } = await import("@tauri-apps/plugin-process");
-      await relaunch();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
@@ -217,7 +261,9 @@ export function AtualizacoesTab() {
                 <div className="text-[11px] text-muted-foreground">
                   {contentLength
                     ? `${(downloaded / 1024 / 1024).toFixed(1)} / ${(
-                        contentLength / 1024 / 1024
+                        contentLength /
+                        1024 /
+                        1024
                       ).toFixed(1)} MB`
                     : "Baixando…"}
                 </div>
@@ -231,6 +277,48 @@ export function AtualizacoesTab() {
             </div>
           )
         )}
+        <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="flex items-center gap-2 font-medium">
+                <FileText className="h-4 w-4" /> Diagnóstico de inicialização
+              </div>
+              {diagnosticPath && (
+                <div className="mt-1 break-all font-mono text-[11px] text-muted-foreground">
+                  {diagnosticPath}
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void carregarDiagnostico()}
+                disabled={diagnosticLoading}
+              >
+                {diagnosticLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <FileText className="h-4 w-4" />
+                )}
+                <span className="ml-1">Visualizar</span>
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => void copiarDiagnostico()}>
+                <ClipboardCopy className="h-4 w-4" />
+                <span className="ml-1">Copiar</span>
+              </Button>
+            </div>
+          </div>
+          {diagnosticText !== null && (
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded bg-background p-2 font-mono text-[11px]">
+              {diagnosticText}
+            </pre>
+          )}
+          <p className="text-[11px] text-muted-foreground">
+            O arquivo contém somente contexto técnico, nomes de chaves de storage e pilhas de erro;
+            valores de storage não são registrados.
+          </p>
+        </div>
       </CardContent>
     </Card>
   );

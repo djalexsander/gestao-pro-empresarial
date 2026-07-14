@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { getLastBootStep, logDiagnostic, type DiagnosticType } from "@/lib/desktopErrorLogger";
 
 type Props = { children: ReactNode };
 type State = { error: Error | null };
@@ -15,6 +16,7 @@ export function reportAppError(
   originalError: unknown,
   componentStack?: string | null,
   source = "React ErrorBoundary",
+  type: DiagnosticType | string = "react-error-boundary",
 ) {
   const error =
     originalError instanceof Error
@@ -30,6 +32,18 @@ export function reportAppError(
     throwingComponent: componentNameFromStack(componentStack),
     cause: error.cause,
   });
+
+  void logDiagnostic({
+    type,
+    error,
+    componentStack,
+    additional: {
+      source,
+      throwingComponent: componentNameFromStack(componentStack),
+      route: typeof window !== "undefined" ? window.location.pathname : null,
+      lastBootStep: getLastBootStep(),
+    },
+  });
 }
 
 export class AppErrorBoundary extends Component<Props, State> {
@@ -40,7 +54,12 @@ export class AppErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    reportAppError(error, info.componentStack, "AppErrorBoundary");
+    reportAppError(
+      error,
+      info.componentStack,
+      "AppErrorBoundary.componentDidCatch",
+      "react-error-boundary",
+    );
   }
 
   render() {

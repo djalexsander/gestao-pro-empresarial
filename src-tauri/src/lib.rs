@@ -8,6 +8,8 @@ use chrono::Utc;
 use local_server::LocalServerStatus;
 use printers::PrinterInfo;
 use serde::{Deserialize, Serialize};
+use std::fs::{create_dir_all, read_to_string, write, OpenOptions};
+use std::io::Write;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Mutex,
@@ -17,6 +19,60 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 const CAIXA_ABERTO_EXIT_MESSAGE: &str =
     "Existe um caixa aberto. Feche o caixa antes de encerrar o aplicativo.";
+
+const DIAGNOSTIC_LOG_FILE: &str = "gestao-pro-errors.jsonl";
+const DIAGNOSTIC_MAX_RECORDS: usize = 500;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagnosticContext {
+    pid: u32,
+    log_path: String,
+}
+
+fn diagnostic_log_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let log_dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
+    create_dir_all(&log_dir).map_err(|e| e.to_string())?;
+    Ok(log_dir.join(DIAGNOSTIC_LOG_FILE))
+}
+
+#[tauri::command]
+fn diagnostic_context(app: tauri::AppHandle) -> Result<DiagnosticContext, String> {
+    let log_path = diagnostic_log_path(&app)?;
+    Ok(DiagnosticContext {
+        pid: std::process::id(),
+        log_path: log_path.to_string_lossy().into_owned(),
+    })
+}
+
+#[tauri::command]
+fn append_diagnostic_log(app: tauri::AppHandle, entry: String) -> Result<String, String> {
+    let log_path = diagnostic_log_path(&app)?;
+    if let Ok(existing) = read_to_string(&log_path) {
+        let lines: Vec<&str> = existing.lines().collect();
+        if lines.len() >= DIAGNOSTIC_MAX_RECORDS {
+            let keep_from = lines.len().saturating_sub(DIAGNOSTIC_MAX_RECORDS - 1);
+            let rotated = lines[keep_from..].join("\n") + "\n";
+            write(&log_path, rotated).map_err(|e| e.to_string())?;
+        }
+    }
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|e| e.to_string())?;
+    writeln!(file, "{entry}").map_err(|e| e.to_string())?;
+    Ok(log_path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn read_diagnostic_log(app: tauri::AppHandle) -> Result<String, String> {
+    let log_path = diagnostic_log_path(&app)?;
+    if !log_path.exists() {
+        return Ok(String::new());
+    }
+    read_to_string(log_path).map_err(|e| e.to_string())
+}
 
 #[derive(Default)]
 struct DesktopExitGuardState {
@@ -104,8 +160,14 @@ fn desktop_has_caixa_aberto(
         eprintln!("[gestao-pro] desktop_has_caixa_aberto sem owner_id; liberando fechamento");
         return Ok(false);
     };
-    let operador = operador_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let terminal = terminal_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let operador = operador_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let terminal = terminal_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
     let result = db::existe_caixa_local_aberto(Some(owner_id), operador, terminal);
     eprintln!(
         "[gestao-pro] desktop_has_caixa_aberto diagnostico owner_id={} operador_id={:?} terminal_id={:?} result={:?}",
@@ -127,7 +189,9 @@ fn desktop_set_caixa_exit_guard(
     terminal_id: Option<String>,
     source: Option<String>,
 ) {
-    state.has_caixa_aberto.store(has_caixa_aberto, Ordering::SeqCst);
+    state
+        .has_caixa_aberto
+        .store(has_caixa_aberto, Ordering::SeqCst);
     state.initialized.store(true, Ordering::SeqCst);
     let snapshot = DesktopExitGuardSnapshot {
         caixa_id,
@@ -394,6 +458,9 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            diagnostic_context,
+            append_diagnostic_log,
+            read_diagnostic_log,
             start_local_server,
             stop_local_server,
             local_server_status,

@@ -2,13 +2,14 @@ import { createRouter, useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { routeTree } from "./routeTree.gen";
 import { reportAppError } from "./components/shared/AppErrorBoundary";
+import { markBootStep } from "./lib/desktopErrorLogger";
 
 function DefaultErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   const router = useRouter();
 
   useEffect(() => {
     const componentStack = (error as Error & { componentStack?: string }).componentStack;
-    reportAppError(error, componentStack, "TanStack Router ErrorBoundary");
+    reportAppError(error, componentStack, "TanStack Router ErrorBoundary", "router-error-boundary");
   }, [error]);
 
   return (
@@ -76,5 +77,6 @@ export const getRouter = () => {
     defaultErrorComponent: DefaultErrorComponent,
   });
 
+  markBootStep("router-created");
   return router;
 };
