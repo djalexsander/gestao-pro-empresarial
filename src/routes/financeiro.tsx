@@ -228,6 +228,7 @@ function FinanceContent() {
         .select(
           `id, descricao, valor, valor_pago, data_vencimento, data_pagamento, data_emissao,
            tipo, status, observacoes, numero_documento, forma_pagamento, created_at,
+           parcela_numero, parcela_total,
            conciliado_em, valor_repasse, taxa_repasse, numero_repasse, observacao_repasse,
            cliente_id, venda_id,
            fornecedor:fornecedores(razao_social, nome_fantasia, documento, telefone),
@@ -250,6 +251,8 @@ function FinanceContent() {
         observacoes: string | null;
         numero_documento: string | null;
         forma_pagamento: string | null;
+        parcela_numero: number | null;
+        parcela_total: number | null;
         created_at: string | null;
         conciliado_em: string | null;
         valor_repasse: number | null;
@@ -291,6 +294,8 @@ function FinanceContent() {
         observacoes: r.observacoes,
         numero_documento: r.numero_documento,
         forma_pagamento: r.forma_pagamento,
+        parcela_numero: r.parcela_numero,
+        parcela_total: r.parcela_total,
         created_at: r.created_at,
         conciliado_em: r.conciliado_em,
         valor_repasse: r.valor_repasse,
@@ -322,22 +327,9 @@ function FinanceContent() {
   const totalRec = posicao?.totalReceber ?? totalRecComputed;
   const totalPay = posicao?.totalPagar ?? totalPayComputed;
   const saldo = posicao?.saldo ?? totalRec - totalPay;
-  const receberListagem = posicao
-    ? receber.filter(
-        (l) =>
-          !!l.data_vencimento &&
-          l.data_vencimento >= posicao.periodo.inicio &&
-          l.data_vencimento <= posicao.periodo.fim,
-      )
-    : receber;
-  const pagarListagem = posicao
-    ? pagar.filter(
-        (l) =>
-          !!l.data_vencimento &&
-          l.data_vencimento >= posicao.periodo.inicio &&
-          l.data_vencimento <= posicao.periodo.fim,
-      )
-    : pagar;
+  // Carteira atual: não depende do filtro temporal usado para movimentação.
+  const receberListagem = receber;
+  const pagarListagem = pagar;
 
   const consolidado = useMemo(
     () => buildConsolidado({ totalRec, totalPay, saldo, receber, pagar, ind }),
@@ -430,12 +422,12 @@ function FinanceContent() {
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Posição financeira
+            Posição financeira · carteira atual
           </p>
           <div className="flex items-center gap-2">
             {posicao && (
               <span className="hidden text-[11px] text-muted-foreground sm:inline">
-                {formatPeriodoBR(posicao.periodo)}
+                Caixa realizado: {formatPeriodoBR(posicao.periodo)}
               </span>
             )}
             <SecaoFiltro value={filtroPosicao} onChange={setFiltroPosicao} />
@@ -448,12 +440,18 @@ function FinanceContent() {
                   indicador: "Total a receber",
                   valor: posicao?.totalReceber ?? 0,
                   quantidade: posicao?.qtdReceber ?? 0,
-                  filtro: posicao ? formatPeriodoBR(posicao.periodo) : null,
+                  filtro: "Carteira atual (sem filtro de vencimento)",
                 },
                 {
                   indicador: "Total a pagar",
                   valor: posicao?.totalPagar ?? 0,
                   quantidade: posicao?.qtdPagar ?? 0,
+                  filtro: "Carteira atual (sem filtro de vencimento)",
+                },
+                {
+                  indicador: "Caixa realizado do período",
+                  valor: posicao?.caixaRealizadoPeriodo ?? 0,
+                  quantidade: null,
                   filtro: posicao ? formatPeriodoBR(posicao.periodo) : null,
                 },
                 {
@@ -467,7 +465,7 @@ function FinanceContent() {
             />
           </div>
         </div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
             label="Total a receber em aberto"
             value={formatBRL(posicao?.totalReceber ?? 0)}
@@ -485,7 +483,14 @@ function FinanceContent() {
             onClick={() => setBlocoAberto("pagar")}
           />
           <StatCard
-            label="Saldo previsto"
+            label="Caixa realizado no período"
+            value={formatBRL(posicao?.caixaRealizadoPeriodo ?? 0)}
+            icon={Wallet}
+            iconTone={(posicao?.caixaRealizadoPeriodo ?? 0) >= 0 ? "success" : "danger"}
+            hint={posicao ? formatPeriodoBR(posicao.periodo) : undefined}
+          />
+          <StatCard
+            label="Saldo projetado"
             value={formatBRL(posicao?.saldo ?? 0)}
             icon={TrendingUp}
             iconTone={(posicao?.saldo ?? 0) >= 0 ? "success" : "danger"}
@@ -730,6 +735,7 @@ function FinanceContent() {
         totalRec={totalRec}
         totalPay={totalPay}
         saldo={saldo}
+        caixaRealizado={posicao?.caixaRealizadoPeriodo ?? 0}
         ind={ind}
         periodo={posicao?.periodo}
       />
@@ -753,6 +759,7 @@ function BlocoModais({
   totalRec,
   totalPay,
   saldo,
+  caixaRealizado,
   ind,
   periodo,
 }: {
@@ -763,29 +770,21 @@ function BlocoModais({
   totalRec: number;
   totalPay: number;
   saldo: number;
+  caixaRealizado: number;
   ind: ReturnType<typeof useFinanceiroIndicadores>["data"] | undefined;
   periodo?: { inicio: string; fim: string } | null;
 }) {
   if (!bloco) return null;
 
-  const periodoFilter = periodo ?? null;
-  const inPeriodo = (l: Lancamento) => {
-    if (!periodoFilter) return true;
-    if (!l.data_vencimento) return false;
-    return l.data_vencimento >= periodoFilter.inicio && l.data_vencimento <= periodoFilter.fim;
-  };
-
   const receberFiltered = receber.filter(
     (l) =>
       isLancReceber(l) &&
-      isLancAberto(l) &&
-      inPeriodo(l),
+      isLancAberto(l),
   );
   const pagarFiltered = pagar.filter(
     (l) =>
       isLancPagar(l) &&
-      isLancAberto(l) &&
-      inPeriodo(l),
+      isLancAberto(l),
   );
 
   const lancamentoCols: DetalheColumn[] = [
@@ -843,12 +842,13 @@ function BlocoModais({
       <BlocoDetalheDialog
         open
         onOpenChange={(o) => !o && onClose()}
-        titulo="Saldo previsto"
-        subtitulo="Composição: a receber − a pagar"
+        titulo="Saldo projetado"
+        subtitulo="Composição: caixa realizado do período + carteira atual a receber − carteira atual a pagar"
         origem="financeiro_lancamentos"
         resumo={[
           { label: "A receber", valor: formatBRL(totalRec), tone: "success" },
           { label: "A pagar", valor: formatBRL(totalPay), tone: "danger" },
+          { label: "Caixa realizado", valor: formatBRL(caixaRealizado) },
           { label: "Saldo", valor: formatBRL(saldo), tone: saldo >= 0 ? "success" : "danger" },
         ]}
         colunas={[
@@ -858,7 +858,8 @@ function BlocoModais({
         rows={[
           { id: "r", indicador: "Total a receber", valor: totalRec },
           { id: "p", indicador: "Total a pagar", valor: -totalPay },
-          { id: "s", indicador: "Saldo previsto", valor: saldo },
+          { id: "c", indicador: "Caixa realizado do período", valor: caixaRealizado },
+          { id: "s", indicador: "Saldo projetado", valor: saldo },
         ]}
       />
     );
@@ -1092,22 +1093,27 @@ function LancamentosTable({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Descrição</TableHead>
+              <TableHead>Cliente / Fornecedor</TableHead>
+              <TableHead>Venda / Parcela</TableHead>
+              <TableHead>Data da venda</TableHead>
               <TableHead>Vencimento</TableHead>
-              <TableHead className="text-right">Valor</TableHead>
+              <TableHead className="text-right">Original</TableHead>
+              <TableHead className="text-right">Pago</TableHead>
+              <TableHead className="text-right">Saldo</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
                   Carregando…
                 </TableCell>
               </TableRow>
             ) : items.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
                   {emptyMsg}
                 </TableCell>
               </TableRow>
@@ -1120,12 +1126,34 @@ function LancamentosTable({
                     onSelect ? "cursor-pointer transition-colors hover:bg-muted/50" : undefined
                   }
                 >
-                  <TableCell className="font-medium">{i.descricao}</TableCell>
+                  <TableCell className="font-medium">
+                    {i.cliente_nome ?? i.fornecedor_nome ?? "—"}
+                  </TableCell>
+                  <TableCell>
+                    <div className="font-mono text-xs">{i.venda_numero ?? i.numero_documento ?? "—"}</div>
+                    <div className="text-xs text-muted-foreground">
+                      Parcela {Number(i.parcela_numero) || 1}/{Number(i.parcela_total) || 1}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {formatDate(i.venda_data ?? i.data_emissao ?? "")}
+                  </TableCell>
                   <TableCell className="text-muted-foreground">
                     {formatDate(i.data_vencimento)}
                   </TableCell>
                   <TableCell className="text-right font-medium">
+                    {formatBRL(Number(i.valor) || 0)}
+                  </TableCell>
+                  <TableCell className="text-right text-muted-foreground">
+                    {formatBRL(Number(i.valor_pago) || 0)}
+                  </TableCell>
+                  <TableCell className="text-right font-medium">
                     {formatBRL(calcAbertoLanc(i))}
+                  </TableCell>
+                  <TableCell>
+                    <Button type="button" size="sm" variant="outline" onClick={(event) => { event.stopPropagation(); onSelect?.(i); }}>
+                      Detalhes / receber
+                    </Button>
                   </TableCell>
                   <TableCell>
                     <StatusBadge status={statusLabel(i)} />
@@ -1385,8 +1413,58 @@ function FluxoCaixaPanel() {
         },
       );
 
-      // 2) Lançamentos financeiros pagos/recebidos NÃO vinculados a caixa
-      //    (evita duplicar vendas que já entram via caixa_movimentos).
+      // 2) Baixas financeiras efetivas, inclusive parciais de parcelas.
+      const { data: pagamentosEfetivos, error: errPagamentos } = await supabase
+        .from("lancamento_pagamentos")
+        .select("id, lancamento_id, valor, data_pagamento, forma_pagamento, observacao, registrado_por, created_at, lancamento:financeiro_lancamentos(tipo, descricao, valor, venda_id, parcela_numero, parcela_total, cliente:clientes(nome), venda:vendas(numero))")
+        .lte("data_pagamento", fim)
+        .order("data_pagamento", { ascending: false })
+        .limit(5000);
+      if (errPagamentos) throw errPagamentos;
+      const pagamentosLancIds = new Set((pagamentosEfetivos ?? []).map((p) => p.lancamento_id));
+      const acumuladoPorLancamento = new Map<string, number>();
+      const pagamentosOrdenados = [...(pagamentosEfetivos ?? [])].sort((a, b) =>
+        a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0,
+      );
+      const pagamentoRows: FluxoRow[] = pagamentosOrdenados.flatMap((p) => {
+        const lancamento = p.lancamento as {
+          tipo?: string;
+          descricao?: string;
+          valor?: number;
+          venda_id?: string | null;
+          parcela_numero?: number | null;
+          parcela_total?: number | null;
+          cliente?: { nome?: string | null } | null;
+          venda?: { numero?: string | null } | null;
+        } | null;
+        const entrada = lancamento?.tipo === "receber" || lancamento?.tipo === "receita";
+        const valor = Number(p.valor) || 0;
+        const acumulado = (acumuladoPorLancamento.get(p.lancamento_id) ?? 0) + valor;
+        acumuladoPorLancamento.set(p.lancamento_id, acumulado);
+        const saldoApos = Math.max(0, (Number(lancamento?.valor) || 0) - acumulado);
+        const referencia = p.lancamento_id.slice(0, 8);
+        const parcela = `${Number(lancamento?.parcela_numero) || 1}/${Number(lancamento?.parcela_total) || 1}`;
+        if (p.data_pagamento < inicio) return [];
+        return [{
+          id: `pag-${p.id}`,
+          data: `${p.data_pagamento}T12:00:00`,
+          tipo: entrada ? "receita" : "despesa",
+          origem: "financeiro",
+          descricao: [
+            lancamento?.cliente?.nome,
+            lancamento?.venda?.numero,
+            `Parcela ${parcela}`,
+            p.forma_pagamento ?? "forma não informada",
+            `saldo após ${formatBRL(saldoApos)}`,
+            `ref. ${referencia}`,
+            p.registrado_por ? `usuário ${p.registrado_por.slice(0, 8)}` : null,
+          ].filter(Boolean).join(" · "),
+          valor: entrada ? Math.abs(valor) : -Math.abs(valor),
+          status: "recebido",
+        }];
+      });
+
+      // 3) Compatibilidade com títulos quitados sem histórico de baixa.
       const { data: lancs, error: errLancs } = await supabase
         .from("financeiro_lancamentos")
         .select(
@@ -1410,7 +1488,9 @@ function FluxoCaixaPanel() {
         data_pagamento: string | null;
         status: string;
       };
-      const lancRows: FluxoRow[] = ((lancs ?? []) as LancRowDb[]).map((l) => {
+      const lancRows: FluxoRow[] = ((lancs ?? []) as LancRowDb[])
+        .filter((l) => !pagamentosLancIds.has(l.id))
+        .map((l) => {
         const v = Number(l.valor_pago ?? l.valor) || 0;
         const isReceita = l.tipo === "receber" || l.tipo === "receita";
         return {
@@ -1422,9 +1502,9 @@ function FluxoCaixaPanel() {
           valor: isReceita ? Math.abs(v) : -Math.abs(v),
           status: l.status,
         };
-      });
+        });
 
-      const all = [...movRows, ...lancRows].sort((a, b) =>
+      const all = [...movRows, ...pagamentoRows, ...lancRows].sort((a, b) =>
         a.data < b.data ? 1 : a.data > b.data ? -1 : 0,
       );
       return all;

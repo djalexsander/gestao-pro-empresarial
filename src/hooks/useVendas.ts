@@ -187,6 +187,16 @@ export interface VendaDetalhe {
     parcelas: number | null;
     observacao: string | null;
   }>;
+  parcelas_fiado: Array<{
+    id: string;
+    numero_parcela: number;
+    total_parcelas: number;
+    valor: number;
+    valor_pago: number;
+    data_vencimento: string;
+    data_pagamento: string | null;
+    status: string;
+  }>;
 }
 
 export function useVendaDetalhe(vendaId: string | null) {
@@ -225,7 +235,7 @@ export function useVendaDetalhe(vendaId: string | null) {
       // Soma de pagamentos efetivos via lançamentos financeiros vinculados
       const { data: lancs } = await supabase
         .from("financeiro_lancamentos")
-        .select("valor_pago, status")
+        .select("id, valor, valor_pago, data_vencimento, data_pagamento, status, forma_pagamento, parcela_numero, parcela_total")
         .eq("venda_id", vendaId);
       const valor_pago_total = (lancs ?? [])
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -297,6 +307,22 @@ export function useVendaDetalhe(vendaId: string | null) {
           parcelas: p.parcelas != null ? Number(p.parcelas) : null,
           observacao: p.observacao,
         })),
+        // Registros antigos sem metadados são apresentados como 1/1, sem mutação.
+        parcelas_fiado: (lancs ?? [])
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .filter((l: any) => l.forma_pagamento === "fiado")
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .map((l: any) => ({
+            id: l.id,
+            numero_parcela: Number(l.parcela_numero) || 1,
+            total_parcelas: Number(l.parcela_total) || 1,
+            valor: Number(l.valor) || 0,
+            valor_pago: Number(l.valor_pago) || 0,
+            data_vencimento: l.data_vencimento,
+            data_pagamento: l.data_pagamento,
+            status: l.status,
+          }))
+          .sort((a, b) => a.numero_parcela - b.numero_parcela),
       };
     },
   });

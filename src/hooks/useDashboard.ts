@@ -106,6 +106,9 @@ function inicioDoMes(d = new Date()) {
 function inicioDoMesAnterior(d = new Date()) {
   return new Date(d.getFullYear(), d.getMonth() - 1, 1);
 }
+function dataLocalYmd(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 export function useDashboard() {
   const { user } = useAuth();
@@ -223,6 +226,12 @@ export function useDashboard() {
       const { data: lancamentos } = await supabase
         .from("financeiro_lancamentos")
         .select("id, tipo, valor, valor_pago, status, data_vencimento, data_pagamento, conciliado_em");
+      const { data: pagamentosFinanceiros } = await supabase
+        .from("lancamento_pagamentos")
+        .select("lancamento_id, valor, data_pagamento, lancamento:financeiro_lancamentos(tipo)")
+        .gte("data_pagamento", dataLocalYmd(inicioMes))
+        .lte("data_pagamento", dataLocalYmd(hoje))
+        .limit(10000);
 
       const [contasPagarKpi, contasReceberKpi] = await Promise.all([
         fetchDashboardFinanceiroKpi("pagar"),
@@ -234,7 +243,22 @@ export function useDashboard() {
       const diasNoMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
       for (let d = 1; d <= diasNoMes; d++) fluxoMap.set(d, { entrada: 0, saida: 0 });
 
+      const lancamentosComHistorico = new Set<string>();
+      for (const pagamento of pagamentosFinanceiros ?? []) {
+        lancamentosComHistorico.add(pagamento.lancamento_id);
+        const dp = new Date(`${pagamento.data_pagamento}T00:00:00`);
+        const ref = fluxoMap.get(dp.getDate());
+        if (!ref) continue;
+        const valor = Number(pagamento.valor) || 0;
+        const tipo = (pagamento.lancamento as { tipo?: string } | null)?.tipo;
+        if (tipo === "receber" || tipo === "receita") ref.entrada += valor;
+        else if (tipo === "pagar" || tipo === "despesa") ref.saida += valor;
+      }
+
+      // Compatibilidade: recebimentos imediatos criados já quitados podem não
+      // possuir linha histórica em lancamento_pagamentos.
       for (const l of lancamentos ?? []) {
+        if (lancamentosComHistorico.has(l.id)) continue;
         if (!l.data_pagamento) continue;
         if (!isLancRealizado(l)) continue; // ignora pendente/cancelado
         const dp = new Date(l.data_pagamento);

@@ -120,6 +120,8 @@ export interface FinalizarVendaPagamento {
   valor_recebido?: number | null;
   troco?: number | null;
   parcelas?: number | null;
+  quantidade_parcelas?: number | null;
+  primeiro_vencimento?: string | null;
   observacao?: string | null;
 }
 

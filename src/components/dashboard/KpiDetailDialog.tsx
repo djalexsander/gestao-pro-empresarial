@@ -80,6 +80,13 @@ interface DetalheRow {
   descricao: string;
   valor: number;
   status: string;
+  valorOriginal?: number;
+  valorPago?: number;
+  saldo?: number;
+  vendaNumero?: string | null;
+  vendaData?: string | null;
+  parcelaNumero?: number;
+  parcelaTotal?: number;
 }
 
 export function KpiDetailDialog({
@@ -116,12 +123,32 @@ export function KpiDetailDialog({
           ? await supabase.from("clientes").select("id, nome").in("id", ids)
           : { data: [] as { id: string; nome: string }[] };
         const map = new Map((clientes ?? []).map((c) => [c.id, c.nome]));
+        const vendaIds = (vendas ?? []).map((v) => v.id);
+        const { data: lancamentos } = vendaIds.length
+          ? await supabase
+              .from("financeiro_lancamentos")
+              .select("venda_id, valor, valor_pago, status")
+              .in("venda_id", vendaIds)
+              .in("tipo", ["receber", "receita"])
+          : { data: [] as Array<{ venda_id: string | null; valor: number; valor_pago: number | null; status: string }> };
+        const financeiroPorVenda = new Map<string, { recebido: number; aberto: number }>();
+        for (const lancamento of lancamentos ?? []) {
+          if (!lancamento.venda_id || lancamento.status === "cancelado") continue;
+          const atual = financeiroPorVenda.get(lancamento.venda_id) ?? { recebido: 0, aberto: 0 };
+          const valor = Number(lancamento.valor) || 0;
+          const pago = Math.min(valor, Number(lancamento.valor_pago) || 0);
+          atual.recebido += pago;
+          atual.aberto += Math.max(0, valor - pago);
+          financeiroPorVenda.set(lancamento.venda_id, atual);
+        }
         const rows: DetalheRow[] = (vendas ?? []).map((v) => ({
           identificador: v.numero,
           data: v.data_emissao,
           descricao: v.cliente_id ? (map.get(v.cliente_id) ?? "—") : "Consumidor",
           valor: Number(v.total ?? 0),
           status: v.status,
+          valorPago: financeiroPorVenda.get(v.id)?.recebido ?? 0,
+          saldo: financeiroPorVenda.get(v.id)?.aberto ?? 0,
         }));
         const total = rows.reduce((s, r) => s + r.valor, 0);
         return {
@@ -185,7 +212,7 @@ export function KpiDetailDialog({
         const rows: DetalheRow[] = lucroBruto.porMes.map((mes) => ({
           identificador: mes.chave,
           data: `${mes.chave}-01`,
-          descricao: `Receita ${formatBRL(mes.receita)} - CMV ${formatBRL(mes.custo)}${
+          descricao: `Total vendido ${formatBRL(mes.receita)} - CMV ${formatBRL(mes.custo)}${
             mes.qtdItensSemCusto > 0 ? ` - ${mes.qtdItensSemCusto} itens sem custo` : ""
           }`,
           valor: mes.lucro,
@@ -194,7 +221,9 @@ export function KpiDetailDialog({
         return {
           rows,
           resumo: [
-            { label: "Receita total", valor: formatBRL(lucroBruto.receita), tone: "success" },
+            { label: "Total vendido", valor: formatBRL(lucroBruto.receita), tone: "success" },
+            { label: "Total recebido", valor: formatBRL(lucroBruto.recebido), tone: "success" },
+            { label: "Total em aberto", valor: formatBRL(lucroBruto.emAberto), tone: "warning" },
             { label: "Custo dos vendidos", valor: formatBRL(lucroBruto.custo), tone: "info" },
             {
               label: "Lucro do período",
@@ -218,7 +247,16 @@ export function KpiDetailDialog({
       if (tipo === "contas-pagar" || tipo === "contas-receber") {
         const isPagar = tipo === "contas-pagar";
         const kpi = await fetchDashboardFinanceiroKpi(isPagar ? "pagar" : "receber");
-        const rows: DetalheRow[] = kpi.rows;
+        const rows: DetalheRow[] = kpi.rows.map((row) => ({
+          ...row,
+          valorOriginal: row.valorOriginal,
+          valorPago: row.valorPago,
+          saldo: row.valor,
+          vendaNumero: row.vendaNumero,
+          vendaData: row.vendaData,
+          parcelaNumero: row.parcelaNumero,
+          parcelaTotal: row.parcelaTotal,
+        }));
         return {
           rows,
           resumo: [
@@ -302,7 +340,7 @@ export function KpiDetailDialog({
       return ["Mês", "Detalhe", "Lucro", "Resultado"] as const;
     }
     if (tipo === "contas-pagar" || tipo === "contas-receber") {
-      return ["Vencimento", "Descrição", "Contraparte", "Valor", "Status"] as const;
+      return ["Cliente", "Venda / Parcela", "Data venda", "Vencimento", "Original", "Pago", "Saldo", "Status"] as const;
     }
     return ["Número", "Data", "Cliente / Fornecedor", "Valor", "Status"] as const;
   }, [tipo]);
@@ -500,13 +538,19 @@ export function KpiDetailDialog({
                     if (tipo === "contas-pagar" || tipo === "contas-receber") {
                       return (
                         <TableRow key={`${r.identificador}-${idx}`}>
-                          <TableCell className="text-xs">{formatDataCelula(r.data)}</TableCell>
-                          <TableCell className="font-medium">{r.descricao}</TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {r.identificador}
+                          <TableCell className="text-xs">{r.identificador}</TableCell>
+                          <TableCell className="font-medium">
+                            <div>{r.vendaNumero ?? r.descricao}</div>
+                            <div className="text-xs text-muted-foreground">
+                              Parcela {r.parcelaNumero ?? 1}/{r.parcelaTotal ?? 1}
+                            </div>
                           </TableCell>
+                          <TableCell className="text-xs">{formatDataCelula(r.vendaData ?? null)}</TableCell>
+                          <TableCell className="text-xs">{formatDataCelula(r.data)}</TableCell>
+                          <TableCell className="text-right tabular-nums">{formatBRL(r.valorOriginal ?? r.valor)}</TableCell>
+                          <TableCell className="text-right tabular-nums text-muted-foreground">{formatBRL(r.valorPago ?? 0)}</TableCell>
                           <TableCell className="text-right font-medium tabular-nums">
-                            {formatBRL(r.valor)}
+                            {formatBRL(r.saldo ?? r.valor)}
                           </TableCell>
                           <TableCell>
                             <StatusBadge status={r.status} />
@@ -520,7 +564,14 @@ export function KpiDetailDialog({
                           {r.identificador}
                         </TableCell>
                         <TableCell className="text-xs">{formatDataCelula(r.data)}</TableCell>
-                        <TableCell className="font-medium">{r.descricao}</TableCell>
+                        <TableCell className="font-medium">
+                          <div>{r.descricao}</div>
+                          {tipo === "vendas" && (
+                            <div className="mt-0.5 text-xs font-normal text-muted-foreground">
+                              Recebido {formatBRL(r.valorPago ?? 0)} · Em aberto {formatBRL(r.saldo ?? 0)} · {r.saldo && r.saldo > 0 ? (r.valorPago && r.valorPago > 0 ? "Parcialmente recebida" : "Pendente") : "Recebida"}
+                            </div>
+                          )}
+                        </TableCell>
                         <TableCell className="text-right font-medium tabular-nums">
                           {formatBRL(r.valor)}
                         </TableCell>

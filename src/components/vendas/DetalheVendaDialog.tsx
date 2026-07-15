@@ -367,6 +367,39 @@ export function DetalheVendaDialog({
               </div>
             )}
 
+            {data.parcelas_fiado.length > 0 && (
+              <div>
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Parcelamento do fiado
+                </p>
+                <div className="max-h-64 space-y-2 overflow-y-auto rounded-md border p-2">
+                  {data.parcelas_fiado.map((parcela) => {
+                    const saldo = Math.max(0, parcela.valor - parcela.valor_pago);
+                    return (
+                      <div key={parcela.id} className="grid gap-2 rounded-md bg-muted/20 p-2 text-sm sm:grid-cols-4">
+                        <div>
+                          <span className="text-xs text-muted-foreground">Parcela</span>
+                          <p className="font-medium">{parcela.numero_parcela}/{parcela.total_parcelas}</p>
+                        </div>
+                        <div>
+                          <span className="text-xs text-muted-foreground">Valor</span>
+                          <p className="font-mono">{formatBRL(parcela.valor)}</p>
+                        </div>
+                        <div>
+                          <span className="text-xs text-muted-foreground">Vencimento</span>
+                          <p>{parcela.data_vencimento.split("-").reverse().join("/")}</p>
+                        </div>
+                        <div>
+                          <span className="text-xs text-muted-foreground">Status</span>
+                          <p className="capitalize">{parcela.status} · saldo {formatBRL(saldo)}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Histórico */}
             {historico.length > 0 && (
               <div>

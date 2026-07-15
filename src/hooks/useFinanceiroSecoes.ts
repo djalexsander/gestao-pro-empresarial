@@ -5,6 +5,7 @@ import type { SecaoFiltroValue, FormaFiltro } from "@/components/financeiro/Seca
 import {
   calcAbertoLanc,
   calcValorRealizado,
+  calcSaldoProjetado,
   isLancCancelado,
   isLancPagar,
   isLancRealizado,
@@ -24,20 +25,19 @@ export interface PosicaoFinanceiraData {
   totalPagar: number;
   qtdPagar: number;
   saldo: number;
+  caixaRealizadoPeriodo: number;
   periodo: PeriodoRange;
 }
 
 export function usePosicaoFinanceira(filtro: SecaoFiltroValue) {
   const periodo = toRange(filtro);
   return useQuery({
-    queryKey: ["fin_posicao", periodo.inicio, periodo.fim],
+    queryKey: ["fin_posicao_carteira_atual", periodo.inicio, periodo.fim],
     staleTime: 30_000,
     queryFn: async (): Promise<PosicaoFinanceiraData> => {
       const { data, error } = await supabase
         .from("financeiro_lancamentos")
         .select("id, tipo, valor, valor_pago, status, data_vencimento, conciliado_em")
-        .gte("data_vencimento", periodo.inicio)
-        .lte("data_vencimento", periodo.fim)
         .limit(5000);
       if (error) throw error;
 
@@ -64,12 +64,38 @@ export function usePosicaoFinanceira(filtro: SecaoFiltroValue) {
           qtdPagar += 1;
         }
       }
+      const { data: pagamentos, error: pagamentosError } = await supabase
+        .from("lancamento_pagamentos")
+        .select("lancamento_id, valor, data_pagamento, lancamento:financeiro_lancamentos(tipo)")
+        .gte("data_pagamento", periodo.inicio)
+        .lte("data_pagamento", periodo.fim)
+        .limit(10000);
+      if (pagamentosError) throw pagamentosError;
+      let caixaRealizadoPeriodo = (pagamentos ?? []).reduce((total, pagamento) => {
+        const tipo = (pagamento.lancamento as { tipo?: string } | null)?.tipo;
+        const valor = Number(pagamento.valor) || 0;
+        return total + (tipo === "pagar" || tipo === "despesa" ? -valor : valor);
+      }, 0);
+      const idsComBaixa = new Set((pagamentos ?? []).map((p) => p.lancamento_id));
+      const { data: realizadosSemHistorico } = await supabase
+        .from("financeiro_lancamentos")
+        .select("id, tipo, valor, valor_pago")
+        .in("status", ["pago", "recebido"])
+        .gte("data_pagamento", periodo.inicio)
+        .lte("data_pagamento", periodo.fim)
+        .limit(5000);
+      for (const lancamento of realizadosSemHistorico ?? []) {
+        if (idsComBaixa.has(lancamento.id)) continue;
+        const valor = calcValorRealizado(lancamento);
+        caixaRealizadoPeriodo += isLancPagar(lancamento) ? -valor : valor;
+      }
       return {
         totalReceber,
         qtdReceber,
         totalPagar,
         qtdPagar,
-        saldo: totalReceber - totalPagar,
+        saldo: calcSaldoProjetado(caixaRealizadoPeriodo, totalReceber, totalPagar),
+        caixaRealizadoPeriodo,
         periodo,
       };
     },
@@ -215,27 +241,40 @@ export function useReceberOrigem(filtro: SecaoFiltroValue) {
         }
       }
 
-      // Recebido no período
+      // Recebido no período: cada baixa individual, inclusive parcial.
       const { data: pagos } = await supabase
+        .from("lancamento_pagamentos")
+        .select("lancamento_id, valor, forma_pagamento, lancamento:financeiro_lancamentos(tipo)")
+        .gte("data_pagamento", periodo.inicio)
+        .lte("data_pagamento", periodo.fim)
+        .limit(10000);
+
+      let recebidoPeriodo = 0;
+      let qtdRecebimentos = 0;
+      for (const l of (pagos ?? []) as Array<{
+        lancamento_id: string;
+        valor: number;
+        forma_pagamento: string | null;
+        lancamento: { tipo: string } | null;
+      }>) {
+        if (!l.lancamento || !isLancReceber(l.lancamento)) continue;
+        if (!matchForma(forma, l.forma_pagamento)) continue;
+        recebidoPeriodo += Number(l.valor) || 0;
+        qtdRecebimentos += 1;
+      }
+      const idsComBaixa = new Set((pagos ?? []).map((p) => p.lancamento_id));
+      const { data: recebidosSemHistorico } = await supabase
         .from("financeiro_lancamentos")
-        .select("valor, valor_pago, forma_pagamento, tipo, status")
+        .select("id, valor, valor_pago, forma_pagamento, tipo, status")
         .in("tipo", ["receber", "receita"])
         .in("status", ["pago", "recebido"])
         .gte("data_pagamento", periodo.inicio)
         .lte("data_pagamento", periodo.fim)
         .limit(5000);
-
-      let recebidoPeriodo = 0;
-      let qtdRecebimentos = 0;
-      for (const l of (pagos ?? []) as Array<{
-        valor: number;
-        valor_pago: number | null;
-        forma_pagamento: string | null;
-        tipo: string;
-        status: string;
-      }>) {
-        if (!matchForma(forma, l.forma_pagamento)) continue;
-        recebidoPeriodo += calcValorRealizado(l);
+      for (const lancamento of recebidosSemHistorico ?? []) {
+        if (idsComBaixa.has(lancamento.id)) continue;
+        if (!matchForma(forma, lancamento.forma_pagamento)) continue;
+        recebidoPeriodo += calcValorRealizado(lancamento);
         qtdRecebimentos += 1;
       }
 

@@ -13,6 +13,8 @@ export interface DashboardLucroBrutoMes {
 
 export interface DashboardLucroBrutoData {
   receita: number;
+  recebido: number;
+  emAberto: number;
   custo: number;
   lucro: number;
   margem: number;
@@ -67,7 +69,24 @@ export async function fetchDashboardLucroBruto(
   }
 
   const vendaIds = vendas.map((v) => v.id);
+  let recebido = 0;
+  let emAberto = 0;
   if (vendaIds.length > 0) {
+    const { data: lancamentos, error: lancamentosError } = await supabase
+      .from("financeiro_lancamentos")
+      .select("valor, valor_pago, status, venda_id")
+      .in("venda_id", vendaIds)
+      .in("tipo", ["receber", "receita"])
+      .limit(20000);
+    if (lancamentosError) throw lancamentosError;
+    for (const lancamento of lancamentos ?? []) {
+      if (lancamento.status === "cancelado") continue;
+      const valor = Number(lancamento.valor) || 0;
+      const pago = Math.min(valor, Number(lancamento.valor_pago) || 0);
+      recebido += pago;
+      emAberto += Math.max(0, valor - pago);
+    }
+
     const { data: itensData, error: itensError } = await supabase
       .from("venda_itens")
       .select("venda_id, produto_id, quantidade, produto:produtos(preco_custo)")
@@ -119,6 +138,8 @@ export async function fetchDashboardLucroBruto(
 
   return {
     receita,
+    recebido,
+    emAberto,
     custo,
     lucro,
     margem: calcMargemPct(receita, lucro),

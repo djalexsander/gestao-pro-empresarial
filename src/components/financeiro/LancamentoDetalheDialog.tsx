@@ -75,6 +75,8 @@ export type LancamentoDetalhe = {
   venda_total?: number | null;
   categoria_nome?: string | null;
   forma_pagamento?: string | null;
+  parcela_numero?: number | null;
+  parcela_total?: number | null;
   created_at?: string | null;
   conciliado_em?: string | null;
   valor_repasse?: number | null;
@@ -356,6 +358,8 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
   const totalPago = Number(lancamento.valor_pago ?? 0);
   const valorTotal = Number(lancamento.valor);
   const saldoRestante = Math.max(0, valorTotal - totalPago);
+  const numeroParcela = Number(lancamento.parcela_numero) || 1;
+  const totalParcelas = Number(lancamento.parcela_total) || 1;
   const jaResolvido =
     lancamento.status === "pago" ||
     lancamento.status === "recebido" ||
@@ -396,11 +400,11 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
         desconto: item.desconto,
         total: item.total,
       })),
-      subtotal: venda.subtotal,
-      desconto: venda.desconto,
-      outros: venda.outros,
-      frete: venda.frete,
-      total: venda.total,
+      subtotal: valorTotal,
+      desconto: 0,
+      outros: 0,
+      frete: 0,
+      total: valorTotal,
       totalItens: venda.itens.reduce((total, item) => total + item.quantidade, 0),
       forma: "fiado",
       status: statusCupom,
@@ -410,6 +414,9 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
       observacao: [
         `Telefone do cliente: ${lancamento.cliente_telefone ?? "—"}`,
         `Data da venda: ${formatDateBR(lancamento.venda_data ?? venda.data_finalizacao ?? venda.data_emissao)}`,
+        `Parcela: ${numeroParcela}/${totalParcelas}`,
+        `Valor da parcela: ${formatBRL(valorTotal)}`,
+        `Total da venda: ${formatBRL(venda.total)}`,
         `Emissão: ${formatDateBR(lancamento.data_emissao ?? null)}`,
         `Vencimento: ${formatDateBR(lancamento.data_vencimento)}`,
         `Forma original: ${lancamento.forma_pagamento ?? "fiado"}`,
@@ -500,6 +507,9 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
                   {lancamento.forma_pagamento}
                 </Field>
               )}
+              <Field icon={Receipt} label="Parcela">
+                {numeroParcela}/{totalParcelas}
+              </Field>
               {lancamento.categoria_nome && (
                 <Field icon={Tag} label="Categoria">
                   {lancamento.categoria_nome}

@@ -15,6 +15,13 @@ export interface DashboardFinanceiroKpiRow {
   data: string | null;
   descricao: string;
   valor: number;
+  valorOriginal: number;
+  valorPago: number;
+  vendaNumero: string | null;
+  vendaData: string | null;
+  parcelaNumero: number;
+  parcelaTotal: number;
+  lancamentoId: string;
   status: string;
 }
 
@@ -38,6 +45,9 @@ type LancamentoDashboard = {
   cliente_id: string | null;
   forma_pagamento: string | null;
   conciliado_em: string | null;
+  parcela_numero: number | null;
+  parcela_total: number | null;
+  venda: { numero: string | null; data_finalizacao: string | null } | null;
 };
 
 function statusAberto(l: LancamentoDashboard, hojeStr: string) {
@@ -51,7 +61,7 @@ export async function fetchDashboardFinanceiroKpi(
   const { data, error } = await supabase
     .from("financeiro_lancamentos")
     .select(
-      "id, descricao, valor, valor_pago, status, data_vencimento, tipo, fornecedor_id, cliente_id, forma_pagamento, conciliado_em",
+      "id, descricao, valor, valor_pago, status, data_vencimento, tipo, fornecedor_id, cliente_id, forma_pagamento, conciliado_em, parcela_numero, parcela_total, venda:vendas(numero, data_finalizacao)",
     )
     .order("data_vencimento", { ascending: true })
     .limit(5000);
@@ -110,6 +120,13 @@ export async function fetchDashboardFinanceiroKpi(
       data: l.data_vencimento,
       descricao: l.descricao ?? "-",
       valor: calcAbertoLanc(l),
+      valorOriginal: Number(l.valor) || 0,
+      valorPago: Number(l.valor_pago) || 0,
+      vendaNumero: l.venda?.numero ?? null,
+      vendaData: l.venda?.data_finalizacao ?? null,
+      parcelaNumero: Number(l.parcela_numero) || 1,
+      parcelaTotal: Number(l.parcela_total) || 1,
+      lancamentoId: l.id,
       status: statusAberto(l, hojeStr),
     };
   });

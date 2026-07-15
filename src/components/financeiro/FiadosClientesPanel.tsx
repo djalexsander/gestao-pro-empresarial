@@ -331,7 +331,10 @@ export function FiadosClientesPanel({ receber, loading }: Props) {
                   return (
                     <TableRow key={l.id}>
                       <TableCell className="font-mono text-xs">
-                        {l.venda_numero ?? l.numero_documento ?? "—"}
+                        <div>{l.venda_numero ?? l.numero_documento ?? "—"}</div>
+                        <div className="text-[10px] text-muted-foreground">
+                          Parcela {Number(l.parcela_numero) || 1}/{Number(l.parcela_total) || 1}
+                        </div>
                       </TableCell>
                       <TableCell className="text-sm">
                         {formatDateBR(l.venda_data ?? l.data_emissao)}

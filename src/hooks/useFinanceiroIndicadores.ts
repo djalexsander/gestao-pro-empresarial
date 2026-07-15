@@ -73,6 +73,8 @@ export interface FinanceiroIndicadores {
   ifoodAReceber: number;
   qtdIfood: number;
   recebidoHoje: number;
+  recebidoPeriodo: number;
+  totalEmAberto: number;
   qtdRecebimentosHoje: number;
   vencidosTotal: number;
   qtdVencidos: number;
@@ -187,7 +189,7 @@ export function useFinanceiroIndicadores() {
         .from("financeiro_lancamentos")
         .select("id, valor, valor_pago, forma_pagamento, status, conciliado_em")
         .eq("tipo", "receber")
-        .in("status", ["pendente"])
+        .in("status", ["pendente", "parcial", "vencido"])
         .limit(5000);
 
       let fiadoEmAberto = 0;
@@ -216,26 +218,64 @@ export function useFinanceiroIndicadores() {
         }
       }
 
-      // 4) Recebido hoje (lançamentos pagos/recebidos hoje)
+      // 4) Recebido hoje/no mês: baixas efetivas, inclusive parciais.
       const { data: pagosHoje } = await supabase
-        .from("financeiro_lancamentos")
-        .select("id, valor_pago, valor, tipo")
+        .from("lancamento_pagamentos")
+        .select("id, lancamento_id, valor, lancamento:financeiro_lancamentos(tipo)")
         .eq("data_pagamento", hojeStr)
-        .in("status", ["pago", "recebido"])
-        .eq("tipo", "receber")
         .limit(2000);
 
-      const recebidoHoje = (pagosHoje ?? []).reduce(
-        (s, l) => s + calcValorRealizado(l),
+      const pagamentosReceberHoje = (pagosHoje ?? []).filter((p) => {
+        const tipo = (p.lancamento as { tipo?: string } | null)?.tipo;
+        return tipo === "receber" || tipo === "receita";
+      });
+      const recebidoHoje = pagamentosReceberHoje.reduce((s, p) => s + (Number(p.valor) || 0), 0);
+      let qtdRecebimentosHoje = pagamentosReceberHoje.length;
+
+      const idsComBaixaHoje = new Set(pagamentosReceberHoje.map((p) => p.lancamento_id));
+      const { data: recebidosHojeSemHistorico } = await supabase
+        .from("financeiro_lancamentos")
+        .select("id, valor, valor_pago")
+        .eq("tipo", "receber")
+        .in("status", ["pago", "recebido"])
+        .eq("data_pagamento", hojeStr)
+        .limit(5000);
+      const recebidoImediatoHoje = (recebidosHojeSemHistorico ?? []).reduce((s, l) => {
+        if (idsComBaixaHoje.has(l.id)) return s;
+        qtdRecebimentosHoje += 1;
+        return s + calcValorRealizado(l);
+      }, 0);
+
+      const { data: pagosPeriodo } = await supabase
+        .from("lancamento_pagamentos")
+        .select("lancamento_id, valor, lancamento:financeiro_lancamentos(tipo)")
+        .gte("data_pagamento", periodo.inicio)
+        .lte("data_pagamento", periodo.fim)
+        .limit(10000);
+      let recebidoPeriodo = (pagosPeriodo ?? []).reduce((s, p) => {
+        const tipo = (p.lancamento as { tipo?: string } | null)?.tipo;
+        return tipo === "receber" || tipo === "receita" ? s + (Number(p.valor) || 0) : s;
+      }, 0);
+      const idsComBaixaPeriodo = new Set((pagosPeriodo ?? []).map((p) => p.lancamento_id));
+      const { data: recebidosPeriodoSemHistorico } = await supabase
+        .from("financeiro_lancamentos")
+        .select("id, valor, valor_pago")
+        .eq("tipo", "receber")
+        .in("status", ["pago", "recebido"])
+        .gte("data_pagamento", periodo.inicio)
+        .lte("data_pagamento", periodo.fim)
+        .limit(5000);
+      recebidoPeriodo += (recebidosPeriodoSemHistorico ?? []).reduce(
+        (s, l) => idsComBaixaPeriodo.has(l.id) ? s : s + calcValorRealizado(l),
         0,
       );
-      const qtdRecebimentosHoje = (pagosHoje ?? []).length;
+      const totalEmAberto = fiadoEmAberto + ifoodAReceber;
 
       // 5) Vencidos (a receber + a pagar)
       const { data: vencidos } = await supabase
         .from("financeiro_lancamentos")
         .select("id, valor, valor_pago, tipo")
-        .in("status", ["pendente"])
+        .in("status", ["pendente", "parcial", "vencido"])
         .lt("data_vencimento", hojeStr)
         .limit(5000);
 
@@ -275,7 +315,9 @@ export function useFinanceiroIndicadores() {
         qtdFiado,
         ifoodAReceber,
         qtdIfood,
-        recebidoHoje,
+        recebidoHoje: recebidoHoje + recebidoImediatoHoje,
+        recebidoPeriodo,
+        totalEmAberto,
         qtdRecebimentosHoje,
         vencidosTotal,
         qtdVencidos,

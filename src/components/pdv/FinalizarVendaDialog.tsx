@@ -35,6 +35,11 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatBRL } from "@/lib/mock-data";
 import {
+  dataFinanceiraValida,
+  gerarParcelasFiado,
+  somaParcelasCentavos,
+} from "@/lib/parcelamento-fiado";
+import {
   useFinalizarVendaPDV,
   type FormaPagamento,
   type StatusPagamento,
@@ -155,6 +160,7 @@ export function FinalizarVendaDialog({
   const [obsFinal, setObsFinal] = useState("");
   const [hotkeyFlash, setHotkeyFlash] = useState<string | null>(null);
   const [vencimentoFiado, setVencimentoFiado] = useState<string>("");
+  const [quantidadeParcelasFiado, setQuantidadeParcelasFiado] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submitLockRef = useRef(false);
   const ultimoValorRef = useRef<HTMLInputElement>(null);
@@ -170,7 +176,7 @@ export function FinalizarVendaDialog({
   function dataPadraoFiado(): string {
     const d = new Date();
     d.setDate(d.getDate() + 30);
-    return d.toISOString().slice(0, 10);
+    return `${d.getFullYear().toString().padStart(4, "0")}-${(d.getMonth() + 1).toString().padStart(2, "0")}-${d.getDate().toString().padStart(2, "0")}`;
   }
 
   // Reset ao abrir: começa com 1 pagamento em dinheiro cobrindo o total
@@ -183,6 +189,7 @@ export function FinalizarVendaDialog({
       setHotkeyFlash(null);
       submitLockRef.current = false;
       setVencimentoFiado(dataPadraoFiado());
+      setQuantidadeParcelasFiado(1);
       setTimeout(() => ultimoValorRef.current?.focus(), 50);
     }
   }, [open, total]);
@@ -226,6 +233,8 @@ export function FinalizarVendaDialog({
     () => Number((total - totalPago).toFixed(2)),
     [total, totalPago],
   );
+  const somaPagamentosInvalida =
+    Math.round(totalPago * 100) !== Math.round(total * 100);
 
   const dinheiroInsuficiente = useMemo(() => {
     // Só bloqueia se houve pagamento em dinheiro e o recebido é menor que o devido
@@ -244,7 +253,9 @@ export function FinalizarVendaDialog({
       const todasPendentes =
         pagamentos.length > 0 &&
         pagamentos.every((p) => getFormaInfo(p.forma).pendentePorPadrao);
-      return todasPendentes ? "pendente" : "pago";
+      if (todasPendentes) return "pendente";
+      if (pagamentos.some((p) => getFormaInfo(p.forma).pendentePorPadrao)) return "parcial";
+      return "pago";
     }
     if (totalPago > 0 && totalPago < total) return "parcial";
     if (totalPago === 0) return "pendente";
@@ -258,6 +269,27 @@ export function FinalizarVendaDialog({
   );
   const fiadoSemCliente = temFiado && !cliente;
   const fiadoSemVencimento = temFiado && !vencimentoFiado;
+  const pagamentosFiado = useMemo(
+    () => pagamentos.filter((p) => p.forma === "fiado"),
+    [pagamentos],
+  );
+  const fiadoDuplicado = pagamentosFiado.length > 1;
+  const valorFiado = pagamentosFiado[0]?.valor ?? 0;
+  const quantidadeFiadoInvalida =
+    temFiado &&
+    (!Number.isInteger(quantidadeParcelasFiado) ||
+      quantidadeParcelasFiado < 1 ||
+      quantidadeParcelasFiado > 60);
+  const parcelasFiado = useMemo(() => {
+    if (!temFiado || quantidadeFiadoInvalida || valorFiado <= 0 || !dataFinanceiraValida(vencimentoFiado)) {
+      return [];
+    }
+    return gerarParcelasFiado(valorFiado, quantidadeParcelasFiado, vencimentoFiado);
+  }, [temFiado, quantidadeFiadoInvalida, valorFiado, quantidadeParcelasFiado, vencimentoFiado]);
+  const somaParcelasInvalida =
+    temFiado &&
+    parcelasFiado.length > 0 &&
+    somaParcelasCentavos(parcelasFiado) !== Math.round(valorFiado * 100);
 
   // Forma "principal" = a de maior valor (apenas para o card de resumo)
   const formaPrincipal: FormaPagamento = useMemo(() => {
@@ -284,6 +316,13 @@ export function FinalizarVendaDialog({
   }
 
   function setForma(uid: string, forma: FormaPagamento) {
+    if (
+      forma === "fiado" &&
+      pagamentos.some((p) => p.uid !== uid && p.forma === "fiado")
+    ) {
+      toast.error("Só é permitido um pagamento Fiado por venda.");
+      return;
+    }
     setPagamentos((prev) =>
       prev.map((p) => {
         if (p.uid !== uid) return p;
@@ -338,6 +377,10 @@ export function FinalizarVendaDialog({
     if (itens.length === 0) return;
     if (dinheiroInsuficiente) return;
     if (pagamentos.length === 0) return;
+    if (somaPagamentosInvalida) {
+      toast.error("A soma das formas de pagamento não corresponde ao total da venda.");
+      return;
+    }
     // Aceita pagar exatamente o total ou menos (parcial). Mais que o total só faz sentido em dinheiro (troco).
     if (totalPago > total + 0.005 && valorDinheiroDevido === 0) {
       return;
@@ -345,13 +388,33 @@ export function FinalizarVendaDialog({
 
     // ===== Validação FIADO =====
     if (fiadoSemCliente) {
-      toast.error("Para vendas fiado é obrigatório selecionar um cliente.");
+      toast.error("Selecione um cliente para realizar uma venda fiada.");
       onSelecionarCliente?.();
       return;
     }
     if (fiadoSemVencimento) {
-      toast.error("Informe a data de vencimento para a venda fiado.");
+      toast.error("Informe a data do primeiro vencimento.");
       setTimeout(() => vencimentoInputRef.current?.focus(), 30);
+      return;
+    }
+    if (fiadoDuplicado) {
+      toast.error("Só é permitido um pagamento Fiado por venda.");
+      return;
+    }
+    if (quantidadeFiadoInvalida) {
+      toast.error("Informe uma quantidade válida de parcelas.");
+      return;
+    }
+    if (valorFiado <= 0) {
+      toast.error("O valor Fiado deve ser maior que zero.");
+      return;
+    }
+    if (!dataFinanceiraValida(vencimentoFiado)) {
+      toast.error("Informe a data do primeiro vencimento.");
+      return;
+    }
+    if (somaParcelasInvalida || parcelasFiado.length !== quantidadeParcelasFiado) {
+      toast.error("A soma das parcelas não corresponde ao valor fiado.");
       return;
     }
     if (totalPago < total - 0.005) {
@@ -369,6 +432,8 @@ export function FinalizarVendaDialog({
         valor_recebido: isDinheiro ? Number(p.valorRecebido.toFixed(2)) : null,
         troco: isDinheiro ? Number(trocoLinha.toFixed(2)) : null,
         parcelas: p.forma === "cartao_credito" ? p.parcelas : 1,
+        quantidade_parcelas: p.forma === "fiado" ? quantidadeParcelasFiado : null,
+        primeiro_vencimento: p.forma === "fiado" ? vencimentoFiado : null,
         observacao: null,
       };
     });
@@ -419,8 +484,12 @@ export function FinalizarVendaDialog({
     !dinheiroInsuficiente &&
     pagamentos.length > 0 &&
     totalPago > 0 &&
+    !somaPagamentosInvalida &&
     !fiadoSemCliente &&
-    !fiadoSemVencimento;
+    !fiadoSemVencimento &&
+    !fiadoDuplicado &&
+    !quantidadeFiadoInvalida &&
+    !somaParcelasInvalida;
 
   useHotkeys(
     [
@@ -756,19 +825,19 @@ export function FinalizarVendaDialog({
               </div>
             )}
 
-            {/* ============ FIADO: cliente + vencimento obrigatórios ============ */}
+            {/* ============ FIADO: cliente + parcelamento obrigatórios ============ */}
             {temFiado && (
               <div
                 className={cn(
                   "rounded-lg border-2 p-3 transition-colors",
-                  fiadoSemCliente || fiadoSemVencimento
+                  fiadoSemCliente || fiadoSemVencimento || quantidadeFiadoInvalida || fiadoDuplicado
                     ? "border-destructive/60 bg-destructive/5"
                     : "border-warning/40 bg-warning/5",
                 )}
               >
                 <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
                   <AlertTriangle className="h-3.5 w-3.5" />
-                  Venda fiado exige cliente e vencimento
+                  Parcelamento do fiado
                 </p>
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <div className="text-sm">
@@ -792,29 +861,91 @@ export function FinalizarVendaDialog({
                     </Button>
                   )}
                 </div>
-                <div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label
+                      htmlFor="parcelas-fiado"
+                      className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground"
+                    >
+                      Quantidade de parcelas *
+                    </Label>
+                    <Input
+                      id="parcelas-fiado"
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={60}
+                      step={1}
+                      value={Number.isFinite(quantidadeParcelasFiado) ? quantidadeParcelasFiado : ""}
+                      onChange={(e) => setQuantidadeParcelasFiado(Number(e.target.value))}
+                      className={cn(
+                        "h-10 font-mono",
+                        quantidadeFiadoInvalida && "border-destructive ring-1 ring-destructive",
+                      )}
+                    />
+                  </div>
+                  <div>
                   <Label
                     htmlFor="venc-fiado"
                     className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground"
                   >
-                    Data de vencimento *
+                    Primeiro vencimento *
                   </Label>
                   <Input
                     ref={vencimentoInputRef}
                     id="venc-fiado"
                     type="date"
                     value={vencimentoFiado}
-                    min={new Date().toISOString().slice(0, 10)}
                     onChange={(e) => setVencimentoFiado(e.target.value)}
                     className={cn(
-                      "h-10 max-w-[220px] font-mono",
+                      "h-10 font-mono",
                       fiadoSemVencimento && "border-destructive ring-1 ring-destructive",
                     )}
                   />
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    Sugerido: +30 dias da data atual
-                  </p>
+                  </div>
                 </div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {[1, 2, 3, 4, 5, 6, 12].map((quantidade) => (
+                    <Button
+                      key={quantidade}
+                      type="button"
+                      variant={quantidadeParcelasFiado === quantidade ? "default" : "outline"}
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => setQuantidadeParcelasFiado(quantidade)}
+                    >
+                      {quantidade}x
+                    </Button>
+                  ))}
+                </div>
+                {fiadoDuplicado && (
+                  <p className="mt-2 text-xs font-medium text-destructive">
+                    Só é permitido um pagamento Fiado por venda.
+                  </p>
+                )}
+                {parcelasFiado.length > 0 && (
+                  <div className="mt-3">
+                    <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Prévia das parcelas
+                    </p>
+                    <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border bg-background/70 p-2">
+                      {parcelasFiado.map((parcela) => (
+                        <div
+                          key={parcela.numeroParcela}
+                          className="flex flex-wrap items-center justify-between gap-x-3 border-b border-border/60 py-1 text-xs last:border-0"
+                        >
+                          <span className="font-medium">
+                            {parcela.numeroParcela}/{parcela.totalParcelas}
+                          </span>
+                          <span className="font-mono tabular-nums">{formatBRL(parcela.valor)}</span>
+                          <span className="font-mono text-muted-foreground">
+                            {parcela.dataVencimento.split("-").reverse().join("/")}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -969,8 +1100,12 @@ export function FinalizarVendaDialog({
                 dinheiroInsuficiente ||
                 pagamentos.length === 0 ||
                 totalPago <= 0 ||
+                somaPagamentosInvalida ||
                 fiadoSemCliente ||
-                fiadoSemVencimento
+                fiadoSemVencimento ||
+                fiadoDuplicado ||
+                quantidadeFiadoInvalida ||
+                somaParcelasInvalida
               }
             >
               {finalizar.isPending ? (

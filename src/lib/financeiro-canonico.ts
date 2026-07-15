@@ -119,6 +119,23 @@ export function somarPagarEmAberto(lancs: LancamentoCanonico[]): number {
   return total;
 }
 
+/** Soma somente valores efetivamente baixados. Use com linhas de
+ * `lancamento_pagamentos`, nunca com o valor original do título. */
+export function somarPagamentosEfetivos(
+  pagamentos: Array<{ valor: number | string | null }>,
+): number {
+  return pagamentos.reduce((total, pagamento) => total + num(pagamento.valor), 0);
+}
+
+/** Projeção explícita: caixa realizado + carteira a receber - carteira a pagar. */
+export function calcSaldoProjetado(
+  caixaRealizado: number,
+  receberEmAberto: number,
+  pagarEmAberto: number,
+): number {
+  return num(caixaRealizado) + num(receberEmAberto) - num(pagarEmAberto);
+}
+
 /** Lucro bruto canônico. */
 export const calcLucroBruto = (totalVendido: number, custoTotal: number) =>
   num(totalVendido) - num(custoTotal);
