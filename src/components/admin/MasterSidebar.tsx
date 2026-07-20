@@ -15,6 +15,7 @@ import {
   Settings2,
   Layers,
   ClipboardCheck,
+  TrendingUp,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -39,6 +40,7 @@ const groups: NavGroup[] = [
       { to: "/admin/planos", label: "Planos", icon: Package2 },
       { to: "/admin/modulos", label: "Módulos", icon: Puzzle },
       { to: "/admin/assinaturas", label: "Assinaturas", icon: CreditCard },
+      { to: "/admin/reajustes", label: "Reajustes", icon: TrendingUp },
       { to: "/admin/pagamentos", label: "Pagamentos", icon: Wallet },
       { to: "/admin/modos", label: "Modos do sistema", icon: Layers },
       { to: "/admin/config-comercial", label: "Configurações", icon: Settings2 },

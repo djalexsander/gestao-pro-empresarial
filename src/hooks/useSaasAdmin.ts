@@ -102,6 +102,39 @@ export type ConfigComercial = {
   updated_at: string;
 };
 
+export type ReajusteCatalogoRow = {
+  tipo: "plano" | "modulo";
+  item_id: string;
+  nome: string;
+  preco_catalogo: number;
+  preco_futuro: number | null;
+  empresas_ativas: number;
+  valor_medio_contratado: number | null;
+};
+
+export type ReajusteEmpresaRow = {
+  empresa_id: string;
+  empresa_nome: string;
+  plano_nome: string | null;
+  valor_contratado: number;
+  valor_personalizado: boolean;
+};
+
+export type ReajusteHistoricoRow = {
+  id: string;
+  empresa_nome: string;
+  tipo: "plano" | "modulo";
+  item_nome: string;
+  valor_anterior: number;
+  valor_novo: number;
+  vigencia: string;
+  modo_aplicacao: "imediato" | "proxima_renovacao";
+  motivo: string | null;
+  alterado_por: string;
+  criado_em: string;
+  aplicado_em: string | null;
+};
+
 /* =========================================================
  * PLANOS
  * =======================================================*/
@@ -446,6 +479,150 @@ export function useSetConfigComercial() {
       toast.success("Configurações comerciais atualizadas.");
     },
     onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+/* =========================================================
+ * REAJUSTES
+ * =======================================================*/
+export function useAdminReajustesCatalogo() {
+  return useQuery({
+    queryKey: ["admin-reajustes-catalogo"],
+    queryFn: async () => {
+      const { data, error } = await (supabase.rpc as any)("admin_reajustes_catalogo");
+      if (error) throw error;
+      return (data ?? []) as ReajusteCatalogoRow[];
+    },
+  });
+}
+
+export function useAdminReajusteEmpresas(tipo?: string, itemId?: string) {
+  return useQuery({
+    queryKey: ["admin-reajuste-empresas", tipo, itemId],
+    enabled: Boolean(tipo && itemId),
+    queryFn: async () => {
+      const { data, error } = await (supabase.rpc as any)("admin_reajuste_empresas", {
+        _tipo: tipo,
+        _item_id: itemId,
+      });
+      if (error) throw error;
+      return (data ?? []) as ReajusteEmpresaRow[];
+    },
+  });
+}
+
+export function useAdminAplicarReajuste() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      tipo: "plano" | "modulo";
+      item_id: string;
+      novo_valor: number;
+      escopo: "novos" | "todos_ativos" | "empresas" | "plano_base" | "premium";
+      empresas: string[];
+      vigencia: string;
+      modo: "imediato" | "proxima_renovacao";
+      motivo?: string | null;
+    }) => {
+      const { data, error } = await (supabase.rpc as any)("admin_aplicar_reajuste", {
+        _tipo: input.tipo,
+        _item_id: input.item_id,
+        _novo_valor: input.novo_valor,
+        _escopo: input.escopo,
+        _empresas: input.empresas,
+        _vigencia: input.vigencia,
+        _modo: input.modo,
+        _motivo: input.motivo ?? null,
+      });
+      if (error) throw error;
+      return data as { ok: boolean; afetadas: number; aplicado_agora?: boolean };
+    },
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["admin-reajustes-catalogo"] });
+      qc.invalidateQueries({ queryKey: ["admin-reajuste-historico"] });
+      qc.invalidateQueries({ queryKey: ["admin-planos"] });
+      qc.invalidateQueries({ queryKey: ["admin-modulos"] });
+      qc.invalidateQueries({ queryKey: ["admin-assinaturas"] });
+      toast.success(`Reajuste salvo para ${result.afetadas} empresa(s).`);
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+}
+
+export function useAdminReajusteHistorico() {
+  return useQuery({
+    queryKey: ["admin-reajuste-historico"],
+    queryFn: async () => {
+      const { data, error } = await (supabase.rpc as any)("admin_reajuste_historico", { _limit: 100 });
+      if (error) throw error;
+      return (data ?? []) as ReajusteHistoricoRow[];
+    },
+  });
+}
+
+export function useAdminPrecoAssinatura(empresaId?: string) {
+  return useQuery({
+    queryKey: ["admin-preco-assinatura", empresaId],
+    enabled: Boolean(empresaId),
+    queryFn: async () => {
+      const { data, error } = await (supabase.rpc as any)("admin_obter_preco_assinatura", { _empresa_id: empresaId });
+      if (error) throw error;
+      return data as { valor_contratado: number | null; valor_personalizado: boolean; proximo_valor: number | null; reajuste_vigencia: string | null };
+    },
+  });
+}
+
+export function useAdminSetPrecoAssinatura() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { empresa_id: string; valor: number; personalizado: boolean; motivo?: string }) => {
+      const { error } = await (supabase.rpc as any)("admin_set_preco_assinatura", {
+        _empresa_id: input.empresa_id, _valor: input.valor,
+        _personalizado: input.personalizado, _motivo: input.motivo ?? null,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-preco-assinatura"] });
+      qc.invalidateQueries({ queryKey: ["admin-reajustes-catalogo"] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+}
+
+export function useAdminSetPrecoModulo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { empresa_id: string; modulo_id: string; valor: number; personalizado: boolean }) => {
+      const { error } = await (supabase.rpc as any)("admin_set_preco_modulo", {
+        _empresa_id: input.empresa_id, _modulo_id: input.modulo_id,
+        _valor: input.valor, _personalizado: input.personalizado, _motivo: null,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-empresa-modulos"] });
+      qc.invalidateQueries({ queryKey: ["admin-reajustes-catalogo"] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+}
+
+export function useAdminPrecosModulos(empresaId?: string) {
+  return useQuery({
+    queryKey: ["admin-precos-modulos", empresaId],
+    enabled: Boolean(empresaId),
+    queryFn: async () => {
+      const { data, error } = await (supabase.rpc as any)("admin_obter_precos_modulos", { _empresa_id: empresaId });
+      if (error) throw error;
+      return (data ?? []) as Array<{
+        modulo_id: string;
+        valor_contratado: number;
+        valor_personalizado: boolean;
+        proximo_valor: number | null;
+        reajuste_vigencia: string | null;
+      }>;
+    },
   });
 }
 

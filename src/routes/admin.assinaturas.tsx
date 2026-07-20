@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pencil, ShieldCheck, Puzzle } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -14,12 +14,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
   useAdminAssinaturas, useSetAssinatura, useAdminPlanos, useAdminModulos,
   useEmpresaModulos, useSetEmpresaModulo, useRemoverEmpresaModulo,
+  useAdminPrecoAssinatura, useAdminSetPrecoAssinatura,
+  useAdminPrecosModulos, useAdminSetPrecoModulo,
   type AssinaturaRow, type AssinaturaStatus, type EmpresaModuloStatus,
 } from "@/hooks/useSaasAdmin";
 
@@ -131,13 +134,26 @@ function EditAssinaturaDialog({
 }: { assinatura: AssinaturaRow; onClose: () => void }) {
   const { data: planos = [] } = useAdminPlanos();
   const set = useSetAssinatura();
+  const setPreco = useAdminSetPrecoAssinatura();
+  const { data: preco } = useAdminPrecoAssinatura(assinatura.empresa_id);
   const [form, setForm] = useState({
     plano_id: assinatura.plano_id ?? "__none__",
     status: (assinatura.status ?? "trial") as AssinaturaStatus,
     data_inicio: assinatura.data_inicio ?? "",
     data_expiracao: assinatura.data_expiracao ?? "",
     observacoes: assinatura.observacoes ?? "",
+    valor_contratado: "",
+    valor_personalizado: false,
   });
+
+  useEffect(() => {
+    if (!preco) return;
+    setForm((current) => ({
+      ...current,
+      valor_contratado: String(preco.valor_contratado ?? ""),
+      valor_personalizado: preco.valor_personalizado,
+    }));
+  }, [preco]);
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -190,6 +206,21 @@ function EditAssinaturaDialog({
             <Textarea rows={2} value={form.observacoes}
               onChange={(e) => setForm({ ...form, observacoes: e.target.value })} />
           </div>
+          <div className="space-y-3 rounded-lg border p-3">
+            <div className="space-y-1.5">
+              <Label>Valor contratado</Label>
+              <Input type="number" min="0" step="0.01" value={form.valor_contratado}
+                onChange={(e) => setForm({ ...form, valor_contratado: e.target.value })} />
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox id="valor-personalizado-plano" checked={form.valor_personalizado}
+                onCheckedChange={(checked) => setForm({ ...form, valor_personalizado: checked === true })} />
+              <Label htmlFor="valor-personalizado-plano">Valor personalizado</Label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Assinaturas com valor personalizado nao participam de reajustes em massa.
+            </p>
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
@@ -203,6 +234,13 @@ function EditAssinaturaDialog({
                 data_inicio: form.data_inicio || null,
                 data_expiracao: form.data_expiracao || null,
                 observacoes: form.observacoes.trim() || null,
+              });
+              const valor = Number(form.valor_contratado.replace(",", "."));
+              if (!Number.isFinite(valor) || valor < 0) throw new Error("Informe um valor contratado valido.");
+              await setPreco.mutateAsync({
+                empresa_id: assinatura.empresa_id,
+                valor,
+                personalizado: form.valor_personalizado,
               });
               onClose();
             }}
@@ -220,10 +258,12 @@ function EmpresaModulosDialog({
 }: { assinatura: AssinaturaRow; onClose: () => void }) {
   const { data: modulos = [] } = useAdminModulos();
   const { data: ativos = [] } = useEmpresaModulos(assinatura.empresa_id);
+  const { data: precos = [] } = useAdminPrecosModulos(assinatura.empresa_id);
   const setMod = useSetEmpresaModulo();
   const removeMod = useRemoverEmpresaModulo();
 
   const ativosMap = new Map(ativos.map((a) => [a.modulo_id, a]));
+  const precosMap = new Map(precos.map((p) => [p.modulo_id, p]));
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -248,6 +288,14 @@ function EmpresaModulosDialog({
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground">{fmtBRL(m.valor)} · {m.chave}</p>
+                  {atual && (
+                    <ModuloPrecoControls
+                      empresaId={assinatura.empresa_id}
+                      moduloId={m.id}
+                      valor={precosMap.get(m.id)?.valor_contratado ?? m.valor}
+                      personalizado={precosMap.get(m.id)?.valor_personalizado ?? false}
+                    />
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <Select
@@ -282,5 +330,39 @@ function EmpresaModulosDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ModuloPrecoControls({
+  empresaId, moduloId, valor, personalizado,
+}: { empresaId: string; moduloId: string; valor: number; personalizado: boolean }) {
+  const setPreco = useAdminSetPrecoModulo();
+  const [valorLocal, setValorLocal] = useState(String(valor));
+  const [custom, setCustom] = useState(personalizado);
+
+  useEffect(() => {
+    setValorLocal(String(valor));
+    setCustom(personalizado);
+  }, [valor, personalizado]);
+
+  const salvar = async (customValue = custom) => {
+    const numero = Number(valorLocal.replace(",", "."));
+    if (!Number.isFinite(numero) || numero < 0) return;
+    await setPreco.mutateAsync({ empresa_id: empresaId, modulo_id: moduloId, valor: numero, personalizado: customValue });
+  };
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <Input className="h-7 w-24" type="number" min="0" step="0.01" value={valorLocal}
+        onChange={(e) => setValorLocal(e.target.value)} onBlur={() => void salvar()} />
+      <div className="flex items-center gap-1.5">
+        <Checkbox checked={custom} onCheckedChange={(checked) => {
+          const next = checked === true;
+          setCustom(next);
+          void salvar(next);
+        }} />
+        <span className="text-xs text-muted-foreground">Valor personalizado</span>
+      </div>
+    </div>
   );
 }

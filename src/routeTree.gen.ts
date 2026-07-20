@@ -41,6 +41,7 @@ import { Route as RelatoriosContasReceberRouteImport } from './routes/relatorios
 import { Route as RelatoriosComprasRouteImport } from './routes/relatorios.compras'
 import { Route as RelatoriosCaixaRouteImport } from './routes/relatorios.caixa'
 import { Route as AdminUsuariosRouteImport } from './routes/admin.usuarios'
+import { Route as AdminReajustesRouteImport } from './routes/admin.reajustes'
 import { Route as AdminQaRouteImport } from './routes/admin.qa'
 import { Route as AdminPlanosRouteImport } from './routes/admin.planos'
 import { Route as AdminPagamentosRouteImport } from './routes/admin.pagamentos'
@@ -214,6 +215,11 @@ const AdminUsuariosRoute = AdminUsuariosRouteImport.update({
   path: '/usuarios',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminReajustesRoute = AdminReajustesRouteImport.update({
+  id: '/reajustes',
+  path: '/reajustes',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminQaRoute = AdminQaRouteImport.update({
   id: '/qa',
   path: '/qa',
@@ -301,6 +307,7 @@ export interface FileRoutesByFullPath {
   '/admin/pagamentos': typeof AdminPagamentosRoute
   '/admin/planos': typeof AdminPlanosRoute
   '/admin/qa': typeof AdminQaRoute
+  '/admin/reajustes': typeof AdminReajustesRoute
   '/admin/usuarios': typeof AdminUsuariosRoute
   '/relatorios/caixa': typeof RelatoriosCaixaRoute
   '/relatorios/compras': typeof RelatoriosComprasRoute
@@ -345,6 +352,7 @@ export interface FileRoutesByTo {
   '/admin/pagamentos': typeof AdminPagamentosRoute
   '/admin/planos': typeof AdminPlanosRoute
   '/admin/qa': typeof AdminQaRoute
+  '/admin/reajustes': typeof AdminReajustesRoute
   '/admin/usuarios': typeof AdminUsuariosRoute
   '/relatorios/caixa': typeof RelatoriosCaixaRoute
   '/relatorios/compras': typeof RelatoriosComprasRoute
@@ -391,6 +399,7 @@ export interface FileRoutesById {
   '/admin/pagamentos': typeof AdminPagamentosRoute
   '/admin/planos': typeof AdminPlanosRoute
   '/admin/qa': typeof AdminQaRoute
+  '/admin/reajustes': typeof AdminReajustesRoute
   '/admin/usuarios': typeof AdminUsuariosRoute
   '/relatorios/caixa': typeof RelatoriosCaixaRoute
   '/relatorios/compras': typeof RelatoriosComprasRoute
@@ -438,6 +447,7 @@ export interface FileRouteTypes {
     | '/admin/pagamentos'
     | '/admin/planos'
     | '/admin/qa'
+    | '/admin/reajustes'
     | '/admin/usuarios'
     | '/relatorios/caixa'
     | '/relatorios/compras'
@@ -482,6 +492,7 @@ export interface FileRouteTypes {
     | '/admin/pagamentos'
     | '/admin/planos'
     | '/admin/qa'
+    | '/admin/reajustes'
     | '/admin/usuarios'
     | '/relatorios/caixa'
     | '/relatorios/compras'
@@ -527,6 +538,7 @@ export interface FileRouteTypes {
     | '/admin/pagamentos'
     | '/admin/planos'
     | '/admin/qa'
+    | '/admin/reajustes'
     | '/admin/usuarios'
     | '/relatorios/caixa'
     | '/relatorios/compras'
@@ -792,6 +804,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminUsuariosRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/reajustes': {
+      id: '/admin/reajustes'
+      path: '/reajustes'
+      fullPath: '/admin/reajustes'
+      preLoaderRoute: typeof AdminReajustesRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/qa': {
       id: '/admin/qa'
       path: '/qa'
@@ -883,6 +902,7 @@ interface AdminRouteChildren {
   AdminPagamentosRoute: typeof AdminPagamentosRoute
   AdminPlanosRoute: typeof AdminPlanosRoute
   AdminQaRoute: typeof AdminQaRoute
+  AdminReajustesRoute: typeof AdminReajustesRoute
   AdminUsuariosRoute: typeof AdminUsuariosRoute
   AdminIndexRoute: typeof AdminIndexRoute
 }
@@ -898,6 +918,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminPagamentosRoute: AdminPagamentosRoute,
   AdminPlanosRoute: AdminPlanosRoute,
   AdminQaRoute: AdminQaRoute,
+  AdminReajustesRoute: AdminReajustesRoute,
   AdminUsuariosRoute: AdminUsuariosRoute,
   AdminIndexRoute: AdminIndexRoute,
 }
