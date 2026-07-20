@@ -1,6 +1,6 @@
 {
   "name": "tanstack_start_ts",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "sideEffects": false,
   "type": "module",
@@ -12,6 +12,7 @@
     "dev": "vite dev",
     "build": "vite build",
     "build:dev": "vite build --mode development",
+    "test": "vitest run src/lib/tauriUpdater.test.ts",
     "dev:desktop": "vite dev --config vite.config.desktop.ts",
     "prepare:tauri-dist": "node scripts/prepare-tauri-dist.mjs",
     "validate:public-env": "node scripts/validate-public-env.mjs",
@@ -116,6 +117,7 @@
     "prettier": "^3.7.3",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "vitest": "^4.1.10"
   }
 }

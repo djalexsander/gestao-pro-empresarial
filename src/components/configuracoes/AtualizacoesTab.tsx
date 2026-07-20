@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { getDiagnosticLogPath, readDiagnosticLog } from "@/lib/desktopErrorLogger";
+import { checkDesktopUpdate, downloadInstallAndRelaunch, formatUpdaterError, type DesktopUpdate, type UpdaterPhase } from "@/lib/tauriUpdater";
 
 /**
  * Bloco de Atualização do App Desktop.
@@ -38,7 +39,9 @@ export function AtualizacoesTab() {
     version: string;
     date?: string | null;
     notes?: string | null;
+    update: DesktopUpdate;
   } | null>(null);
+  const [installPhase, setInstallPhase] = useState<UpdaterPhase | null>(null);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [diagnosticText, setDiagnosticText] = useState<string | null>(null);
@@ -56,8 +59,8 @@ export function AtualizacoesTab() {
       try {
         const { getVersion } = await import("@tauri-apps/api/app");
         setCurrentVersion(await getVersion());
-      } catch {
-        /* ignore */
+      } catch (versionError) {
+        console.warn("[updater] Não foi possível obter a versão atual:", formatUpdaterError(versionError));
       }
     })();
   }, []);
@@ -101,20 +104,21 @@ export function AtualizacoesTab() {
     setAvailable(null);
     setChecking(true);
     try {
-      const { check } = await import("@tauri-apps/plugin-updater");
-      const update = await check();
+      const { update, currentVersion: detectedVersion } = await checkDesktopUpdate();
+      setCurrentVersion(detectedVersion);
       setLastChecked(new Date());
       if (update) {
         setAvailable({
           version: update.version,
           date: update.date ?? null,
           notes: update.body ?? null,
+          update,
         });
       } else {
         toast.success("Você está na versão mais recente.");
       }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = formatUpdaterError(e);
       setError(msg);
       toast.error(`Falha ao verificar atualizações: ${msg}`);
     } finally {
@@ -128,38 +132,37 @@ export function AtualizacoesTab() {
     setProgress(0);
     setDownloaded(0);
     setContentLength(null);
+    setInstallPhase("checking");
     try {
-      const { check } = await import("@tauri-apps/plugin-updater");
-      const update = await check();
+      const update = available?.update ?? (await checkDesktopUpdate()).update;
       if (!update) {
         toast.info("Sem nova versão disponível.");
         setInstalling(false);
+        setInstallPhase(null);
         return;
       }
-      let received = 0;
-      let total: number | null = null;
-      await update.downloadAndInstall((event) => {
-        switch (event.event) {
-          case "Started":
-            total = event.data.contentLength ?? null;
-            setContentLength(total);
-            break;
-          case "Progress":
-            received += event.data.chunkLength;
-            setDownloaded(received);
-            if (total) setProgress(Math.min(100, (received / total) * 100));
-            break;
-          case "Finished":
-            setProgress(100);
-            break;
-        }
+      await downloadInstallAndRelaunch({
+        update,
+        onProgress: (state) => {
+          setInstallPhase(state.phase);
+          setDownloaded(state.downloadedBytes);
+          setContentLength(state.totalBytes);
+          if (state.totalBytes) {
+            setProgress(Math.min(100, (state.downloadedBytes / state.totalBytes) * 100));
+          }
+        },
       });
-      toast.success("Atualização instalada. Reiniciando…");
+      setInstalling(false);
+      setInstallPhase(null);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = formatUpdaterError(e);
       setError(msg);
       toast.error(`Falha ao atualizar: ${msg}`);
       setInstalling(false);
+      setInstallPhase(null);
+      setProgress(null);
+      setDownloaded(0);
+      setContentLength(null);
     }
   };
 
@@ -258,6 +261,12 @@ export function AtualizacoesTab() {
             {installing && (
               <div className="space-y-1">
                 <Progress value={progress ?? 0} />
+                <div className="text-xs font-medium">
+                  {installPhase === "checking" && "Verificando atualização…"}
+                  {installPhase === "downloading" && "Baixando atualização…"}
+                  {installPhase === "validating-installing" && "Validando assinatura e iniciando instalação…"}
+                  {installPhase === "relaunching" && "Instalação concluída; reiniciando aplicativo…"}
+                </div>
                 <div className="text-[11px] text-muted-foreground">
                   {contentLength
                     ? `${(downloaded / 1024 / 1024).toFixed(1)} / ${(

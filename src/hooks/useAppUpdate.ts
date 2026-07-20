@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { checkDesktopUpdate, downloadInstallAndRelaunch, formatUpdaterError } from "@/lib/tauriUpdater";
 
 /**
  * Detecta nova versão do app.
@@ -72,6 +73,7 @@ export interface AppUpdateState {
   updateAvailable: boolean;
   isApplying: boolean;
   newVersion: string | null;
+  updateError: string | null;
   applyUpdate: () => void;
   snooze: () => void;
   dismiss: () => void;
@@ -81,6 +83,7 @@ export function useAppUpdate(): AppUpdateState {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const [newVersion, setNewVersion] = useState<string | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const initialSigRef = useRef<string | null>(null);
   const dismissedRef = useRef(false);
   const tauriRef = useRef(false);
@@ -115,8 +118,7 @@ export function useAppUpdate(): AppUpdateState {
   const checkTauri = useCallback(async () => {
     if (dismissedRef.current) return;
     try {
-      const { check } = await import("@tauri-apps/plugin-updater");
-      const update = await check();
+      const { update } = await checkDesktopUpdate();
       if (update) {
         if (isSnoozed()) return;
         setNewVersion(update.version);
@@ -125,8 +127,8 @@ export function useAppUpdate(): AppUpdateState {
         setUpdateAvailable(false);
         setNewVersion(null);
       }
-    } catch {
-      // silencioso — não travar app
+    } catch (error) {
+      console.error("[updater] Falha ao verificar atualização:", formatUpdaterError(error));
     }
   }, [isSnoozed]);
 
@@ -163,6 +165,7 @@ export function useAppUpdate(): AppUpdateState {
 
   const applyUpdate = useCallback(() => {
     setIsApplying(true);
+    setUpdateError(null);
     try {
       localStorage.removeItem(SNOOZE_KEY);
     } catch {
@@ -172,15 +175,18 @@ export function useAppUpdate(): AppUpdateState {
     if (tauriRef.current) {
       void (async () => {
         try {
-          const { check } = await import("@tauri-apps/plugin-updater");
-          const update = await check();
+          const { update } = await checkDesktopUpdate();
           if (!update) {
             setIsApplying(false);
             setUpdateAvailable(false);
             return;
           }
-          await update.downloadAndInstall();
-        } catch {
+          await downloadInstallAndRelaunch({ update });
+          setIsApplying(false);
+        } catch (error) {
+          const message = formatUpdaterError(error);
+          console.error("[updater] Falha ao atualizar:", message);
+          setUpdateError(message || "Falha desconhecida durante a atualização.");
           setIsApplying(false);
         }
       })();
@@ -206,5 +212,5 @@ export function useAppUpdate(): AppUpdateState {
     setUpdateAvailable(false);
   }, []);
 
-  return { updateAvailable, isApplying, newVersion, applyUpdate, snooze, dismiss };
+  return { updateAvailable, isApplying, newVersion, updateError, applyUpdate, snooze, dismiss };
 }

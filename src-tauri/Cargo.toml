@@ -1,6 +1,6 @@
 [package]
 name = "gestao-pro"
-version = "1.2.0"
+version = "1.2.1"
 description = "GestÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o Pro ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â sistema de gestÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o empresarial"
 authors = ["AlexPro Apps"]
 edition = "2021"
@@ -67,7 +67,6 @@ lto = "thin"
 opt-level = "s"
 strip = true
 incremental = false
-
 
 
 

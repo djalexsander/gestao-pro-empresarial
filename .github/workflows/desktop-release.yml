@@ -59,6 +59,20 @@ jobs:
           echo "Versão package.json: ${PKG_VERSION}"
           echo "Tag da release:     ${TAG}"
 
+      - name: Validar tag contra a versao do pacote
+        shell: bash
+        env:
+          PACKAGE_VERSION: ${{ steps.ver.outputs.version }}
+          RELEASE_TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          EXPECTED_TAG="v${PACKAGE_VERSION}"
+          ACTUAL_TAG="${RELEASE_TAG}"
+          if [ "$ACTUAL_TAG" != "$EXPECTED_TAG" ]; then
+            echo "Tag inconsistente: recebido '$ACTUAL_TAG', esperado '$EXPECTED_TAG'." >&2
+            exit 1
+          fi
+          echo "Tag validada: $ACTUAL_TAG"
+
       - name: Validar chave do updater
         shell: pwsh
         env:

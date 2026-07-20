@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
  * - "Depois" silencia por 10 minutos; depois reaparece se ainda houver atualização.
  */
 export function UpdateBanner() {
-  const { updateAvailable, isApplying, newVersion, applyUpdate, snooze, dismiss } = useAppUpdate();
+  const { updateAvailable, isApplying, newVersion, updateError, applyUpdate, snooze, dismiss } = useAppUpdate();
 
   if (!updateAvailable) return null;
 
@@ -61,6 +61,11 @@ export function UpdateBanner() {
                 ? `Versão v${newVersion} disponível.`
                 : "Atualize agora para receber melhorias e correções."}
             </p>
+            {updateError && (
+              <div className="mt-2 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+                Não foi possível instalar a atualização: {updateError}
+              </div>
+            )}
 
             <div className="mt-3 flex items-center gap-2">
               <Button
