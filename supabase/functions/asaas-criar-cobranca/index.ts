@@ -1,25 +1,22 @@
-// Edge Function: asaas-criar-cobranca
-// Cria uma cobrança no Asaas a partir de um pagamento interno (pendente).
-//
-// Fluxo:
-//   1) Autentica o usuário via JWT (verify_jwt = true).
-//   2) Carrega o pagamento e valida que pertence à empresa do usuário.
-//   3) Se ainda não houver, cria customer no Asaas e salva em empresas.asaas_customer_id.
-//   4) Cria a cobrança (PIX por padrão) no Asaas.
-//   5) Atualiza o pagamento com asaas_payment_id, link da fatura e dados do PIX.
-//
-// Body (JSON):
-//   { pagamento_id: string, billing_type?: "PIX" | "BOLETO" | "CREDIT_CARD" }
-//
-// Variáveis de ambiente:
-//   ASAAS_API_KEY, ASAAS_AMBIENTE? ("sandbox" | "producao"),
-//   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
-
-// deno-lint-ignore-file no-explicit-any
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+type JsonRecord = Record<string, unknown>;
+
+type AsaasPayment = {
+  id?: string;
+  invoiceUrl?: string | null;
+  dueDate?: string | null;
+};
+
+type AsaasPixQrCode = {
+  encodedImage?: string | null;
+  payload?: string | null;
+  expirationDate?: string | null;
+};
+
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+const SUPABASE_SERVICE_ROLE_KEY =
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const ASAAS_API_KEY = Deno.env.get("ASAAS_API_KEY") ?? "";
 
 const corsHeaders = {
@@ -29,260 +26,369 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-function json(status: number, body: unknown) {
+function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json", ...corsHeaders },
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
 
-function asaasBaseUrl(): string {
-  // Lê config dinâmica depois; default = sandbox
-  return "https://sandbox.asaas.com/api/v3";
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
-function asaasHeaders() {
-  return {
-    "Content-Type": "application/json",
-    access_token: ASAAS_API_KEY,
-    "User-Agent": "GestaoPro/1.0",
-  };
-}
-
-async function asaasFetch(baseUrl: string, path: string, init: RequestInit) {
-  const res = await fetch(`${baseUrl}${path}`, {
-    ...init,
-    headers: { ...asaasHeaders(), ...(init.headers ?? {}) },
-  });
-  const text = await res.text();
-  let data: any = null;
+function maskedPayload(body: BodyInit | null | undefined): unknown {
+  if (typeof body !== "string" || !body) return body ?? null;
   try {
-    data = text ? JSON.parse(text) : null;
+    const parsed = JSON.parse(body) as JsonRecord;
+    const masked = { ...parsed };
+    for (const field of ["cpfCnpj", "email", "mobilePhone", "phone"]) {
+      if (typeof masked[field] === "string" && masked[field]) {
+        const value = masked[field] as string;
+        masked[field] = `${value.slice(0, 2)}***${value.slice(-2)}`;
+      }
+    }
+    return masked;
   } catch {
-    data = { raw: text };
+    return "[payload não JSON mascarado]";
   }
-  if (!res.ok) {
-    throw new Error(
-      `Asaas ${res.status} ${path}: ${JSON.stringify(data?.errors ?? data ?? {})}`,
-    );
-  }
-  return data;
 }
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-  if (req.method !== "POST") return json(405, { error: "Method not allowed" });
+function tomorrowPlusDays(days: number): string {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
 
-  if (!ASAAS_API_KEY) return json(503, { error: "ASAAS_API_KEY não configurada" });
+async function asaasRequest<T>(
+  baseUrl: string,
+  path: string,
+  init: RequestInit,
+): Promise<T> {
+  const endpoint = `${baseUrl}${path}`;
+  const safePayload = maskedPayload(init.body);
+  const response = await fetch(endpoint, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      access_token: ASAAS_API_KEY,
+      "User-Agent": "GestaoPro/1.1.24",
+      ...(init.headers ?? {}),
+    },
+  });
 
-  // Autenticação do usuário
-  const authHeader = req.headers.get("Authorization") ?? "";
-  if (!authHeader.startsWith("Bearer ")) {
+  const raw = await response.text();
+  let data: unknown = null;
+  try {
+    data = raw ? JSON.parse(raw) : null;
+  } catch {
+    data = { message: raw };
+  }
+
+  if (!response.ok) {
+    console.error("[asaas-criar-cobranca] erro HTTP do Asaas", {
+      status: response.status,
+      endpoint,
+      payload: safePayload,
+      body: raw,
+    });
+    throw new Error(`Asaas respondeu ${response.status}: ${raw || "corpo vazio"}`);
+  }
+
+  return data as T;
+}
+
+Deno.serve(async (request: Request): Promise<Response> => {
+  if (request.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+  if (request.method !== "POST") {
+    return json(405, { error: "Método não permitido" });
+  }
+
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    return json(503, { error: "Configuração do Supabase indisponível" });
+  }
+  if (!ASAAS_API_KEY) {
+    return json(503, { error: "ASAAS_API_KEY não configurada" });
+  }
+
+  const authorization = request.headers.get("Authorization") ?? "";
+  if (!authorization.startsWith("Bearer ")) {
     return json(401, { error: "Não autenticado" });
   }
-  const jwt = authHeader.slice(7);
 
-  // Cliente com JWT do usuário (para resolver auth.uid)
-  const supabaseUser = createClient(SUPABASE_URL, SERVICE_ROLE, {
-    global: { headers: { Authorization: `Bearer ${jwt}` } },
-    auth: { persistSession: false },
+  const jwt = authorization.slice("Bearer ".length);
+  const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
   });
-  const { data: userData, error: userErr } = await supabaseUser.auth.getUser(jwt);
-  if (userErr || !userData?.user) {
+  const { data: userData, error: userError } = await admin.auth.getUser(jwt);
+  if (userError || !userData.user) {
     return json(401, { error: "Sessão inválida" });
   }
-  const userId = userData.user.id;
 
-  // Cliente admin (bypass RLS)
-  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, {
-    auth: { persistSession: false },
-  });
-
-  // Body
-  let body: any;
+  let body: JsonRecord;
   try {
-    body = await req.json();
+    body = (await request.json()) as JsonRecord;
   } catch {
     return json(400, { error: "JSON inválido" });
   }
-  const pagamentoId: string | undefined = body?.pagamento_id;
-  const billingType: string = (body?.billing_type ?? "PIX").toUpperCase();
-  if (!pagamentoId) return json(400, { error: "pagamento_id é obrigatório" });
 
-  // Carrega config (ambiente) e pagamento + empresa
-  const [{ data: cfg }, { data: pagamento }] = await Promise.all([
-    supabase.from("config_comercial").select("asaas_ambiente, asaas_enabled").maybeSingle(),
-    supabase
-      .from("pagamentos")
-      .select(
-        "id, status, valor, descricao, empresa_id, plano_id, modulo_id, referencia_tipo, asaas_payment_id, asaas_invoice_url, asaas_pix_qrcode, asaas_pix_copia_cola",
-      )
-      .eq("id", pagamentoId)
-      .maybeSingle(),
-  ]);
+  const pagamentoId =
+    typeof body.pagamento_id === "string" ? body.pagamento_id.trim() : "";
+  if (!pagamentoId) {
+    return json(400, { error: "pagamento_id é obrigatório" });
+  }
 
-  if (!cfg?.asaas_enabled) {
+  const [{ data: config, error: configError }, { data: pagamento, error: pagamentoError }] =
+    await Promise.all([
+      admin
+        .from("config_comercial")
+        .select("asaas_enabled, asaas_ambiente")
+        .maybeSingle(),
+      admin
+        .from("pagamentos")
+        .select(
+          "id, empresa_id, status, valor, descricao, referencia_tipo, data_vencimento, asaas_payment_id, asaas_invoice_url, asaas_pix_qrcode, asaas_pix_copia_cola",
+        )
+        .eq("id", pagamentoId)
+        .maybeSingle(),
+    ]);
+
+  if (configError) {
+    console.error("[asaas-criar-cobranca] config_comercial:", configError);
+    return json(500, { error: "Não foi possível carregar a configuração comercial" });
+  }
+  if (!config?.asaas_enabled) {
     return json(503, { error: "Cobrança automática desativada" });
   }
-  if (!pagamento) return json(404, { error: "Pagamento não encontrado" });
-  if (pagamento.status === "pago") return json(400, { error: "Pagamento já confirmado" });
+  if (pagamentoError) {
+    console.error("[asaas-criar-cobranca] pagamento:", pagamentoError);
+    return json(500, { error: "Não foi possível carregar o pagamento" });
+  }
+  if (!pagamento) {
+    return json(404, { error: "Pagamento não encontrado" });
+  }
+  if (pagamento.status === "pago") {
+    return json(409, { error: "Pagamento já confirmado" });
+  }
 
-  const baseUrl =
-    cfg?.asaas_ambiente === "producao"
-      ? "https://www.asaas.com/api/v3"
-      : "https://sandbox.asaas.com/api/v3";
-
-  // Verifica que o usuário pertence à empresa
-  const { data: empresa } = await supabase
+  const { data: empresa, error: empresaError } = await admin
     .from("empresas")
     .select("id, owner_id, nome, email, telefone, documento, asaas_customer_id")
     .eq("id", pagamento.empresa_id)
     .maybeSingle();
 
-  if (!empresa) return json(404, { error: "Empresa não encontrada" });
-  if (empresa.owner_id !== userId) {
+  if (empresaError) {
+    console.error("[asaas-criar-cobranca] empresa:", empresaError);
+    return json(500, { error: "Não foi possível carregar a empresa" });
+  }
+  if (!empresa) {
+    return json(404, { error: "Empresa não encontrada" });
+  }
+
+  let autorizado = empresa.owner_id === userData.user.id;
+  if (!autorizado) {
+    const { data: membro, error: membroError } = await admin
+      .from("empresa_membros")
+      .select("empresa_id")
+      .eq("empresa_id", empresa.id)
+      .eq("user_id", userData.user.id)
+      .maybeSingle();
+    if (membroError) {
+      console.error("[asaas-criar-cobranca] empresa_membros:", membroError);
+      return json(500, { error: "Não foi possível validar o acesso à empresa" });
+    }
+    autorizado = Boolean(membro);
+  }
+  if (!autorizado) {
     return json(403, { error: "Sem permissão para esta empresa" });
   }
 
-  // A tela Configurações → Empresa salva os dados fiscais em configuracoes_empresa.
-  // Usa esses dados como fonte preferencial para não exigir duplicação manual em empresas.
-  const { data: configEmpresa } = await supabase
-    .from("configuracoes_empresa")
-    .select("razao_social, nome_fantasia, cnpj, email, telefone")
-    .eq("owner_id", empresa.owner_id)
-    .maybeSingle();
+  const baseUrl =
+    config.asaas_ambiente === "producao"
+      ? "https://api.asaas.com/v3"
+      : "https://api-sandbox.asaas.com/v3";
 
-  // Idempotência: se já tem cobrança criada, retorna a existente
+  const formatResult = (
+    asaasPaymentId: string,
+    invoiceUrl: string | null,
+    pix: AsaasPixQrCode,
+    dueDate: string | null,
+    reused: boolean,
+  ) => ({
+    asaas_payment_id: asaasPaymentId,
+    invoiceUrl,
+    pix_copia_cola: pix.payload ?? null,
+    qr_code: pix.encodedImage ?? null,
+    vencimento: pix.expirationDate ?? dueDate,
+    reutilizada: reused,
+  });
+
+  // Se a cobrança já foi criada, recupera novamente o QR Code quando necessário.
   if (pagamento.asaas_payment_id) {
-    return json(200, {
-      ja_criada: true,
-      asaas_payment_id: pagamento.asaas_payment_id,
-      invoice_url: pagamento.asaas_invoice_url,
-      pix_qrcode: pagamento.asaas_pix_qrcode,
-      pix_copia_cola: pagamento.asaas_pix_copia_cola,
-    });
-  }
-
-  // 1) Garantir customer Asaas
-  let customerId = empresa.asaas_customer_id;
-  if (!customerId) {
-    const cpfCnpj = (configEmpresa?.cnpj ?? empresa.documento ?? "").replace(/\D/g, "");
-    if (!cpfCnpj || (cpfCnpj.length !== 11 && cpfCnpj.length !== 14)) {
-      return json(400, {
-        error:
-          "Para gerar a cobrança Pix, cadastre o CNPJ ou CPF da empresa em Configurações → Empresa.",
-      });
-    }
-    const nomeCliente =
-      configEmpresa?.razao_social || configEmpresa?.nome_fantasia || empresa.nome;
     try {
-      const created = await asaasFetch(baseUrl, "/customers", {
-        method: "POST",
-        body: JSON.stringify({
-          name: nomeCliente,
-          cpfCnpj,
-          email: configEmpresa?.email ?? empresa.email ?? undefined,
-          mobilePhone: configEmpresa?.telefone ?? empresa.telefone ?? undefined,
-          externalReference: `gestaopro|${empresa.id}`,
-        }),
-      });
-      customerId = created?.id;
-      if (!customerId) throw new Error("Customer sem id");
-      await supabase
-        .from("empresas")
-        .update({
-          asaas_customer_id: customerId,
-          documento: empresa.documento ?? cpfCnpj,
-          email: empresa.email ?? configEmpresa?.email ?? null,
-          telefone: empresa.telefone ?? configEmpresa?.telefone ?? null,
-        })
-        .eq("id", empresa.id);
-    } catch (e) {
-      console.error("[asaas-criar-cobranca] erro ao criar customer:", e);
-      return json(502, { error: String(e) });
+      let pix: AsaasPixQrCode = {
+        encodedImage: pagamento.asaas_pix_qrcode,
+        payload: pagamento.asaas_pix_copia_cola,
+      };
+      if (!pix.encodedImage || !pix.payload) {
+        pix = await asaasRequest<AsaasPixQrCode>(
+          baseUrl,
+          `/payments/${encodeURIComponent(pagamento.asaas_payment_id)}/pixQrCode`,
+          { method: "GET" },
+        );
+        const { error: updatePixError } = await admin
+          .from("pagamentos")
+          .update({
+            asaas_pix_qrcode: pix.encodedImage ?? null,
+            asaas_pix_copia_cola: pix.payload ?? null,
+          })
+          .eq("id", pagamento.id)
+          .eq("asaas_payment_id", pagamento.asaas_payment_id);
+        if (updatePixError) throw updatePixError;
+      }
+
+      return json(
+        200,
+        formatResult(
+          pagamento.asaas_payment_id,
+          pagamento.asaas_invoice_url,
+          pix,
+          pagamento.data_vencimento,
+          true,
+        ),
+      );
+    } catch (error) {
+      console.error("[asaas-criar-cobranca] recuperar PIX:", error);
+      return json(502, { error: "Não foi possível recuperar os dados do Pix" });
     }
   }
 
-  // 2) Criar cobrança
-  const dueDate = new Date();
-  dueDate.setDate(dueDate.getDate() + 3); // vencimento em 3 dias
-  const due = dueDate.toISOString().slice(0, 10);
-
-  // Webhook central diferencia apps pelo prefixo "gestaopro|<empresaId>".
-  // Não remover esse formato sem alinhar com o webhook em asaas-webhook.
-  if (!empresa.id) {
-    return json(400, { error: "empresa_id ausente no pagamento" });
+  const valor = Number(pagamento.valor);
+  if (!Number.isFinite(valor) || valor <= 0) {
+    return json(400, { error: "Valor do pagamento inválido" });
   }
-  const externalReference = `gestaopro|${empresa.id}`;
-  console.log(
-    "[create-payment][gestaopro] empresaId=",
-    empresa.id,
-    "externalReference=",
-    externalReference,
-    "pagamento_id=",
-    pagamento.id,
-    "referencia_tipo=",
-    pagamento.referencia_tipo,
-  );
 
-  let cobranca: any;
+  const { data: configuracaoEmpresa, error: configuracaoEmpresaError } =
+    await admin
+      .from("configuracoes_empresa")
+      .select("razao_social, nome_fantasia, cnpj, email, telefone")
+      .eq("owner_id", empresa.owner_id)
+      .maybeSingle();
+  if (configuracaoEmpresaError) {
+    console.error(
+      "[asaas-criar-cobranca] configuracoes_empresa:",
+      configuracaoEmpresaError,
+    );
+    return json(500, { error: "Não foi possível carregar os dados fiscais" });
+  }
+
+  let customerId = empresa.asaas_customer_id as string | null;
   try {
-    cobranca = await asaasFetch(baseUrl, "/payments", {
+    if (!customerId) {
+      const cpfCnpj = String(
+        configuracaoEmpresa?.cnpj ?? empresa.documento ?? "",
+      ).replace(/\D/g, "");
+      if (cpfCnpj.length !== 11 && cpfCnpj.length !== 14) {
+        return json(400, {
+          error:
+            "Cadastre um CPF ou CNPJ válido em Configurações > Empresa antes de gerar o Pix",
+        });
+      }
+
+      const customer = await asaasRequest<{ id?: string }>(
+        baseUrl,
+        "/customers",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            name:
+              configuracaoEmpresa?.razao_social ||
+              configuracaoEmpresa?.nome_fantasia ||
+              empresa.nome,
+            cpfCnpj,
+            email: configuracaoEmpresa?.email ?? empresa.email ?? undefined,
+            mobilePhone:
+              configuracaoEmpresa?.telefone ?? empresa.telefone ?? undefined,
+            externalReference: `gestaopro|empresa|${empresa.id}`,
+          }),
+        },
+      );
+      if (!customer.id) throw new Error("Asaas não retornou o ID do cliente");
+      customerId = customer.id;
+
+      const { error: customerUpdateError } = await admin
+        .from("empresas")
+        .update({ asaas_customer_id: customerId })
+        .eq("id", empresa.id)
+        .is("asaas_customer_id", null);
+      if (customerUpdateError) throw customerUpdateError;
+    }
+
+    const dueDate = tomorrowPlusDays(3);
+    const externalReference = `gestaopro|pagamento|${pagamento.id}`;
+    const payment = await asaasRequest<AsaasPayment>(baseUrl, "/payments", {
       method: "POST",
       body: JSON.stringify({
         customer: customerId,
-        billingType,
-        value: Number(pagamento.valor),
-        dueDate: due,
-        description: pagamento.descricao ?? "Assinatura Gestão Pro",
+        billingType: "PIX",
+        value: valor,
+        dueDate,
+        description: pagamento.descricao || "Assinatura Gestão Pro",
         externalReference,
       }),
     });
-  } catch (e) {
-    console.error("[asaas-criar-cobranca] erro ao criar cobrança:", e);
-    return json(502, { error: String(e) });
-  }
+    if (!payment.id) throw new Error("Asaas não retornou o ID da cobrança");
 
-  // 3) Se PIX, buscar QR Code
-  let pixQr: string | null = null;
-  let pixCopia: string | null = null;
-  if (billingType === "PIX") {
-    try {
-      const pix = await asaasFetch(baseUrl, `/payments/${cobranca.id}/pixQrCode`, {
-        method: "GET",
-      });
-      pixQr = pix?.encodedImage ?? null;
-      pixCopia = pix?.payload ?? null;
-    } catch (e) {
-      console.warn("[asaas-criar-cobranca] PIX QR indisponível:", e);
+    // Persiste primeiro o ID externo para que uma repetição não crie outra cobrança.
+    const { error: paymentUpdateError } = await admin
+      .from("pagamentos")
+      .update({
+        asaas_payment_id: payment.id,
+        asaas_invoice_url: payment.invoiceUrl ?? null,
+        asaas_billing_type: "PIX",
+        external_reference: externalReference,
+        data_vencimento: payment.dueDate ?? dueDate,
+        forma_pagamento: "pix",
+      })
+      .eq("id", pagamento.id)
+      .is("asaas_payment_id", null);
+    if (paymentUpdateError) throw paymentUpdateError;
+
+    const pix = await asaasRequest<AsaasPixQrCode>(
+      baseUrl,
+      `/payments/${encodeURIComponent(payment.id)}/pixQrCode`,
+      { method: "GET" },
+    );
+    if (!pix.payload || !pix.encodedImage) {
+      throw new Error("Asaas não retornou o código Pix completo");
     }
+
+    const { error: pixUpdateError } = await admin
+      .from("pagamentos")
+      .update({
+        asaas_pix_qrcode: pix.encodedImage,
+        asaas_pix_copia_cola: pix.payload,
+      })
+      .eq("id", pagamento.id)
+      .eq("asaas_payment_id", payment.id);
+    if (pixUpdateError) throw pixUpdateError;
+
+    return json(
+      200,
+      formatResult(
+        payment.id,
+        payment.invoiceUrl ?? null,
+        pix,
+        payment.dueDate ?? dueDate,
+        false,
+      ),
+    );
+  } catch (error) {
+    console.error("[asaas-criar-cobranca] falha:", error);
+    return json(502, {
+      error: errorMessage(error),
+    });
   }
-
-  // 4) Atualiza pagamento interno
-  const { error: updErr } = await supabase
-    .from("pagamentos")
-    .update({
-      asaas_payment_id: cobranca.id,
-      asaas_invoice_url: cobranca.invoiceUrl ?? null,
-      asaas_pix_qrcode: pixQr,
-      asaas_pix_copia_cola: pixCopia,
-      asaas_billing_type: billingType,
-      external_reference: externalReference,
-      data_vencimento: due,
-      forma_pagamento: billingType.toLowerCase(),
-    })
-    .eq("id", pagamento.id);
-
-  if (updErr) {
-    console.error("[asaas-criar-cobranca] erro ao salvar dados Asaas:", updErr);
-    return json(500, { error: "Falha ao salvar cobrança" });
-  }
-
-  return json(200, {
-    asaas_payment_id: cobranca.id,
-    invoice_url: cobranca.invoiceUrl,
-    pix_qrcode: pixQr,
-    pix_copia_cola: pixCopia,
-    due_date: due,
-  });
 });

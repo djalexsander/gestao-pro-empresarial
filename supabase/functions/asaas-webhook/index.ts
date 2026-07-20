@@ -1,222 +1,331 @@
-// Edge Function: asaas-webhook
-// Recebe eventos do Asaas, valida token, registra evento (idempotente)
-// e ativa plano/módulo automaticamente quando o pagamento é confirmado.
-//
-// URL pública:
-//   https://<project-ref>.supabase.co/functions/v1/asaas-webhook
-
-// deno-lint-ignore-file no-explicit-any
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const WEBHOOK_TOKEN = Deno.env.get("ASAAS_WEBHOOK_TOKEN") ?? "";
+type JsonRecord = Record<string, unknown>;
+
+type AsaasPayment = {
+  id?: string;
+  status?: string;
+  value?: number;
+  billingType?: string | null;
+  externalReference?: string | null;
+  paymentDate?: string | null;
+  confirmedDate?: string | null;
+  clientPaymentDate?: string | null;
+};
+
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+const SUPABASE_SERVICE_ROLE_KEY =
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const ASAAS_API_KEY = Deno.env.get("ASAAS_API_KEY") ?? "";
+const ASAAS_WEBHOOK_TOKEN = Deno.env.get("ASAAS_WEBHOOK_TOKEN") ?? "";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, asaas-access-token",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "content-type, asaas-access-token, x-asaas-access-token",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
-function json(status: number, body: unknown) {
+const CONFIRMED_STATUSES = new Set(["RECEIVED", "CONFIRMED"]);
+const OVERDUE_STATUSES = new Set(["OVERDUE"]);
+const CANCELED_STATUSES = new Set([
+  "REFUNDED",
+  "REFUND_REQUESTED",
+  "CHARGEBACK_REQUESTED",
+  "CHARGEBACK_DISPUTE",
+  "AWAITING_CHARGEBACK_REVERSAL",
+  "DUNNING_REQUESTED",
+  "DUNNING_RECEIVED",
+]);
+
+function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json", ...corsHeaders },
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
 
-function timingSafeEqual(a: string, b: string): boolean {
-  const ae = new TextEncoder().encode(a);
-  const be = new TextEncoder().encode(b);
-  if (ae.length !== be.length) return false;
-  let diff = 0;
-  for (let i = 0; i < ae.length; i++) diff |= ae[i] ^ be[i];
-  return diff === 0;
+function timingSafeEqual(received: string, expected: string): boolean {
+  const left = new TextEncoder().encode(received);
+  const right = new TextEncoder().encode(expected);
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    difference |= left[index] ^ right[index];
+  }
+  return difference === 0;
 }
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+function cents(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.round(numeric * 100) : null;
+}
 
-  if (req.method === "GET") {
-    return json(200, { ok: true, service: "asaas-webhook" });
+function dateOnly(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const match = value.match(/^\d{4}-\d{2}-\d{2}/);
+  return match?.[0] ?? null;
+}
+
+async function sha256(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function fetchAsaasPayment(
+  baseUrl: string,
+  paymentId: string,
+): Promise<AsaasPayment> {
+  const response = await fetch(
+    `${baseUrl}/payments/${encodeURIComponent(paymentId)}`,
+    {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        access_token: ASAAS_API_KEY,
+        "User-Agent": "GestaoPro/1.1.24",
+      },
+    },
+  );
+
+  const raw = await response.text();
+  let data: unknown = null;
+  try {
+    data = raw ? JSON.parse(raw) : null;
+  } catch {
+    data = null;
   }
 
-  if (req.method !== "POST") return json(405, { error: "Method not allowed" });
+  if (!response.ok) {
+    console.error("[asaas-webhook] consulta ao Asaas falhou", {
+      paymentId,
+      status: response.status,
+    });
+    throw new Error(`Consulta ao Asaas respondeu ${response.status}`);
+  }
+  if (!data || typeof data !== "object") {
+    throw new Error("Resposta inválida ao consultar o pagamento no Asaas");
+  }
+  return data as AsaasPayment;
+}
 
-  // 1) Segurança — token do webhook
-  if (!WEBHOOK_TOKEN) {
-    console.error("ASAAS_WEBHOOK_TOKEN não configurado");
+Deno.serve(async (request: Request): Promise<Response> => {
+  if (request.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+  if (request.method === "GET") {
+    return json(200, { ok: true, service: "asaas-webhook" });
+  }
+  if (request.method !== "POST") {
+    return json(405, { error: "Método não permitido" });
+  }
+
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    return json(503, { error: "Configuração do Supabase indisponível" });
+  }
+  if (!ASAAS_API_KEY || !ASAAS_WEBHOOK_TOKEN) {
     return json(503, { error: "Webhook não configurado" });
   }
 
-  const received =
-    req.headers.get("asaas-access-token") ??
-    req.headers.get("x-asaas-access-token") ??
+  const receivedToken =
+    request.headers.get("asaas-access-token") ??
+    request.headers.get("x-asaas-access-token") ??
     "";
-
-  if (!timingSafeEqual(received, WEBHOOK_TOKEN)) {
+  if (!timingSafeEqual(receivedToken, ASAAS_WEBHOOK_TOKEN)) {
     console.warn("[asaas-webhook] token inválido");
-    return json(401, { error: "Unauthorized" });
+    return json(401, { error: "Não autorizado" });
   }
 
-  // 2) Payload
-  let payload: any;
+  const rawPayload = await request.text();
+  let payload: JsonRecord;
   try {
-    payload = await req.json();
+    payload = JSON.parse(rawPayload) as JsonRecord;
   } catch {
     return json(400, { error: "JSON inválido" });
   }
 
-  const eventId: string | null = payload?.id ?? null;
-  const eventType: string = payload?.event ?? "UNKNOWN";
-  const payment = payload?.payment ?? null;
-  const paymentId: string | null = payment?.id ?? null;
-  const paymentStatus: string | null = payment?.status ?? null;
-  const externalReference: string | null = payment?.externalReference ?? null;
+  const eventType =
+    typeof payload.event === "string" ? payload.event : "UNKNOWN";
+  const eventPayment =
+    payload.payment && typeof payload.payment === "object"
+      ? (payload.payment as JsonRecord)
+      : null;
+  const paymentId =
+    typeof eventPayment?.id === "string" ? eventPayment.id : null;
+  const eventStatus =
+    typeof eventPayment?.status === "string" ? eventPayment.status : null;
+  const suppliedEventId =
+    typeof payload.id === "string"
+      ? payload.id
+      : typeof payload.event_id === "string"
+        ? payload.event_id
+        : null;
+  // Eventos sem ID também recebem uma chave determinística para idempotência.
+  const eventId = suppliedEventId ?? `sha256:${await sha256(rawPayload)}`;
 
-  console.log("[asaas-webhook] evento recebido:", {
-    eventId,
-    eventType,
-    paymentId,
-    paymentStatus,
-    externalReference,
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, {
-    auth: { persistSession: false },
-  });
-
-  // 3) Idempotência — registra evento; se event_id duplicado, ignora
-  if (eventId) {
-    const { data: existente } = await supabase
-      .from("asaas_webhook_eventos")
-      .select("id, processado_em")
-      .eq("event_id", eventId)
-      .maybeSingle();
-
-    if (existente) {
-      console.log("[asaas-webhook] evento duplicado, ignorando:", eventId);
-      return json(200, { received: true, duplicado: true });
-    }
-  }
-
-  const { error: insertErr } = await supabase
+  const { error: eventInsertError } = await supabase
     .from("asaas_webhook_eventos")
     .insert({
       event_id: eventId,
       evento: eventType,
       payment_id: paymentId,
-      status: paymentStatus,
+      status: eventStatus,
       payload,
     });
 
-  if (insertErr) {
-    console.error("[asaas-webhook] falha ao registrar evento:", insertErr);
-    return json(500, { error: "Falha ao registrar" });
-  }
-
-  // 4) Eventos suportados
-  const EVT_PAGO = new Set(["PAYMENT_RECEIVED", "PAYMENT_CONFIRMED"]);
-  const EVT_OVERDUE = new Set(["PAYMENT_OVERDUE"]);
-  const EVT_CANCELADO = new Set([
-    "PAYMENT_DELETED",
-    "PAYMENT_REFUNDED",
-    "PAYMENT_REFUND_DENIED",
-    "PAYMENT_CHARGEBACK_REQUESTED",
-  ]);
-
-  const tratado =
-    EVT_PAGO.has(eventType) ||
-    EVT_OVERDUE.has(eventType) ||
-    EVT_CANCELADO.has(eventType);
-
-  if (!tratado || !paymentId) {
-    if (eventId) {
-      await supabase
-        .from("asaas_webhook_eventos")
-        .update({ processado_em: new Date().toISOString() })
-        .eq("event_id", eventId);
+  if (eventInsertError) {
+    if (eventInsertError.code !== "23505") {
+      console.error("[asaas-webhook] registro do evento falhou:", eventInsertError);
+      return json(500, { error: "Não foi possível registrar o evento" });
     }
-    return json(200, { received: true, processado: false });
-  }
 
-  // 5) Localiza pagamento interno por asaas_payment_id
-  const { data: pagamento, error: pagErr } = await supabase
-    .from("pagamentos")
-    .select("id, status, empresa_id")
-    .eq("asaas_payment_id", paymentId)
-    .maybeSingle();
-
-  if (pagErr) {
-    console.error("[asaas-webhook] erro ao buscar pagamento:", pagErr);
-    return json(200, { received: true, erro: "lookup_falhou" });
-  }
-
-  if (!pagamento) {
-    console.log("[asaas-webhook] pagamento não encontrado:", paymentId);
-    if (eventId) {
-      await supabase
-        .from("asaas_webhook_eventos")
-        .update({ processado_em: new Date().toISOString() })
-        .eq("event_id", eventId);
+    const { data: existingEvent, error: existingEventError } = await supabase
+      .from("asaas_webhook_eventos")
+      .select("processado_em")
+      .eq("event_id", eventId)
+      .maybeSingle();
+    if (existingEventError) {
+      console.error("[asaas-webhook] leitura do evento falhou:", existingEventError);
+      return json(500, { error: "Não foi possível validar a idempotência" });
     }
-    return json(200, { received: true, processado: false, motivo: "pagamento_nao_encontrado" });
-  }
-
-  let resultado: unknown = null;
-
-  try {
-    if (EVT_PAGO.has(eventType)) {
-      // Confirma pagamento + ativa plano/módulos (idempotente)
-      const dataPg: string | null = payment?.paymentDate ?? payment?.confirmedDate ?? null;
-      const formaPg: string | null = payment?.billingType ?? null;
-      const { data, error } = await supabase.rpc("confirmar_pagamento_asaas", {
-        _pagamento_id: pagamento.id,
-        _data_pagamento: dataPg,
-        _forma_pagamento: formaPg,
-      });
-      if (error) throw error;
-      resultado = data;
-    } else if (EVT_OVERDUE.has(eventType)) {
-      // Marca pagamento como atrasado e assinatura como overdue
-      await supabase
-        .from("pagamentos")
-        .update({ status: "atrasado" })
-        .eq("id", pagamento.id);
-      await supabase
-        .from("empresa_assinaturas")
-        .update({ status: "overdue", updated_at: new Date().toISOString() })
-        .eq("empresa_id", pagamento.empresa_id);
-      resultado = { tipo: "overdue" };
-    } else if (EVT_CANCELADO.has(eventType)) {
-      // Cancela pagamento (não cancela a assinatura — Asaas pode estornar parcial)
-      await supabase
-        .from("pagamentos")
-        .update({ status: "cancelado" })
-        .eq("id", pagamento.id);
-      // Se o evento for refund/chargeback de cobrança já paga, marca canceled
-      if (eventType !== "PAYMENT_DELETED") {
-        await supabase
-          .from("empresa_assinaturas")
-          .update({ status: "canceled", updated_at: new Date().toISOString() })
-          .eq("empresa_id", pagamento.empresa_id);
-      }
-      resultado = { tipo: "cancelado", evento: eventType };
+    if (existingEvent?.processado_em) {
+      return json(200, { received: true, duplicate: true });
     }
-  } catch (e) {
-    console.error("[asaas-webhook] erro ao processar:", e);
-    return json(200, { received: true, erro: String(e) });
+    // Um evento previamente registrado, mas não concluído, pode ser reprocessado.
   }
 
-  console.log("[asaas-webhook] processado:", { eventType, resultado });
-
-  if (eventId) {
-    await supabase
+  const markProcessed = async (): Promise<void> => {
+    const { error } = await supabase
       .from("asaas_webhook_eventos")
       .update({ processado_em: new Date().toISOString() })
       .eq("event_id", eventId);
+    if (error) throw error;
+  };
+
+  if (!paymentId) {
+    try {
+      await markProcessed();
+      return json(200, {
+        received: true,
+        processed: false,
+        reason: "evento_sem_pagamento",
+      });
+    } catch (error) {
+      console.error("[asaas-webhook] conclusão do evento falhou:", error);
+      return json(500, { error: "Não foi possível concluir o evento" });
+    }
   }
 
-  return json(200, { received: true, processado: true, resultado });
+  try {
+    const [{ data: config, error: configError }, { data: pagamento, error: pagamentoError }] =
+      await Promise.all([
+        supabase
+          .from("config_comercial")
+          .select("asaas_enabled, asaas_ambiente")
+          .maybeSingle(),
+        supabase
+          .from("pagamentos")
+          .select("id, empresa_id, valor, status, external_reference")
+          .eq("asaas_payment_id", paymentId)
+          .maybeSingle(),
+      ]);
+
+    if (configError) throw configError;
+    if (!config?.asaas_enabled) {
+      throw new Error("Integração Asaas desativada");
+    }
+    if (pagamentoError) throw pagamentoError;
+    if (!pagamento) {
+      await markProcessed();
+      return json(200, {
+        received: true,
+        processed: false,
+        reason: "pagamento_nao_encontrado",
+      });
+    }
+
+    const baseUrl =
+      config.asaas_ambiente === "producao"
+        ? "https://api.asaas.com/v3"
+        : "https://api-sandbox.asaas.com/v3";
+    const verifiedPayment = await fetchAsaasPayment(baseUrl, paymentId);
+    const verifiedStatus = String(verifiedPayment.status ?? "").toUpperCase();
+
+    if (verifiedPayment.id !== paymentId) {
+      throw new Error("ID do pagamento consultado não corresponde ao evento");
+    }
+    if (cents(verifiedPayment.value) !== cents(pagamento.valor)) {
+      throw new Error("Valor confirmado pelo Asaas diverge do pagamento interno");
+    }
+
+    const expectedReference = `gestaopro|pagamento|${pagamento.id}`;
+    const legacyReference = `gestaopro|${pagamento.empresa_id}`;
+    const storedReference = pagamento.external_reference as string | null;
+    const verifiedReference = verifiedPayment.externalReference ?? null;
+    const allowedReferences = new Set(
+      [expectedReference, legacyReference, storedReference].filter(
+        (value): value is string => Boolean(value),
+      ),
+    );
+    if (!verifiedReference || !allowedReferences.has(verifiedReference)) {
+      throw new Error("Referência externa do pagamento não corresponde ao Gestão Pro");
+    }
+
+    let result: unknown = null;
+    if (CONFIRMED_STATUSES.has(verifiedStatus)) {
+      const paymentDate = dateOnly(
+        verifiedPayment.paymentDate ??
+          verifiedPayment.confirmedDate ??
+          verifiedPayment.clientPaymentDate,
+      );
+      const { data, error } = await supabase.rpc("confirmar_pagamento_asaas", {
+        _pagamento_id: pagamento.id,
+        _data_pagamento: paymentDate,
+        _forma_pagamento: verifiedPayment.billingType ?? "PIX",
+      });
+      if (error) throw error;
+      result = data;
+    } else if (OVERDUE_STATUSES.has(verifiedStatus)) {
+      const { error } = await supabase
+        .from("pagamentos")
+        .update({ status: "atrasado" })
+        .eq("id", pagamento.id)
+        .neq("status", "pago");
+      if (error) throw error;
+      result = { status: "atrasado" };
+    } else if (CANCELED_STATUSES.has(verifiedStatus)) {
+      const { error } = await supabase
+        .from("pagamentos")
+        .update({ status: "cancelado" })
+        .eq("id", pagamento.id)
+        .neq("status", "pago");
+      if (error) throw error;
+      result = { status: "cancelado" };
+    } else {
+      // O evento é registrado, mas nenhum status do navegador/evento confirma pagamento.
+      result = { status: verifiedStatus || "UNKNOWN", changed: false };
+    }
+
+    const { error: eventUpdateError } = await supabase
+      .from("asaas_webhook_eventos")
+      .update({
+        status: verifiedStatus || eventStatus,
+        processado_em: new Date().toISOString(),
+      })
+      .eq("event_id", eventId);
+    if (eventUpdateError) throw eventUpdateError;
+
+    return json(200, { received: true, processed: true, result });
+  } catch (error) {
+    console.error("[asaas-webhook] processamento falhou:", error);
+    // Mantém processado_em nulo para permitir retry do mesmo evento.
+    return json(500, { error: "Falha ao processar o evento" });
+  }
 });
