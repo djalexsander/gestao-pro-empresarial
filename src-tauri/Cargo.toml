@@ -1,7 +1,7 @@
 [package]
 name = "gestao-pro"
-version = "1.1.24"
-description = "GestÃƒÆ’Ã‚Â£o Pro ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â sistema de gestÃƒÆ’Ã‚Â£o empresarial"
+version = "1.2.0"
+description = "GestÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o Pro ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â sistema de gestÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o empresarial"
 authors = ["AlexPro Apps"]
 edition = "2021"
 rust-version = "1.77.2"
@@ -33,18 +33,18 @@ once_cell = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 hostname = "0.4"
 
-# Banco local (SQLite embutido) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â inicia a camada de persistÃƒÆ’Ã‚Âªncia local real.
+# Banco local (SQLite embutido) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â inicia a camada de persistÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âªncia local real.
 # `bundled` evita depender do SQLite do sistema; gera build self-contained.
 rusqlite = { version = "0.31", features = ["bundled"] }
 bcrypt = "0.14"
 dirs = "5"
 
-# DecodificaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o de PNG para impressÃƒÆ’Ã‚Â£o GDI de etiquetas (PT260 e drivers Windows
-# genÃƒÆ’Ã‚Â©ricos que nÃƒÆ’Ã‚Â£o aceitam RAW/ESC-POS). Apenas PNG para manter binÃƒÆ’Ã‚Â¡rio enxuto.
+# DecodificaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o de PNG para impressÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o GDI de etiquetas (PT260 e drivers Windows
+# genÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©ricos que nÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o aceitam RAW/ESC-POS). Apenas PNG para manter binÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rio enxuto.
 image = { version = "0.25", default-features = false, features = ["png"] }
 
-# Windows: WinAPI usada para impressÃƒÆ’Ã‚Â£o RAW (ESC/POS) e fallback ShellExecute
-# "printto" ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â substitui a dependÃƒÆ’Ã‚Âªncia de PowerShell/Start-Process.
+# Windows: WinAPI usada para impressÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o RAW (ESC/POS) e fallback ShellExecute
+# "printto" ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â substitui a dependÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âªncia de PowerShell/Start-Process.
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3", features = [
     "winspool",
@@ -59,7 +59,7 @@ winapi = { version = "0.3", features = [
 
 [profile.release]
 # LTO completo + codegen-units=1 estavam causando STATUS_ACCESS_VIOLATION
-# (crash do rustc/link) no Windows MSVC. "thin" mantÃƒÆ’Ã‚Â©m binÃƒÆ’Ã‚Â¡rio pequeno
+# (crash do rustc/link) no Windows MSVC. "thin" mantÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©m binÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rio pequeno
 # sem estourar o linker.
 panic = "abort"
 codegen-units = 16
@@ -67,6 +67,8 @@ lto = "thin"
 opt-level = "s"
 strip = true
 incremental = false
+
+
 
 
 

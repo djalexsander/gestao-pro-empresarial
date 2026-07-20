@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+﻿import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -50,7 +50,7 @@ function maskedPayload(body: BodyInit | null | undefined): unknown {
     }
     return masked;
   } catch {
-    return "[payload não JSON mascarado]";
+    return "[payload nÃ£o JSON mascarado]";
   }
 }
 
@@ -72,7 +72,7 @@ async function asaasRequest<T>(
     headers: {
       "Content-Type": "application/json",
       access_token: ASAAS_API_KEY,
-      "User-Agent": "GestaoPro/1.1.24",
+      "User-Agent": "GestaoPro/1.2.0",
       ...(init.headers ?? {}),
     },
   });
@@ -103,19 +103,19 @@ Deno.serve(async (request: Request): Promise<Response> => {
     return new Response(null, { headers: corsHeaders });
   }
   if (request.method !== "POST") {
-    return json(405, { error: "Método não permitido" });
+    return json(405, { error: "MÃ©todo nÃ£o permitido" });
   }
 
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    return json(503, { error: "Configuração do Supabase indisponível" });
+    return json(503, { error: "ConfiguraÃ§Ã£o do Supabase indisponÃ­vel" });
   }
   if (!ASAAS_API_KEY) {
-    return json(503, { error: "ASAAS_API_KEY não configurada" });
+    return json(503, { error: "ASAAS_API_KEY nÃ£o configurada" });
   }
 
   const authorization = request.headers.get("Authorization") ?? "";
   if (!authorization.startsWith("Bearer ")) {
-    return json(401, { error: "Não autenticado" });
+    return json(401, { error: "NÃ£o autenticado" });
   }
 
   const jwt = authorization.slice("Bearer ".length);
@@ -124,20 +124,20 @@ Deno.serve(async (request: Request): Promise<Response> => {
   });
   const { data: userData, error: userError } = await admin.auth.getUser(jwt);
   if (userError || !userData.user) {
-    return json(401, { error: "Sessão inválida" });
+    return json(401, { error: "SessÃ£o invÃ¡lida" });
   }
 
   let body: JsonRecord;
   try {
     body = (await request.json()) as JsonRecord;
   } catch {
-    return json(400, { error: "JSON inválido" });
+    return json(400, { error: "JSON invÃ¡lido" });
   }
 
   const pagamentoId =
     typeof body.pagamento_id === "string" ? body.pagamento_id.trim() : "";
   if (!pagamentoId) {
-    return json(400, { error: "pagamento_id é obrigatório" });
+    return json(400, { error: "pagamento_id Ã© obrigatÃ³rio" });
   }
 
   const [{ data: config, error: configError }, { data: pagamento, error: pagamentoError }] =
@@ -157,20 +157,20 @@ Deno.serve(async (request: Request): Promise<Response> => {
 
   if (configError) {
     console.error("[asaas-criar-cobranca] config_comercial:", configError);
-    return json(500, { error: "Não foi possível carregar a configuração comercial" });
+    return json(500, { error: "NÃ£o foi possÃ­vel carregar a configuraÃ§Ã£o comercial" });
   }
   if (!config?.asaas_enabled) {
-    return json(503, { error: "Cobrança automática desativada" });
+    return json(503, { error: "CobranÃ§a automÃ¡tica desativada" });
   }
   if (pagamentoError) {
     console.error("[asaas-criar-cobranca] pagamento:", pagamentoError);
-    return json(500, { error: "Não foi possível carregar o pagamento" });
+    return json(500, { error: "NÃ£o foi possÃ­vel carregar o pagamento" });
   }
   if (!pagamento) {
-    return json(404, { error: "Pagamento não encontrado" });
+    return json(404, { error: "Pagamento nÃ£o encontrado" });
   }
   if (pagamento.status === "pago") {
-    return json(409, { error: "Pagamento já confirmado" });
+    return json(409, { error: "Pagamento jÃ¡ confirmado" });
   }
 
   const { data: empresa, error: empresaError } = await admin
@@ -181,10 +181,10 @@ Deno.serve(async (request: Request): Promise<Response> => {
 
   if (empresaError) {
     console.error("[asaas-criar-cobranca] empresa:", empresaError);
-    return json(500, { error: "Não foi possível carregar a empresa" });
+    return json(500, { error: "NÃ£o foi possÃ­vel carregar a empresa" });
   }
   if (!empresa) {
-    return json(404, { error: "Empresa não encontrada" });
+    return json(404, { error: "Empresa nÃ£o encontrada" });
   }
 
   let autorizado = empresa.owner_id === userData.user.id;
@@ -197,12 +197,12 @@ Deno.serve(async (request: Request): Promise<Response> => {
       .maybeSingle();
     if (membroError) {
       console.error("[asaas-criar-cobranca] empresa_membros:", membroError);
-      return json(500, { error: "Não foi possível validar o acesso à empresa" });
+      return json(500, { error: "NÃ£o foi possÃ­vel validar o acesso Ã  empresa" });
     }
     autorizado = Boolean(membro);
   }
   if (!autorizado) {
-    return json(403, { error: "Sem permissão para esta empresa" });
+    return json(403, { error: "Sem permissÃ£o para esta empresa" });
   }
 
   const baseUrl =
@@ -225,7 +225,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
     reutilizada: reused,
   });
 
-  // Se a cobrança já foi criada, recupera novamente o QR Code quando necessário.
+  // Se a cobranÃ§a jÃ¡ foi criada, recupera novamente o QR Code quando necessÃ¡rio.
   if (pagamento.asaas_payment_id) {
     try {
       let pix: AsaasPixQrCode = {
@@ -261,13 +261,13 @@ Deno.serve(async (request: Request): Promise<Response> => {
       );
     } catch (error) {
       console.error("[asaas-criar-cobranca] recuperar PIX:", error);
-      return json(502, { error: "Não foi possível recuperar os dados do Pix" });
+      return json(502, { error: "NÃ£o foi possÃ­vel recuperar os dados do Pix" });
     }
   }
 
   const valor = Number(pagamento.valor);
   if (!Number.isFinite(valor) || valor <= 0) {
-    return json(400, { error: "Valor do pagamento inválido" });
+    return json(400, { error: "Valor do pagamento invÃ¡lido" });
   }
 
   const { data: configuracaoEmpresa, error: configuracaoEmpresaError } =
@@ -281,7 +281,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
       "[asaas-criar-cobranca] configuracoes_empresa:",
       configuracaoEmpresaError,
     );
-    return json(500, { error: "Não foi possível carregar os dados fiscais" });
+    return json(500, { error: "NÃ£o foi possÃ­vel carregar os dados fiscais" });
   }
 
   let customerId = empresa.asaas_customer_id as string | null;
@@ -293,7 +293,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
       if (cpfCnpj.length !== 11 && cpfCnpj.length !== 14) {
         return json(400, {
           error:
-            "Cadastre um CPF ou CNPJ válido em Configurações > Empresa antes de gerar o Pix",
+            "Cadastre um CPF ou CNPJ vÃ¡lido em ConfiguraÃ§Ãµes > Empresa antes de gerar o Pix",
         });
       }
 
@@ -315,7 +315,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
           }),
         },
       );
-      if (!customer.id) throw new Error("Asaas não retornou o ID do cliente");
+      if (!customer.id) throw new Error("Asaas nÃ£o retornou o ID do cliente");
       customerId = customer.id;
 
       const { error: customerUpdateError } = await admin
@@ -335,13 +335,13 @@ Deno.serve(async (request: Request): Promise<Response> => {
         billingType: "PIX",
         value: valor,
         dueDate,
-        description: pagamento.descricao || "Assinatura Gestão Pro",
+        description: pagamento.descricao || "Assinatura GestÃ£o Pro",
         externalReference,
       }),
     });
-    if (!payment.id) throw new Error("Asaas não retornou o ID da cobrança");
+    if (!payment.id) throw new Error("Asaas nÃ£o retornou o ID da cobranÃ§a");
 
-    // Persiste primeiro o ID externo para que uma repetição não crie outra cobrança.
+    // Persiste primeiro o ID externo para que uma repetiÃ§Ã£o nÃ£o crie outra cobranÃ§a.
     const { error: paymentUpdateError } = await admin
       .from("pagamentos")
       .update({
@@ -362,7 +362,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
       { method: "GET" },
     );
     if (!pix.payload || !pix.encodedImage) {
-      throw new Error("Asaas não retornou o código Pix completo");
+      throw new Error("Asaas nÃ£o retornou o cÃ³digo Pix completo");
     }
 
     const { error: pixUpdateError } = await admin
@@ -392,3 +392,4 @@ Deno.serve(async (request: Request): Promise<Response> => {
     });
   }
 });
+

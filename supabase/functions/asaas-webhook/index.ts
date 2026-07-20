@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+﻿import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -86,7 +86,7 @@ async function fetchAsaasPayment(
       headers: {
         accept: "application/json",
         access_token: ASAAS_API_KEY,
-        "User-Agent": "GestaoPro/1.1.24",
+        "User-Agent": "GestaoPro/1.2.0",
       },
     },
   );
@@ -107,7 +107,7 @@ async function fetchAsaasPayment(
     throw new Error(`Consulta ao Asaas respondeu ${response.status}`);
   }
   if (!data || typeof data !== "object") {
-    throw new Error("Resposta inválida ao consultar o pagamento no Asaas");
+    throw new Error("Resposta invÃ¡lida ao consultar o pagamento no Asaas");
   }
   return data as AsaasPayment;
 }
@@ -120,14 +120,14 @@ Deno.serve(async (request: Request): Promise<Response> => {
     return json(200, { ok: true, service: "asaas-webhook" });
   }
   if (request.method !== "POST") {
-    return json(405, { error: "Método não permitido" });
+    return json(405, { error: "MÃ©todo nÃ£o permitido" });
   }
 
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    return json(503, { error: "Configuração do Supabase indisponível" });
+    return json(503, { error: "ConfiguraÃ§Ã£o do Supabase indisponÃ­vel" });
   }
   if (!ASAAS_API_KEY || !ASAAS_WEBHOOK_TOKEN) {
-    return json(503, { error: "Webhook não configurado" });
+    return json(503, { error: "Webhook nÃ£o configurado" });
   }
 
   const receivedToken =
@@ -135,8 +135,8 @@ Deno.serve(async (request: Request): Promise<Response> => {
     request.headers.get("x-asaas-access-token") ??
     "";
   if (!timingSafeEqual(receivedToken, ASAAS_WEBHOOK_TOKEN)) {
-    console.warn("[asaas-webhook] token inválido");
-    return json(401, { error: "Não autorizado" });
+    console.warn("[asaas-webhook] token invÃ¡lido");
+    return json(401, { error: "NÃ£o autorizado" });
   }
 
   const rawPayload = await request.text();
@@ -144,7 +144,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
   try {
     payload = JSON.parse(rawPayload) as JsonRecord;
   } catch {
-    return json(400, { error: "JSON inválido" });
+    return json(400, { error: "JSON invÃ¡lido" });
   }
 
   const eventType =
@@ -163,7 +163,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
       : typeof payload.event_id === "string"
         ? payload.event_id
         : null;
-  // Eventos sem ID também recebem uma chave determinística para idempotência.
+  // Eventos sem ID tambÃ©m recebem uma chave determinÃ­stica para idempotÃªncia.
   const eventId = suppliedEventId ?? `sha256:${await sha256(rawPayload)}`;
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
@@ -183,7 +183,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
   if (eventInsertError) {
     if (eventInsertError.code !== "23505") {
       console.error("[asaas-webhook] registro do evento falhou:", eventInsertError);
-      return json(500, { error: "Não foi possível registrar o evento" });
+      return json(500, { error: "NÃ£o foi possÃ­vel registrar o evento" });
     }
 
     const { data: existingEvent, error: existingEventError } = await supabase
@@ -193,12 +193,12 @@ Deno.serve(async (request: Request): Promise<Response> => {
       .maybeSingle();
     if (existingEventError) {
       console.error("[asaas-webhook] leitura do evento falhou:", existingEventError);
-      return json(500, { error: "Não foi possível validar a idempotência" });
+      return json(500, { error: "NÃ£o foi possÃ­vel validar a idempotÃªncia" });
     }
     if (existingEvent?.processado_em) {
       return json(200, { received: true, duplicate: true });
     }
-    // Um evento previamente registrado, mas não concluído, pode ser reprocessado.
+    // Um evento previamente registrado, mas nÃ£o concluÃ­do, pode ser reprocessado.
   }
 
   const markProcessed = async (): Promise<void> => {
@@ -218,8 +218,8 @@ Deno.serve(async (request: Request): Promise<Response> => {
         reason: "evento_sem_pagamento",
       });
     } catch (error) {
-      console.error("[asaas-webhook] conclusão do evento falhou:", error);
-      return json(500, { error: "Não foi possível concluir o evento" });
+      console.error("[asaas-webhook] conclusÃ£o do evento falhou:", error);
+      return json(500, { error: "NÃ£o foi possÃ­vel concluir o evento" });
     }
   }
 
@@ -239,7 +239,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
 
     if (configError) throw configError;
     if (!config?.asaas_enabled) {
-      throw new Error("Integração Asaas desativada");
+      throw new Error("IntegraÃ§Ã£o Asaas desativada");
     }
     if (pagamentoError) throw pagamentoError;
     if (!pagamento) {
@@ -259,7 +259,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
     const verifiedStatus = String(verifiedPayment.status ?? "").toUpperCase();
 
     if (verifiedPayment.id !== paymentId) {
-      throw new Error("ID do pagamento consultado não corresponde ao evento");
+      throw new Error("ID do pagamento consultado nÃ£o corresponde ao evento");
     }
     if (cents(verifiedPayment.value) !== cents(pagamento.valor)) {
       throw new Error("Valor confirmado pelo Asaas diverge do pagamento interno");
@@ -275,7 +275,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
       ),
     );
     if (!verifiedReference || !allowedReferences.has(verifiedReference)) {
-      throw new Error("Referência externa do pagamento não corresponde ao Gestão Pro");
+      throw new Error("ReferÃªncia externa do pagamento nÃ£o corresponde ao GestÃ£o Pro");
     }
 
     let result: unknown = null;
@@ -309,7 +309,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
       if (error) throw error;
       result = { status: "cancelado" };
     } else {
-      // O evento é registrado, mas nenhum status do navegador/evento confirma pagamento.
+      // O evento Ã© registrado, mas nenhum status do navegador/evento confirma pagamento.
       result = { status: verifiedStatus || "UNKNOWN", changed: false };
     }
 
@@ -325,7 +325,8 @@ Deno.serve(async (request: Request): Promise<Response> => {
     return json(200, { received: true, processed: true, result });
   } catch (error) {
     console.error("[asaas-webhook] processamento falhou:", error);
-    // Mantém processado_em nulo para permitir retry do mesmo evento.
+    // MantÃ©m processado_em nulo para permitir retry do mesmo evento.
     return json(500, { error: "Falha ao processar o evento" });
   }
 });
+
