@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -318,11 +319,26 @@ function SignInForm({ redirect }: { redirect: string }) {
 
 function SignUpForm({ redirect }: { redirect: string }) {
   const navigate = useNavigate();
-  const [nome, setNome] = useState("");
+  const [empresaNome, setEmpresaNome] = useState("");
+  const [responsavelNome, setResponsavelNome] = useState("");
   const [email, setEmail] = useState("");
+  const [telefone, setTelefone] = useState("");
+  const [documento, setDocumento] = useState("");
+  const [planoId, setPlanoId] = useState("");
+  const [planos, setPlanos] = useState<Array<{
+    id: string; nome: string; valor: number; tipo_cobranca: string; modulos: string[];
+  }>>([]);
   const [password, setPassword] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    (supabase.rpc as any)("catalogo_planos_cadastro").then(({ data }: { data: typeof planos }) => {
+      const catalogo = data ?? [];
+      setPlanos(catalogo);
+      setPlanoId(catalogo.find((p) => Number(p.valor) === 0)?.id ?? catalogo[0]?.id ?? "");
+    });
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -331,15 +347,24 @@ function SignUpForm({ redirect }: { redirect: string }) {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { nome } },
+        options: { data: {
+          nome: responsavelNome,
+          empresa_nome: empresaNome,
+          responsavel_nome: responsavelNome,
+          telefone,
+          documento,
+          plano_desejado_id: planoId || null,
+        } },
       });
       if (error) {
         toast.error(getAuthErrorMessage(error));
         return;
       }
       if (data.user) {
+        if (data.session) await (supabase.rpc as any)("finalizar_cadastro_inicial");
         toast.success("Conta criada com sucesso!");
-        navigate({ to: redirect });
+        const escolhido = planos.find((p) => p.id === planoId);
+        navigate({ to: escolhido && Number(escolhido.valor) > 0 ? "/planos" : redirect });
       }
     } catch {
       toast.error(INTERNET_REQUIRED_MESSAGE);
@@ -352,13 +377,43 @@ function SignUpForm({ redirect }: { redirect: string }) {
     <form onSubmit={onSubmit} className="space-y-4" autoComplete="off">
       <AuthInput
         id="signup-name"
-        label="Nome"
+        label="Nome da empresa"
         type="text"
         icon="user"
-        value={nome}
-        onChange={setNome}
+        value={empresaNome}
+        onChange={setEmpresaNome}
+        autoComplete="organization"
+      />
+      <AuthInput
+        id="signup-responsavel"
+        label="Nome do responsável"
+        type="text"
+        icon="user"
+        value={responsavelNome}
+        onChange={setResponsavelNome}
         autoComplete="name"
       />
+      <div className="grid grid-cols-2 gap-3">
+        <AuthInput id="signup-phone" label="Telefone/WhatsApp" type="tel" icon="user"
+          value={telefone} onChange={setTelefone} autoComplete="tel" />
+        <AuthInput id="signup-document" label="CPF ou CNPJ" type="text" icon="user"
+          value={documento} onChange={setDocumento} autoComplete="off" />
+      </div>
+      <div className="space-y-1.5">
+        <Label>Plano desejado</Label>
+        <Select value={planoId} onValueChange={setPlanoId} required>
+          <SelectTrigger className={inputCls}><SelectValue placeholder="Selecione um plano" /></SelectTrigger>
+          <SelectContent>
+            {planos.map((plano) => (
+              <SelectItem key={plano.id} value={plano.id}>
+                {plano.nome} — {Number(plano.valor) === 0 ? "gratuito" :
+                  `${Number(plano.valor).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}/${plano.tipo_cobranca}`}
+                {plano.modulos.length ? ` · ${plano.modulos.join(", ")}` : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
       <AuthInput
         id="signup-email"
         label="E-mail"

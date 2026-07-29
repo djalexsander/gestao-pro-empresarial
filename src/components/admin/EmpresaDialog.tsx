@@ -7,10 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
-import type { AdminEmpresa, EmpresaPlano } from "@/hooks/useAdmin";
+import type { AdminEmpresa } from "@/hooks/useAdmin";
 import { useUpsertEmpresa } from "@/hooks/useAdmin";
 
 interface Props {
@@ -19,13 +16,6 @@ interface Props {
   onClose: () => void;
 }
 
-const PLANOS: { value: EmpresaPlano; label: string }[] = [
-  { value: "free", label: "Free — gratuito" },
-  { value: "starter", label: "Starter" },
-  { value: "pro", label: "Pro" },
-  { value: "enterprise", label: "Enterprise" },
-];
-
 export function EmpresaDialog({ empresa, open, onClose }: Props) {
   const upsert = useUpsertEmpresa();
 
@@ -33,7 +23,6 @@ export function EmpresaDialog({ empresa, open, onClose }: Props) {
   const [email, setEmail] = useState("");
   const [telefone, setTelefone] = useState("");
   const [documento, setDocumento] = useState("");
-  const [plano, setPlano] = useState<EmpresaPlano>("free");
   const [observacoes, setObservacoes] = useState("");
 
   useEffect(() => {
@@ -42,7 +31,6 @@ export function EmpresaDialog({ empresa, open, onClose }: Props) {
       setEmail(empresa.email ?? "");
       setTelefone(empresa.telefone ?? "");
       setDocumento(empresa.documento ?? "");
-      setPlano(empresa.plano);
       setObservacoes(empresa.observacoes ?? "");
     }
   }, [empresa]);
@@ -56,7 +44,6 @@ export function EmpresaDialog({ empresa, open, onClose }: Props) {
       email: email.trim() || null,
       telefone: telefone.trim() || null,
       documento: documento.trim() || null,
-      plano,
       observacoes: observacoes.trim() || null,
     });
     onClose();
@@ -68,7 +55,7 @@ export function EmpresaDialog({ empresa, open, onClose }: Props) {
         <DialogHeader>
           <DialogTitle>Editar empresa</DialogTitle>
           <DialogDescription>
-            Atualize os dados cadastrais e o plano da empresa.
+            Atualize os dados cadastrais. O plano é controlado pela assinatura comercial.
           </DialogDescription>
         </DialogHeader>
 
@@ -93,15 +80,11 @@ export function EmpresaDialog({ empresa, open, onClose }: Props) {
               <Input id="doc" value={documento} onChange={(e) => setDocumento(e.target.value)} />
             </div>
             <div className="grid gap-2">
-              <Label>Plano</Label>
-              <Select value={plano} onValueChange={(v) => setPlano(v as EmpresaPlano)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {PLANOS.map((p) => (
-                    <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Plano efetivo</Label>
+              <Input
+                value={`${empresa?.plano_nome ?? "Free"}${empresa?.plano_gerenciado_assinatura ? " — gerenciado pela assinatura" : " — gratuito"}`}
+                readOnly
+              />
             </div>
           </div>
           <div className="grid gap-2">

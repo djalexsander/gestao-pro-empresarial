@@ -737,6 +737,7 @@ function FinanceContent() {
         saldo={saldo}
         caixaRealizado={posicao?.caixaRealizadoPeriodo ?? 0}
         ind={ind}
+        receberOrigem={receberOrigem}
         periodo={posicao?.periodo}
       />
 
@@ -761,6 +762,7 @@ function BlocoModais({
   saldo,
   caixaRealizado,
   ind,
+  receberOrigem,
   periodo,
 }: {
   bloco: BlocoChave | null;
@@ -772,6 +774,7 @@ function BlocoModais({
   saldo: number;
   caixaRealizado: number;
   ind: ReturnType<typeof useFinanceiroIndicadores>["data"] | undefined;
+  receberOrigem: ReturnType<typeof useReceberOrigem>["data"] | undefined;
   periodo?: { inicio: string; fim: string } | null;
 }) {
   if (!bloco) return null;
@@ -1017,27 +1020,61 @@ function BlocoModais({
     );
   }
   if (bloco === "recebidoHoje") {
+    const recebimentos = receberOrigem?.recebimentos ?? [];
+    const totalRecebido =
+      receberOrigem?.recebidoPeriodo ?? ind.recebidoHoje;
+    const qtdRecebimentos =
+      receberOrigem?.qtdRecebimentos ?? ind.qtdRecebimentosHoje;
     return (
       <BlocoDetalheDialog
         open
         onOpenChange={(o) => !o && onClose()}
-        titulo="Recebido hoje"
-        subtitulo={`Recebimentos do dia ${formatDate(ind.periodo.hoje)}`}
-        origem="financeiro_lancamentos (data_pagamento = hoje)"
+        titulo={
+          receberOrigem?.periodo.inicio === receberOrigem?.periodo.fim
+            ? "Recebido hoje"
+            : "Recebido no período"
+        }
+        subtitulo={
+          receberOrigem
+            ? `Recebimentos de ${formatDate(receberOrigem.periodo.inicio)} a ${formatDate(receberOrigem.periodo.fim)}`
+            : `Recebimentos do dia ${formatDate(ind.periodo.hoje)}`
+        }
+        origem="lancamento_pagamentos + financeiro_lancamentos sem baixa histórica"
         resumo={[
-          { label: "Total recebido", valor: formatBRL(ind.recebidoHoje), tone: "success" },
-          { label: "Qtd. recebimentos", valor: String(ind.qtdRecebimentosHoje) },
+          { label: "Total recebido", valor: formatBRL(totalRecebido), tone: "success" },
+          { label: "Qtd. recebimentos", valor: String(qtdRecebimentos) },
         ]}
-        colunas={[{ key: "info", header: "Detalhes" }]}
-        rows={[
-          {
-            id: "1",
-            info:
-              ind.qtdRecebimentosHoje > 0
-                ? `${ind.qtdRecebimentosHoje} recebimentos totalizando ${formatBRL(ind.recebidoHoje)}`
-                : "Nenhum recebimento registrado hoje",
-          },
+        colunas={[
+          { key: "data", header: "Data/hora", format: "datetime" },
+          { key: "venda", header: "Venda" },
+          { key: "cliente", header: "Cliente" },
+          { key: "origem", header: "Origem" },
+          { key: "forma", header: "Forma" },
+          { key: "parcela", header: "Parcela" },
+          { key: "operador", header: "Operador" },
+          { key: "terminal", header: "Terminal/PDV" },
+          { key: "observacao", header: "Observação" },
+          { key: "status", header: "Situação" },
+          { key: "valor", header: "Valor", format: "currency", align: "right" },
         ]}
+        rows={recebimentos.map((recebimento) => ({
+          id: recebimento.id,
+          data: recebimento.data_hora,
+          venda: recebimento.venda_numero ?? "Sem venda vinculada",
+          cliente: recebimento.cliente_nome ?? "Não informado",
+          origem: recebimento.origem,
+          forma: recebimento.forma_pagamento ?? "Não informada",
+          parcela:
+            recebimento.parcela_total && recebimento.parcela_total > 1
+              ? `${recebimento.parcela_numero ?? "—"}/${recebimento.parcela_total}`
+              : "—",
+          operador: recebimento.operador_nome ?? "Não informado",
+          terminal: recebimento.terminal_nome ?? "Não informado",
+          observacao: recebimento.observacao ?? "—",
+          status: recebimento.status,
+          valor: recebimento.valor,
+        }))}
+        emptyMessage="Nenhum recebimento efetivo registrado no período."
       />
     );
   }

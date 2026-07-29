@@ -11,6 +11,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import { normalizarFinalizacaoVenda } from "@/lib/finalizacao-venda";
 import type { DataAdapter } from "../adapter";
 import type {
   AbrirCaixaInput,
@@ -393,26 +394,27 @@ const produtos: DataAdapter["produtos"] = {
 // =====================================================================
 const vendas: DataAdapter["vendas"] = {
   async finalizar(input: FinalizarVendaInput): Promise<string> {
+    const venda = normalizarFinalizacaoVenda(input);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (supabase as any).rpc("finalizar_venda_pdv", {
-      _cliente_id: input.cliente_id,
-      _subtotal: input.subtotal,
-      _desconto: input.desconto,
-      _total: input.total,
-      _forma: input.forma_pagamento,
-      _status_pagamento: input.status_pagamento,
-      _valor_recebido: input.valor_recebido,
-      _troco: input.troco,
-      _observacao: input.observacao,
-      _itens: input.itens,
-      _pagamentos: input.pagamentos && input.pagamentos.length > 0 ? input.pagamentos : null,
-      _gerar_financeiro: input.gerar_financeiro ?? true,
-      _operador_id: input.operador_id ?? null,
-      _terminal_id: input.terminal_id ?? null,
+      _cliente_id: venda.cliente_id,
+      _subtotal: venda.subtotal,
+      _desconto: venda.desconto,
+      _total: venda.total,
+      _forma: venda.forma_pagamento,
+      _status_pagamento: venda.status_pagamento,
+      _valor_recebido: venda.valor_recebido,
+      _troco: venda.troco,
+      _observacao: venda.observacao,
+      _itens: venda.itens,
+      _pagamentos: venda.pagamentos && venda.pagamentos.length > 0 ? venda.pagamentos : null,
+      _gerar_financeiro: venda.gerar_financeiro ?? true,
+      _operador_id: venda.operador_id ?? null,
+      _terminal_id: venda.terminal_id ?? null,
       // Chave de idempotência (nullable: chamadas antigas seguem funcionando)
-      _client_uuid: input.client_uuid ?? null,
+      _client_uuid: venda.client_uuid ?? null,
       // Data de vencimento (obrigatória quando houver pagamento fiado)
-      _data_vencimento: input.data_vencimento ?? null,
+      _data_vencimento: venda.data_vencimento ?? null,
     });
     if (error) throw error;
     return data as string;
@@ -550,11 +552,7 @@ const caixa: DataAdapter["caixa"] = {
   async aberto(filtro) {
     const { data: uid } = await supabase.auth.getUser();
     if (!uid.user) return null;
-    let q = supabase
-      .from("caixas")
-      .select("*")
-      .eq("owner_id", uid.user.id)
-      .eq("status", "aberto");
+    let q = supabase.from("caixas").select("*").eq("owner_id", uid.user.id).eq("status", "aberto");
     if (!filtro?.qualquer) {
       if (filtro?.operador_id) q = q.eq("operador_id", filtro.operador_id);
       else q = q.is("operador_id", null);
@@ -926,10 +924,7 @@ const clientes: DataAdapter["clientes"] = {
   },
 
   async listLite(input) {
-    let q = supabase
-      .from("clientes")
-      .select("id, nome, nome_fantasia, documento")
-      .order("nome");
+    let q = supabase.from("clientes").select("id, nome, nome_fantasia, documento").order("nome");
     // Default: somente ativos. `null` explícito = todos.
     const status = input && "status" in input ? input.status : "ativo";
     if (status) q = q.eq("status", status);
@@ -1091,9 +1086,7 @@ const fornecedores: DataAdapter["fornecedores"] = {
     if (input?.busca) {
       const b = input.busca.trim();
       if (b)
-        q = q.or(
-          `razao_social.ilike.%${b}%,nome_fantasia.ilike.%${b}%,documento.ilike.%${b}%`,
-        );
+        q = q.or(`razao_social.ilike.%${b}%,nome_fantasia.ilike.%${b}%,documento.ilike.%${b}%`);
     }
     const { data, error } = await q;
     if (error) throw error;

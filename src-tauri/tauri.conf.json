@@ -1,66 +1,61 @@
 {
-  "$schema": "https://schema.tauri.app/config/2",
-  "productName": "gestao-pro",
-  "mainBinaryName": "gestao-pro",
-  "version": "1.2.1",
-  "identifier": "com.alexproapps.gestaopro",
-  "build": {
-    "beforeDevCommand": "npm run dev:desktop",
-    "beforeBuildCommand": "npm run build:desktop",
-    "devUrl": "http://localhost:8080",
-    "frontendDist": "tauri-dist"
-  },
-  "app": {
-    "windows": [
-      {
-        "title": "GestÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o Pro",
-        "width": 1440,
-        "height": 900,
-        "minWidth": 1024,
-        "minHeight": 640,
-        "resizable": true,
-        "fullscreen": false,
-        "center": true,
-        "decorations": true
-      }
-    ],
-    "security": {
-      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; connect-src 'self' ipc: http://ipc.localhost https: wss: http: ws:"
-    }
-  },
-  "bundle": {
-    "active": true,
-    "targets": "all",
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ],
-    "category": "Business",
-    "shortDescription": "Sistema de gestÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o empresarial",
-    "longDescription": "GestÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o Pro ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â sistema completo de gestÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o: estoque, vendas, compras, financeiro e relatÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³rios.",
-    "createUpdaterArtifacts": true,
-    "windows": {
-      "wix": {
-        "upgradeCode": "7fdf2828-f13f-568e-8996-9a2eb3c97e5a"
-      }
-    }
-  },
-  "plugins": {
-    "updater": {
-      "active": true,
-      "dialog": false,
-      "endpoints": [
-        "https://github.com/djalexsander/gestao-pro-empresarial/releases/latest/download/latest.json"
-      ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ1Mjc3REU5MDM3RTcwMgpSV1FDNXplUTNuZFNCS1EzOENLeGRCUWRWRkFheUZOVHBRUy9od1oxTkJGTWp6dzNjOWhvYmhocwo="
-    }
-  }
+    "$schema":  "https://schema.tauri.app/config/2",
+    "productName":  "Gestao Pro",
+    "mainBinaryName":  "gestao-pro",
+    "version":  "1.2.2",
+    "identifier":  "com.alexproapps.gestaopro",
+    "build":  {
+                  "beforeDevCommand":  "npm run dev:desktop",
+                  "beforeBuildCommand":  "npm run build:desktop",
+                  "devUrl":  "http://localhost:8080",
+                  "frontendDist":  "tauri-dist"
+              },
+    "app":  {
+                "windows":  [
+                                {
+                                    "title":  "Gestão Pro",
+                                    "width":  1440,
+                                    "height":  900,
+                                    "minWidth":  1024,
+                                    "minHeight":  640,
+                                    "resizable":  true,
+                                    "fullscreen":  false,
+                                    "center":  true,
+                                    "decorations":  true
+                                }
+                            ],
+                "security":  {
+                                 "csp":  "default-src \u0027self\u0027 ipc: http://ipc.localhost; script-src \u0027self\u0027 \u0027wasm-unsafe-eval\u0027; style-src \u0027self\u0027 \u0027unsafe-inline\u0027; img-src \u0027self\u0027 data: blob: https:; font-src \u0027self\u0027 data:; media-src \u0027self\u0027 blob:; worker-src \u0027self\u0027 blob:; frame-src \u0027self\u0027; object-src \u0027none\u0027; base-uri \u0027self\u0027; form-action \u0027self\u0027; connect-src \u0027self\u0027 ipc: http://ipc.localhost https: wss: http: ws:"
+                             }
+            },
+    "bundle":  {
+                   "active":  true,
+                   "targets":  "all",
+                   "icon":  [
+                                "icons/32x32.png",
+                                "icons/128x128.png",
+                                "icons/128x128@2x.png",
+                                "icons/icon.icns",
+                                "icons/icon.ico"
+                            ],
+                   "category":  "Business",
+                   "shortDescription":  "Sistema de gestão empresarial",
+                   "longDescription":  "Gestão Pro — sistema completo de gestão: estoque, vendas, compras, financeiro e relatórios.",
+                   "createUpdaterArtifacts":  true,
+                   "windows":  {
+                                   "wix":  {
+                                               "upgradeCode":  "7fdf2828-f13f-568e-8996-9a2eb3c97e5a"
+                                           }
+                               }
+               },
+    "plugins":  {
+                    "updater":  {
+                                    "active":  true,
+                                    "dialog":  false,
+                                    "endpoints":  [
+                                                      "https://github.com/djalexsander/gestao-pro-empresarial/releases/latest/download/latest.json"
+                                                  ],
+                                    "pubkey":  "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ1Mjc3REU5MDM3RTcwMgpSV1FDNXplUTNuZFNCS1EzOENLeGRCUWRWRkFheUZOVHBRUy9od1oxTkJGTWp6dzNjOWhvYmhocwo="
+                                }
+                }
 }
-
-
-
-
-

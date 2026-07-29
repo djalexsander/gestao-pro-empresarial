@@ -5,7 +5,7 @@ import { useAuth } from "@/components/auth/AuthProvider";
 
 export type AppRole = "super_admin" | "admin" | "gerente" | "vendedor" | "financeiro";
 export type EmpresaStatus = "ativa" | "inativa" | "bloqueada";
-export type EmpresaPlano = "free" | "starter" | "pro" | "enterprise";
+export type EmpresaPlano = string;
 
 export type AdminUser = {
   user_id: string;
@@ -32,6 +32,13 @@ export type AdminEmpresa = {
   documento: string | null;
   status: EmpresaStatus;
   plano: EmpresaPlano;
+  plano_id: string | null;
+  plano_nome: string;
+  assinatura_status: string;
+  valor_contratado: number | null;
+  data_expiracao: string | null;
+  modulos_ativos: number;
+  plano_gerenciado_assinatura: boolean;
   observacoes: string | null;
   created_at: string;
   updated_at: string;
@@ -208,7 +215,6 @@ export function useUpsertEmpresa() {
       email?: string | null;
       telefone?: string | null;
       documento?: string | null;
-      plano?: EmpresaPlano;
       observacoes?: string | null;
     }) => {
       const { error } = await supabase.rpc("admin_upsert_empresa", {
@@ -217,7 +223,7 @@ export function useUpsertEmpresa() {
         _email: input.email ?? undefined,
         _telefone: input.telefone ?? undefined,
         _documento: input.documento ?? undefined,
-        _plano: input.plano ?? "free",
+        _plano: undefined,
         _observacoes: input.observacoes ?? undefined,
       });
       if (error) throw error;

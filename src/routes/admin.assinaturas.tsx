@@ -38,7 +38,10 @@ function statusBadge(s: string) {
   const map: Record<string, string> = {
     trial: "bg-info/15 text-info hover:bg-info/15",
     ativo: "bg-success/15 text-success hover:bg-success/15",
-    vencido: "bg-destructive/15 text-destructive hover:bg-destructive/15",
+    expirado: "bg-destructive/15 text-destructive hover:bg-destructive/15",
+    "período de teste": "bg-info/15 text-info hover:bg-info/15",
+    pendente: "bg-amber-500/15 text-amber-600 hover:bg-amber-500/15",
+    atrasado: "bg-destructive/15 text-destructive hover:bg-destructive/15",
     cancelado: "bg-muted text-muted-foreground hover:bg-muted",
   };
   return <Badge className={map[s] ?? "bg-muted"}>{s}</Badge>;

@@ -4437,6 +4437,10 @@ pub struct LocalVendaPagamentoInput {
     #[serde(default)]
     pub parcelas: Option<i64>,
     #[serde(default)]
+    pub quantidade_parcelas: Option<i64>,
+    #[serde(default)]
+    pub primeiro_vencimento: Option<String>,
+    #[serde(default)]
     pub observacao: Option<String>,
 }
 
@@ -4861,6 +4865,70 @@ pub struct LocalVendaResult {
     pub total: f64,
 }
 
+fn validar_pagamento_fiado_local(input: &LocalVendaInput) -> DbResult<()> {
+    let pagamentos_fiado: Vec<&LocalVendaPagamentoInput> = input
+        .pagamentos
+        .iter()
+        .filter(|p| p.forma_pagamento.eq_ignore_ascii_case("fiado"))
+        .collect();
+    let tem_fiado = if input.pagamentos.is_empty() {
+        // Compatibilidade com payload legado sem distribuição.
+        input.forma_pagamento.eq_ignore_ascii_case("fiado")
+    } else {
+        // Em payload atual, a distribuição é a fonte da verdade. Isso evita
+        // que uma forma principal antiga transforme Dinheiro/PIX em Fiado.
+        !pagamentos_fiado.is_empty()
+    };
+    if !tem_fiado {
+        return Ok(());
+    }
+    if pagamentos_fiado.len() > 1 {
+        return Err(DbError(
+            "Só é permitido um pagamento Fiado por venda.".into(),
+        ));
+    }
+    let valor_fiado = pagamentos_fiado
+        .first()
+        .map(|p| p.valor)
+        .unwrap_or(input.total);
+    if !valor_fiado.is_finite() || valor_fiado <= 0.0 {
+        return Err(DbError("O valor Fiado deve ser maior que zero.".into()));
+    }
+    if let Some(quantidade) = pagamentos_fiado.first().and_then(|p| p.quantidade_parcelas) {
+        if !(1..=60).contains(&quantidade) {
+            return Err(DbError("Informe uma quantidade válida de parcelas.".into()));
+        }
+    }
+    if input
+        .cliente_id
+        .as_deref()
+        .map(|s| s.is_empty())
+        .unwrap_or(true)
+    {
+        return Err(DbError(
+            "Venda fiado exige cliente — selecione um cliente antes de finalizar.".into(),
+        ));
+    }
+    let primeiro_vencimento = pagamentos_fiado
+        .first()
+        .and_then(|p| p.primeiro_vencimento.as_deref())
+        .or(input.data_vencimento.as_deref());
+    if primeiro_vencimento
+        .map(|s| s.trim().is_empty())
+        .unwrap_or(true)
+    {
+        return Err(DbError(
+            "Venda fiado exige data de vencimento — informe a data antes de finalizar.".into(),
+        ));
+    }
+    if chrono::NaiveDate::parse_from_str(primeiro_vencimento.unwrap(), "%Y-%m-%d").is_err() {
+        return Err(DbError(
+            "Informe uma data válida para o primeiro vencimento.".into(),
+        ));
+    }
+    Ok(())
+}
+
 pub fn registrar_venda_local(
     owner_id: &str,
     input: LocalVendaInput,
@@ -4873,33 +4941,7 @@ pub fn registrar_venda_local(
     // FIADO: cliente + data_vencimento são obrigatórios. Mesma regra do
     // backend cloud — falhar aqui evita que o PDV registre uma venda offline
     // que depois quebraria na RPC `finalizar_venda_pdv` por falta de dados.
-    let tem_fiado = input.forma_pagamento.eq_ignore_ascii_case("fiado")
-        || input
-            .pagamentos
-            .iter()
-            .any(|p| p.forma_pagamento.eq_ignore_ascii_case("fiado"));
-    if tem_fiado {
-        if input
-            .cliente_id
-            .as_deref()
-            .map(|s| s.is_empty())
-            .unwrap_or(true)
-        {
-            return Err(DbError(
-                "Venda fiado exige cliente — selecione um cliente antes de finalizar.".into(),
-            ));
-        }
-        if input
-            .data_vencimento
-            .as_deref()
-            .map(|s| s.trim().is_empty())
-            .unwrap_or(true)
-        {
-            return Err(DbError(
-                "Venda fiado exige data de vencimento — informe a data antes de finalizar.".into(),
-            ));
-        }
-    }
+    validar_pagamento_fiado_local(&input)?;
 
     // Idempotência por client_uuid (antes da transação grande).
     if let Some(cu) = input.client_uuid.as_deref() {
@@ -4957,14 +4999,30 @@ pub fn registrar_venda_local(
         .pagamentos
         .iter()
         .map(|p| {
-            serde_json::json!({
-                "forma_pagamento": p.forma_pagamento,
-                "valor": p.valor,
-                "valor_recebido": p.valor_recebido,
-                "troco": p.troco,
-                "parcelas": p.parcelas,
-                "observacao": p.observacao,
-            })
+            let mut obj = serde_json::Map::new();
+            obj.insert(
+                "forma_pagamento".into(),
+                serde_json::json!(p.forma_pagamento),
+            );
+            obj.insert("valor".into(), serde_json::json!(p.valor));
+            obj.insert("valor_recebido".into(), serde_json::json!(p.valor_recebido));
+            obj.insert("troco".into(), serde_json::json!(p.troco));
+            obj.insert("parcelas".into(), serde_json::json!(p.parcelas));
+            obj.insert("observacao".into(), serde_json::json!(p.observacao));
+            if p.forma_pagamento.eq_ignore_ascii_case("fiado") {
+                obj.insert(
+                    "quantidade_parcelas".into(),
+                    serde_json::json!(p.quantidade_parcelas.unwrap_or(1)),
+                );
+                obj.insert(
+                    "primeiro_vencimento".into(),
+                    serde_json::json!(p
+                        .primeiro_vencimento
+                        .as_deref()
+                        .or(input.data_vencimento.as_deref())),
+                );
+            }
+            serde_json::Value::Object(obj)
         })
         .collect();
 
@@ -6894,7 +6952,7 @@ pub fn caixa_local_aberto(
             Option<i64>,
         )> = match (operador_id, terminal_id) {
             (Some(op), Some(term)) => conn.query_row(
-                "SELECT local_uuid, remote_id, client_uuid, status, valor_inicial,
+                    "SELECT local_uuid, remote_id, client_uuid, status, valor_inicial,
                         valor_informado, valor_esperado, diferenca,
                         observacao_abertura, observacao_fechamento,
                         operador_id, terminal_id,
@@ -6903,29 +6961,29 @@ pub fn caixa_local_aberto(
                   WHERE owner_id=?1 AND status='aberto'
                     AND operador_id = ?2 AND terminal_id = ?3
                ORDER BY data_abertura_ms DESC LIMIT 1",
-                params![owner_id, op, term],
-                |r| {
-                    Ok((
-                        r.get(0)?,
-                        r.get(1)?,
-                        r.get(2)?,
-                        r.get(3)?,
-                        r.get(4)?,
-                        r.get(5)?,
-                        r.get(6)?,
-                        r.get(7)?,
-                        r.get(8)?,
-                        r.get(9)?,
-                        r.get(10)?,
-                        r.get(11)?,
-                        r.get(12)?,
-                        r.get(13)?,
-                    ))
-                },
-            )
-            .optional()?,
+                    params![owner_id, op, term],
+                    |r| {
+                        Ok((
+                            r.get(0)?,
+                            r.get(1)?,
+                            r.get(2)?,
+                            r.get(3)?,
+                            r.get(4)?,
+                            r.get(5)?,
+                            r.get(6)?,
+                            r.get(7)?,
+                            r.get(8)?,
+                            r.get(9)?,
+                            r.get(10)?,
+                            r.get(11)?,
+                            r.get(12)?,
+                            r.get(13)?,
+                        ))
+                    },
+                )
+                .optional()?,
             (Some(op), None) => conn.query_row(
-                "SELECT local_uuid, remote_id, client_uuid, status, valor_inicial,
+                    "SELECT local_uuid, remote_id, client_uuid, status, valor_inicial,
                         valor_informado, valor_esperado, diferenca,
                         observacao_abertura, observacao_fechamento,
                         operador_id, terminal_id,
@@ -6933,29 +6991,29 @@ pub fn caixa_local_aberto(
                    FROM caixa_local
                   WHERE owner_id=?1 AND status='aberto' AND operador_id = ?2
                ORDER BY data_abertura_ms DESC LIMIT 1",
-                params![owner_id, op],
-                |r| {
-                    Ok((
-                        r.get(0)?,
-                        r.get(1)?,
-                        r.get(2)?,
-                        r.get(3)?,
-                        r.get(4)?,
-                        r.get(5)?,
-                        r.get(6)?,
-                        r.get(7)?,
-                        r.get(8)?,
-                        r.get(9)?,
-                        r.get(10)?,
-                        r.get(11)?,
-                        r.get(12)?,
-                        r.get(13)?,
-                    ))
-                },
-            )
-            .optional()?,
+                    params![owner_id, op],
+                    |r| {
+                        Ok((
+                            r.get(0)?,
+                            r.get(1)?,
+                            r.get(2)?,
+                            r.get(3)?,
+                            r.get(4)?,
+                            r.get(5)?,
+                            r.get(6)?,
+                            r.get(7)?,
+                            r.get(8)?,
+                            r.get(9)?,
+                            r.get(10)?,
+                            r.get(11)?,
+                            r.get(12)?,
+                            r.get(13)?,
+                        ))
+                    },
+                )
+                .optional()?,
             (None, Some(term)) => conn.query_row(
-                "SELECT local_uuid, remote_id, client_uuid, status, valor_inicial,
+                    "SELECT local_uuid, remote_id, client_uuid, status, valor_inicial,
                         valor_informado, valor_esperado, diferenca,
                         observacao_abertura, observacao_fechamento,
                         operador_id, terminal_id,
@@ -6963,29 +7021,29 @@ pub fn caixa_local_aberto(
                    FROM caixa_local
                   WHERE owner_id=?1 AND status='aberto' AND terminal_id = ?2
                ORDER BY data_abertura_ms DESC LIMIT 1",
-                params![owner_id, term],
-                |r| {
-                    Ok((
-                        r.get(0)?,
-                        r.get(1)?,
-                        r.get(2)?,
-                        r.get(3)?,
-                        r.get(4)?,
-                        r.get(5)?,
-                        r.get(6)?,
-                        r.get(7)?,
-                        r.get(8)?,
-                        r.get(9)?,
-                        r.get(10)?,
-                        r.get(11)?,
-                        r.get(12)?,
-                        r.get(13)?,
-                    ))
-                },
-            )
-            .optional()?,
+                    params![owner_id, term],
+                    |r| {
+                        Ok((
+                            r.get(0)?,
+                            r.get(1)?,
+                            r.get(2)?,
+                            r.get(3)?,
+                            r.get(4)?,
+                            r.get(5)?,
+                            r.get(6)?,
+                            r.get(7)?,
+                            r.get(8)?,
+                            r.get(9)?,
+                            r.get(10)?,
+                            r.get(11)?,
+                            r.get(12)?,
+                            r.get(13)?,
+                        ))
+                    },
+                )
+                .optional()?,
             (None, None) => conn.query_row(
-                "SELECT local_uuid, remote_id, client_uuid, status, valor_inicial,
+                    "SELECT local_uuid, remote_id, client_uuid, status, valor_inicial,
                         valor_informado, valor_esperado, diferenca,
                         observacao_abertura, observacao_fechamento,
                         operador_id, terminal_id,
@@ -6993,27 +7051,27 @@ pub fn caixa_local_aberto(
                    FROM caixa_local
                   WHERE owner_id=?1 AND status='aberto'
                ORDER BY data_abertura_ms DESC LIMIT 1",
-                params![owner_id],
-                |r| {
-                    Ok((
-                        r.get(0)?,
-                        r.get(1)?,
-                        r.get(2)?,
-                        r.get(3)?,
-                        r.get(4)?,
-                        r.get(5)?,
-                        r.get(6)?,
-                        r.get(7)?,
-                        r.get(8)?,
-                        r.get(9)?,
-                        r.get(10)?,
-                        r.get(11)?,
-                        r.get(12)?,
-                        r.get(13)?,
-                    ))
-                },
-            )
-            .optional()?,
+                    params![owner_id],
+                    |r| {
+                        Ok((
+                            r.get(0)?,
+                            r.get(1)?,
+                            r.get(2)?,
+                            r.get(3)?,
+                            r.get(4)?,
+                            r.get(5)?,
+                            r.get(6)?,
+                            r.get(7)?,
+                            r.get(8)?,
+                            r.get(9)?,
+                            r.get(10)?,
+                            r.get(11)?,
+                            r.get(12)?,
+                            r.get(13)?,
+                        ))
+                    },
+                )
+                .optional()?,
         };
         let Some(row) = row_opt else { return Ok(None) };
         let (
@@ -8743,6 +8801,75 @@ pub fn outbox_financeiro_reset_errors(owner_id: &str, now_ms: i64) -> DbResult<i
         )?;
         Ok(n as i64)
     })
+}
+
+#[cfg(test)]
+mod venda_fiado_tests {
+    use super::*;
+
+    fn input_venda(forma_principal: &str, pagamento: LocalVendaPagamentoInput) -> LocalVendaInput {
+        LocalVendaInput {
+            cliente_id: None,
+            subtotal: 15.0,
+            desconto: 0.0,
+            total: 15.0,
+            forma_pagamento: forma_principal.into(),
+            status_pagamento: "pago".into(),
+            valor_recebido: None,
+            troco: None,
+            observacao: None,
+            itens: vec![],
+            pagamentos: vec![pagamento],
+            gerar_financeiro: true,
+            operador_id: None,
+            terminal_id: None,
+            client_uuid: None,
+            data_vencimento: None,
+        }
+    }
+
+    fn pagamento(forma: &str, valor: f64) -> LocalVendaPagamentoInput {
+        LocalVendaPagamentoInput {
+            forma_pagamento: forma.into(),
+            valor,
+            valor_recebido: None,
+            troco: None,
+            parcelas: Some(1),
+            quantidade_parcelas: None,
+            primeiro_vencimento: None,
+            observacao: None,
+        }
+    }
+
+    #[test]
+    fn distribuicao_normal_ignora_forma_principal_fiado_e_campos_zero() {
+        let mut pix = pagamento("pix", 15.0);
+        pix.quantidade_parcelas = Some(0);
+        let input = input_venda("fiado", pix);
+
+        assert!(validar_pagamento_fiado_local(&input).is_ok());
+    }
+
+    #[test]
+    fn fiado_zero_e_bloqueado_no_backend_local() {
+        let mut input = input_venda("fiado", pagamento("fiado", 0.0));
+        input.cliente_id = Some("cliente-1".into());
+        input.data_vencimento = Some("2026-08-28".into());
+
+        let erro = validar_pagamento_fiado_local(&input).unwrap_err();
+        assert_eq!(erro.0, "O valor Fiado deve ser maior que zero.");
+    }
+
+    #[test]
+    fn fiado_valido_e_aceito_no_backend_local() {
+        let mut fiado = pagamento("fiado", 15.0);
+        fiado.quantidade_parcelas = Some(3);
+        fiado.primeiro_vencimento = Some("2026-08-28".into());
+        let mut input = input_venda("fiado", fiado);
+        input.cliente_id = Some("cliente-1".into());
+
+        assert!(validar_pagamento_fiado_local(&input).is_ok());
+    }
 }
 
 #[cfg(test)]

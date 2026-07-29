@@ -299,6 +299,9 @@ export function useSetAssinatura() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-assinaturas"] });
+      qc.invalidateQueries({ queryKey: ["admin-empresas"] });
+      qc.invalidateQueries({ queryKey: ["minha-assinatura"] });
+      qc.invalidateQueries({ queryKey: ["meus-modulos"] });
       toast.success("Assinatura atualizada.");
     },
     onError: (e: Error) => toast.error(e.message),
@@ -418,6 +421,10 @@ export function useUpsertPagamento() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-pagamentos"] });
+      qc.invalidateQueries({ queryKey: ["admin-assinaturas"] });
+      qc.invalidateQueries({ queryKey: ["admin-empresas"] });
+      qc.invalidateQueries({ queryKey: ["minha-assinatura"] });
+      qc.invalidateQueries({ queryKey: ["meus-modulos"] });
       toast.success("Pagamento salvo.");
     },
     onError: (e: Error) => toast.error(e.message),

@@ -62,6 +62,15 @@ import { useFuncionariosAtivos } from "@/hooks/useFuncionarios";
 import { useCaixasHistorico } from "@/hooks/useCaixa";
 import { formatBRL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
+import {
+  calcularMetricasProdutosVendidos,
+  consolidarProdutosVendidos,
+  custoUnitarioHistorico,
+  itemProdutoVendidoPassaFiltros,
+  periodoFinalizacaoSaoPaulo,
+  VENDA_STATUS_FINALIZADOS,
+  type ProdutoVendidoItem,
+} from "@/lib/produtos-vendidos";
 
 export const Route = createFileRoute("/relatorios/produtos-vendidos")({
   head: () => ({
@@ -105,9 +114,21 @@ const FORMA_LABEL: Record<string, string> = {
   outro: "Outro",
 };
 
-function isoDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
+function formaPagamentoLabel(forma: string | null): string {
+  if (!forma) return "—";
+  return forma
+    .split(" + ")
+    .map((item) => FORMA_LABEL[item] ?? item)
+    .join(" + ");
 }
+
+function isoDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate(),
+  ).padStart(2, "0")}`;
+}
+
+type ItemVendaRow = ProdutoVendidoItem;
 
 function calcRange(preset: PeriodoPreset): { inicio: string; fim: string } {
   const today = new Date();
@@ -137,32 +158,6 @@ function calcRange(preset: PeriodoPreset): { inicio: string; fim: string } {
   return { inicio: isoDate(ini), fim: isoDate(today) };
 }
 
-interface ItemVendaRow {
-  item_id: string;
-  venda_id: string;
-  venda_numero: string;
-  data_emissao: string;
-  data_finalizacao: string | null;
-  produto_id: string | null;
-  produto_nome: string;
-  sku: string | null;
-  codigo_barras: string | null;
-  quantidade: number;
-  preco_unitario: number;
-  desconto: number;
-  total: number;
-  custo_unitario: number;
-  custo_total: number;
-  lucro: number;
-  margem: number;
-  forma_pagamento: string | null;
-  operador_id: string | null;
-  caixa_id: string | null;
-  terminal_id: string | null;
-  cliente_nome: string | null;
-  status_venda: string;
-}
-
 function useItensVendidos(
   inicio: string,
   fim: string,
@@ -170,80 +165,201 @@ function useItensVendidos(
 ) {
   return useQuery({
     queryKey: ["relatorios", "produtos-vendidos", inicio, fim, incluirCanceladas],
-    queryFn: async (): Promise<ItemVendaRow[]> => {
-      let query = supabase
+    queryFn: async (): Promise<ProdutoVendidoItem[]> => {
+      const { inicioTs, fimTs } = periodoFinalizacaoSaoPaulo(inicio, fim);
+      const status: Array<
+        "aprovada" | "faturada" | "entregue" | "cancelada"
+      > = incluirCanceladas
+        ? [...VENDA_STATUS_FINALIZADOS, "cancelada"]
+        : [...VENDA_STATUS_FINALIZADOS];
+      const { data: vendasData, error: vendasError } = await supabase
         .from("vendas")
         .select(
-          `id, numero, data_emissao, data_finalizacao, forma_pagamento, status,
-           operador_id, caixa_id, terminal_id,
-           caixa:caixas(operador_id),
-           cliente:clientes(nome, nome_fantasia),
-           itens:venda_itens(
-             id, produto_id, descricao, quantidade, preco_unitario, desconto, total,
-             produto:produtos(nome, sku, codigo_barras, preco_custo)
-           )`,
+          "id, numero, data_emissao, data_finalizacao, forma_pagamento, status, operador_id, caixa_id, terminal_id, cliente_id",
         )
-        .gte("data_finalizacao", `${inicio}T00:00:00`)
-        .lte("data_finalizacao", `${fim}T23:59:59.999`)
+        .gte("data_finalizacao", inicioTs)
+        .lte("data_finalizacao", fimTs)
+        .in("status", status)
         .order("data_finalizacao", { ascending: false })
         .limit(5000);
+      if (vendasError) throw vendasError;
 
-      if (!incluirCanceladas) {
-        query = query.neq("status", "cancelada");
+      const vendas = (vendasData ?? []).filter(
+        (venda): venda is typeof venda & { data_finalizacao: string } =>
+          Boolean(venda.data_finalizacao),
+      );
+      if (vendas.length === 0) return [];
+
+      const vendaIds = vendas.map((venda) => venda.id);
+      const [
+        { data: itensData, error: itensError },
+        { data: pagamentosData, error: pagamentosError },
+        { data: movimentosData, error: movimentosError },
+      ] = await Promise.all([
+        supabase
+          .from("venda_itens")
+          .select(
+            `id, venda_id, produto_id, variacao_id, descricao, codigo_lido,
+             quantidade, preco_unitario, desconto, total,
+             produto:produtos(nome, sku, codigo_barras, preco_custo),
+             variacao:produto_variacoes(nome, sku, codigo_barras, preco_custo)`,
+          )
+          .in("venda_id", vendaIds)
+          .limit(20000),
+        supabase
+          .from("venda_pagamentos")
+          .select("venda_id, forma_pagamento")
+          .in("venda_id", vendaIds)
+          .limit(10000),
+        supabase
+          .from("estoque_movimentacoes")
+          .select(
+            "venda_id, produto_id, variacao_id, quantidade, custo_unitario",
+          )
+          .in("venda_id", vendaIds)
+          .eq("origem", "venda")
+          .limit(20000),
+      ]);
+      if (itensError) throw itensError;
+      if (pagamentosError) throw pagamentosError;
+      if (movimentosError) throw movimentosError;
+
+      const clienteIds = [
+        ...new Set(vendas.map((venda) => venda.cliente_id).filter(Boolean)),
+      ] as string[];
+      const caixaIds = [
+        ...new Set(vendas.map((venda) => venda.caixa_id).filter(Boolean)),
+      ] as string[];
+      const [
+        { data: clientesData, error: clientesError },
+        { data: caixasData, error: caixasError },
+      ] = await Promise.all([
+        clienteIds.length
+          ? supabase
+              .from("clientes")
+              .select("id, nome, nome_fantasia")
+              .in("id", clienteIds)
+          : Promise.resolve({ data: [], error: null }),
+        caixaIds.length
+          ? supabase
+              .from("caixas")
+              .select("id, operador_id, terminal_id")
+              .in("id", caixaIds)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (clientesError) throw clientesError;
+      if (caixasError) throw caixasError;
+
+      const vendaMap = new Map(vendas.map((venda) => [venda.id, venda]));
+      const clienteMap = new Map(
+        (clientesData ?? []).map((cliente) => [
+          cliente.id,
+          cliente.nome_fantasia || cliente.nome,
+        ]),
+      );
+      const caixaMap = new Map(
+        (caixasData ?? []).map((caixa) => [caixa.id, caixa]),
+      );
+      const formasPorVenda = new Map<string, string[]>();
+      for (const pagamento of pagamentosData ?? []) {
+        const formas = formasPorVenda.get(pagamento.venda_id) ?? [];
+        if (!formas.includes(pagamento.forma_pagamento)) {
+          formas.push(pagamento.forma_pagamento);
+        }
+        formasPorVenda.set(pagamento.venda_id, formas);
+      }
+      const custosPorItem = new Map<
+        string,
+        { quantidade: number; custoTotal: number }
+      >();
+      for (const movimento of movimentosData ?? []) {
+        if (movimento.custo_unitario == null) continue;
+        const chave = `${movimento.venda_id}:${movimento.produto_id}:${movimento.variacao_id ?? ""}`;
+        const quantidade = Math.abs(Number(movimento.quantidade) || 0);
+        const atual = custosPorItem.get(chave) ?? {
+          quantidade: 0,
+          custoTotal: 0,
+        };
+        atual.quantidade += quantidade;
+        atual.custoTotal += quantidade * Number(movimento.custo_unitario);
+        custosPorItem.set(chave, atual);
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
+      return (itensData ?? []).flatMap<ProdutoVendidoItem>((item) => {
+        const venda = vendaMap.get(item.venda_id);
+        if (!venda) return [];
+        const caixa = venda.caixa_id ? caixaMap.get(venda.caixa_id) : null;
+        const produto = item.produto as {
+          nome: string;
+          sku: string;
+          codigo_barras: string | null;
+          preco_custo: number;
+        } | null;
+        const variacao = item.variacao as {
+          nome: string;
+          sku: string;
+          codigo_barras: string | null;
+          preco_custo: number | null;
+        } | null;
+        const chaveCusto = `${item.venda_id}:${item.produto_id}:${item.variacao_id ?? ""}`;
+        const custoMovimento = custosPorItem.get(chaveCusto);
+        const custoUnitario = custoUnitarioHistorico(
+          custoMovimento && custoMovimento.quantidade > 0
+            ? custoMovimento.custoTotal / custoMovimento.quantidade
+            : null,
+          variacao?.preco_custo,
+          produto?.preco_custo,
+        );
+        const quantidade = Number(item.quantidade) || 0;
+        const precoUnitario = Number(item.preco_unitario) || 0;
+        const total =
+          Number(item.total) ||
+          quantidade * precoUnitario - (Number(item.desconto) || 0);
+        const custoTotal = custoUnitario * quantidade;
+        const lucro = total - custoTotal;
+        const formasPagamento =
+          formasPorVenda.get(venda.id) ??
+          (venda.forma_pagamento ? [venda.forma_pagamento] : []);
 
-      const rows: ItemVendaRow[] = [];
-      for (const v of (data ?? []) as Array<Record<string, unknown>>) {
-        const itens = (v.itens as Array<Record<string, unknown>> | null) ?? [];
-        const cli = v.cliente as Record<string, unknown> | null;
-        const caixa = v.caixa as Record<string, unknown> | null;
-        const operadorId =
-          (v.operador_id as string | null) ??
-          ((caixa?.operador_id as string | null) || null);
-        const clienteNome = cli
-          ? ((cli.nome_fantasia as string) || (cli.nome as string) || null)
-          : null;
-        for (const it of itens) {
-          const prod = it.produto as Record<string, unknown> | null;
-          const qtd = Number(it.quantidade) || 0;
-          const preco = Number(it.preco_unitario) || 0;
-          const total = Number(it.total) || qtd * preco;
-          const custoUnit = prod ? Number(prod.preco_custo) || 0 : 0;
-          const custoTotal = custoUnit * qtd;
-          const lucro = total - custoTotal;
-          const margem = total > 0 ? (lucro / total) * 100 : 0;
-          rows.push({
-            item_id: it.id as string,
-            venda_id: v.id as string,
-            venda_numero: v.numero as string,
-            data_emissao: v.data_emissao as string,
-            data_finalizacao: (v.data_finalizacao as string | null) ?? null,
-            produto_id: (it.produto_id as string | null) ?? null,
+        return [
+          {
+            item_id: item.id,
+            venda_id: venda.id,
+            venda_numero: venda.numero,
+            data_emissao: venda.data_emissao,
+            data_finalizacao: venda.data_finalizacao,
+            produto_id: item.produto_id,
             produto_nome:
-              (prod?.nome as string) || (it.descricao as string) || "—",
-            sku: prod ? ((prod.sku as string) ?? null) : null,
-            codigo_barras: prod ? ((prod.codigo_barras as string) ?? null) : null,
-            quantidade: qtd,
-            preco_unitario: preco,
-            desconto: Number(it.desconto) || 0,
+              item.descricao || produto?.nome || "Produto sem cadastro",
+            variacao_id: item.variacao_id,
+            variacao_nome: variacao?.nome ?? null,
+            sku: variacao?.sku || produto?.sku || null,
+            codigo_barras:
+              item.codigo_lido ||
+              variacao?.codigo_barras ||
+              produto?.codigo_barras ||
+              null,
+            quantidade,
+            preco_unitario: precoUnitario,
+            desconto: Number(item.desconto) || 0,
             total,
-            custo_unitario: custoUnit,
+            custo_unitario: custoUnitario,
             custo_total: custoTotal,
             lucro,
-            margem,
-            forma_pagamento: (v.forma_pagamento as string | null) ?? null,
-            operador_id: operadorId,
-            caixa_id: (v.caixa_id as string | null) ?? null,
-            terminal_id: (v.terminal_id as string | null) ?? null,
-            cliente_nome: clienteNome,
-            status_venda: v.status as string,
-          });
-        }
-      }
-      return rows;
+            margem: total > 0 ? (lucro / total) * 100 : 0,
+            formas_pagamento: formasPagamento,
+            forma_pagamento:
+              formasPagamento.length > 0 ? formasPagamento.join(" + ") : null,
+            operador_id: venda.operador_id ?? caixa?.operador_id ?? null,
+            caixa_id: venda.caixa_id,
+            terminal_id: venda.terminal_id ?? caixa?.terminal_id ?? null,
+            cliente_nome: venda.cliente_id
+              ? clienteMap.get(venda.cliente_id) ?? null
+              : null,
+            status_venda: venda.status,
+          },
+        ];
+      });
     },
   });
 }
@@ -287,7 +403,12 @@ function Conteudo() {
     return calcRange(preset);
   }, [preset, inicioCustom, fimCustom]);
 
-  const { data: itens = [], isLoading } = useItensVendidos(
+  const {
+    data: itens = [],
+    isLoading,
+    isError,
+    error,
+  } = useItensVendidos(
     inicio,
     fim,
     incluirCanceladas,
@@ -307,110 +428,28 @@ function Conteudo() {
   }, [itens]);
 
   const filtered = useMemo(() => {
-    const q = busca.trim().toLowerCase();
-    return itens.filter((i) => {
-      // Cancelados nunca entram nas métricas principais
-      if (!incluirCanceladas && i.status_venda === "cancelada") return false;
-      if (operadorFiltro !== "todos") {
-        if (operadorFiltro === "_sem") {
-          if (i.operador_id) return false;
-        } else if (i.operador_id !== operadorFiltro) return false;
-      }
-      if (terminalFiltro !== "todos") {
-        if (terminalFiltro === "_sem") {
-          if (i.terminal_id) return false;
-        } else if (i.terminal_id !== terminalFiltro) return false;
-      }
-      if (formaFiltro !== "todos" && i.forma_pagamento !== formaFiltro)
-        return false;
-      if (q) {
-        const ok =
-          i.produto_nome.toLowerCase().includes(q) ||
-          (i.sku ?? "").toLowerCase().includes(q) ||
-          (i.codigo_barras ?? "").toLowerCase().includes(q) ||
-          i.venda_numero.toLowerCase().includes(q);
-        if (!ok) return false;
-      }
-      return true;
-    });
+    return itens.filter((item) =>
+      itemProdutoVendidoPassaFiltros(item, {
+        busca,
+        operador: operadorFiltro,
+        terminal: terminalFiltro,
+        forma: formaFiltro,
+        incluirCanceladas,
+      }),
+    );
   }, [itens, busca, operadorFiltro, terminalFiltro, formaFiltro, incluirCanceladas]);
 
   // Métricas
-  const metricas = useMemo(() => {
-    const ativos = filtered.filter((i) => i.status_venda !== "cancelada");
-    let qtd = 0;
-    let receita = 0;
-    let custo = 0;
-    const vendasSet = new Set<string>();
-    for (const i of ativos) {
-      qtd += i.quantidade;
-      receita += i.total;
-      custo += i.custo_total;
-      vendasSet.add(i.venda_id);
-    }
-    const lucro = receita - custo;
-    const margem = receita > 0 ? (lucro / receita) * 100 : 0;
-    return {
-      qtd,
-      receita,
-      custo,
-      lucro,
-      margem,
-      vendas: vendasSet.size,
-      itens: ativos.length,
-    };
-  }, [filtered]);
+  const metricas = useMemo(
+    () => calcularMetricasProdutosVendidos(filtered),
+    [filtered],
+  );
 
   // Consolidado por produto
-  const consolidado = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        produto_id: string | null;
-        produto_nome: string;
-        sku: string | null;
-        codigo_barras: string | null;
-        quantidade: number;
-        receita: number;
-        custo: number;
-        lucro: number;
-        margem: number;
-        vendas: number;
-      }
-    >();
-    const ativos = filtered.filter((i) => i.status_venda !== "cancelada");
-    const vendasPorProd = new Map<string, Set<string>>();
-    for (const i of ativos) {
-      const key = i.produto_id ?? `__nome__${i.produto_nome}`;
-      const cur = map.get(key) ?? {
-        produto_id: i.produto_id,
-        produto_nome: i.produto_nome,
-        sku: i.sku,
-        codigo_barras: i.codigo_barras,
-        quantidade: 0,
-        receita: 0,
-        custo: 0,
-        lucro: 0,
-        margem: 0,
-        vendas: 0,
-      };
-      cur.quantidade += i.quantidade;
-      cur.receita += i.total;
-      cur.custo += i.custo_total;
-      map.set(key, cur);
-      const set = vendasPorProd.get(key) ?? new Set<string>();
-      set.add(i.venda_id);
-      vendasPorProd.set(key, set);
-    }
-    const rows = Array.from(map.entries()).map(([k, v]) => {
-      v.lucro = v.receita - v.custo;
-      v.margem = v.receita > 0 ? (v.lucro / v.receita) * 100 : 0;
-      v.vendas = vendasPorProd.get(k)?.size ?? 0;
-      return v;
-    });
-    rows.sort((a, b) => b.quantidade - a.quantidade);
-    return rows;
-  }, [filtered]);
+  const consolidado = useMemo(
+    () => consolidarProdutosVendidos(filtered),
+    [filtered],
+  );
 
   const operadoresMap = useMemo(() => {
     const m = new Map<string, string>();
@@ -442,6 +481,7 @@ function Conteudo() {
     { header: "Data", accessor: (r) => r.data_emissao, type: "date" },
     { header: "Venda", accessor: (r) => r.venda_numero, type: "text" },
     { header: "Produto", accessor: (r) => r.produto_nome, type: "text" },
+    { header: "Variação", accessor: (r) => r.variacao_nome ?? "", type: "text" },
     { header: "SKU", accessor: (r) => r.sku ?? "", type: "text" },
     { header: "Cod. barras", accessor: (r) => r.codigo_barras ?? "", type: "text" },
     { header: "Qtd", accessor: (r) => r.quantidade, type: "number" },
@@ -459,8 +499,7 @@ function Conteudo() {
     { header: "Terminal", accessor: (r) => r.terminal_id ?? "", type: "text" },
     {
       header: "Forma pgto",
-      accessor: (r) =>
-        r.forma_pagamento ? FORMA_LABEL[r.forma_pagamento] ?? r.forma_pagamento : "",
+      accessor: (r) => formaPagamentoLabel(r.forma_pagamento),
       type: "text",
     },
     { header: "Status", accessor: (r) => r.status_venda, type: "text" },
@@ -469,6 +508,7 @@ function Conteudo() {
   type ConsRow = (typeof consolidado)[number];
   const colunasConsolidado: CsvColumn<ConsRow>[] = [
     { header: "Produto", accessor: (r) => r.produto_nome, type: "text" },
+    { header: "Variação", accessor: (r) => r.variacao_nome ?? "", type: "text" },
     { header: "SKU", accessor: (r) => r.sku ?? "", type: "text" },
     { header: "Cod. barras", accessor: (r) => r.codigo_barras ?? "", type: "text" },
     { header: "Qtd vendida", accessor: (r) => r.quantidade, type: "number" },
@@ -701,6 +741,15 @@ function Conteudo() {
         </CardContent>
       </Card>
 
+      {isError && (
+        <Card className="border-destructive/40 bg-destructive/5">
+          <CardContent className="py-4 text-sm text-destructive">
+            Não foi possível carregar os itens das vendas:{" "}
+            {error instanceof Error ? error.message : "erro desconhecido"}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Métricas */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
@@ -760,7 +809,9 @@ function Conteudo() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Produto</TableHead>
+                      <TableHead>Variação</TableHead>
                       <TableHead>SKU</TableHead>
+                      <TableHead>Código</TableHead>
                       <TableHead className="text-right">Qtd</TableHead>
                       <TableHead className="text-right">Vendas</TableHead>
                       <TableHead className="text-right">Faturamento</TableHead>
@@ -773,21 +824,29 @@ function Conteudo() {
                   <TableBody>
                     {isLoading ? (
                       <TableRow>
-                        <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
+                        <TableCell colSpan={11} className="py-8 text-center text-muted-foreground">
                           <Loader2 className="mx-auto h-5 w-5 animate-spin" />
                         </TableCell>
                       </TableRow>
                     ) : consolidado.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
+                        <TableCell colSpan={11} className="py-8 text-center text-muted-foreground">
                           Nenhum produto vendido no período.
                         </TableCell>
                       </TableRow>
                     ) : (
                       consolidado.map((r) => (
-                        <TableRow key={(r.produto_id ?? r.produto_nome) + r.sku}>
+                        <TableRow
+                          key={`${r.produto_id ?? r.produto_nome}:${r.variacao_id ?? r.variacao_nome ?? ""}`}
+                        >
                           <TableCell className="font-medium">{r.produto_nome}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {r.variacao_nome ?? "—"}
+                          </TableCell>
                           <TableCell className="text-muted-foreground">{r.sku ?? "—"}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {r.codigo_barras ?? "—"}
+                          </TableCell>
                           <TableCell className="text-right">
                             {r.quantidade.toLocaleString("pt-BR")}
                           </TableCell>
@@ -857,12 +916,16 @@ function Conteudo() {
                       <TableHead>Data</TableHead>
                       <TableHead>Venda</TableHead>
                       <TableHead>Produto</TableHead>
+                      <TableHead>Variação</TableHead>
                       <TableHead>SKU</TableHead>
                       <TableHead className="text-right">Qtd</TableHead>
                       <TableHead className="text-right">Unit.</TableHead>
+                      <TableHead className="text-right">Desconto</TableHead>
                       <TableHead className="text-right">Total</TableHead>
                       <TableHead className="text-right">Lucro</TableHead>
                       <TableHead>Operador</TableHead>
+                      <TableHead>Terminal/PDV</TableHead>
+                      <TableHead>Cliente</TableHead>
                       <TableHead>Forma</TableHead>
                       <TableHead>Status</TableHead>
                     </TableRow>
@@ -870,13 +933,13 @@ function Conteudo() {
                   <TableBody>
                     {isLoading ? (
                       <TableRow>
-                        <TableCell colSpan={11} className="py-8 text-center text-muted-foreground">
+                        <TableCell colSpan={15} className="py-8 text-center text-muted-foreground">
                           <Loader2 className="mx-auto h-5 w-5 animate-spin" />
                         </TableCell>
                       </TableRow>
                     ) : filtered.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={11} className="py-8 text-center text-muted-foreground">
+                        <TableCell colSpan={15} className="py-8 text-center text-muted-foreground">
                           Nenhum item no período / filtros.
                         </TableCell>
                       </TableRow>
@@ -894,10 +957,16 @@ function Conteudo() {
                           <TableCell className="font-mono text-xs">{i.venda_numero}</TableCell>
                           <TableCell className="font-medium">{i.produto_nome}</TableCell>
                           <TableCell className="text-xs text-muted-foreground">
+                            {i.variacao_nome ?? "—"}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
                             {i.sku ?? "—"}
                           </TableCell>
                           <TableCell className="text-right">{i.quantidade}</TableCell>
                           <TableCell className="text-right">{formatBRL(i.preco_unitario)}</TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            {formatBRL(i.desconto)}
+                          </TableCell>
                           <TableCell className="text-right font-medium">
                             {formatBRL(i.total)}
                           </TableCell>
@@ -912,10 +981,12 @@ function Conteudo() {
                           <TableCell className="text-xs">
                             {i.operador_id ? operadoresMap.get(i.operador_id) ?? "—" : "—"}
                           </TableCell>
+                          <TableCell className="text-xs">{i.terminal_id ?? "—"}</TableCell>
                           <TableCell className="text-xs">
-                            {i.forma_pagamento
-                              ? FORMA_LABEL[i.forma_pagamento] ?? i.forma_pagamento
-                              : "—"}
+                            {i.cliente_nome ?? "Consumidor final"}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {formaPagamentoLabel(i.forma_pagamento)}
                           </TableCell>
                           <TableCell>
                             <Badge
@@ -1083,9 +1154,7 @@ function DetalheProdutoDialog({
                       {i.operador_id ? operadoresMap.get(i.operador_id) ?? "—" : "—"}
                     </TableCell>
                     <TableCell className="text-xs">
-                      {i.forma_pagamento
-                        ? FORMA_LABEL[i.forma_pagamento] ?? i.forma_pagamento
-                        : "—"}
+                      {formaPagamentoLabel(i.forma_pagamento)}
                     </TableCell>
                   </TableRow>
                 ))

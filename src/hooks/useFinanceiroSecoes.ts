@@ -11,6 +11,14 @@ import {
   isLancRealizado,
   isLancReceber,
 } from "@/lib/financeiro-canonico";
+import {
+  montarRecebimentosDetalhados,
+  totalizarRecebimentos,
+  type LancamentoRecebidoFonte,
+  type PagamentoRecebidoFonte,
+  type RecebimentoDetalhe,
+  type VendaRecebidaFonte,
+} from "@/lib/financeiro-recebimentos";
 // Local desktop finance helpers are intentionally not used for cloud-only reports.
 
 function toRange(v: SecaoFiltroValue): PeriodoRange {
@@ -193,6 +201,7 @@ export interface ReceberOrigemData {
   qtdRecebimentos: number;
   vencidosTotal: number;
   qtdVencidos: number;
+  recebimentos: RecebimentoDetalhe[];
   periodo: PeriodoRange;
   forma: FormaFiltro;
 }
@@ -242,41 +251,136 @@ export function useReceberOrigem(filtro: SecaoFiltroValue) {
       }
 
       // Recebido no período: cada baixa individual, inclusive parcial.
-      const { data: pagos } = await supabase
+      const { data: pagosData, error: pagosError } = await supabase
         .from("lancamento_pagamentos")
-        .select("lancamento_id, valor, forma_pagamento, lancamento:financeiro_lancamentos(tipo)")
+        .select(
+          "id, lancamento_id, valor, data_pagamento, created_at, forma_pagamento, observacao, registrado_por",
+        )
         .gte("data_pagamento", periodo.inicio)
         .lte("data_pagamento", periodo.fim)
         .limit(10000);
+      if (pagosError) throw pagosError;
 
-      let recebidoPeriodo = 0;
-      let qtdRecebimentos = 0;
-      for (const l of (pagos ?? []) as Array<{
-        lancamento_id: string;
-        valor: number;
-        forma_pagamento: string | null;
-        lancamento: { tipo: string } | null;
-      }>) {
-        if (!l.lancamento || !isLancReceber(l.lancamento)) continue;
-        if (!matchForma(forma, l.forma_pagamento)) continue;
-        recebidoPeriodo += Number(l.valor) || 0;
-        qtdRecebimentos += 1;
-      }
-      const idsComBaixa = new Set((pagos ?? []).map((p) => p.lancamento_id));
-      const { data: recebidosSemHistorico } = await supabase
+      const pagos = (pagosData ?? []) as PagamentoRecebidoFonte[];
+      const lancamentoIds = [
+        ...new Set(pagos.map((pagamento) => pagamento.lancamento_id)),
+      ];
+      const { data: lancamentosComBaixa, error: lancamentosComBaixaError } =
+        lancamentoIds.length
+          ? await supabase
+              .from("financeiro_lancamentos")
+              .select(
+                "id, tipo, descricao, valor, valor_pago, data_pagamento, created_at, forma_pagamento, observacoes, status, venda_id, cliente_id, parcela_numero, parcela_total",
+              )
+              .in("id", lancamentoIds)
+          : { data: [], error: null };
+      if (lancamentosComBaixaError) throw lancamentosComBaixaError;
+
+      const { data: recebidosSemHistorico, error: recebidosError } = await supabase
         .from("financeiro_lancamentos")
-        .select("id, valor, valor_pago, forma_pagamento, tipo, status")
+        .select(
+          "id, tipo, descricao, valor, valor_pago, data_pagamento, created_at, forma_pagamento, observacoes, status, venda_id, cliente_id, parcela_numero, parcela_total",
+        )
         .in("tipo", ["receber", "receita"])
         .in("status", ["pago", "recebido"])
         .gte("data_pagamento", periodo.inicio)
         .lte("data_pagamento", periodo.fim)
         .limit(5000);
-      for (const lancamento of recebidosSemHistorico ?? []) {
-        if (idsComBaixa.has(lancamento.id)) continue;
-        if (!matchForma(forma, lancamento.forma_pagamento)) continue;
-        recebidoPeriodo += calcValorRealizado(lancamento);
-        qtdRecebimentos += 1;
+      if (recebidosError) throw recebidosError;
+
+      const lancamentosMap = new Map<string, LancamentoRecebidoFonte>();
+      for (const lancamento of [
+        ...(lancamentosComBaixa ?? []),
+        ...(recebidosSemHistorico ?? []),
+      ] as LancamentoRecebidoFonte[]) {
+        lancamentosMap.set(lancamento.id, lancamento);
       }
+      const lancamentosRecebidos = Array.from(lancamentosMap.values());
+      const vendaIds = [
+        ...new Set(
+          lancamentosRecebidos
+            .map((lancamento) => lancamento.venda_id)
+            .filter(Boolean),
+        ),
+      ] as string[];
+      const { data: vendasData, error: vendasError } = vendaIds.length
+        ? await supabase
+            .from("vendas")
+            .select(
+              "id, numero, data_finalizacao, operador_id, terminal_id, cliente_id",
+            )
+            .in("id", vendaIds)
+        : { data: [], error: null };
+      if (vendasError) throw vendasError;
+      const vendas = (vendasData ?? []) as VendaRecebidaFonte[];
+
+      const clienteIds = [
+        ...new Set(
+          [
+            ...lancamentosRecebidos.map((item) => item.cliente_id),
+            ...vendas.map((item) => item.cliente_id),
+          ].filter(Boolean),
+        ),
+      ] as string[];
+      const operadorIds = [
+        ...new Set(vendas.map((item) => item.operador_id).filter(Boolean)),
+      ] as string[];
+      const terminalIds = [
+        ...new Set(vendas.map((item) => item.terminal_id).filter(Boolean)),
+      ] as string[];
+      const [
+        { data: clientesData, error: clientesError },
+        { data: operadoresData, error: operadoresError },
+        { data: terminaisData, error: terminaisError },
+      ] = await Promise.all([
+        clienteIds.length
+          ? supabase
+              .from("clientes")
+              .select("id, nome, nome_fantasia")
+              .in("id", clienteIds)
+          : Promise.resolve({ data: [], error: null }),
+        operadorIds.length
+          ? supabase
+              .from("funcionarios")
+              .select("id, nome")
+              .in("id", operadorIds)
+          : Promise.resolve({ data: [], error: null }),
+        terminalIds.length
+          ? supabase
+              .from("terminais")
+              .select("id, nome")
+              .in("id", terminalIds)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (clientesError) throw clientesError;
+      if (operadoresError) throw operadoresError;
+      if (terminaisError) throw terminaisError;
+
+      const recebimentos = montarRecebimentosDetalhados({
+        pagamentos: pagos,
+        lancamentos: lancamentosRecebidos,
+        vendas,
+        clientes: new Map(
+          (clientesData ?? []).map((cliente) => [
+            cliente.id,
+            cliente.nome_fantasia || cliente.nome,
+          ]),
+        ),
+        operadores: new Map(
+          (operadoresData ?? []).map((operador) => [
+            operador.id,
+            operador.nome,
+          ]),
+        ),
+        terminais: new Map(
+          (terminaisData ?? []).map((terminal) => [terminal.id, terminal.nome]),
+        ),
+      }).filter((recebimento) =>
+        matchForma(forma, recebimento.forma_pagamento),
+      );
+      const recebido = totalizarRecebimentos(recebimentos);
+      const recebidoPeriodo = recebido.valor;
+      const qtdRecebimentos = recebido.quantidade;
 
       // Vencidos (a receber, vencimento dentro do período escolhido)
       const hoje = new Date().toISOString().slice(0, 10);
@@ -316,6 +420,7 @@ export function useReceberOrigem(filtro: SecaoFiltroValue) {
         qtdRecebimentos,
         vencidosTotal,
         qtdVencidos,
+        recebimentos,
         periodo,
         forma,
       };

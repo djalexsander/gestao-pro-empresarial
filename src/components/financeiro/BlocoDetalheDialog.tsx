@@ -174,7 +174,7 @@ export function BlocoDetalheDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[90vh] max-w-3xl flex-col overflow-hidden">
+      <DialogContent className="flex max-h-[90vh] w-[96vw] max-w-[90rem] flex-col overflow-hidden">
         <DialogHeader className="shrink-0">
           <DialogTitle>{titulo}</DialogTitle>
           {subtitulo && <DialogDescription>{subtitulo}</DialogDescription>}
@@ -217,9 +217,9 @@ export function BlocoDetalheDialog({
             </div>
           )}
 
-          <div className="min-h-0 flex-1 rounded-md border">
+          <div className="min-h-0 flex-1 overflow-x-auto rounded-md border">
           <ScrollArea className="min-h-0">
-            <Table>
+            <Table className={cn(colunas.length > 6 && "min-w-[1100px]")}>
               <TableHeader>
                 <TableRow>
                   {colunas.map((c) => (

@@ -97,18 +97,20 @@ function AdminEmpresasPage() {
                 <TableHead>Empresa</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Plano</TableHead>
-                <TableHead className="text-right">Usuários</TableHead>
-                <TableHead>Cadastro</TableHead>
+                <TableHead>Status comercial</TableHead>
+                <TableHead>Módulos</TableHead>
+                <TableHead>Vencimento</TableHead>
+                <TableHead>Valor</TableHead>
                 <TableHead className="w-12" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading && (
-                <TableRow><TableCell colSpan={6} className="py-10 text-center text-muted-foreground">Carregando...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="py-10 text-center text-muted-foreground">Carregando...</TableCell></TableRow>
               )}
               {!isLoading && filtradas.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
                     <Building2 className="mx-auto mb-2 h-8 w-8 opacity-50" />
                     Nenhuma empresa encontrada.
                   </TableCell>
@@ -124,10 +126,14 @@ function AdminEmpresasPage() {
                     </div>
                   </TableCell>
                   <TableCell><EmpresaStatusBadge status={e.status} /></TableCell>
-                  <TableCell><PlanoBadge plano={e.plano} /></TableCell>
-                  <TableCell className="text-right tabular-nums">{e.total_usuarios}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {new Date(e.created_at).toLocaleDateString("pt-BR")}
+                  <TableCell><PlanoBadge plano={e.plano_nome} /></TableCell>
+                  <TableCell className="text-sm">{e.assinatura_status}</TableCell>
+                  <TableCell className="tabular-nums">{e.modulos_ativos}</TableCell>
+                  <TableCell className="text-sm">
+                    {e.data_expiracao ? new Date(`${e.data_expiracao}T00:00:00`).toLocaleDateString("pt-BR") : "—"}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {e.valor_contratado == null ? "—" : Number(e.valor_contratado).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
                   </TableCell>
                   <TableCell>
                     <DropdownMenu>

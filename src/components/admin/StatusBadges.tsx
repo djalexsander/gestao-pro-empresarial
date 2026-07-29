@@ -31,27 +31,16 @@ export function EmpresaStatusBadge({ status, className }: { status: EmpresaStatu
   );
 }
 
-const planoTone: Record<EmpresaPlano, string> = {
-  free: "bg-muted text-muted-foreground border-border",
-  starter: "bg-info/10 text-info border-info/20",
-  pro: "bg-primary/10 text-primary border-primary/20",
-  enterprise: "bg-amber-500/15 text-amber-700 border-amber-500/30 dark:text-amber-300",
-};
-
-const planoLabel: Record<EmpresaPlano, string> = {
-  free: "Free",
-  starter: "Starter",
-  pro: "Pro",
-  enterprise: "Enterprise",
-};
-
 export function PlanoBadge({ plano, className }: { plano: EmpresaPlano; className?: string }) {
   return (
     <span className={cn(
       "inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide",
-      planoTone[plano], className,
+      plano.toLowerCase() === "free"
+        ? "bg-muted text-muted-foreground border-border"
+        : "bg-primary/10 text-primary border-primary/20",
+      className,
     )}>
-      {planoLabel[plano]}
+      {plano}
     </span>
   );
 }

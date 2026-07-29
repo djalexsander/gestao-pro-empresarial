@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { useIsSuperAdmin } from "@/hooks/useAdmin";
+import { supabase } from "@/integrations/supabase/client";
 
 interface MasterContextValue {
   /** True quando o super_admin está deliberadamente operando no painel master. */
@@ -25,6 +27,23 @@ export function MasterContextProvider({ children }: { children: ReactNode }) {
   const { data: isSuperAdmin = false } = useIsSuperAdmin();
   const location = useLocation();
   const [isMasterMode, setIsMasterMode] = useState<boolean>(() => readPersisted());
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    const refreshCommercial = () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-empresas"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-assinaturas"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-pagamentos"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-empresa-modulos"] });
+    };
+    const channel = supabase.channel("master-commercial-refresh")
+      .on("postgres_changes", { event: "*", schema: "public", table: "empresa_assinaturas" }, refreshCommercial)
+      .on("postgres_changes", { event: "*", schema: "public", table: "empresa_modulos" }, refreshCommercial)
+      .on("postgres_changes", { event: "*", schema: "public", table: "pagamentos" }, refreshCommercial)
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [isSuperAdmin, queryClient]);
 
   // Se o usuário perdeu o status de super_admin, força saída do modo master.
   useEffect(() => {

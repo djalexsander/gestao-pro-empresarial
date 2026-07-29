@@ -2841,18 +2841,19 @@ async fn push_one_outbox_venda(
         .get("forma_pagamento")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let tem_fiado = forma_principal.eq_ignore_ascii_case("fiado")
-        || pagamentos
-            .as_array()
-            .map(|arr| {
-                arr.iter().any(|p| {
-                    p.get("forma_pagamento")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.eq_ignore_ascii_case("fiado"))
-                        .unwrap_or(false)
-                })
+    let tem_fiado = pagamentos
+        .as_array()
+        .filter(|arr| !arr.is_empty())
+        .map(|arr| {
+            arr.iter().any(|p| {
+                p.get("forma_pagamento")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.eq_ignore_ascii_case("fiado"))
+                    .unwrap_or(false)
             })
-            .unwrap_or(false);
+        })
+        // Compatibilidade somente com itens legados sem distribuição.
+        .unwrap_or_else(|| forma_principal.eq_ignore_ascii_case("fiado"));
     let data_venc = payload
         .get("data_vencimento")
         .and_then(|v| v.as_str())
