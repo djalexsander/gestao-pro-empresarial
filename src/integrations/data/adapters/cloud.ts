@@ -32,8 +32,6 @@ import type {
   CancelarVendaInput,
   CancelarVendaResumo,
   CodigoTipo,
-  ConciliarIfoodIndividualInput,
-  ConciliarIfoodLoteInput,
   CriarCategoriaProdutoInput,
   CriarCategoriaProdutoResult,
   CriarClienteInput,
@@ -676,32 +674,6 @@ const financeiro: DataAdapter["financeiro"] = {
       lancamento_id: String(d.lancamento_id ?? input.lancamento_id),
       data_vencimento: String(d.data_vencimento ?? input.nova_data),
     };
-  },
-
-  async conciliarIfoodIndividual(input: ConciliarIfoodIndividualInput): Promise<unknown> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc("conciliar_ifood_lancamento", {
-      _lancamento_id: input.lancamento_id,
-      _data_repasse: input.data_repasse,
-      _valor_repasse: input.valor_repasse,
-      _numero_repasse: input.numero_repasse ?? undefined,
-      _observacao: input.observacao ?? undefined,
-    });
-    if (error) throw error;
-    return data;
-  },
-
-  async conciliarIfoodLote(input: ConciliarIfoodLoteInput): Promise<unknown> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc("conciliar_ifood_lote", {
-      _lancamento_ids: input.lancamento_ids,
-      _data_repasse: input.data_repasse,
-      _valor_repasse_total: input.valor_repasse_total,
-      _numero_repasse: input.numero_repasse ?? undefined,
-      _observacao: input.observacao ?? undefined,
-    });
-    if (error) throw error;
-    return data;
   },
 
   async criarLancamentoAvulso(

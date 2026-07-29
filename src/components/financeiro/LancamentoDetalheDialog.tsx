@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
@@ -22,8 +22,25 @@ import {
   Loader2,
   AlertTriangle,
   Printer,
+  Send,
 } from "lucide-react";
 import { gerarPixCopiaCola } from "@/lib/pix";
+import {
+  type AcaoHistoricoCobranca,
+  type CanalHistoricoCobranca,
+  abrirConversaWhatsApp,
+  copiarCodigoPix,
+  criarCachePix,
+  criarEscopoHistoricoCobranca,
+  lerMetadadosHistoricoCobranca,
+  montarMensagemCobrancaAmigavel,
+  montarMensagemCobrancaAtraso,
+  montarMensagemPixWhatsApp,
+  montarMetadadosHistoricoCobranca,
+  normalizarTelefoneWhatsApp,
+  resolverNomeEmpresa,
+  tituloEstaVencido,
+} from "@/lib/whatsappCobranca";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -43,9 +60,9 @@ import { formatDateBR, formatDateTimeBR } from "@/lib/date-format";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { useVendaDetalhe, type VendaDetalhe } from "@/hooks/useVendas";
 import { useConfigEmpresa } from "@/hooks/useConfigEmpresa";
+import { useEmpresaAtual } from "@/hooks/useEmpresa";
 import { imprimirCupom } from "@/lib/cupom-print";
 import type { CupomData } from "@/lib/cupom";
-import { ConciliarIfoodDialog } from "./ConciliarIfoodDialog";
 import { RegistrarPagamentoDialog } from "./RegistrarPagamentoDialog";
 import { LancamentoFormDialog } from "./LancamentoFormDialog";
 
@@ -143,12 +160,12 @@ function Field({
 
 export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Props) {
   const qc = useQueryClient();
-  const [conciliarOpen, setConciliarOpen] = useState(false);
   const [pagamentoOpen, setPagamentoOpen] = useState(false);
   const [pagamentoModoTotal, setPagamentoModoTotal] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [imprimindo, setImprimindo] = useState(false);
   const { data: empresa } = useConfigEmpresa();
+  const { empresaAtual } = useEmpresaAtual();
 
   // owner_id atual (usuário autenticado) para inserção do pagamento
   const { data: ownerId = "" } = useQuery({
@@ -333,7 +350,6 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
         handler: () => {
           if (!lancamento) return;
           if (jaResolvido) return;
-          if (isIfoodPendente) return;
           setPagamentoModoTotal(false);
           setPagamentoOpen(true);
         },
@@ -343,13 +359,12 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
         handler: () => {
           if (!lancamento) return;
           if (jaResolvido) return;
-          if (isIfoodPendente) return;
           setPagamentoModoTotal(true);
           setPagamentoOpen(true);
         },
       },
     ],
-    { enabled: open && !pagamentoOpen && !conciliarOpen, scope: "modal" },
+    { enabled: open && !pagamentoOpen, scope: "modal" },
   );
 
   if (!lancamento) return null;
@@ -364,8 +379,6 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
     lancamento.status === "pago" ||
     lancamento.status === "recebido" ||
     lancamento.status === "cancelado";
-  const isIfoodPendente =
-    lancamento.forma_pagamento === "ifood" && !jaResolvido && lancamento.tipo === "receber";
   const temAuditoriaRepasse = !!lancamento.conciliado_em;
   const temCliente = !!(lancamento.cliente_nome || lancamento.cliente_documento);
   const temVenda = !!(lancamento.venda_id || lancamento.venda_numero);
@@ -644,14 +657,14 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
               </>
             )}
 
-            {/* Auditoria iFood */}
+            {/* Auditoria histórica de repasse */}
             {temAuditoriaRepasse && (
               <>
                 <Separator />
                 <div className="rounded-md border border-success/30 bg-success/5 p-3">
                   <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-success">
                     <Receipt className="h-3.5 w-3.5" />
-                    Repasse iFood conciliado
+                    Repasse conciliado
                   </p>
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div>
@@ -668,7 +681,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
                     </div>
                     {Number(lancamento.taxa_repasse ?? 0) > 0 && (
                       <div>
-                        <p className="text-muted-foreground">Taxa iFood</p>
+                        <p className="text-muted-foreground">Taxa do repasse</p>
                         <p className="font-mono font-semibold tabular-nums text-warning">
                           {formatBRL(Number(lancamento.taxa_repasse))}
                         </p>
@@ -699,7 +712,20 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
               </>
             )}
             {!isPagar && !jaResolvido && (
-              <CobrancaActions lancamento={lancamento} saldoRestante={saldoRestante} />
+              <CobrancaActions
+                key={lancamento.id}
+                lancamento={lancamento}
+                saldoRestante={saldoRestante}
+                venda={vendaDetalhe.data}
+                carregandoVenda={vendaDetalhe.isLoading}
+                nomeEmpresa={resolverNomeEmpresa({
+                  nomeFantasia: empresa?.nome_fantasia,
+                  razaoSocial: empresa?.razao_social,
+                  nomeCadastrado: empresaAtual?.nome,
+                })}
+                empresaId={empresaAtual?.id ?? null}
+                empresaOwnerId={empresaAtual?.owner_id ?? null}
+              />
             )}
           </div>
 
@@ -762,15 +788,6 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
                   Reabrir
                 </Button>
               )}
-              {!jaResolvido && isIfoodPendente && (
-                <Button
-                  onClick={() => setConciliarOpen(true)}
-                  className="gap-1.5 bg-success text-success-foreground hover:bg-success/90"
-                >
-                  <Receipt className="h-4 w-4" />
-                  Conciliar iFood
-                </Button>
-              )}
               {temVenda && (
                 <Button
                   variant="outline"
@@ -786,7 +803,7 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
                   {imprimindo ? "Imprimindo..." : "Imprimir"}
                 </Button>
               )}
-              {!jaResolvido && !isIfoodPendente && (
+              {!jaResolvido && (
                 <>
                   <Button
                     variant="outline"
@@ -817,15 +834,6 @@ export function LancamentoDetalheDialog({ open, onOpenChange, lancamento }: Prop
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <ConciliarIfoodDialog
-        open={conciliarOpen}
-        onOpenChange={setConciliarOpen}
-        mode="individual"
-        lancamentoId={lancamento.id}
-        valorVenda={Number(lancamento.valor)}
-        descricaoVenda={lancamento.descricao}
-      />
 
       <RegistrarPagamentoDialog
         open={pagamentoOpen}
@@ -1058,132 +1066,273 @@ function VendaResumoRow({ label, children }: { label: string; children: React.Re
 interface CobrancaActionsProps {
   lancamento: LancamentoDetalhe;
   saldoRestante: number;
+  venda: VendaDetalhe | null | undefined;
+  carregandoVenda: boolean;
+  nomeEmpresa: string;
+  empresaId: string | null;
+  empresaOwnerId: string | null;
 }
 
-function CobrancaActions({ lancamento, saldoRestante }: CobrancaActionsProps) {
+interface IntegracaoPixCobranca {
+  configuracoes: Record<string, string> | null;
+  empresa_id: string;
+  owner_id: string;
+}
+
+interface HistoricoCobrancaRow {
+  id: string;
+  created_at: string;
+  sent_at: string | null;
+  mensagem: string;
+  tipo: "antes_vencimento" | "vencimento" | "apos_vencimento" | "manual";
+}
+
+const ROTULOS_ACAO_COBRANCA: Record<AcaoHistoricoCobranca, string> = {
+  cobranca_amigavel: "Cobrança amigável",
+  cobranca_atraso: "Cobrança em atraso",
+  pix_whatsapp: "Pix enviado",
+  pix_copiado: "Pix copiado",
+};
+
+function CobrancaActions({
+  lancamento,
+  saldoRestante,
+  venda,
+  carregandoVenda,
+  nomeEmpresa,
+  empresaId,
+  empresaOwnerId,
+}: CobrancaActionsProps) {
   const qc = useQueryClient();
   const [pixCode, setPixCode] = useState<string | null>(null);
+  const [abrindoWhatsApp, setAbrindoWhatsApp] = useState(false);
+  const [gerandoPix, setGerandoPix] = useState(false);
+  const pixCacheRef = useRef(criarCachePix());
+  const abrindoWhatsAppRef = useRef(false);
 
-  const { data: integracoes = [] } = useQuery({
-    queryKey: ["integracoes_cobranca"],
+  const { data: pix = null } = useQuery({
+    queryKey: ["integracao_pix", empresaId],
+    enabled: !!empresaId,
     queryFn: async () => {
-      const { data, error } = await (supabase.from as unknown as (t: string) => {
-        select: (cols: string) => {
-          in: (col: string, vals: string[]) => Promise<{ data: any[] | null; error: { message: string } | null }>;
-        };
-      })("empresa_integracoes")
-        .select("tipo_integracao, status, ativo, configuracoes, empresa_id, owner_id")
-        .in("tipo_integracao", ["pix", "whatsapp"]);
+      if (!empresaId) return null;
+      const { data, error } = await (supabase.from as any)("empresa_integracoes")
+        .select("configuracoes, empresa_id, owner_id")
+        .eq("empresa_id", empresaId)
+        .eq("tipo_integracao", "pix")
+        .maybeSingle();
       if (error) throw new Error(error.message);
-      return data ?? [];
+      return (data as IntegracaoPixCobranca | null) ?? null;
     },
     staleTime: 30_000,
   });
 
-  const pix = integracoes.find((i) => i.tipo_integracao === "pix");
-  const wa = integracoes.find((i) => i.tipo_integracao === "whatsapp");
+  const vendaNumero = lancamento.venda_numero ?? venda?.numero ?? null;
+  const valorOriginal = Number(lancamento.valor);
+  const valorPago = Number(lancamento.valor_pago ?? 0);
+  const tituloVencido = tituloEstaVencido(lancamento.data_vencimento);
 
-  const formatBR = (v: number) =>
-    v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const { data: operadorAtual = null } = useQuery({
+    queryKey: ["cobranca_operador_atual"],
+    queryFn: async () => {
+      const { data } = await supabase.auth.getUser();
+      if (!data.user) return null;
+      const metadata = data.user.user_metadata as Record<string, unknown>;
+      const nome =
+        (typeof metadata.full_name === "string" && metadata.full_name.trim()) ||
+        (typeof metadata.name === "string" && metadata.name.trim()) ||
+        data.user.email ||
+        null;
+      return { id: data.user.id, nome };
+    },
+    staleTime: 5 * 60_000,
+  });
 
-  const buildVenc = () => {
-    return formatDateBR(lancamento.data_vencimento);
+  const historicoKey = ["cobranca_historico", empresaId, lancamento.id];
+  const { data: historico = [], isLoading: carregandoHistorico } = useQuery({
+    queryKey: historicoKey,
+    enabled: !!empresaId && !!lancamento.id,
+    queryFn: async (): Promise<HistoricoCobrancaRow[]> => {
+      if (!empresaId) return [];
+      const escopo = criarEscopoHistoricoCobranca(empresaId, lancamento.id);
+      const { data, error } = await supabase
+        .from("cobranca_whatsapp_logs")
+        .select("id, created_at, sent_at, mensagem, tipo")
+        .eq("empresa_id", escopo.empresaId)
+        .eq("lancamento_id", escopo.lancamentoId)
+        .order("created_at", { ascending: false })
+        .limit(8);
+      if (error) throw new Error(error.message);
+      return (data ?? []) as HistoricoCobrancaRow[];
+    },
+    staleTime: 15_000,
+  });
+
+  const itensMensagem = venda?.itens.map((item) => ({
+    nome: item.produto_nome ?? item.descricao ?? "Produto",
+    variacaoNome: item.variacao_nome,
+    quantidade: item.quantidade,
+    valor: item.total,
+  }));
+
+  const dadosMensagem = {
+    clienteNome: lancamento.cliente_nome,
+    vendaNumero,
+    parcelaNumero: Number(lancamento.parcela_numero) || 1,
+    totalParcelas: Number(lancamento.parcela_total) || 1,
+    valorOriginal,
+    valorPago,
+    saldoAberto: saldoRestante,
+    vencimento: formatDateBR(lancamento.data_vencimento),
+    itens: itensMensagem,
+    nomeEmpresa,
   };
 
-  const gerarPix = () => {
-    if (!pix?.configuracoes?.chave) {
-      toast.error("Configure o Pix em Configurações → Integrações");
-      return;
+  const validarTelefone = (): string | null => {
+    if (!lancamento.cliente_telefone?.trim()) {
+      toast.error("Cliente sem telefone cadastrado");
+      return null;
     }
-    const code = gerarPixCopiaCola({
-      chave: pix.configuracoes.chave,
-      nome: pix.configuracoes.nome_recebedor || "RECEBEDOR",
-      cidade: pix.configuracoes.cidade || "BRASIL",
-      valor: saldoRestante,
-      txid: lancamento.id.replace(/-/g, "").slice(0, 25),
-      descricao: lancamento.descricao.slice(0, 60),
-    });
-    setPixCode(code);
-    toast.success("Pix gerado");
+    const telefone = normalizarTelefoneWhatsApp(lancamento.cliente_telefone);
+    if (!telefone) {
+      toast.error("O telefone do cliente é inválido. Informe DDD e número do celular.");
+      return null;
+    }
+    return telefone;
+  };
+
+  const obterOuGerarPix = async (): Promise<string> => {
+    const existente = pixCacheRef.current.obterAtual();
+    if (existente) return existente;
+    const configuracaoPix = pix?.configuracoes;
+    if (!configuracaoPix?.chave) {
+      throw new Error("Configure o Pix em Configurações → Integrações.");
+    }
+
+    setGerandoPix(true);
+    try {
+      const code = await pixCacheRef.current.obterOuGerar(() =>
+        gerarPixCopiaCola({
+          chave: configuracaoPix.chave,
+          nome: configuracaoPix.nome_recebedor || "RECEBEDOR",
+          cidade: configuracaoPix.cidade || "BRASIL",
+          valor: saldoRestante,
+          txid: lancamento.id.replace(/-/g, "").slice(0, 25),
+          descricao: lancamento.descricao.slice(0, 60),
+        }),
+      );
+      setPixCode(code);
+      return code;
+    } finally {
+      setGerandoPix(false);
+    }
+  };
+
+  const registrarHistorico = async (
+    acao: AcaoHistoricoCobranca,
+    canal: CanalHistoricoCobranca,
+    telefone: string | null,
+  ): Promise<void> => {
+    if (!empresaId || !empresaOwnerId) return;
+    try {
+      const mensagemAuditoria = montarMetadadosHistoricoCobranca({
+        acao,
+        canal,
+        nomeEmpresa,
+        vendaNumero,
+        operadorId: operadorAtual?.id,
+        operadorNome: operadorAtual?.nome,
+      });
+      const { error } = await supabase.from("cobranca_whatsapp_logs").insert({
+        empresa_id: empresaId,
+        owner_id: empresaOwnerId,
+        cliente_id: lancamento.cliente_id ?? null,
+        lancamento_id: lancamento.id,
+        telefone,
+        mensagem: mensagemAuditoria,
+        status: "manual",
+        tipo: acao === "cobranca_atraso" && tituloVencido ? "apos_vencimento" : "manual",
+        sent_at: new Date().toISOString(),
+      });
+      if (!error) {
+        await qc.invalidateQueries({ queryKey: historicoKey });
+      }
+    } catch {
+      // Auditoria auxiliar: nunca bloqueia a ação principal.
+    }
+  };
+
+  const abrirMensagemWhatsApp = async (
+    mensagem: string,
+    acao: AcaoHistoricoCobranca,
+  ): Promise<void> => {
+    if (abrindoWhatsAppRef.current) return;
+    abrindoWhatsAppRef.current = true;
+    setAbrindoWhatsApp(true);
+    try {
+      const resultado = await abrirConversaWhatsApp({
+        telefone: lancamento.cliente_telefone,
+        mensagem,
+      });
+      if (!resultado.sucesso) {
+        if (resultado.motivo === "telefone_invalido") {
+          toast.error(
+            lancamento.cliente_telefone?.trim()
+              ? "O telefone do cliente é inválido. Informe DDD e número do celular."
+              : "Cliente sem telefone cadastrado",
+          );
+        } else {
+          toast.error(
+            "Não foi possível abrir o WhatsApp. Verifique se o aplicativo está instalado.",
+          );
+        }
+        return;
+      }
+      if (resultado.destino === "whatsapp_web" && resultado.fallbackUtilizado) {
+        toast.info("WhatsApp Desktop não encontrado. Abrindo WhatsApp Web.");
+      }
+      await registrarHistorico(acao, resultado.destino, resultado.telefone);
+    } finally {
+      abrindoWhatsAppRef.current = false;
+      setAbrindoWhatsApp(false);
+    }
+  };
+
+  const enviarPixWhatsApp = async () => {
+    const telefone = validarTelefone();
+    if (!telefone || abrindoWhatsAppRef.current) return;
+    try {
+      const code = await obterOuGerarPix();
+      const mensagem = montarMensagemPixWhatsApp({ ...dadosMensagem, pixCopiaCola: code });
+      await abrirMensagemWhatsApp(mensagem, "pix_whatsapp");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível gerar o Pix.");
+    }
   };
 
   const copiarPix = async () => {
-    let code = pixCode;
-    if (!code) {
-      if (!pix?.configuracoes?.chave) {
-        toast.error("Configure o Pix em Configurações → Integrações");
-        return;
-      }
-      code = gerarPixCopiaCola({
-        chave: pix.configuracoes.chave,
-        nome: pix.configuracoes.nome_recebedor || "RECEBEDOR",
-        cidade: pix.configuracoes.cidade || "BRASIL",
-        valor: saldoRestante,
-        txid: lancamento.id.replace(/-/g, "").slice(0, 25),
-        descricao: lancamento.descricao.slice(0, 60),
-      });
-      setPixCode(code);
-    }
     try {
-      await navigator.clipboard.writeText(code);
-      toast.success("Pix copiado");
-    } catch {
-      toast.error("Não foi possível copiar");
+      const code = await obterOuGerarPix();
+      await copiarCodigoPix(code, (texto) => navigator.clipboard.writeText(texto));
+      toast.success("Código Pix copiado.");
+      await registrarHistorico("pix_copiado", "clipboard", null);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Não foi possível gerar ou copiar o Pix.",
+      );
     }
   };
 
-  const cobrarWhatsApp = async () => {
-    const tel = (lancamento.cliente_telefone || "").replace(/\D/g, "");
-    if (!tel) {
-      toast.error("Cliente sem telefone cadastrado");
-      return;
-    }
-    const template: string =
-      wa?.configuracoes?.msg_vencimento ||
-      "Olá {{cliente_nome}}, sua cobrança de R$ {{valor}} vence em {{vencimento}}. Pix: {{pix_copia_cola}}";
-    let pixCopia = pixCode || "";
-    if (!pixCopia && pix?.configuracoes?.chave) {
-      pixCopia = gerarPixCopiaCola({
-        chave: pix.configuracoes.chave,
-        nome: pix.configuracoes.nome_recebedor || "RECEBEDOR",
-        cidade: pix.configuracoes.cidade || "BRASIL",
-        valor: saldoRestante,
-        txid: lancamento.id.replace(/-/g, "").slice(0, 25),
-        descricao: lancamento.descricao.slice(0, 60),
-      });
-      setPixCode(pixCopia);
-    }
-    const msg = template
-      .replace(/\{\{cliente_nome\}\}/g, lancamento.cliente_nome || "cliente")
-      .replace(/\{\{valor\}\}/g, formatBR(saldoRestante))
-      .replace(/\{\{vencimento\}\}/g, buildVenc())
-      .replace(/\{\{empresa_nome\}\}/g, "")
-      .replace(/\{\{pix_copia_cola\}\}/g, pixCopia || "");
-
-    const telFull = tel.length <= 11 ? `55${tel}` : tel;
-    const url = `https://wa.me/${telFull}?text=${encodeURIComponent(msg)}`;
-    window.open(url, "_blank");
-
-    // Registra log
-    if (wa?.empresa_id) {
-      try {
-        await (supabase.from as any)("cobranca_whatsapp_logs").insert({
-          empresa_id: wa.empresa_id,
-          owner_id: wa.owner_id,
-          cliente_id: lancamento.cliente_id ?? null,
-          lancamento_id: lancamento.id,
-          telefone: telFull,
-          mensagem: msg,
-          status: "manual",
-          tipo: "manual",
-          sent_at: new Date().toISOString(),
-        });
-        qc.invalidateQueries({ queryKey: ["cobranca_whatsapp_logs"] });
-      } catch {
-        /* silencioso */
-      }
+  const gerarPix = async () => {
+    try {
+      const existente = !!pixCacheRef.current.obterAtual();
+      await obterOuGerarPix();
+      toast.success(existente ? "Pix já estava disponível." : "Pix gerado.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível gerar o Pix.");
     }
   };
+
+  const ocupado = abrindoWhatsApp || gerandoPix || carregandoVenda;
 
   return (
     <div className="rounded-md border bg-muted/30 p-3">
@@ -1191,15 +1340,78 @@ function CobrancaActions({ lancamento, saldoRestante }: CobrancaActionsProps) {
         Cobrança
       </p>
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" onClick={cobrarWhatsApp} className="gap-1.5">
-          <MessageCircle className="h-4 w-4" /> Cobrar no WhatsApp
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            void abrirMensagemWhatsApp(
+              montarMensagemCobrancaAmigavel(dadosMensagem),
+              "cobranca_amigavel",
+            )
+          }
+          disabled={ocupado}
+          className="gap-1.5"
+        >
+          {abrindoWhatsApp || carregandoVenda ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <MessageCircle className="h-4 w-4" />
+          )}
+          Cobrança amigável
         </Button>
-        <Button size="sm" variant="outline" onClick={gerarPix} className="gap-1.5">
-          <Receipt className="h-4 w-4" /> Gerar Pix
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            void abrirMensagemWhatsApp(
+              montarMensagemCobrancaAtraso({ ...dadosMensagem, tituloVencido }),
+              "cobranca_atraso",
+            )
+          }
+          disabled={ocupado}
+          className="gap-1.5"
+        >
+          <AlertTriangle className="h-4 w-4" /> Cobrança em atraso
         </Button>
-        <Button size="sm" variant="outline" onClick={copiarPix} className="gap-1.5">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void enviarPixWhatsApp()}
+          disabled={ocupado}
+          className="gap-1.5"
+        >
+          {gerandoPix ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Send className="h-4 w-4" />
+          )}
+          Enviar Pix
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void copiarPix()}
+          disabled={ocupado}
+          className="gap-1.5"
+        >
           <Copy className="h-4 w-4" /> Copiar Pix
         </Button>
+        {!pixCode && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void gerarPix()}
+            disabled={ocupado}
+            className="gap-1.5"
+          >
+            {gerandoPix ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Receipt className="h-4 w-4" />
+            )}
+            Gerar Pix
+          </Button>
+        )}
       </div>
       {pixCode && (
         <p className="mt-2 break-all rounded border bg-background p-2 font-mono text-xs">
@@ -1211,6 +1423,45 @@ function CobrancaActions({ lancamento, saldoRestante }: CobrancaActionsProps) {
           Configure o Pix em Configurações → Integrações para habilitar copia e cola.
         </p>
       )}
+      <div className="mt-3 border-t border-border/70 pt-3">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Histórico de cobranças
+        </p>
+        {carregandoHistorico ? (
+          <p className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando histórico...
+          </p>
+        ) : historico.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Nenhuma ação registrada neste título.</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {historico.map((registro) => {
+              const metadados = lerMetadadosHistoricoCobranca(registro.mensagem);
+              const acao =
+                metadados?.acao ??
+                (registro.tipo === "apos_vencimento"
+                  ? "cobranca_atraso"
+                  : "cobranca_amigavel");
+              const canal =
+                metadados?.canal === "whatsapp_desktop"
+                  ? "WhatsApp Desktop"
+                  : metadados?.canal === "whatsapp_web"
+                    ? "WhatsApp Web"
+                    : metadados?.canal === "clipboard"
+                      ? "Área de transferência"
+                      : null;
+              return (
+                <li key={registro.id} className="text-xs text-muted-foreground">
+                  {formatDateTimeBR(registro.sent_at ?? registro.created_at)} —{" "}
+                  {ROTULOS_ACAO_COBRANCA[acao]}
+                  {canal ? ` — ${canal}` : ""}
+                  {metadados?.operador_nome ? ` — ${metadados.operador_nome}` : ""}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }

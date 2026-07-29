@@ -23,6 +23,57 @@ const CAIXA_ABERTO_EXIT_MESSAGE: &str =
 const DIAGNOSTIC_LOG_FILE: &str = "gestao-pro-errors.jsonl";
 const DIAGNOSTIC_MAX_RECORDS: usize = 500;
 
+#[cfg(target_os = "windows")]
+fn windows_registry_key_exists(subkey: &str) -> bool {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr::null_mut;
+    use winapi::um::winnt::KEY_READ;
+    use winapi::um::winreg::{RegCloseKey, RegOpenKeyExW, HKEY_CLASSES_ROOT};
+
+    let subkey: Vec<u16> = OsStr::new(subkey)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut key = null_mut();
+    let status = unsafe {
+        RegOpenKeyExW(
+            HKEY_CLASSES_ROOT,
+            subkey.as_ptr(),
+            0,
+            KEY_READ,
+            &mut key,
+        )
+    };
+    if status != 0 {
+        return false;
+    }
+    unsafe {
+        RegCloseKey(key);
+    }
+    true
+}
+
+#[cfg(target_os = "windows")]
+fn windows_whatsapp_protocol_registered() -> bool {
+    windows_registry_key_exists(r"whatsapp\shell\open\command")
+        || windows_registry_key_exists(
+            r"Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\PackageRepository\Extensions\windows.protocol\whatsapp",
+        )
+}
+
+#[tauri::command]
+fn whatsapp_protocol_registered() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        windows_whatsapp_protocol_registered()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DiagnosticContext {
@@ -461,6 +512,7 @@ pub fn run() {
             diagnostic_context,
             append_diagnostic_log,
             read_diagnostic_log,
+            whatsapp_protocol_registered,
             start_local_server,
             stop_local_server,
             local_server_status,

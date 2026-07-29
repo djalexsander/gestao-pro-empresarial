@@ -36,8 +36,6 @@ import type {
   CancelarLancamentoResult,
   CancelarVendaInput,
   CancelarVendaResumo,
-  ConciliarIfoodIndividualInput,
-  ConciliarIfoodLoteInput,
   CriarCategoriaProdutoInput,
   CriarCategoriaProdutoResult,
   CriarClienteInput,
@@ -305,7 +303,7 @@ export interface CaixaAdapter {
 
   /**
    * Fecha um caixa aberto, calcula diferença, gera lançamentos no Financeiro
-   * para iFood/fiado/outros, e registra o movimento de fechamento.
+   * para formas pendentes, e registra o movimento de fechamento.
    *
    * **Concorrência:** o banco usa `SELECT FOR UPDATE` para impedir
    * fechamento duplicado concorrente.
@@ -395,18 +393,6 @@ export interface FinanceiroAdapter {
   alterarVencimento(
     input: AlterarVencimentoLancamentoInput,
   ): Promise<AlterarVencimentoLancamentoResult>;
-
-  /**
-   * Concilia 1 lançamento iFood com o repasse efetivo.
-   * RPC: `conciliar_ifood_lancamento` (já existente).
-   */
-  conciliarIfoodIndividual(input: ConciliarIfoodIndividualInput): Promise<unknown>;
-
-  /**
-   * Concilia múltiplos lançamentos iFood em um único repasse rateado.
-   * RPC: `conciliar_ifood_lote` (já existente).
-   */
-  conciliarIfoodLote(input: ConciliarIfoodLoteInput): Promise<unknown>;
 
   /**
    * Cria um lançamento avulso (a pagar / a receber, sem venda).

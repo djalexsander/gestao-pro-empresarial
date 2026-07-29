@@ -12,7 +12,6 @@ import {
   AlertTriangle,
   Receipt,
   HandCoins,
-  UtensilsCrossed,
   Download,
   FileText,
   Sheet as SheetIcon,
@@ -62,7 +61,6 @@ import {
   LancamentoDetalheDialog,
   type LancamentoDetalhe,
 } from "@/components/financeiro/LancamentoDetalheDialog";
-import { ConciliarIfoodDialog } from "@/components/financeiro/ConciliarIfoodDialog";
 import { FiadosClientesPanel } from "@/components/financeiro/FiadosClientesPanel";
 import { LancamentoFormDialog } from "@/components/financeiro/LancamentoFormDialog";
 import {
@@ -153,7 +151,6 @@ type BlocoChave =
   | "custo"
   | "lucro"
   | "fiado"
-  | "ifood"
   | "recebidoHoje"
   | "vencidos";
 
@@ -181,7 +178,6 @@ function buildConsolidado(args: {
     rows.push(
       { indicador: "Total vendido (mês)", quantidade: ind.qtdVendas, valor: ind.totalVendido },
       { indicador: "Fiado em aberto", quantidade: ind.qtdFiado, valor: ind.fiadoEmAberto },
-      { indicador: "iFood a repassar", quantidade: ind.qtdIfood, valor: ind.ifoodAReceber },
       { indicador: "Recebido hoje", quantidade: ind.qtdRecebimentosHoje, valor: ind.recebidoHoje },
       { indicador: "Vencidos", quantidade: ind.qtdVencidos, valor: ind.vencidosTotal },
     );
@@ -628,12 +624,6 @@ function FinanceContent() {
                       filtro: filtroTxt,
                     },
                     {
-                      indicador: "iFood a repassar",
-                      valor: receberOrigem?.ifoodAReceber ?? 0,
-                      quantidade: receberOrigem?.qtdIfood ?? 0,
-                      filtro: filtroTxt,
-                    },
-                    {
                       indicador: labelRecebido,
                       valor: receberOrigem?.recebidoPeriodo ?? 0,
                       quantidade: receberOrigem?.qtdRecebimentos ?? 0,
@@ -652,7 +642,7 @@ function FinanceContent() {
             })()}
           </div>
         </div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <StatCard
             label="Fiado em aberto"
             value={formatBRL(receberOrigem?.fiadoEmAberto ?? 0)}
@@ -660,14 +650,6 @@ function FinanceContent() {
             iconTone="info"
             hint={`${receberOrigem?.qtdFiado ?? 0} títulos`}
             onClick={() => setBlocoAberto("fiado")}
-          />
-          <StatCard
-            label="iFood a repassar"
-            value={formatBRL(receberOrigem?.ifoodAReceber ?? 0)}
-            icon={UtensilsCrossed}
-            iconTone="warning"
-            hint={`${receberOrigem?.qtdIfood ?? 0} pendentes`}
-            onClick={() => setBlocoAberto("ifood")}
           />
           <StatCard
             label={filtroReceber.preset === "hoje" ? "Recebido hoje" : "Recebido no período"}
@@ -992,33 +974,6 @@ function BlocoModais({
       />
     );
   }
-  if (bloco === "ifood") {
-    const ifoodLanc = receberFiltered.filter((l) => l.forma_pagamento === "ifood" && !l.conciliado_em);
-    return (
-      <BlocoDetalheDialog
-        open
-        onOpenChange={(o) => !o && onClose()}
-        titulo="iFood a repassar"
-        subtitulo="Vendas iFood aguardando conciliação"
-        origem="financeiro_lancamentos (forma=ifood, não conciliado)"
-        resumo={[
-          { label: "Total iFood", valor: formatBRL(ind.ifoodAReceber), tone: "info" },
-          { label: "Qtd. pendentes", valor: String(ind.qtdIfood) },
-        ]}
-        colunas={[
-          { key: "descricao", header: "Descrição" },
-          { key: "vencimento", header: "Vencimento", format: "date" },
-          { key: "valor", header: "Valor", format: "currency", align: "right" },
-        ]}
-        rows={ifoodLanc.map((l) => ({
-          id: l.id,
-          descricao: l.descricao,
-          vencimento: l.data_vencimento,
-          valor: calcAbertoLanc(l),
-        }))}
-      />
-    );
-  }
   if (bloco === "recebidoHoje") {
     const recebimentos = receberOrigem?.recebimentos ?? [];
     const totalRecebido =
@@ -1287,7 +1242,7 @@ const FORMA_LABELS: Record<string, string> = {
   cartao_debito: "Débito",
   cartao_credito: "Crédito",
   boleto: "Boleto",
-  ifood: "iFood",
+  ifood: "Outro",
   fiado: "Fiado",
   transferencia: "Transferência",
   cheque: "Cheque",
@@ -1331,7 +1286,7 @@ function FluxoCaixaPanel() {
       if (errPag) throw errPag;
 
       // 2.1) Buscar lançamentos financeiros vinculados a essas vendas
-      // (para saber quanto de iFood/Fiado/Outros já foi efetivamente recebido)
+      // para saber quanto de formas pendentes já foi efetivamente recebido
       const { data: lancsVinc, error: errLanc } = await supabase
         .from("financeiro_lancamentos")
         .select("venda_id, forma_pagamento, valor, valor_pago, status, conciliado_em")
@@ -1349,9 +1304,9 @@ function FluxoCaixaPanel() {
         const valor = Number(l.valor) || 0;
         const pago = Number(l.valor_pago) || 0;
         cur.total += valor;
-        // Considera recebido se status pago/recebido OU iFood conciliado.
+        // Registros históricos conciliados também são considerados recebidos.
         // Quando efetivado, o valor cheio do lançamento conta como recebido —
-        // a diferença entre valor e valor_pago é taxa (iFood), não pendência.
+        // A diferença entre valor e valor_pago pode representar uma taxa histórica.
         const efetivado = l.status === "pago" || l.status === "recebido" || !!l.conciliado_em;
         cur.recebido += efetivado ? valor : pago;
         lancMap.set(key, cur);
@@ -1361,14 +1316,15 @@ function FluxoCaixaPanel() {
       for (const r of pagamentos ?? []) {
         const venda = vendaMap.get(r.venda_id);
         if (!venda) continue;
-        const forma = r.forma_pagamento;
+        const forma = r.forma_pagamento === "ifood" ? "outro" : r.forma_pagamento;
         const cur = totals.get(forma) ?? { recebido: 0, aReceber: 0 };
         const valorBruto = Number(r.valor) || 0;
 
-        // Para iFood/Fiado/Outro: usar lançamento financeiro como fonte da verdade
+        // Para formas pendentes, usar o lançamento financeiro como fonte da verdade.
         // (esses são "a receber" e podem ser quitados depois)
-        if (forma === "ifood" || forma === "fiado" || forma === "outro") {
-          const key = `${r.venda_id}|${forma}`;
+        if (forma === "fiado" || forma === "outro") {
+          const formaLancamento = r.forma_pagamento;
+          const key = `${r.venda_id}|${formaLancamento}`;
           const lanc = lancMap.get(key);
           if (lanc) {
             // Proporcional caso haja múltiplos pagamentos com a mesma forma
@@ -1754,8 +1710,6 @@ function FluxoCaixaPanel() {
   const temFiltro =
     !!busca || filtroRapido !== "todos" || filtroTipo !== "todos" || filtroOrigem !== "todos";
 
-  const [conciliarLoteOpen, setConciliarLoteOpen] = useState(false);
-
   return (
     <div className="space-y-4">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
@@ -1764,15 +1718,6 @@ function FluxoCaixaPanel() {
           <strong>Financeiro</strong> sem duplicar vendas já registradas no caixa.
         </div>
         <div className="flex w-full gap-2 sm:w-auto">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setConciliarLoteOpen(true)}
-            className="gap-1.5"
-          >
-            <Receipt className="h-4 w-4" />
-            Conciliar repasse iFood
-          </Button>
           <Select value={periodo} onValueChange={(v) => setPeriodo(v as FluxoPeriodo)}>
             <SelectTrigger className="w-full sm:w-44">
               <SelectValue />
@@ -2156,11 +2101,6 @@ function FluxoCaixaPanel() {
         </CardContent>
       </Card>
 
-      <ConciliarIfoodDialog
-        open={conciliarLoteOpen}
-        onOpenChange={setConciliarLoteOpen}
-        mode="lote"
-      />
     </div>
   );
 }

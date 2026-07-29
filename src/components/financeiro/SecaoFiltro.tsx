@@ -35,8 +35,7 @@ export type FormaFiltro =
   | "pix"
   | "credito"
   | "debito"
-  | "fiado"
-  | "ifood";
+  | "fiado";
 
 const FORMA_LABELS: Record<FormaFiltro, string> = {
   todos: "Todos",
@@ -45,7 +44,6 @@ const FORMA_LABELS: Record<FormaFiltro, string> = {
   credito: "Cartão de crédito",
   debito: "Cartão de débito",
   fiado: "Fiado",
-  ifood: "iFood",
 };
 
 export interface SecaoFiltroValue {

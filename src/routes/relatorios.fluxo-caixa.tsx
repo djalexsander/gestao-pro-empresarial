@@ -62,7 +62,7 @@ export const Route = createFileRoute("/relatorios/fluxo-caixa")({
 
 type PeriodoPreset = "hoje" | "7d" | "30d" | "mes" | "ano" | "personalizado";
 type TipoMov = "abertura" | "venda" | "suprimento" | "sangria" | "fechamento";
-type FormaKey = "dinheiro" | "pix" | "debito" | "credito" | "boleto" | "ifood" | "fiado" | "outros" | "todas";
+type FormaKey = "dinheiro" | "pix" | "debito" | "credito" | "boleto" | "fiado" | "outros" | "todas";
 
 interface CaixaSessao {
   id: string;
@@ -398,7 +398,6 @@ function Conteudo() {
       debito: 0,
       credito: 0,
       boleto: 0,
-      ifood: 0,
       fiado: 0,
       outros: 0,
     };
@@ -408,9 +407,8 @@ function Conteudo() {
       acc.debito += c.total_debito;
       acc.credito += c.total_credito;
       acc.boleto += c.total_boleto;
-      acc.ifood += c.total_ifood;
       acc.fiado += c.total_fiado;
-      acc.outros += c.total_outros;
+      acc.outros += c.total_outros + c.total_ifood;
     }
     return acc;
   }, [caixas]);
@@ -422,7 +420,6 @@ function Conteudo() {
       { key: "debito", label: "Débito", valor: formasPagamento.debito },
       { key: "credito", label: "Crédito", valor: formasPagamento.credito },
       { key: "boleto", label: "Boleto", valor: formasPagamento.boleto },
-      { key: "ifood", label: "iFood", valor: formasPagamento.ifood },
       { key: "fiado", label: "Fiado (a receber)", valor: formasPagamento.fiado },
       { key: "outros", label: "Outros", valor: formasPagamento.outros },
     ];
@@ -640,7 +637,6 @@ function Conteudo() {
                   <SelectItem value="debito">Débito</SelectItem>
                   <SelectItem value="credito">Crédito</SelectItem>
                   <SelectItem value="boleto">Boleto</SelectItem>
-                  <SelectItem value="ifood">iFood</SelectItem>
                   <SelectItem value="fiado">Fiado</SelectItem>
                   <SelectItem value="outros">Outros</SelectItem>
                 </SelectContent>

@@ -219,19 +219,16 @@ export function FecharCaixaDialog({ open, onOpenChange, caixaId, resumo, onFecha
               <Row label="Cartão débito" value={formatBRL(resumoVisivel?.total_debito ?? 0)} tone="muted" />
               <Row label="Cartão crédito" value={formatBRL(resumoVisivel?.total_credito ?? 0)} tone="muted" />
               <Row label="Boleto" value={formatBRL(resumoVisivel?.total_boleto ?? 0)} tone="muted" />
-              {(resumoVisivel?.total_ifood ?? 0) > 0 && (
-                <Row label="iFood (a receber)" value={formatBRL(resumoVisivel?.total_ifood ?? 0)} tone="muted" />
-              )}
               {(resumoVisivel?.total_fiado ?? 0) > 0 && (
                 <Row label="Fiado (a receber)" value={formatBRL(resumoVisivel?.total_fiado ?? 0)} tone="muted" />
               )}
-              {(resumoVisivel?.total_outros ?? 0) > 0 && (
-                <Row label="Outros" value={formatBRL(resumoVisivel?.total_outros ?? 0)} tone="muted" />
+              {((resumoVisivel?.total_outros ?? 0) + (resumoVisivel?.total_ifood ?? 0)) > 0 && (
+                <Row label="Outros" value={formatBRL((resumoVisivel?.total_outros ?? 0) + (resumoVisivel?.total_ifood ?? 0))} tone="muted" />
               )}
             </div>
             {((resumoVisivel?.total_ifood ?? 0) > 0 || (resumoVisivel?.total_fiado ?? 0) > 0) && (
               <p className="mt-2 text-[11px] text-muted-foreground">
-                iFood e Fiado não somam no dinheiro físico esperado — viram contas a receber no Financeiro.
+                Formas pendentes não somam no dinheiro físico esperado — viram contas a receber no Financeiro.
               </p>
             )}
           </div>

@@ -142,7 +142,7 @@ Para migrar um hook que hoje fala direto com Supabase:
   - **suprimento** = entrada operacional de dinheiro físico (gaveta).
   - **sangria** = saída operacional de dinheiro físico (gaveta).
   - **NÃO viram lançamento no Financeiro.** Ficam só em `caixa_movimentos`.
-  - Apenas iFood, fiado e "outros" geram lançamento financeiro no fechamento.
+  - Formas pendentes geram lançamento financeiro no fechamento.
 
 ## Cancelar × Excluir venda — regra de negócio
 
@@ -233,8 +233,6 @@ a partir da UI.
 | Cancelar título           | `cancelar_lancamento`               | idempotente em título já cancelado   |
 | Reabrir título            | `reabrir_lancamento`                | recalcula status pelo total pago     |
 | Alterar vencimento        | `alterar_vencimento_lancamento`     | bloqueado se pago/recebido/cancelado |
-| Conciliar iFood (1)       | `conciliar_ifood_lancamento`        | gerenciada pela RPC existente        |
-| Conciliar iFood (lote)    | `conciliar_ifood_lote`              | gerenciada pela RPC existente        |
 
 ### Convergência automática (triggers do banco)
 

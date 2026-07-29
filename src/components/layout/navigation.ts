@@ -136,7 +136,7 @@ export const MODULES: ModuleDef[] = [
       { to: "/configuracoes?tab=balanca", label: "Balança", icon: Settings, description: "Integração de balança" },
       { to: "/configuracoes?tab=impressoras", label: "Impressoras", icon: Settings, description: "Configurar impressoras" },
       { to: "/configuracoes?tab=prefs", label: "Preferências", icon: Settings, description: "Tema e notificações" },
-      { to: "/configuracoes?tab=integracoes", label: "Integrações", icon: Settings, description: "Serviços externos" },
+      { to: "/configuracoes?tab=cobranca-pix", label: "Cobrança Pix", icon: Settings, description: "Configuração do Pix" },
     ],
   },
 

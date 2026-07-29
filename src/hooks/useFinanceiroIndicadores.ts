@@ -70,8 +70,6 @@ export interface FinanceiroIndicadores {
   qtdItens: number;
   fiadoEmAberto: number;
   qtdFiado: number;
-  ifoodAReceber: number;
-  qtdIfood: number;
   recebidoHoje: number;
   recebidoPeriodo: number;
   totalEmAberto: number;
@@ -184,7 +182,7 @@ export function useFinanceiroIndicadores() {
       const lucroBruto = calcLucroBruto(totalVendido, custoTotal);
       const margemPct = calcMargemPct(totalVendido, lucroBruto);
 
-      // 3) Fiado e iFood em aberto (do financeiro_lancamentos a receber)
+      // 3) Títulos em aberto, com destaque para fiado.
       const { data: lancsAR } = await supabase
         .from("financeiro_lancamentos")
         .select("id, valor, valor_pago, forma_pagamento, status, conciliado_em")
@@ -194,8 +192,7 @@ export function useFinanceiroIndicadores() {
 
       let fiadoEmAberto = 0;
       let qtdFiado = 0;
-      let ifoodAReceber = 0;
-      let qtdIfood = 0;
+      let totalEmAberto = 0;
 
       for (const l of (lancsAR ?? []) as Array<{
         id: string;
@@ -209,12 +206,10 @@ export function useFinanceiroIndicadores() {
         if (l.conciliado_em) continue;
         const aberto = calcAbertoLanc(l);
         if (aberto <= 0) continue;
+        totalEmAberto += aberto;
         if (l.forma_pagamento === "fiado") {
           fiadoEmAberto += aberto;
           qtdFiado += 1;
-        } else if (l.forma_pagamento === "ifood") {
-          ifoodAReceber += aberto;
-          qtdIfood += 1;
         }
       }
 
@@ -269,8 +264,6 @@ export function useFinanceiroIndicadores() {
         (s, l) => idsComBaixaPeriodo.has(l.id) ? s : s + calcValorRealizado(l),
         0,
       );
-      const totalEmAberto = fiadoEmAberto + ifoodAReceber;
-
       // 5) Vencidos (a receber + a pagar)
       const { data: vencidos } = await supabase
         .from("financeiro_lancamentos")
@@ -313,8 +306,6 @@ export function useFinanceiroIndicadores() {
         qtdItens,
         fiadoEmAberto,
         qtdFiado,
-        ifoodAReceber,
-        qtdIfood,
         recebidoHoje: recebidoHoje + recebidoImediatoHoje,
         recebidoPeriodo,
         totalEmAberto,

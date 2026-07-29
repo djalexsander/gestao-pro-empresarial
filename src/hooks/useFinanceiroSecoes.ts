@@ -195,8 +195,6 @@ export function usePerformancePeriodo(filtro: SecaoFiltroValue) {
 export interface ReceberOrigemData {
   fiadoEmAberto: number;
   qtdFiado: number;
-  ifoodAReceber: number;
-  qtdIfood: number;
   recebidoPeriodo: number;
   qtdRecebimentos: number;
   vencidosTotal: number;
@@ -226,8 +224,6 @@ export function useReceberOrigem(filtro: SecaoFiltroValue) {
 
       let fiadoEmAberto = 0;
       let qtdFiado = 0;
-      let ifoodAReceber = 0;
-      let qtdIfood = 0;
       for (const l of (abertos ?? []) as Array<{
         valor: number;
         valor_pago: number | null;
@@ -244,9 +240,6 @@ export function useReceberOrigem(filtro: SecaoFiltroValue) {
         if (l.forma_pagamento === "fiado") {
           fiadoEmAberto += aberto;
           qtdFiado += 1;
-        } else if (l.forma_pagamento === "ifood") {
-          ifoodAReceber += aberto;
-          qtdIfood += 1;
         }
       }
 
@@ -414,8 +407,6 @@ export function useReceberOrigem(filtro: SecaoFiltroValue) {
       return {
         fiadoEmAberto,
         qtdFiado,
-        ifoodAReceber,
-        qtdIfood,
         recebidoPeriodo,
         qtdRecebimentos,
         vencidosTotal,

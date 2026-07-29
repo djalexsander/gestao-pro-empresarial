@@ -40,8 +40,6 @@ export type {
   CancelarVendaInput,
   CancelarVendaResumo,
   CodigoTipo,
-  ConciliarIfoodIndividualInput,
-  ConciliarIfoodLoteInput,
   AlterarStatusCategoriaFinanceiraInput,
   AlterarStatusCategoriaFinanceiraResult,
   AlterarStatusCategoriaProdutoInput,

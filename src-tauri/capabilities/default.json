@@ -20,6 +20,7 @@
     "process:allow-restart",
     "dialog:default",
     "dialog:allow-save",
+    "shell:allow-open",
     "fs:allow-write-file",
     "fs:allow-write-text-file"
   ]

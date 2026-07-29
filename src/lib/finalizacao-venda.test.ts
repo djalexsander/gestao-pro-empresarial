@@ -77,7 +77,6 @@ describe("validação de Fiado na finalização da venda", () => {
 
   it.each([
     ["Boleto", "boleto"],
-    ["iFood", "ifood"],
   ] as const)("%s também ignora campos específicos de Fiado", (_nome, forma) => {
     const linha = pagamento(forma);
     const validacao = validarPagamentoFiado([linha], {

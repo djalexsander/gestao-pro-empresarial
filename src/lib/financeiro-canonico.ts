@@ -20,7 +20,7 @@
  *  - "Pendente" = status `pendente`, `parcial` ou `vencido` (NÃO entra como
  *    dinheiro realizado, apenas como recebível/pagável).
  *  - Em recebimento parcial, a entrada realizada é apenas `valor_pago`.
- *  - Em lançamentos a receber conciliados (ex.: iFood), a diferença
+ *  - Em lançamentos a receber conciliados, a diferença
  *    `valor - valor_pago` é taxa, não pendência.
  */
 
@@ -94,7 +94,7 @@ export function calcValorRealizado(l: LancamentoCanonico): number {
 
 /**
  * Soma "a receber" canônica para lançamentos a receber em aberto.
- * Ignora cancelados e cancelados/realizados. Para conciliados (ex.: iFood já
+ * Ignora cancelados e cancelados/realizados. Para registros já
  * recebido), considera 0 pendência (diferença é taxa).
  */
 export function somarReceberEmAberto(lancs: LancamentoCanonico[]): number {

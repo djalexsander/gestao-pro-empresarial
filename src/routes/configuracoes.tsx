@@ -14,8 +14,9 @@ import { SociosTab } from "@/components/configuracoes/SociosTab";
 import { PlanosModulosTab } from "@/components/configuracoes/PlanosModulosTab";
 import { BalancaTab } from "@/components/configuracoes/BalancaTab";
 import { AtualizacoesTab } from "@/components/configuracoes/AtualizacoesTab";
-import { IntegracoesTab } from "@/components/configuracoes/IntegracoesTab";
+import { CobrancaPixTab } from "@/components/configuracoes/CobrancaPixTab";
 import { ImpressoraConfigCard } from "@/components/configuracoes/ImpressoraConfigCard";
+import { normalizarTabConfiguracoes } from "@/lib/configuracoes-tabs";
 
 export const Route = createFileRoute("/configuracoes")({
   head: () => ({
@@ -27,24 +28,9 @@ export const Route = createFileRoute("/configuracoes")({
   component: SettingsPage,
 });
 
-const TAB_VALUES = [
-  "empresa",
-  "planos",
-  "socios",
-  "funcionarios",
-  "terminais",
-  "balanca",
-  "atualizacoes",
-  "impressoras",
-  "prefs",
-  "integracoes",
-] as const;
-
 function SettingsPage() {
   const search = useSearch({ strict: false }) as { tab?: string };
-  const tab = TAB_VALUES.includes(search.tab as (typeof TAB_VALUES)[number])
-    ? (search.tab as string)
-    : "empresa";
+  const tab = normalizarTabConfiguracoes(search.tab);
 
   return (
     <div className="space-y-6">
@@ -111,8 +97,8 @@ function SettingsPage() {
               <SaveBar />
             </div>
           </KeepMountedTab>
-          <KeepMountedTab value="integracoes" active={tab}>
-            <IntegracoesTab />
+          <KeepMountedTab value="cobranca-pix" active={tab}>
+            <CobrancaPixTab />
           </KeepMountedTab>
         </div>
       </Tabs>

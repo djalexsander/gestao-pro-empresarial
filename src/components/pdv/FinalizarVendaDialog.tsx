@@ -14,7 +14,6 @@ import {
   ArrowRightLeft,
   Plus,
   Trash2,
-  UtensilsCrossed,
   AlertTriangle,
   UserPlus,
   type LucideIcon,
@@ -106,7 +105,6 @@ const FORMAS: FormaPagamentoOption[] = [
   { key: "cartao_credito", label: "Crédito", icon: CreditCard, shortcut: "F4" },
   { key: "boleto", label: "Boleto", icon: FileText, shortcut: "F5", pendentePorPadrao: true },
   { key: "fiado", label: "Fiado", icon: Clock, shortcut: "F6", pendentePorPadrao: true },
-  { key: "ifood", label: "iFood", icon: UtensilsCrossed, shortcut: "F7", pendentePorPadrao: true },
 ];
 
 const FORMA_BY_KEY: Record<FormaPagamento, FormaPagamentoOption> = FORMAS.reduce(

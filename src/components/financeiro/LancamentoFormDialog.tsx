@@ -367,7 +367,6 @@ export function LancamentoFormDialog(props: Props) {
                   <SelectItem value="boleto">Boleto</SelectItem>
                   <SelectItem value="transferencia">Transferência</SelectItem>
                   <SelectItem value="cheque">Cheque</SelectItem>
-                  <SelectItem value="ifood">iFood</SelectItem>
                   <SelectItem value="fiado">Fiado</SelectItem>
                   <SelectItem value="outro">Outro</SelectItem>
                 </SelectContent>

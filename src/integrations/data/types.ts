@@ -546,24 +546,6 @@ export interface RegistrarMovimentoEstoqueResult {
   saldo_posterior: number;
 }
 
-// -------------------- Conciliação iFood --------------------
-
-export interface ConciliarIfoodIndividualInput {
-  lancamento_id: string;
-  data_repasse: string; // YYYY-MM-DD
-  valor_repasse: number;
-  numero_repasse?: string | null;
-  observacao?: string | null;
-}
-
-export interface ConciliarIfoodLoteInput {
-  lancamento_ids: string[];
-  data_repasse: string;
-  valor_repasse_total: number;
-  numero_repasse?: string | null;
-  observacao?: string | null;
-}
-
 // -------------------- Cliente / Fornecedor (cadastros) --------------------
 
 export type PessoaTipoDomain = "PF" | "PJ";
