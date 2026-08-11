@@ -12,20 +12,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import {
-  Printer,
-  RotateCcw,
-  Loader2,
-  AlertTriangle,
-  Tag,
-  Receipt,
-} from "lucide-react";
+import { Printer, RotateCcw, Loader2, AlertTriangle, Tag, Receipt } from "lucide-react";
 import { toast } from "sonner";
 import {
   getReceiptPrinter,
   setReceiptPrinter,
   getReceiptWidthMm,
   setReceiptWidthMm,
+  getReceiptPrintMode,
+  setReceiptPrintMode,
   getLabelPrinter,
   setLabelPrinter,
   getLabelFormat,
@@ -33,34 +28,17 @@ import {
   getLabelCustomFormats,
   addLabelCustomFormat,
   listPrinters,
-  printPdfBytes,
   printLabelImage,
-  printReceiptText,
+  printReceipt,
+  type ReceiptPrintMode,
   type PrinterInfo,
 } from "@/integrations/desktop/printers";
 import { PrinterPickerDialog } from "@/components/desktop/PrinterPickerDialog";
-import { jsPDF } from "jspdf";
 import { subscribeDesktopConfig } from "@/integrations/desktop/configStore";
 
 /* -------------------------------------------------------------------------- */
 /* Helpers de geração de PDF de teste                                          */
 /* -------------------------------------------------------------------------- */
-
-function gerarTesteCupomPdf(): Uint8Array {
-  const doc = new jsPDF({ unit: "mm", format: [80, 60], orientation: "portrait" });
-  doc.setFont("courier", "bold");
-  doc.setFontSize(11);
-  doc.text("GESTAO PRO", 40, 10, { align: "center" });
-  doc.setFont("courier", "normal");
-  doc.setFontSize(9);
-  doc.text("TESTE DE CUPOM", 40, 18, { align: "center" });
-  doc.setFontSize(8);
-  doc.text(`Data: ${new Date().toLocaleString("pt-BR")}`, 4, 28);
-  doc.text("Impressora de CUPOM/PDV OK.", 4, 36);
-  doc.setFont("courier", "bold");
-  doc.text("---- FIM ----", 40, 52, { align: "center" });
-  return new Uint8Array(doc.output("arraybuffer"));
-}
 
 function gerarTesteEtiquetaPng(formato: string): Promise<Uint8Array> {
   const [w, h] = parseFormato(formato);
@@ -127,6 +105,25 @@ function normalizarFormatoEtiqueta(width: string, height: string): string | null
   return `${Math.round(w)}x${Math.round(h)}`;
 }
 
+function gerarTesteCupomTexto(width: 58 | 80): string {
+  const cols = width === 58 ? 32 : 48;
+  const center = (value: string) =>
+    " ".repeat(Math.max(0, Math.floor((cols - value.length) / 2))) + value;
+  return [
+    center("GESTAO PRO"),
+    center("TESTE DE IMPRESSAO"),
+    "-".repeat(cols),
+    `Largura: ${width} mm (${cols} colunas)`,
+    "Caracteres: ação, café, você, R$",
+    "Esquerda",
+    `${" ".repeat(Math.max(1, cols - 7))}Direita`,
+    center("CENTRALIZADO"),
+    "-".repeat(cols),
+    new Date().toLocaleString("pt-BR"),
+    center("AVANCO E CORTE AO FINAL"),
+  ].join("\n");
+}
+
 /* -------------------------------------------------------------------------- */
 /* Seção genérica reutilizável                                                 */
 /* -------------------------------------------------------------------------- */
@@ -160,11 +157,8 @@ function PrinterSection(props: PrinterSectionProps) {
 
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  const encontrada = printerAtual
-    ? printersInstaladas.find((p) => p.name === printerAtual)
-    : null;
-  const ok =
-    !printerAtual || !!encontrada || printersInstaladas.length === 0;
+  const encontrada = printerAtual ? printersInstaladas.find((p) => p.name === printerAtual) : null;
+  const ok = !printerAtual || !!encontrada || printersInstaladas.length === 0;
 
   return (
     <>
@@ -204,8 +198,8 @@ function PrinterSection(props: PrinterSectionProps) {
             <div className="mt-2 flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>
-                A impressora salva não foi encontrada agora. Verifique se está
-                ligada/conectada ou escolha outra.
+                A impressora salva não foi encontrada agora. Verifique se está ligada/conectada ou
+                escolha outra.
               </span>
             </div>
           )}
@@ -251,6 +245,7 @@ function PrinterSection(props: PrinterSectionProps) {
 export function ImpressoraConfigCard() {
   const [receipt, setReceipt] = useState<string | null>(getReceiptPrinter());
   const [receiptWidth, setReceiptWidth] = useState<58 | 80>(getReceiptWidthMm());
+  const [receiptMode, setReceiptMode] = useState<ReceiptPrintMode>(getReceiptPrintMode());
   const [labelP, setLabelP] = useState<string | null>(getLabelPrinter());
   const [labelFmt, setLabelFmt] = useState<string>(getLabelFormat() ?? "50x30");
   const [customFormats, setCustomFormats] = useState<string[]>(getLabelCustomFormats());
@@ -266,6 +261,11 @@ export function ImpressoraConfigCard() {
     return subscribeDesktopConfig((cfg) => {
       setReceipt(cfg.receiptPrinter ?? cfg.defaultPrinter ?? null);
       setReceiptWidth(cfg.receiptWidthMm === 58 ? 58 : 80);
+      setReceiptMode(
+        cfg.receiptPrintMode === "raw" || cfg.receiptPrintMode === "driver"
+          ? cfg.receiptPrintMode
+          : "auto",
+      );
       setLabelP(cfg.labelPrinter ?? null);
       setLabelFmt(cfg.labelFormat ?? "50x30");
       setCustomFormats(cfg.labelCustomFormats ?? []);
@@ -292,32 +292,16 @@ export function ImpressoraConfigCard() {
     if (!receipt) return;
     setTestandoCupom(true);
     try {
-      const info = printers.find((p) => p.name === receipt);
-      if (info?.is_thermal) {
-        // Térmica → ESC/POS RAW (sem Start-Process).
-        const texto = [
-          "       GESTAO PRO",
-          "    TESTE DE IMPRESSAO",
-          "",
-          new Date().toLocaleString("pt-BR"),
-          "",
-          "Cupom OK. Se voce esta",
-          "lendo isso, a impressora",
-          "esta funcionando.",
-          "",
-          "------- FIM -------",
-        ].join("\n");
-        const msg = await printReceiptText(texto, receipt, {
-          widthMm: receiptWidth,
-          cut: true,
-        });
-        toast.success(msg);
-      } else {
-        await printPdfBytes(gerarTesteCupomPdf(), receipt);
-        toast.success(`Teste enviado para "${receipt}".`);
-      }
+      const result = await printReceipt(gerarTesteCupomTexto(receiptWidth), receipt, {
+        mode: receiptMode,
+        widthMm: receiptWidth,
+        cut: true,
+      });
+      const modoUsado = result.mode === "raw" ? "ESC/POS RAW" : "Driver do Windows";
+      toast.success(`Teste enviado para "${receipt}" via ${modoUsado}.`);
     } catch (e) {
-      toast.error(`Falha no teste: ${e instanceof Error ? e.message : String(e)}`);
+      console.error("[printers] detalhe tecnico do teste de cupom", e);
+      toast.error(`Não foi possível imprimir na "${receipt}" usando o modo selecionado.`);
     } finally {
       setTestandoCupom(false);
     }
@@ -359,187 +343,204 @@ export function ImpressoraConfigCard() {
 
   return (
     <div className="space-y-4">
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-4">
-        <CardTitle className="flex items-center gap-2">
-          <Printer className="h-5 w-5" /> Impressoras deste terminal
-        </CardTitle>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => void carregar()}
-          disabled={loading}
-        >
-          {loading ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <RotateCcw className="mr-2 h-4 w-4" />
-          )}
-          Atualizar lista
-        </Button>
-      </CardHeader>
-      <CardContent className="space-y-4 text-sm">
-        <p className="text-muted-foreground">
-          Cada terminal salva sua própria impressora de <b>cupom/PDV</b> e de{" "}
-          <b>etiquetas</b>. Assim um caixa nunca imprime na impressora de outro
-          caixa, e etiquetas vão direto para a impressora certa sem abrir popup
-          do navegador.
-        </p>
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-4">
+          <CardTitle className="flex items-center gap-2">
+            <Printer className="h-5 w-5" /> Impressoras deste terminal
+          </CardTitle>
+          <Button size="sm" variant="outline" onClick={() => void carregar()} disabled={loading}>
+            {loading ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RotateCcw className="mr-2 h-4 w-4" />
+            )}
+            Atualizar lista
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          <p className="text-muted-foreground">
+            Cada terminal salva sua própria impressora de <b>cupom/PDV</b> e de <b>etiquetas</b>.
+            Assim um caixa nunca imprime na impressora de outro caixa, e etiquetas vão direto para a
+            impressora certa sem abrir popup do navegador.
+          </p>
 
-        {error && (
-          <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-destructive">
-            {error}
-          </div>
-        )}
-
-        <div className="grid gap-4 md:grid-cols-2">
-          <PrinterSection
-            icon={<Receipt className="h-4 w-4" />}
-            titulo="Impressora de cupom (PDV)"
-            descricao="Térmica detectada → impressão ESC/POS direta (RAW). Outras → PDF."
-            printerAtual={receipt}
-            printersInstaladas={printers}
-            onSelecionar={(name) => {
-              setReceiptPrinter(name);
-              const info = printers.find((p) => p.name === name);
-              toast.success(
-                info?.is_thermal
-                  ? `Cupom (térmica): "${name}" salva.`
-                  : `Cupom: "${name}" salva como padrão.`,
-              );
-            }}
-            onLimpar={() => {
-              setReceiptPrinter(null);
-              toast.success("Impressora de cupom removida.");
-            }}
-            onTestar={testarCupom}
-            testando={testandoCupom}
-            extra={
-              <div className="space-y-1.5">
-                <Label className="text-xs">Largura da bobina térmica</Label>
-                <Select
-                  value={String(receiptWidth)}
-                  onValueChange={(v) => {
-                    const w = v === "58" ? 58 : 80;
-                    setReceiptWidth(w);
-                    setReceiptWidthMm(w);
-                  }}
-                >
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="58">58 mm (32 colunas)</SelectItem>
-                    <SelectItem value="80">80 mm (48 colunas)</SelectItem>
-                  </SelectContent>
-                </Select>
-                {receipt && (
-                  <div className="pt-1">
-                    {printers.find((p) => p.name === receipt)?.is_thermal ? (
-                      <Badge className="text-[10px]">térmica detectada</Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-[10px]">
-                        impressão via PDF
-                      </Badge>
-                    )}
-                  </div>
-                )}
-              </div>
-            }
-          />
-
-          <PrinterSection
-            icon={<Tag className="h-4 w-4" />}
-            titulo="Impressora de etiquetas"
-            descricao="Usada para imprimir etiquetas de produto (código de barras / QR)."
-            printerAtual={labelP}
-            printersInstaladas={printers}
-            onSelecionar={(name) => {
-              setLabelPrinter(name);
-              toast.success(`Etiquetas: "${name}" salva como padrão.`);
-            }}
-            onLimpar={() => {
-              setLabelPrinter(null);
-              toast.success("Impressora de etiquetas removida.");
-            }}
-            onTestar={testarEtiqueta}
-            testando={testandoEtiqueta}
-            extra={
-              <div className="space-y-1.5">
-                <Label className="text-xs">Formato padrão</Label>
-                <Select
-                  value={labelFmt}
-                  onValueChange={(v) => {
-                    setLabelFmt(v);
-                    setLabelFormat(v);
-                  }}
-                >
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {labelFormats.map((f) => (
-                      <SelectItem key={f.value} value={f.value}>
-                        {f.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2 pt-2">
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">Largura</Label>
-                    <Input
-                      className="h-8 text-xs"
-                      type="number"
-                      min={20}
-                      max={120}
-                      value={novoFormatoW}
-                      onChange={(e) => setNovoFormatoW(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">Altura</Label>
-                    <Input
-                      className="h-8 text-xs"
-                      type="number"
-                      min={15}
-                      max={120}
-                      value={novoFormatoH}
-                      onChange={(e) => setNovoFormatoH(e.target.value)}
-                    />
-                  </div>
-                  <Button size="sm" variant="outline" onClick={criarFormatoEtiqueta}>
-                    Criar
-                  </Button>
-                </div>
-              </div>
-            }
-          />
-        </div>
-
-        {printers.length > 0 && (
-          <div className="space-y-1 rounded-md border border-border bg-card p-3">
-            <div className="text-xs uppercase tracking-wide text-muted-foreground">
-              Detectadas neste computador ({printers.length})
+          {error && (
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-destructive">
+              {error}
             </div>
-            <ul className="text-sm">
-              {printers.map((p) => (
-                <li
-                  key={p.name}
-                  className="flex items-center justify-between py-1"
-                >
-                  <span className="truncate">{p.name}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {p.status ?? ""}
-                  </span>
-                </li>
-              ))}
-            </ul>
+          )}
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <PrinterSection
+              icon={<Receipt className="h-4 w-4" />}
+              titulo="Impressora de cupom (PDV)"
+              descricao="Cupons usam ESC/POS direto ou o driver nativo do Windows. PDF fica reservado a documentos e exportações."
+              printerAtual={receipt}
+              printersInstaladas={printers}
+              onSelecionar={(name) => {
+                setReceiptPrinter(name);
+                const info = printers.find((p) => p.name === name);
+                toast.success(
+                  info?.is_thermal
+                    ? `Cupom (térmica): "${name}" salva.`
+                    : `Cupom: "${name}" salva como padrão.`,
+                );
+              }}
+              onLimpar={() => {
+                setReceiptPrinter(null);
+                toast.success("Impressora de cupom removida.");
+              }}
+              onTestar={testarCupom}
+              testando={testandoCupom}
+              extra={
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Modo de impressão</Label>
+                    <Select
+                      value={receiptMode}
+                      onValueChange={(value) => {
+                        const mode = value as ReceiptPrintMode;
+                        setReceiptMode(mode);
+                        setReceiptPrintMode(mode);
+                      }}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">Automático</SelectItem>
+                        <SelectItem value="raw">ESC/POS RAW</SelectItem>
+                        <SelectItem value="driver">Driver do Windows</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[11px] text-muted-foreground">
+                      Automático tenta RAW apenas quando há evidência de ESC/POS e usa o driver como
+                      fallback.
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Largura da bobina térmica</Label>
+                    <Select
+                      value={String(receiptWidth)}
+                      onValueChange={(v) => {
+                        const w = v === "58" ? 58 : 80;
+                        setReceiptWidth(w);
+                        setReceiptWidthMm(w);
+                      }}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="58">58 mm (32 colunas)</SelectItem>
+                        <SelectItem value="80">80 mm (48 colunas)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {receipt && (
+                    <div className="pt-1">
+                      <Badge variant="outline" className="text-[10px]">
+                        {receiptMode === "raw"
+                          ? "ESC/POS RAW forçado"
+                          : receiptMode === "driver"
+                            ? "Driver do Windows forçado"
+                            : printers.find((p) => p.name === receipt)?.escpos_support === "likely"
+                              ? "Automático: RAW → Driver"
+                              : "Automático: Driver do Windows"}
+                      </Badge>
+                    </div>
+                  )}
+                </div>
+              }
+            />
+
+            <PrinterSection
+              icon={<Tag className="h-4 w-4" />}
+              titulo="Impressora de etiquetas"
+              descricao="Usada para imprimir etiquetas de produto (código de barras / QR)."
+              printerAtual={labelP}
+              printersInstaladas={printers}
+              onSelecionar={(name) => {
+                setLabelPrinter(name);
+                toast.success(`Etiquetas: "${name}" salva como padrão.`);
+              }}
+              onLimpar={() => {
+                setLabelPrinter(null);
+                toast.success("Impressora de etiquetas removida.");
+              }}
+              onTestar={testarEtiqueta}
+              testando={testandoEtiqueta}
+              extra={
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Formato padrão</Label>
+                  <Select
+                    value={labelFmt}
+                    onValueChange={(v) => {
+                      setLabelFmt(v);
+                      setLabelFormat(v);
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {labelFormats.map((f) => (
+                        <SelectItem key={f.value} value={f.value}>
+                          {f.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2 pt-2">
+                    <div className="space-y-1">
+                      <Label className="text-[10px]">Largura</Label>
+                      <Input
+                        className="h-8 text-xs"
+                        type="number"
+                        min={20}
+                        max={120}
+                        value={novoFormatoW}
+                        onChange={(e) => setNovoFormatoW(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px]">Altura</Label>
+                      <Input
+                        className="h-8 text-xs"
+                        type="number"
+                        min={15}
+                        max={120}
+                        value={novoFormatoH}
+                        onChange={(e) => setNovoFormatoH(e.target.value)}
+                      />
+                    </div>
+                    <Button size="sm" variant="outline" onClick={criarFormatoEtiqueta}>
+                      Criar
+                    </Button>
+                  </div>
+                </div>
+              }
+            />
           </div>
-        )}
-      </CardContent>
-    </Card>
-    <SaveBar hint="Impressoras configuradas neste terminal." />
+
+          {printers.length > 0 && (
+            <div className="space-y-1 rounded-md border border-border bg-card p-3">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                Detectadas neste computador ({printers.length})
+              </div>
+              <ul className="text-sm">
+                {printers.map((p) => (
+                  <li key={p.name} className="flex items-center justify-between py-1">
+                    <span className="truncate">{p.name}</span>
+                    <span className="text-xs text-muted-foreground">{p.status ?? ""}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      <SaveBar hint="Impressoras configuradas neste terminal." />
     </div>
   );
 }

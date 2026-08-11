@@ -76,6 +76,8 @@ export interface DesktopConfig {
   receiptPrinter?: string | null;
   /** Largura da bobina térmica do cupom (mm). Default 80. */
   receiptWidthMm?: 58 | 80;
+  /** Estrategia de impressao do cupom neste terminal. Default: automatico. */
+  receiptPrintMode?: "auto" | "raw" | "driver";
   /** Impressora padrão para ETIQUETAS de produto deste terminal. */
   labelPrinter?: string | null;
   /** Formato padrão de etiqueta deste terminal (ex.: "50x30"). */

@@ -6,10 +6,7 @@
  */
 
 import { isDesktop } from "@/integrations/data/mode";
-import {
-  getDesktopConfig,
-  setDesktopConfig,
-} from "@/integrations/desktop/configStore";
+import { getDesktopConfig, setDesktopConfig } from "@/integrations/desktop/configStore";
 
 export interface PrinterInfo {
   name: string;
@@ -17,9 +14,19 @@ export interface PrinterInfo {
   is_default: boolean;
   /** Heurística do Rust: nome sugere térmica (POS-58/POS-80/PT260/TM-T/…). */
   is_thermal: boolean;
+  /** Evidencia conservadora de compatibilidade ESC/POS; nao representa certeza. */
+  escpos_support: "likely" | "unknown";
 }
 
-type TauriInvoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
+export type ReceiptPrintMode = "auto" | "raw" | "driver";
+export type ResolvedReceiptPrintMode = Exclude<ReceiptPrintMode, "auto">;
+
+export interface ReceiptPrintResult {
+  mode: ResolvedReceiptPrintMode;
+  message: string;
+}
+
+export type TauriInvoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 let cachedInvoke: TauriInvoke | null = null;
 
 async function getInvoke(): Promise<TauriInvoke | null> {
@@ -42,14 +49,15 @@ export async function listPrinters(): Promise<PrinterInfo[]> {
   if (!invoke) return [];
   const list = await invoke<PrinterInfo[]>("list_printers");
   // Garantia defensiva: backend antigo pode não devolver is_thermal.
-  return list.map((p) => ({ ...p, is_thermal: Boolean(p.is_thermal) }));
+  return list.map((p) => ({
+    ...p,
+    is_thermal: Boolean(p.is_thermal),
+    escpos_support: p.escpos_support === "likely" ? "likely" : "unknown",
+  }));
 }
 
 /** Imprime bytes de PDF na impressora informada (Windows: SumatraPDF → ShellExecute printto; Unix: lp). */
-export async function printPdfBytes(
-  bytes: Uint8Array,
-  printerName: string,
-): Promise<string> {
+export async function printPdfBytes(bytes: Uint8Array, printerName: string): Promise<string> {
   const invoke = await getInvoke();
   if (!invoke) throw new Error("Impressão nativa só está disponível no desktop.");
   console.info("[printers] printPdfBytes", { printerName, bytes: bytes.byteLength });
@@ -63,10 +71,7 @@ export async function printPdfBytes(
  * Imprime bytes ESC/POS RAW direto em uma impressora térmica. Não passa
  * por driver de PDF, não usa Start-Process, funciona offline.
  */
-export async function printRawEscpos(
-  bytes: Uint8Array,
-  printerName: string,
-): Promise<string> {
+export async function printRawEscpos(bytes: Uint8Array, printerName: string): Promise<string> {
   const invoke = await getInvoke();
   if (!invoke) throw new Error("Impressão RAW só está disponível no desktop.");
   console.info("[printers] printRawEscpos", {
@@ -131,6 +136,41 @@ export async function printReceiptText(
   });
 }
 
+/**
+ * Pipeline central de cupom do desktop. O comando Rust valida a impressora,
+ * resolve Automatico/RAW/Driver e nunca usa PDF como fallback de cupom.
+ */
+export async function printReceipt(
+  text: string,
+  printerName: string,
+  opts: {
+    mode?: ReceiptPrintMode;
+    widthMm?: 58 | 80;
+    cut?: boolean;
+  } = {},
+  dependencies: { invoke?: TauriInvoke } = {},
+): Promise<ReceiptPrintResult> {
+  const invoke = dependencies.invoke ?? (await getInvoke());
+  if (!invoke) throw new Error("Impressao de cupom so esta disponivel no desktop.");
+  const mode = opts.mode ?? "auto";
+  const widthMm = opts.widthMm ?? 80;
+  const cut = opts.cut ?? true;
+  console.info("[printers] printReceipt", {
+    printerName,
+    mode,
+    widthMm,
+    cut,
+    chars: text.length,
+  });
+  return invoke<ReceiptPrintResult>("print_receipt", {
+    text,
+    printerName,
+    mode,
+    widthMm,
+    cut,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Impressoras padrão por máquina (persistidas no DesktopConfig)
 //
@@ -165,6 +205,16 @@ export function getReceiptWidthMm(): 58 | 80 {
 export function setReceiptWidthMm(width: 58 | 80): void {
   const cfg = getDesktopConfig();
   setDesktopConfig({ ...cfg, receiptWidthMm: width });
+}
+
+export function getReceiptPrintMode(): ReceiptPrintMode {
+  const value = getDesktopConfig().receiptPrintMode;
+  return value === "raw" || value === "driver" ? value : "auto";
+}
+
+export function setReceiptPrintMode(mode: ReceiptPrintMode): void {
+  const cfg = getDesktopConfig();
+  setDesktopConfig({ ...cfg, receiptPrintMode: mode });
 }
 
 export function getLabelPrinter(): string | null {

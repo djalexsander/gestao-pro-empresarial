@@ -1,8 +1,8 @@
 /**
  * Impressão e exportação PDF do cupom — funciona em web e desktop/Tauri.
  *
- * - Impressão: usa iframe oculto + window.print() do iframe. Não depende
- *   de popup, então não é bloqueado em navegadores nem no Tauri.
+ * - Impressão web: usa iframe oculto + window.print().
+ * - Impressão desktop: usa o pipeline nativo central RAW/Driver do Windows.
  * - PDF: gera via jsPDF (formato 80mm térmico). No desktop, abre o diálogo
  *   nativo de salvar arquivo (plugin-dialog + plugin-fs). No web, faz
  *   download via blob.
@@ -15,10 +15,10 @@ import { gerarCupomHtml, type CupomData } from "@/lib/cupom";
 import { formatBRL } from "@/lib/mock-data";
 import {
   getReceiptPrinter,
+  getReceiptPrintMode,
   getReceiptWidthMm,
   listPrinters,
-  printPdfBytes,
-  printReceiptText,
+  printReceipt,
 } from "@/integrations/desktop/printers";
 
 const FORMA_LABEL: Record<string, string> = {
@@ -42,10 +42,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 /** Imprime o cupom usando um iframe oculto. Não usa window.open. */
-export function imprimirCupomIframe(
-  empresa: ConfigEmpresa | null,
-  cupom: CupomData,
-): boolean {
+export function imprimirCupomIframe(empresa: ConfigEmpresa | null, cupom: CupomData): boolean {
   try {
     const html = gerarCupomHtml(empresa, cupom, { autoPrint: false, widthMm: getReceiptWidthMm() });
     const iframe = document.createElement("iframe");
@@ -81,7 +78,9 @@ export function imprimirCupomIframe(
         setTimeout(() => {
           try {
             document.body.removeChild(iframe);
-          } catch {}
+          } catch {
+            // O iframe pode ter sido removido por uma navegacao concorrente.
+          }
         }, 60_000);
       }
     };
@@ -120,8 +119,8 @@ export interface ImprimirCupomResult {
  * Desktop/Tauri:
  *   - Se não há impressora padrão salva, devolve `needsPicker: true` para a UI
  *     abrir o seletor.
- *   - Se há, gera o PDF e envia direto para a impressora padrão (sem popup,
- *     sem diálogo do SO).
+ *   - Se há, envia texto ao pipeline nativo RAW/Driver (sem PDF, popup ou
+ *     diálogo do SO).
  *   - Se a impressão falhar (ex.: impressora removida), devolve
  *     `needsPicker: true` com `warning` explicando.
  *
@@ -134,9 +133,7 @@ export async function imprimirCupom(
 ): Promise<ImprimirCupomResult> {
   if (!isDesktop()) {
     const ok = imprimirCupomIframe(empresa, cupom);
-    return ok
-      ? { ok: true }
-      : { ok: false, error: "Não foi possível iniciar a impressão." };
+    return ok ? { ok: true } : { ok: false, error: "Não foi possível iniciar a impressão." };
   }
 
   const printer = getReceiptPrinter();
@@ -159,60 +156,33 @@ export async function imprimirCupom(
     return {
       ok: false,
       needsPicker: true,
-      warning:
-        "Este terminal ainda não tem uma impressora padrão. Escolha uma para começar.",
+      warning: "Este terminal ainda não tem uma impressora padrão. Escolha uma para começar.",
     };
   }
 
-  // Detecta se a impressora salva é térmica → ESC/POS RAW direto.
-  // Se não der para detectar (lista falhou), assume PDF para manter o fluxo
-  // antigo funcionando — fallback seguro.
-  let isThermal = false;
   try {
-    const list = await listPrinters();
-    const found = list.find((p) => p.name === printer);
-    isThermal = !!found?.is_thermal;
-    console.info("[cupom-print] impressora padrão", {
-      printer,
-      isThermal,
-      found: !!found,
+    const width = getReceiptWidthMm();
+    const mode = getReceiptPrintMode();
+    const texto = gerarCupomTextoPlano(empresa, cupom, width);
+    const result = await printReceipt(texto, printer, {
+      mode,
+      widthMm: width,
+      cut: true,
     });
-  } catch (e) {
-    console.warn("[cupom-print] falha ao detectar tipo da impressora", e);
-  }
-
-  // --- ROTA TÉRMICA: ESC/POS RAW, sem PDF, sem Start-Process ---
-  if (isThermal) {
-    try {
-      const width = getReceiptWidthMm();
-      const texto = gerarCupomTextoPlano(empresa, cupom, width);
-      const msg = await printReceiptText(texto, printer, {
-        widthMm: width,
-        cut: true,
-      });
-      return { ok: true, printerName: printer, warning: msg };
-    } catch (e) {
-      // Cai para o fluxo PDF como fallback seguro.
-      console.warn(
-        "[cupom-print] ESC/POS falhou, caindo para PDF como fallback",
-        e,
-      );
-    }
-  }
-
-  // --- ROTA PDF (não-térmica ou fallback) ---
-  try {
-    const doc = gerarPdfCupom(empresa, cupom);
-    const buf = doc.output("arraybuffer");
-    const msg = await printPdfBytes(new Uint8Array(buf), printer);
-    return { ok: true, printerName: printer, warning: msg };
+    return { ok: true, printerName: printer, warning: result.message };
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);
+    console.error("[cupom-print] falha no pipeline nativo de cupom", {
+      printer,
+      mode: getReceiptPrintMode(),
+      widthMm: getReceiptWidthMm(),
+      detail: errMsg,
+    });
     return {
       ok: false,
       needsPicker: true,
-      warning: `Impressora "${printer}" indisponível: ${errMsg}. Escolha outra impressora.`,
-      error: errMsg,
+      warning: `Não foi possível imprimir na "${printer}" usando o modo selecionado. Verifique a impressora ou escolha outro modo.`,
+      error: `Não foi possível imprimir na "${printer}" usando o modo selecionado.`,
       printerName: printer,
     };
   }
@@ -222,7 +192,7 @@ export async function imprimirCupom(
 /* Cupom em texto plano (para envio ESC/POS RAW)                              */
 /* -------------------------------------------------------------------------- */
 
-function gerarCupomTextoPlano(
+export function gerarCupomTextoPlano(
   empresa: ConfigEmpresa | null,
   cupom: CupomData,
   width: 58 | 80,
@@ -259,16 +229,12 @@ function gerarCupomTextoPlano(
   linhas.push(row("Cupom:", cupom.numero ?? "—"));
   linhas.push(row("Data:", fmtDate(cupom.data)));
   if (cupom.operador) linhas.push(row("Operador:", cupom.operador));
-  linhas.push(
-    row("Cliente:", cupom.cliente?.nome ?? "CONSUMIDOR"),
-  );
+  linhas.push(row("Cliente:", cupom.cliente?.nome ?? "CONSUMIDOR"));
   linhas.push(sep());
 
   cupom.itens.forEach((it, i) => {
     const idx = String(i + 1).padStart(3, "0");
-    linhas.push(
-      `${idx} ${it.descricao}${it.sku ? ` (${it.sku})` : ""}`.slice(0, cols),
-    );
+    linhas.push(`${idx} ${it.descricao}${it.sku ? ` (${it.sku})` : ""}`.slice(0, cols));
     linhas.push(
       row(
         `  ${it.quantidade.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} ${it.unidade ?? "UN"} x ${formatBRL(it.preco_unitario)}`,
@@ -279,16 +245,13 @@ function gerarCupomTextoPlano(
 
   linhas.push(sep());
   linhas.push(row("Subtotal:", formatBRL(cupom.subtotal)));
-  if (cupom.desconto > 0)
-    linhas.push(row("Descontos:", `- ${formatBRL(cupom.desconto)}`));
+  if (cupom.desconto > 0) linhas.push(row("Descontos:", `- ${formatBRL(cupom.desconto)}`));
   linhas.push(row("TOTAL", formatBRL(cupom.total)));
   linhas.push(sep());
   linhas.push(row("Pagamento:", FORMA_LABEL[cupom.forma] ?? cupom.forma));
   linhas.push(row("Status:", STATUS_LABEL[cupom.status] ?? cupom.status));
   if (cupom.troco > 0) {
-    linhas.push(
-      row("Recebido:", formatBRL(cupom.valorRecebido ?? cupom.total + cupom.troco)),
-    );
+    linhas.push(row("Recebido:", formatBRL(cupom.valorRecebido ?? cupom.total + cupom.troco)));
     linhas.push(row("TROCO:", formatBRL(cupom.troco)));
   }
   if (cupom.observacao) {
@@ -317,10 +280,7 @@ function fmtDate(d: Date): string {
 }
 
 /** Gera o PDF (jsPDF) do cupom em formato 80mm. Retorna o documento. */
-function gerarPdfCupom(
-  empresa: ConfigEmpresa | null,
-  cupom: CupomData,
-): jsPDF {
+function gerarPdfCupom(empresa: ConfigEmpresa | null, cupom: CupomData): jsPDF {
   // 80mm de largura; altura cresce conforme o conteúdo.
   const pageWidth = 80;
   const margin = 4;
@@ -380,14 +340,10 @@ function gerarPdfCupom(
     writeCenter(empresa.nome_fantasia ?? empresa.razao_social, 11, true);
     if (empresa.nome_fantasia) writeCenter(empresa.razao_social, 7);
     if (empresa.cnpj) writeCenter(`CNPJ: ${empresa.cnpj}`, 7);
-    if (empresa.inscricao_estadual)
-      writeCenter(`IE: ${empresa.inscricao_estadual}`, 7);
+    if (empresa.inscricao_estadual) writeCenter(`IE: ${empresa.inscricao_estadual}`, 7);
     const endLinha1 = [empresa.logradouro, empresa.numero].filter(Boolean).join(", ");
     if (endLinha1) writeCenter(endLinha1, 7);
-    const endLinha2 = [
-      empresa.bairro,
-      [empresa.cidade, empresa.estado].filter(Boolean).join("/"),
-    ]
+    const endLinha2 = [empresa.bairro, [empresa.cidade, empresa.estado].filter(Boolean).join("/")]
       .filter(Boolean)
       .join(" - ");
     if (endLinha2) writeCenter(endLinha2, 7);
@@ -443,10 +399,7 @@ function gerarPdfCupom(
   writeRow("Pagamento:", FORMA_LABEL[cupom.forma] ?? cupom.forma, 8, true);
   writeRow("Status:", STATUS_LABEL[cupom.status] ?? cupom.status, 8, true);
   if (cupom.troco > 0) {
-    writeRow(
-      "Recebido:",
-      formatBRL(cupom.valorRecebido ?? cupom.total + cupom.troco),
-    );
+    writeRow("Recebido:", formatBRL(cupom.valorRecebido ?? cupom.total + cupom.troco));
     writeRow("TROCO:", formatBRL(cupom.troco), 9, true);
   }
   if (cupom.observacao) {
@@ -484,7 +437,9 @@ function setLastDir(fullPath: string) {
     // Extrai diretório do path completo (suporta / e \).
     const idx = Math.max(fullPath.lastIndexOf("/"), fullPath.lastIndexOf("\\"));
     if (idx > 0) localStorage.setItem(LAST_DIR_KEY, fullPath.slice(0, idx));
-  } catch {}
+  } catch {
+    // localStorage pode estar indisponivel em modo privado.
+  }
 }
 
 function joinPath(dir: string, file: string): string {

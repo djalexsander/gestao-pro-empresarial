@@ -481,6 +481,19 @@ fn print_receipt_text(
     printers::print_raw(&printer_name, "Gestao Pro Cupom", &bytes)
 }
 
+/// Pipeline central de cupom: Automatico, ESC/POS RAW ou driver nativo.
+/// O modo Automatico nunca usa PDF como fallback.
+#[tauri::command]
+fn print_receipt(
+    text: String,
+    printer_name: String,
+    mode: String,
+    width_mm: u32,
+    cut: bool,
+) -> Result<printers::ReceiptPrintResult, String> {
+    printers::print_receipt(&text, &printer_name, &mode, width_mm, cut)
+}
+
 /// Imprime uma etiqueta como imagem PNG via GDI (Windows) ou `lp` (Unix).
 /// Caminho separado do cupom: usa o spooler normal do Windows, compatível
 /// com PT260 e qualquer driver GDI (não usa RAW/ESC-POS).
@@ -537,6 +550,7 @@ pub fn run() {
             print_pdf_bytes,
             print_raw_escpos,
             print_receipt_text,
+            print_receipt,
             print_label_image,
         ])
         .setup(|_app| {
