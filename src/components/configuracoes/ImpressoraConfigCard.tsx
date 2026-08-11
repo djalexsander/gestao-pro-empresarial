@@ -3,7 +3,6 @@ import { SaveBar } from "./SaveBar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -12,7 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Printer, RotateCcw, Loader2, AlertTriangle, Tag, Receipt } from "lucide-react";
+import { Printer, RotateCcw, Loader2, AlertTriangle, Tag, Receipt, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   getReceiptPrinter,
@@ -23,87 +22,25 @@ import {
   setReceiptPrintMode,
   getLabelPrinter,
   setLabelPrinter,
-  getLabelFormat,
-  setLabelFormat,
-  getLabelCustomFormats,
-  addLabelCustomFormat,
+  getActiveBobinaProfile,
+  getBobinaProfiles,
+  getPrinterDpi,
   listPrinters,
-  printLabelImage,
+  printLabelSheet,
   printReceipt,
+  setActiveBobinaProfileId,
   type ReceiptPrintMode,
   type PrinterInfo,
 } from "@/integrations/desktop/printers";
 import { PrinterPickerDialog } from "@/components/desktop/PrinterPickerDialog";
+import { BobinaProfileManagerDialog } from "@/components/configuracoes/BobinaProfileManagerDialog";
 import { subscribeDesktopConfig } from "@/integrations/desktop/configStore";
+import { calcularGrade, formatarResumoPerfil, type PerfilBobina } from "@/lib/etiqueta-layout";
+import { desenharConteudoTeste, renderizarFolhas } from "@/lib/etiqueta-render";
 
 /* -------------------------------------------------------------------------- */
-/* Helpers de geração de PDF de teste                                          */
+/* Helpers de teste de cupom                                                   */
 /* -------------------------------------------------------------------------- */
-
-function gerarTesteEtiquetaPng(formato: string): Promise<Uint8Array> {
-  const [w, h] = parseFormato(formato);
-  const PX_PER_MM = 12;
-  const W = Math.round(w * PX_PER_MM);
-  const H = Math.round(h * PX_PER_MM);
-  const canvas = document.createElement("canvas");
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return Promise.reject(new Error("Canvas 2D indisponível"));
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = "#000000";
-  ctx.font = `bold ${Math.round(2.6 * PX_PER_MM)}px Arial, sans-serif`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "top";
-  ctx.fillText("TESTE ETIQUETA", W / 2, Math.round(1.5 * PX_PER_MM));
-  ctx.font = `${Math.round(1.8 * PX_PER_MM)}px Arial, sans-serif`;
-  ctx.fillText(`${w} x ${h} mm`, W / 2, Math.round(5 * PX_PER_MM));
-  ctx.textBaseline = "middle";
-  ctx.font = `${Math.round(2 * PX_PER_MM)}px Arial, sans-serif`;
-  ctx.fillText(new Date().toLocaleString("pt-BR"), W / 2, H / 2);
-  ctx.strokeStyle = "#000000";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(2, 2, W - 4, H - 4);
-  return new Promise((resolve, reject) =>
-    canvas.toBlob(
-      (b) =>
-        b
-          ? b.arrayBuffer().then((buf) => resolve(new Uint8Array(buf)))
-          : reject(new Error("toBlob null")),
-      "image/png",
-    ),
-  );
-}
-
-function parseFormato(f: string): [number, number] {
-  const m = /^(\d+)x(\d+)$/i.exec(f.trim());
-  if (m) return [Number(m[1]), Number(m[2])];
-  if (f === "80mm") return [80, 40];
-  return [50, 30];
-}
-
-const FORMATOS_ETIQUETA = [
-  { value: "50x30", label: "50 × 30 mm" },
-  { value: "40x30", label: "40 × 30 mm" },
-  { value: "50x50", label: "50 × 50 mm" },
-  { value: "60x40", label: "60 × 40 mm" },
-  { value: "80x40", label: "80 × 40 mm" },
-  { value: "80mm", label: "80 mm (cupom)" },
-];
-
-function formatLabel(value: string): string {
-  const [w, h] = parseFormato(value);
-  return `${w} × ${h} mm`;
-}
-
-function normalizarFormatoEtiqueta(width: string, height: string): string | null {
-  const w = Number(width);
-  const h = Number(height);
-  if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
-  if (w < 20 || w > 120 || h < 15 || h > 120) return null;
-  return `${Math.round(w)}x${Math.round(h)}`;
-}
 
 function gerarTesteCupomTexto(width: 58 | 80): string {
   const cols = width === 58 ? 32 : 48;
@@ -122,6 +59,25 @@ function gerarTesteCupomTexto(width: 58 | 80): string {
     new Date().toLocaleString("pt-BR"),
     center("AVANCO E CORTE AO FINAL"),
   ].join("\n");
+}
+
+/** Testa a etiqueta usando o MESMO pipeline da impressão real: perfil → motor de layout → render → print_label_sheet. */
+async function imprimirTesteEtiqueta(perfil: PerfilBobina, printerName: string): Promise<number> {
+  const dpiInfo = await getPrinterDpi(printerName);
+  const grade = calcularGrade(perfil);
+  const itens = Array.from({ length: grade.colunas }, (_, i) => i);
+  const folhas = await renderizarFolhas({
+    perfil,
+    itens,
+    dpiConsultado: dpiInfo?.x ?? null,
+    desenharCelula: (contexto) => desenharConteudoTeste(contexto, perfil),
+  });
+  await printLabelSheet(
+    folhas.map((f) => f.png),
+    printerName,
+    1,
+  );
+  return grade.colunas;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -247,15 +203,21 @@ export function ImpressoraConfigCard() {
   const [receiptWidth, setReceiptWidth] = useState<58 | 80>(getReceiptWidthMm());
   const [receiptMode, setReceiptMode] = useState<ReceiptPrintMode>(getReceiptPrintMode());
   const [labelP, setLabelP] = useState<string | null>(getLabelPrinter());
-  const [labelFmt, setLabelFmt] = useState<string>(getLabelFormat() ?? "50x30");
-  const [customFormats, setCustomFormats] = useState<string[]>(getLabelCustomFormats());
-  const [novoFormatoW, setNovoFormatoW] = useState("50");
-  const [novoFormatoH, setNovoFormatoH] = useState("50");
+  const [perfis, setPerfis] = useState<PerfilBobina[]>(getBobinaProfiles());
+  const [perfilAtivoId, setPerfilAtivoId] = useState<string | null>(
+    getActiveBobinaProfile()?.id ?? null,
+  );
+  const [gerenciarPerfisAberto, setGerenciarPerfisAberto] = useState(false);
   const [printers, setPrinters] = useState<PrinterInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [testandoCupom, setTestandoCupom] = useState(false);
   const [testandoEtiqueta, setTestandoEtiqueta] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const recarregarPerfis = () => {
+    setPerfis(getBobinaProfiles());
+    setPerfilAtivoId(getActiveBobinaProfile()?.id ?? null);
+  };
 
   useEffect(() => {
     return subscribeDesktopConfig((cfg) => {
@@ -267,8 +229,7 @@ export function ImpressoraConfigCard() {
           : "auto",
       );
       setLabelP(cfg.labelPrinter ?? null);
-      setLabelFmt(cfg.labelFormat ?? "50x30");
-      setCustomFormats(cfg.labelCustomFormats ?? []);
+      recarregarPerfis();
     });
   }, []);
 
@@ -309,11 +270,17 @@ export function ImpressoraConfigCard() {
 
   async function testarEtiqueta() {
     if (!labelP) return;
+    const perfil = getActiveBobinaProfile();
+    if (!perfil) {
+      toast.error('Nenhum perfil de bobina configurado. Abra "Gerenciar perfis" para criar um.');
+      return;
+    }
     setTestandoEtiqueta(true);
     try {
-      const png = await gerarTesteEtiquetaPng(labelFmt);
-      await printLabelImage(png, labelP, 1);
-      toast.success(`Teste enviado para "${labelP}".`);
+      const colunas = await imprimirTesteEtiqueta(perfil, labelP);
+      toast.success(
+        `Teste enviado para "${labelP}" (perfil "${perfil.nome}", ${colunas} coluna${colunas > 1 ? "s" : ""}).`,
+      );
     } catch (e) {
       toast.error(`Falha no teste: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -321,25 +288,7 @@ export function ImpressoraConfigCard() {
     }
   }
 
-  const labelFormats = [
-    ...FORMATOS_ETIQUETA,
-    ...customFormats
-      .filter((value) => !FORMATOS_ETIQUETA.some((f) => f.value === value))
-      .map((value) => ({ value, label: formatLabel(value) })),
-  ];
-
-  function criarFormatoEtiqueta() {
-    const value = normalizarFormatoEtiqueta(novoFormatoW, novoFormatoH);
-    if (!value) {
-      toast.error("Informe largura e altura entre 20×15 mm e 120×120 mm.");
-      return;
-    }
-    addLabelCustomFormat(value);
-    setLabelFmt(value);
-    setLabelFormat(value);
-    setCustomFormats(getLabelCustomFormats());
-    toast.success(`Formato ${formatLabel(value)} salvo.`);
-  }
+  const perfilAtivo = perfis.find((p) => p.id === perfilAtivoId) ?? null;
 
   return (
     <div className="space-y-4">
@@ -457,7 +406,7 @@ export function ImpressoraConfigCard() {
             <PrinterSection
               icon={<Tag className="h-4 w-4" />}
               titulo="Impressora de etiquetas"
-              descricao="Usada para imprimir etiquetas de produto (código de barras / QR)."
+              descricao="Usada para imprimir etiquetas de produto (código de barras / QR), de acordo com o perfil de bobina selecionado."
               printerAtual={labelP}
               printersInstaladas={printers}
               onSelecionar={(name) => {
@@ -471,53 +420,42 @@ export function ImpressoraConfigCard() {
               onTestar={testarEtiqueta}
               testando={testandoEtiqueta}
               extra={
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Formato padrão</Label>
+                <div className="space-y-2">
+                  <Label className="text-xs">Perfil de bobina</Label>
                   <Select
-                    value={labelFmt}
+                    value={perfilAtivoId ?? undefined}
                     onValueChange={(v) => {
-                      setLabelFmt(v);
-                      setLabelFormat(v);
+                      setActiveBobinaProfileId(v);
+                      setPerfilAtivoId(v);
+                      const p = perfis.find((x) => x.id === v);
+                      if (p) toast.success(`Perfil "${p.nome}" selecionado para este terminal.`);
                     }}
                   >
                     <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
+                      <SelectValue placeholder="Selecione um perfil" />
                     </SelectTrigger>
                     <SelectContent>
-                      {labelFormats.map((f) => (
-                        <SelectItem key={f.value} value={f.value}>
-                          {f.label}
+                      {perfis.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.nome} — {formatarResumoPerfil(p)}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2 pt-2">
-                    <div className="space-y-1">
-                      <Label className="text-[10px]">Largura</Label>
-                      <Input
-                        className="h-8 text-xs"
-                        type="number"
-                        min={20}
-                        max={120}
-                        value={novoFormatoW}
-                        onChange={(e) => setNovoFormatoW(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-[10px]">Altura</Label>
-                      <Input
-                        className="h-8 text-xs"
-                        type="number"
-                        min={15}
-                        max={120}
-                        value={novoFormatoH}
-                        onChange={(e) => setNovoFormatoH(e.target.value)}
-                      />
-                    </div>
-                    <Button size="sm" variant="outline" onClick={criarFormatoEtiqueta}>
-                      Criar
-                    </Button>
-                  </div>
+                  {perfilAtivo && (
+                    <p className="text-[11px] text-muted-foreground">
+                      {formatarResumoPerfil(perfilAtivo)} · mídia {perfilAtivo.larguraMidiaMm} mm
+                    </p>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="w-full gap-1.5"
+                    onClick={() => setGerenciarPerfisAberto(true)}
+                  >
+                    <Settings2 className="h-3.5 w-3.5" /> Gerenciar perfis…
+                  </Button>
                 </div>
               }
             />
@@ -541,6 +479,13 @@ export function ImpressoraConfigCard() {
         </CardContent>
       </Card>
       <SaveBar hint="Impressoras configuradas neste terminal." />
+
+      <BobinaProfileManagerDialog
+        open={gerenciarPerfisAberto}
+        onOpenChange={setGerenciarPerfisAberto}
+        printerName={labelP}
+        onChanged={recarregarPerfis}
+      />
     </div>
   );
 }

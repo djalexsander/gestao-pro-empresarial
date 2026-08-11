@@ -7,6 +7,17 @@
 
 import { isDesktop } from "@/integrations/data/mode";
 import { getDesktopConfig, setDesktopConfig } from "@/integrations/desktop/configStore";
+import type { PerfilBobina } from "@/lib/etiqueta-layout";
+import {
+  definirPadrao as definirPadraoPerfil,
+  duplicarPerfil as duplicarPerfilPuro,
+  garantirPerfis,
+  obterAtivo,
+  removerPerfil as removerPerfilPuro,
+  selecionarAtivo as selecionarAtivoPuro,
+  upsertPerfil as upsertPerfilPuro,
+  type EstadoPerfis,
+} from "@/lib/etiqueta-perfis";
 
 export interface PrinterInfo {
   name: string;
@@ -107,6 +118,61 @@ export async function printLabelImage(
     printerName,
     copies,
   });
+}
+
+/**
+ * Imprime uma FOLHA de etiquetas: cada item de `pages` é uma linha da
+ * bobina (uma imagem PNG já composta com todas as colunas do perfil lado a
+ * lado), enviada como uma página GDI própria dentro do MESMO job de
+ * impressão — preserva o avanço contínuo do rolo entre linhas.
+ *
+ * Caminho central para qualquer tela que imprima etiquetas via perfil de
+ * bobina (ver `@/lib/etiqueta-layout` e `@/lib/etiqueta-render`). Não
+ * substitui `printLabelImage` (mantido por compat / uso avulso de 1 imagem).
+ */
+export async function printLabelSheet(
+  pages: Uint8Array[],
+  printerName: string,
+  copies = 1,
+  dependencies: { invoke?: TauriInvoke } = {},
+): Promise<string> {
+  const invoke = dependencies.invoke ?? (await getInvoke());
+  if (!invoke) throw new Error("Impressão de etiqueta só está disponível no desktop.");
+  console.info("[printers] printLabelSheet", {
+    printerName,
+    paginas: pages.length,
+    copies,
+  });
+  return invoke<string>("print_label_sheet", {
+    pages: pages.map((p) => Array.from(p)),
+    printerName,
+    copies,
+  });
+}
+
+export interface PrinterDpi {
+  x: number;
+  y: number;
+}
+
+/**
+ * Consulta o DPI relatado pelo driver do Windows para esta impressora
+ * (usado pelo modo "Automático" do perfil de bobina). Retorna `null` no web
+ * ou se a consulta falhar — quem chama deve cair para um DPI padrão nesse
+ * caso (ver `resolveDpi` em `@/lib/etiqueta-layout`).
+ */
+export async function getPrinterDpi(
+  printerName: string,
+  dependencies: { invoke?: TauriInvoke } = {},
+): Promise<PrinterDpi | null> {
+  const invoke = dependencies.invoke ?? (await getInvoke());
+  if (!invoke) return null;
+  try {
+    return await invoke<PrinterDpi>("get_printer_dpi", { printerName });
+  } catch (e) {
+    console.warn("[printers] getPrinterDpi falhou", e);
+    return null;
+  }
 }
 
 /**
@@ -247,6 +313,71 @@ export function addLabelCustomFormat(format: string): void {
   const current = cfg.labelCustomFormats ?? [];
   if (current.includes(normalized)) return;
   setDesktopConfig({ ...cfg, labelCustomFormats: [...current, normalized] });
+}
+
+// ---------------------------------------------------------------------------
+// Perfis de bobina/etiqueta — persistidos no DesktopConfig (por terminal).
+//
+// A lista de perfis e o perfil ativo vivem neste terminal (mesmo mecanismo
+// já usado para `labelPrinter`/`labelFormat`), então cada máquina mantém
+// seus próprios perfis sem interferir em outras. `garantirPerfis` cuida da
+// migração a partir do formato legado — ver `@/lib/etiqueta-perfis`.
+// ---------------------------------------------------------------------------
+
+function lerEstadoPerfis(): EstadoPerfis {
+  const cfg = getDesktopConfig();
+  return garantirPerfis(
+    { labelProfiles: cfg.labelProfiles, labelProfileId: cfg.labelProfileId ?? null },
+    { labelFormat: cfg.labelFormat, labelCustomFormats: cfg.labelCustomFormats },
+  );
+}
+
+function gravarEstadoPerfis(estado: EstadoPerfis): void {
+  const cfg = getDesktopConfig();
+  setDesktopConfig({
+    ...cfg,
+    labelProfiles: estado.labelProfiles,
+    labelProfileId: estado.labelProfileId,
+  });
+}
+
+/** Lista os perfis de bobina cadastrados neste terminal. */
+export function getBobinaProfiles(): PerfilBobina[] {
+  return lerEstadoPerfis().labelProfiles;
+}
+
+/** Perfil de bobina em uso neste terminal (selecionado, com fallback pro padrão). */
+export function getActiveBobinaProfile(): PerfilBobina | null {
+  return obterAtivo(lerEstadoPerfis());
+}
+
+/** Troca qual perfil este terminal usa para imprimir etiquetas — sem alterar o perfil em si. */
+export function setActiveBobinaProfileId(id: string): void {
+  gravarEstadoPerfis(selecionarAtivoPuro(lerEstadoPerfis(), id));
+}
+
+/** Cria (quando `perfil.id` é novo) ou atualiza (quando já existe) um perfil de bobina. */
+export function saveBobinaProfile(perfil: PerfilBobina): void {
+  gravarEstadoPerfis(upsertPerfilPuro(lerEstadoPerfis(), perfil));
+}
+
+/** Duplica um perfil existente com um novo id/nome ("… (cópia)"). Retorna o novo perfil, ou `null` se o id não existir. */
+export function duplicateBobinaProfile(id: string): PerfilBobina | null {
+  const { estado, novo } = duplicarPerfilPuro(lerEstadoPerfis(), id);
+  if (novo) gravarEstadoPerfis(estado);
+  return novo;
+}
+
+/** Exclui um perfil. Recusa excluir o último perfil restante (sempre sobra ao menos um). */
+export function deleteBobinaProfile(id: string): { ok: boolean; mensagem?: string } {
+  const { estado, ok, mensagem } = removerPerfilPuro(lerEstadoPerfis(), id);
+  if (ok) gravarEstadoPerfis(estado);
+  return { ok, mensagem };
+}
+
+/** Define qual perfil é o padrão (exclusivo — remove a flag dos demais). */
+export function setDefaultBobinaProfile(id: string): void {
+  gravarEstadoPerfis(definirPadraoPerfil(lerEstadoPerfis(), id));
 }
 
 /** @deprecated use `getReceiptPrinter`. */

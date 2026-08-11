@@ -10,6 +10,7 @@ import {
   ChevronsUpDown,
   X,
   Tag as TagIcon,
+  Settings2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -28,16 +29,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Command,
   CommandEmpty,
@@ -54,52 +47,32 @@ import { isDesktop } from "@/integrations/data/mode";
 import {
   getLabelPrinter,
   setLabelPrinter,
-  getLabelFormat,
-  setLabelFormat,
-  getLabelCustomFormats,
-  addLabelCustomFormat,
-  printLabelImage,
+  getActiveBobinaProfile,
+  getBobinaProfiles,
+  getPrinterDpi,
+  printLabelSheet,
+  setActiveBobinaProfileId,
 } from "@/integrations/desktop/printers";
 import { subscribeDesktopConfig } from "@/integrations/desktop/configStore";
 import { PrinterPickerDialog } from "@/components/desktop/PrinterPickerDialog";
+import { BobinaProfileManagerDialog } from "@/components/configuracoes/BobinaProfileManagerDialog";
+import { formatarResumoPerfil, type PerfilBobina } from "@/lib/etiqueta-layout";
+import {
+  quebrarTexto,
+  renderizarFolhas,
+  type CelulaRenderContext,
+  type FolhaRenderizada,
+} from "@/lib/etiqueta-render";
 
 export const Route = createFileRoute("/etiquetas")({
   component: EtiquetasPage,
 });
 
 // ---------------------------------------------------------------------------
-// Tipos e presets de formato
+// Tipos
 // ---------------------------------------------------------------------------
 
 type TipoEtiqueta = "produto" | "prateleira" | "personalizada";
-
-interface FormatoInfo {
-  label: string;
-  w: number;
-  h: number;
-}
-
-const FORMATOS_BASE: Record<string, FormatoInfo> = {
-  "40x30": { label: "Pequena 40×30 mm", w: 40, h: 30 },
-  "50x30": { label: "Pequena 50×30 mm", w: 50, h: 30 },
-  "50x40": { label: "Média 50×40 mm", w: 50, h: 40 },
-  "60x40": { label: "Média 60×40 mm", w: 60, h: 40 },
-  "80x40": { label: "Grande 80×40 mm", w: 80, h: 40 },
-  "100x50": { label: "Gôndola 100×50 mm", w: 100, h: 50 },
-  "100x70": { label: "Gôndola 100×70 mm", w: 100, h: 70 },
-};
-
-function getFormatoInfo(formato: string): FormatoInfo {
-  const fixed = FORMATOS_BASE[formato];
-  if (fixed) return fixed;
-  const match = /^(\d{2,3})x(\d{2,3})$/i.exec(formato.trim());
-  if (match) {
-    const w = Number(match[1]);
-    const h = Number(match[2]);
-    return { label: `Personalizada ${w}×${h} mm`, w, h };
-  }
-  return FORMATOS_BASE["50x30"];
-}
 
 // ---------------------------------------------------------------------------
 // Configuração de etiqueta (independente do cadastro do produto)
@@ -120,7 +93,6 @@ interface EtiquetaConfig {
   mostrarObservacao: boolean;
   fontNomePct: number;
   fontPrecoPct: number;
-  formato: string;
   copias: number;
 }
 
@@ -139,7 +111,6 @@ const CONFIG_INICIAL: EtiquetaConfig = {
   mostrarObservacao: false,
   fontNomePct: 100,
   fontPrecoPct: 100,
-  formato: "50x30",
   copias: 1,
 };
 
@@ -151,72 +122,81 @@ function EtiquetasPage() {
   const desktop = isDesktop();
   const { data: produtos = [], isLoading: loadingProdutos } = useProdutos();
 
-  const [cfg, setCfg] = useState<EtiquetaConfig>(() => ({
-    ...CONFIG_INICIAL,
-    formato: getLabelFormat() || CONFIG_INICIAL.formato,
-  }));
+  const [cfg, setCfg] = useState<EtiquetaConfig>(CONFIG_INICIAL);
   const [labelPrinter, setLP] = useState<string | null>(getLabelPrinter());
-  const [customFormats, setCustomFormats] = useState<string[]>(
-    getLabelCustomFormats(),
+  const [perfis, setPerfis] = useState<PerfilBobina[]>(getBobinaProfiles());
+  const [perfilAtivoId, setPerfilAtivoId] = useState<string | null>(
+    getActiveBobinaProfile()?.id ?? null,
   );
+  const [dpiConsultado, setDpiConsultado] = useState<number | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [gerenciarPerfisAberto, setGerenciarPerfisAberto] = useState(false);
   const [imprimindo, setImprimindo] = useState(false);
   const [pickerProduto, setPickerProduto] = useState(false);
-  const [novaLargura, setNovaLargura] = useState("");
-  const [novaAltura, setNovaAltura] = useState("");
 
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
+  const perfilAtivo = perfis.find((p) => p.id === perfilAtivoId) ?? null;
+
   useEffect(() => {
-    return subscribeDesktopConfig((c) => {
-      setLP(c.labelPrinter ?? null);
-      setCustomFormats(
-        (c.labelCustomFormats ?? []).filter((v) =>
-          /^\d{2,3}x\d{2,3}$/i.test(v),
-        ),
-      );
+    return subscribeDesktopConfig(() => {
+      setLP(getLabelPrinter());
+      setPerfis(getBobinaProfiles());
+      setPerfilAtivoId(getActiveBobinaProfile()?.id ?? null);
     });
   }, []);
 
   useEffect(() => {
-    setLabelFormat(cfg.formato);
-  }, [cfg.formato]);
-
-  // Re-renderiza o preview sempre que algo muda.
-  useEffect(() => {
+    if (!labelPrinter) {
+      setDpiConsultado(null);
+      return;
+    }
     let cancelado = false;
-    void renderEtiqueta(cfg).then((png) => {
-      if (cancelado || !previewCanvasRef.current) return;
-      const img = new Image();
-      img.onload = () => {
-        if (cancelado || !previewCanvasRef.current) return;
-        const canvas = previewCanvasRef.current;
-        const fmt = getFormatoInfo(cfg.formato);
-        // 4 px por mm é suficiente para preview, mantendo respeito à proporção real.
-        const previewPxPerMm = 4;
-        canvas.width = Math.round(fmt.w * previewPxPerMm);
-        canvas.height = Math.round(fmt.h * previewPxPerMm);
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.imageSmoothingEnabled = true;
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      };
-      img.src = URL.createObjectURL(new Blob([png as BlobPart], { type: "image/png" }));
+    void getPrinterDpi(labelPrinter).then((dpi) => {
+      if (!cancelado) setDpiConsultado(dpi?.x ?? null);
     });
     return () => {
       cancelado = true;
     };
-  }, [cfg]);
+  }, [labelPrinter]);
 
-  const formatosDisponiveis = useMemo(() => {
-    const base = Object.entries(FORMATOS_BASE);
-    const extras = customFormats
-      .filter((v) => !FORMATOS_BASE[v])
-      .map((v) => [v, getFormatoInfo(v)] as const);
-    return [...base, ...extras];
-  }, [customFormats]);
+  // Re-renderiza o preview (1 linha real do perfil ativo) sempre que algo muda.
+  useEffect(() => {
+    const canvas = previewCanvasRef.current;
+    if (!canvas || !perfilAtivo) return;
+    let cancelado = false;
+    const itens = Array.from({ length: perfilAtivo.colunas }, () => cfg);
+    void renderizarFolhas({
+      perfil: perfilAtivo,
+      itens,
+      dpiConsultado,
+      desenharCelula: (contexto, item) =>
+        item ? desenharConteudoEtiqueta(contexto, item) : undefined,
+    })
+      .then((folhas) => {
+        if (cancelado || folhas.length === 0) return;
+        const primeira = folhas[0];
+        const img = new Image();
+        img.onload = () => {
+          if (cancelado) return;
+          const maxW = 360;
+          const escala = Math.min(1, maxW / primeira.larguraDots);
+          canvas.width = Math.max(1, Math.round(primeira.larguraDots * escala));
+          canvas.height = Math.max(1, Math.round(primeira.alturaDots * escala));
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.imageSmoothingEnabled = true;
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        };
+        img.src = URL.createObjectURL(new Blob([primeira.png as BlobPart], { type: "image/png" }));
+      })
+      .catch((e) => console.warn("[etiquetas] falha ao renderizar preview", e));
+    return () => {
+      cancelado = true;
+    };
+  }, [cfg, perfilAtivo, dpiConsultado]);
 
   function selecionarProduto(produtoId: string) {
     const p = produtos.find((x) => x.id === produtoId);
@@ -242,22 +222,6 @@ function EtiquetasPage() {
     }));
   }
 
-  function adicionarFormatoPersonalizado() {
-    const w = Number(novaLargura);
-    const h = Number(novaAltura);
-    if (!w || !h || w < 10 || h < 10 || w > 300 || h > 300) {
-      toast.error("Informe largura e altura entre 10 e 300 mm.");
-      return;
-    }
-    const key = `${w}x${h}`;
-    addLabelCustomFormat(key);
-    setCustomFormats((prev) => (prev.includes(key) ? prev : [...prev, key]));
-    setCfg((s) => ({ ...s, formato: key }));
-    setNovaLargura("");
-    setNovaAltura("");
-    toast.success(`Formato ${w}×${h} mm adicionado.`);
-  }
-
   async function imprimir() {
     if (!cfg.nome.trim() && !cfg.codigo.trim() && cfg.preco == null) {
       toast.error("Preencha pelo menos nome, preço ou código.");
@@ -267,29 +231,40 @@ function EtiquetasPage() {
       toast.error("Esta etiqueta usa código de barras — informe o código.");
       return;
     }
+    if (!perfilAtivo) {
+      toast.error("Nenhum perfil de bobina configurado.");
+      return;
+    }
     setImprimindo(true);
     try {
       if (desktop) {
         if (!labelPrinter) {
-          toast.error(
-            "Configure a impressora de etiquetas (Configurações → Impressoras).",
-          );
+          toast.error("Configure a impressora de etiquetas (Configurações → Impressoras).");
           setPickerOpen(true);
           return;
         }
-        const png = await renderEtiqueta(cfg);
-        await printLabelImage(png, labelPrinter, cfg.copias);
+        const itens = Array.from({ length: Math.max(1, cfg.copias) }, () => cfg);
+        const folhas = await renderizarFolhas({
+          perfil: perfilAtivo,
+          itens,
+          dpiConsultado,
+          desenharCelula: (contexto, item) =>
+            item ? desenharConteudoEtiqueta(contexto, item) : undefined,
+        });
+        await printLabelSheet(
+          folhas.map((f) => f.png),
+          labelPrinter,
+          1,
+        );
         toast.success(
           `Etiqueta enviada para "${labelPrinter}" (${cfg.copias} cópia${cfg.copias > 1 ? "s" : ""}).`,
         );
       } else {
-        await printViaBrowser(cfg);
+        await printViaBrowser(cfg, perfilAtivo);
       }
     } catch (e) {
       console.error("[etiquetas] falha ao imprimir", e);
-      toast.error(
-        "Não foi possível imprimir. Verifique a impressora e tente novamente.",
-      );
+      toast.error("Não foi possível imprimir. Verifique a impressora e tente novamente.");
     } finally {
       setImprimindo(false);
     }
@@ -354,16 +329,10 @@ function EtiquetasPage() {
               <CardContent>
                 <Popover open={pickerProduto} onOpenChange={setPickerProduto}>
                   <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      role="combobox"
-                      className="w-full justify-between"
-                    >
+                    <Button variant="outline" role="combobox" className="w-full justify-between">
                       <span className="flex items-center gap-2 truncate">
                         <Search className="h-4 w-4 text-muted-foreground" />
-                        {cfg.nome
-                          ? cfg.nome
-                          : "Pesquisar por nome, SKU ou código…"}
+                        {cfg.nome ? cfg.nome : "Pesquisar por nome, SKU ou código…"}
                       </span>
                       <ChevronsUpDown className="h-4 w-4 opacity-50" />
                     </Button>
@@ -385,29 +354,20 @@ function EtiquetasPage() {
                               <Check
                                 className={cn(
                                   "mr-2 h-4 w-4",
-                                  cfg.nome === p.nome
-                                    ? "opacity-100"
-                                    : "opacity-0",
+                                  cfg.nome === p.nome ? "opacity-100" : "opacity-0",
                                 )}
                               />
                               <div className="flex flex-1 items-center justify-between gap-2 overflow-hidden">
                                 <div className="min-w-0">
-                                  <div className="truncate text-sm">
-                                    {p.nome}
-                                  </div>
+                                  <div className="truncate text-sm">{p.nome}</div>
                                   <div className="truncate text-[11px] text-muted-foreground">
                                     {p.sku ?? "—"}
-                                    {p.codigo_barras
-                                      ? ` · ${p.codigo_barras}`
-                                      : ""}
+                                    {p.codigo_barras ? ` · ${p.codigo_barras}` : ""}
                                   </div>
                                 </div>
                                 {p.preco_venda != null && (
                                   <Badge variant="secondary" className="shrink-0">
-                                    R${" "}
-                                    {Number(p.preco_venda)
-                                      .toFixed(2)
-                                      .replace(".", ",")}
+                                    R$ {Number(p.preco_venda).toFixed(2).replace(".", ",")}
                                   </Badge>
                                 )}
                               </div>
@@ -419,8 +379,8 @@ function EtiquetasPage() {
                   </PopoverContent>
                 </Popover>
                 <p className="mt-2 text-[11px] text-muted-foreground">
-                  Os dados ficam editáveis abaixo. Alterações aqui{" "}
-                  <strong>não</strong> afetam o cadastro do produto.
+                  Os dados ficam editáveis abaixo. Alterações aqui <strong>não</strong> afetam o
+                  cadastro do produto.
                 </p>
               </CardContent>
             </Card>
@@ -437,9 +397,7 @@ function EtiquetasPage() {
                   <Input
                     id="etq-nome"
                     value={cfg.nome}
-                    onChange={(e) =>
-                      setCfg((s) => ({ ...s, nome: e.target.value }))
-                    }
+                    onChange={(e) => setCfg((s) => ({ ...s, nome: e.target.value }))}
                     placeholder="Nome do produto ou texto principal"
                   />
                 </div>
@@ -454,8 +412,7 @@ function EtiquetasPage() {
                     onChange={(e) =>
                       setCfg((s) => ({
                         ...s,
-                        preco:
-                          e.target.value === "" ? null : Number(e.target.value),
+                        preco: e.target.value === "" ? null : Number(e.target.value),
                       }))
                     }
                     placeholder="0,00"
@@ -466,9 +423,7 @@ function EtiquetasPage() {
                   <Input
                     id="etq-unidade"
                     value={cfg.unidade}
-                    onChange={(e) =>
-                      setCfg((s) => ({ ...s, unidade: e.target.value }))
-                    }
+                    onChange={(e) => setCfg((s) => ({ ...s, unidade: e.target.value }))}
                     placeholder="UN, KG, L…"
                   />
                 </div>
@@ -478,9 +433,7 @@ function EtiquetasPage() {
                     <Input
                       id="etq-codigo"
                       value={cfg.codigo}
-                      onChange={(e) =>
-                        setCfg((s) => ({ ...s, codigo: e.target.value }))
-                      }
+                      onChange={(e) => setCfg((s) => ({ ...s, codigo: e.target.value }))}
                       placeholder="EAN-13 ou CODE-128"
                     />
                   </div>
@@ -491,9 +444,7 @@ function EtiquetasPage() {
                     id="etq-obs"
                     rows={2}
                     value={cfg.observacao}
-                    onChange={(e) =>
-                      setCfg((s) => ({ ...s, observacao: e.target.value }))
-                    }
+                    onChange={(e) => setCfg((s) => ({ ...s, observacao: e.target.value }))}
                     placeholder='Ex.: "Promoção", "Validade 30 dias", "Embalagem 500g"'
                   />
                 </div>
@@ -503,27 +454,21 @@ function EtiquetasPage() {
                 <label className="flex items-center gap-2 text-sm">
                   <Checkbox
                     checked={cfg.mostrarNome}
-                    onCheckedChange={(v) =>
-                      setCfg((s) => ({ ...s, mostrarNome: Boolean(v) }))
-                    }
+                    onCheckedChange={(v) => setCfg((s) => ({ ...s, mostrarNome: Boolean(v) }))}
                   />
                   Mostrar nome
                 </label>
                 <label className="flex items-center gap-2 text-sm">
                   <Checkbox
                     checked={cfg.mostrarPreco}
-                    onCheckedChange={(v) =>
-                      setCfg((s) => ({ ...s, mostrarPreco: Boolean(v) }))
-                    }
+                    onCheckedChange={(v) => setCfg((s) => ({ ...s, mostrarPreco: Boolean(v) }))}
                   />
                   Mostrar preço
                 </label>
                 <label className="flex items-center gap-2 text-sm">
                   <Checkbox
                     checked={cfg.mostrarUnidade}
-                    onCheckedChange={(v) =>
-                      setCfg((s) => ({ ...s, mostrarUnidade: Boolean(v) }))
-                    }
+                    onCheckedChange={(v) => setCfg((s) => ({ ...s, mostrarUnidade: Boolean(v) }))}
                   />
                   Mostrar unidade
                 </label>
@@ -537,32 +482,22 @@ function EtiquetasPage() {
                   Mostrar observação
                 </label>
                 <label
-                  className={cn(
-                    "flex items-center gap-2 text-sm",
-                    ehPrateleira && "opacity-50",
-                  )}
+                  className={cn("flex items-center gap-2 text-sm", ehPrateleira && "opacity-50")}
                 >
                   <Checkbox
                     disabled={ehPrateleira}
                     checked={cfg.mostrarCodigo}
-                    onCheckedChange={(v) =>
-                      setCfg((s) => ({ ...s, mostrarCodigo: Boolean(v) }))
-                    }
+                    onCheckedChange={(v) => setCfg((s) => ({ ...s, mostrarCodigo: Boolean(v) }))}
                   />
                   Mostrar código de barras
                 </label>
                 <label
-                  className={cn(
-                    "flex items-center gap-2 text-sm",
-                    ehPrateleira && "opacity-50",
-                  )}
+                  className={cn("flex items-center gap-2 text-sm", ehPrateleira && "opacity-50")}
                 >
                   <Checkbox
                     disabled={ehPrateleira}
                     checked={cfg.mostrarQr}
-                    onCheckedChange={(v) =>
-                      setCfg((s) => ({ ...s, mostrarQr: Boolean(v) }))
-                    }
+                    onCheckedChange={(v) => setCfg((s) => ({ ...s, mostrarQr: Boolean(v) }))}
                   />
                   Mostrar QR Code
                 </label>
@@ -572,29 +507,42 @@ function EtiquetasPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Formato e impressão</CardTitle>
+              <CardTitle className="text-base">Perfil de bobina e impressão</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <div className="space-y-1.5 md:col-span-2">
-                  <Label>Tamanho da etiqueta</Label>
-                  <Select
-                    value={cfg.formato}
-                    onValueChange={(v) =>
-                      setCfg((s) => ({ ...s, formato: v }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {formatosDisponiveis.map(([k, f]) => (
-                        <SelectItem key={k} value={k}>
-                          {f.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label>Perfil de bobina</Label>
+                  <div className="flex gap-1.5">
+                    <Select
+                      value={perfilAtivoId ?? undefined}
+                      onValueChange={(v) => {
+                        setActiveBobinaProfileId(v);
+                        setPerfilAtivoId(v);
+                      }}
+                    >
+                      <SelectTrigger className="flex-1">
+                        <SelectValue placeholder="Selecione um perfil" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {perfis.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.nome} — {formatarResumoPerfil(p)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className="shrink-0"
+                      onClick={() => setGerenciarPerfisAberto(true)}
+                      title="Gerenciar perfis de bobina"
+                    >
+                      <Settings2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Cópias</Label>
@@ -606,17 +554,14 @@ function EtiquetasPage() {
                     onChange={(e) =>
                       setCfg((s) => ({
                         ...s,
-                        copias: Math.max(
-                          1,
-                          Math.min(500, Number(e.target.value) || 1),
-                        ),
+                        copias: Math.max(1, Math.min(500, Number(e.target.value) || 1)),
                       }))
                     }
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label>Tamanho fonte do nome (%)</Label>
                   <Input
@@ -627,10 +572,7 @@ function EtiquetasPage() {
                     onChange={(e) =>
                       setCfg((s) => ({
                         ...s,
-                        fontNomePct: Math.max(
-                          50,
-                          Math.min(200, Number(e.target.value) || 100),
-                        ),
+                        fontNomePct: Math.max(50, Math.min(200, Number(e.target.value) || 100)),
                       }))
                     }
                   />
@@ -645,39 +587,10 @@ function EtiquetasPage() {
                     onChange={(e) =>
                       setCfg((s) => ({
                         ...s,
-                        fontPrecoPct: Math.max(
-                          50,
-                          Math.min(200, Number(e.target.value) || 100),
-                        ),
+                        fontPrecoPct: Math.max(50, Math.min(200, Number(e.target.value) || 100)),
                       }))
                     }
                   />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-muted-foreground">
-                    Adicionar tamanho personalizado
-                  </Label>
-                  <div className="flex gap-1.5">
-                    <Input
-                      type="number"
-                      placeholder="L"
-                      value={novaLargura}
-                      onChange={(e) => setNovaLargura(e.target.value)}
-                    />
-                    <Input
-                      type="number"
-                      placeholder="A"
-                      value={novaAltura}
-                      onChange={(e) => setNovaAltura(e.target.value)}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={adicionarFormatoPersonalizado}
-                    >
-                      +
-                    </Button>
-                  </div>
                 </div>
               </div>
 
@@ -691,17 +604,11 @@ function EtiquetasPage() {
                       {labelPrinter ? (
                         <span className="font-medium">{labelPrinter}</span>
                       ) : (
-                        <span className="text-muted-foreground">
-                          Nenhuma configurada
-                        </span>
+                        <span className="text-muted-foreground">Nenhuma configurada</span>
                       )}
                     </div>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setPickerOpen(true)}
-                  >
+                  <Button size="sm" variant="outline" onClick={() => setPickerOpen(true)}>
                     {labelPrinter ? "Trocar" : "Escolher"}
                   </Button>
                 </div>
@@ -728,19 +635,25 @@ function EtiquetasPage() {
                   />
                 </div>
                 <div className="text-[11px] text-muted-foreground">
-                  Tamanho real:{" "}
-                  <strong>
-                    {getFormatoInfo(cfg.formato).w} ×{" "}
-                    {getFormatoInfo(cfg.formato).h} mm
-                  </strong>{" "}
-                  · {cfg.copias} cópia{cfg.copias > 1 ? "s" : ""}
+                  {perfilAtivo ? (
+                    <>
+                      Tamanho real:{" "}
+                      <strong>
+                        {perfilAtivo.larguraEtiquetaMm} × {perfilAtivo.alturaEtiquetaMm} mm
+                      </strong>{" "}
+                      · {perfilAtivo.colunas} coluna{perfilAtivo.colunas > 1 ? "s" : ""} ·{" "}
+                      {cfg.copias} cópia{cfg.copias > 1 ? "s" : ""}
+                    </>
+                  ) : (
+                    "Nenhum perfil de bobina configurado."
+                  )}
                 </div>
               </div>
 
               <Button
                 className="w-full gap-2"
                 onClick={() => void imprimir()}
-                disabled={imprimindo}
+                disabled={imprimindo || !perfilAtivo}
               >
                 {imprimindo ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -751,8 +664,7 @@ function EtiquetasPage() {
               </Button>
               {!desktop && (
                 <p className="text-center text-[11px] text-muted-foreground">
-                  Sem desktop instalado: a impressão usa o diálogo padrão do
-                  navegador.
+                  Sem desktop instalado: a impressão usa o diálogo padrão do navegador.
                 </p>
               )}
             </CardContent>
@@ -769,12 +681,23 @@ function EtiquetasPage() {
           toast.success(`Impressora de etiquetas "${name}" salva.`);
         }}
       />
+      <BobinaProfileManagerDialog
+        open={gerenciarPerfisAberto}
+        onOpenChange={setGerenciarPerfisAberto}
+        printerName={labelPrinter}
+        onChanged={() => {
+          setPerfis(getBobinaProfiles());
+          setPerfilAtivoId(getActiveBobinaProfile()?.id ?? null);
+        }}
+      />
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Renderização da etiqueta (canvas → PNG bytes)
+// Renderização da etiqueta — desenha DENTRO da célula fornecida pelo motor
+// de layout central (`@/lib/etiqueta-render`). Mesma função para preview e
+// impressão real.
 //
 // Layout responsivo ao tipo:
 //   - produto: nome (topo) → barcode/QR (centro) → preço (base)
@@ -782,39 +705,33 @@ function EtiquetasPage() {
 //   - personalizada: usa toggles do usuário
 // ---------------------------------------------------------------------------
 
-async function renderEtiqueta(cfg: EtiquetaConfig): Promise<Uint8Array> {
-  const fmt = getFormatoInfo(cfg.formato);
-  const DPI = fmt.w >= 80 ? 300 : 600;
-  const PX_PER_MM = DPI / 25.4;
-  const W = Math.round(fmt.w * PX_PER_MM);
-  const H = Math.round(fmt.h * PX_PER_MM);
-
-  const canvas = document.createElement("canvas");
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Canvas 2D indisponível");
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = "#000000";
-  ctx.imageSmoothingEnabled = false;
-
-  const mm = (v: number) => v * PX_PER_MM;
-  const minSide = Math.min(fmt.w, fmt.h);
+async function desenharConteudoEtiqueta(
+  contexto: CelulaRenderContext,
+  cfg: EtiquetaConfig,
+): Promise<void> {
+  const {
+    ctx,
+    xDots: originX,
+    yDots: originY,
+    larguraDots: W,
+    alturaDots: H,
+    dpi,
+    celula,
+  } = contexto;
+  const mm = (v: number) => (v / 25.4) * dpi;
+  const minSide = Math.min(celula.larguraMm, celula.alturaMm);
   const padX = mm(Math.max(1, Math.min(2.2, minSide * 0.06)));
   const padY = mm(Math.max(0.8, Math.min(1.8, minSide * 0.05)));
   const innerW = W - padX * 2;
   const innerH = H - padY * 2;
+  const cx = originX + W / 2;
 
   const showNome = cfg.mostrarNome && !!cfg.nome.trim();
   const showPreco = cfg.mostrarPreco && cfg.preco != null;
   const showObs = cfg.mostrarObservacao && !!cfg.observacao.trim();
   const showUnid = cfg.mostrarUnidade && !!cfg.unidade.trim();
-  const showBarcode =
-    cfg.tipo !== "prateleira" && cfg.mostrarCodigo && !!cfg.codigo.trim();
-  const showQr =
-    cfg.tipo !== "prateleira" && cfg.mostrarQr && !!cfg.codigo.trim();
-
+  const showBarcode = cfg.tipo !== "prateleira" && cfg.mostrarCodigo && !!cfg.codigo.trim();
+  const showQr = cfg.tipo !== "prateleira" && cfg.mostrarQr && !!cfg.codigo.trim();
   const ehPrateleira = cfg.tipo === "prateleira";
 
   // ---------- modo prateleira / gôndola (preço dominante) ----------
@@ -826,7 +743,7 @@ async function renderEtiqueta(cfg: EtiquetaConfig): Promise<Uint8Array> {
     const unidBaseH = showUnid ? innerH * 0.1 : 0;
     const precoH = innerH - nomeBaseH - obsBaseH - unidBaseH;
 
-    let y = padY;
+    let y = originY + padY;
 
     if (showNome) {
       const nomeFont = fontPx(nomeBaseH * 0.7, cfg.fontNomePct);
@@ -841,25 +758,19 @@ async function renderEtiqueta(cfg: EtiquetaConfig): Promise<Uint8Array> {
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       quebra.lines.forEach((ln, i) => {
-        ctx.fillText(
-          ln,
-          W / 2,
-          y + i * quebra.fontPx * 1.05,
-          innerW,
-        );
+        ctx.fillText(ln, cx, y + i * quebra.fontPx * 1.05, innerW);
       });
       y += nomeBaseH;
     }
 
     if (showPreco) {
-      // Preço ocupa o coração da etiqueta de gôndola.
       const precoFont = fontPx(precoH * 0.78, cfg.fontPrecoPct);
       ctx.font = `900 ${Math.round(precoFont)}px Arial, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(
         `R$ ${Number(cfg.preco).toFixed(2).replace(".", ",")}`,
-        W / 2,
+        cx,
         y + precoH / 2,
         innerW,
       );
@@ -871,7 +782,7 @@ async function renderEtiqueta(cfg: EtiquetaConfig): Promise<Uint8Array> {
       ctx.font = `bold ${Math.round(unidFont)}px Arial, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(`/ ${cfg.unidade}`, W / 2, y + unidBaseH / 2, innerW);
+      ctx.fillText(`/ ${cfg.unidade}`, cx, y + unidBaseH / 2, innerW);
       y += unidBaseH;
     }
 
@@ -880,19 +791,17 @@ async function renderEtiqueta(cfg: EtiquetaConfig): Promise<Uint8Array> {
       ctx.font = `italic ${Math.round(obsFont)}px Arial, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(cfg.observacao, W / 2, y + obsBaseH / 2, innerW);
+      ctx.fillText(cfg.observacao, cx, y + obsBaseH / 2, innerW);
     }
-
-    return await toPng(canvas);
+    return;
   }
 
   // ---------- modo produto / personalizada ----------
 
-  // Caso especial: só o nome está visível -> centraliza ocupando todo o espaço
-  // útil da etiqueta (horizontal + vertical), com várias linhas e fonte maior.
+  // Caso especial: só o nome está visível -> centraliza ocupando todo o
+  // espaço útil da célula (horizontal + vertical), com várias linhas.
   if (showNome && !showPreco && !showBarcode && !showQr && !showObs && !showUnid) {
-    const baseFont = Math.max(mm(3), Math.min(mm(12), innerH * 0.45)) *
-      (cfg.fontNomePct / 100);
+    const baseFont = Math.max(mm(3), Math.min(mm(12), innerH * 0.45)) * (cfg.fontNomePct / 100);
     const quebra = quebrarTexto(
       ctx,
       cfg.nome,
@@ -905,11 +814,11 @@ async function renderEtiqueta(cfg: EtiquetaConfig): Promise<Uint8Array> {
     ctx.textBaseline = "middle";
     const lineH = quebra.fontPx * 1.1;
     const totalH = lineH * quebra.lines.length;
-    const startY = padY + (innerH - totalH) / 2 + lineH / 2;
+    const startY = originY + padY + (innerH - totalH) / 2 + lineH / 2;
     quebra.lines.forEach((ln, i) => {
-      ctx.fillText(ln, W / 2, startY + i * lineH, innerW);
+      ctx.fillText(ln, cx, startY + i * lineH, innerW);
     });
-    return await toPng(canvas);
+    return;
   }
 
   const nomeAreaH = showNome ? innerH * 0.18 : 0;
@@ -917,7 +826,7 @@ async function renderEtiqueta(cfg: EtiquetaConfig): Promise<Uint8Array> {
   const obsAreaH = showObs ? innerH * 0.1 : 0;
   const centroH = innerH - nomeAreaH - precoAreaH - obsAreaH;
 
-  let y = padY;
+  let y = originY + padY;
 
   if (showNome) {
     const nomeFont = Math.max(
@@ -934,7 +843,7 @@ async function renderEtiqueta(cfg: EtiquetaConfig): Promise<Uint8Array> {
     ctx.font = `bold ${quebra.fontPx}px Arial, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
-    ctx.fillText(quebra.lines[0] ?? "", W / 2, y, innerW);
+    ctx.fillText(quebra.lines[0] ?? "", cx, y, innerW);
     y += nomeAreaH;
   }
 
@@ -948,7 +857,7 @@ async function renderEtiqueta(cfg: EtiquetaConfig): Promise<Uint8Array> {
       try {
         await QRCode.toCanvas(qrCanvas, cfg.codigo, {
           margin: 0,
-          width: Math.round(qrSize),
+          width: Math.max(1, Math.round(qrSize)),
           color: { dark: "#000000", light: "#ffffff" },
         });
       } catch {
@@ -980,13 +889,10 @@ async function renderEtiqueta(cfg: EtiquetaConfig): Promise<Uint8Array> {
         /* ignora */
       }
       if (bcCanvas.width > 0) {
-        const scale = Math.min(
-          bcAreaW / bcCanvas.width,
-          centroH / bcCanvas.height,
-        );
+        const scale = Math.min(bcAreaW / bcCanvas.width, centroH / bcCanvas.height);
         const dw = Math.floor(bcCanvas.width * scale);
         const dh = Math.floor(bcCanvas.height * scale);
-        const areaX = qrCanvas ? padX : padX + (innerW - bcAreaW) / 2;
+        const areaX = qrCanvas ? originX + padX : originX + padX + (innerW - bcAreaW) / 2;
         const dx = Math.round(areaX + (bcAreaW - dw) / 2);
         const dy = Math.round(y + (centroH - dh) / 2);
         ctx.drawImage(bcCanvas, dx, dy, dw, dh);
@@ -994,7 +900,7 @@ async function renderEtiqueta(cfg: EtiquetaConfig): Promise<Uint8Array> {
     }
 
     if (qrCanvas) {
-      const qx = showBarcode ? W - padX - qrSize : padX + (innerW - qrSize) / 2;
+      const qx = showBarcode ? originX + W - padX - qrSize : originX + padX + (innerW - qrSize) / 2;
       const qy = y + Math.max(0, (centroH - qrSize) / 2);
       ctx.drawImage(qrCanvas, qx, qy, qrSize, qrSize);
     }
@@ -1004,7 +910,7 @@ async function renderEtiqueta(cfg: EtiquetaConfig): Promise<Uint8Array> {
     ctx.font = `bold ${Math.round(unidFont)}px Arial, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(cfg.unidade, W / 2, y + centroH / 2, innerW);
+    ctx.fillText(cfg.unidade, cx, y + centroH / 2, innerW);
   }
   y += centroH;
 
@@ -1019,7 +925,7 @@ async function renderEtiqueta(cfg: EtiquetaConfig): Promise<Uint8Array> {
     const txt =
       `R$ ${Number(cfg.preco).toFixed(2).replace(".", ",")}` +
       (showUnid && cfg.tipo === "personalizada" ? ` / ${cfg.unidade}` : "");
-    ctx.fillText(txt, W / 2, y + precoAreaH / 2, innerW);
+    ctx.fillText(txt, cx, y + precoAreaH / 2, innerW);
     y += precoAreaH;
   }
 
@@ -1028,92 +934,49 @@ async function renderEtiqueta(cfg: EtiquetaConfig): Promise<Uint8Array> {
     ctx.font = `italic ${Math.round(obsFont)}px Arial, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(cfg.observacao, W / 2, y + obsAreaH / 2, innerW);
+    ctx.fillText(cfg.observacao, cx, y + obsAreaH / 2, innerW);
   }
-
-  return await toPng(canvas);
-}
-
-async function toPng(canvas: HTMLCanvasElement): Promise<Uint8Array> {
-  const blob: Blob = await new Promise((resolve, reject) =>
-    canvas.toBlob(
-      (b) => (b ? resolve(b) : reject(new Error("toBlob retornou null"))),
-      "image/png",
-    ),
-  );
-  const buf = await blob.arrayBuffer();
-  return new Uint8Array(buf);
-}
-
-function quebrarTexto(
-  ctx: CanvasRenderingContext2D,
-  texto: string,
-  maxWidth: number,
-  fontCss: string,
-  maxLinhas: number,
-): { lines: string[]; fontPx: number } {
-  const match = /(\d+(?:\.\d+)?)px/.exec(fontCss);
-  let fontPx = match ? Number(match[1]) : 16;
-  const baseFamily = fontCss.replace(/\d+(?:\.\d+)?px/, "FX");
-
-  for (let tentativa = 0; tentativa < 6; tentativa++) {
-    ctx.font = baseFamily.replace("FX", `${Math.round(fontPx)}px`);
-    const palavras = texto.split(/\s+/).filter(Boolean);
-    const linhas: string[] = [];
-    let atual = "";
-    for (const p of palavras) {
-      const probe = atual ? `${atual} ${p}` : p;
-      if (ctx.measureText(probe).width <= maxWidth) {
-        atual = probe;
-      } else {
-        if (atual) linhas.push(atual);
-        atual = p;
-        if (linhas.length >= maxLinhas) break;
-      }
-    }
-    if (atual && linhas.length < maxLinhas) linhas.push(atual);
-
-    const couberam =
-      linhas.length > 0 &&
-      linhas.length <= maxLinhas &&
-      linhas.every((l) => ctx.measureText(l).width <= maxWidth);
-    if (couberam) return { lines: linhas, fontPx: Math.round(fontPx) };
-    fontPx *= 0.9;
-  }
-
-  ctx.font = baseFamily.replace("FX", `${Math.round(fontPx)}px`);
-  let s = texto;
-  while (s.length > 1 && ctx.measureText(`${s}…`).width > maxWidth) {
-    s = s.slice(0, -1);
-  }
-  return { lines: [s + "…"], fontPx: Math.round(fontPx) };
 }
 
 // ---------------------------------------------------------------------------
-// Fallback web: imprime via iframe usando PNG rasterizado.
+// Fallback web: imprime via iframe usando o PNG rasterizado (1 etiqueta por
+// página, repetida `copias` vezes) — pipeline de navegador, independente do
+// perfil de colunas usado na impressão térmica desktop.
 // ---------------------------------------------------------------------------
 
-async function printViaBrowser(cfg: EtiquetaConfig) {
-  const fmt = getFormatoInfo(cfg.formato);
-  const png = await renderEtiqueta(cfg);
-  const blobUrl = URL.createObjectURL(
-    new Blob([png as BlobPart], { type: "image/png" }),
-  );
+async function printViaBrowser(cfg: EtiquetaConfig, perfilAtivo: PerfilBobina) {
+  const perfilUnico: PerfilBobina = { ...perfilAtivo, colunas: 1 };
+  let folha: FolhaRenderizada;
+  try {
+    const folhas = await renderizarFolhas({
+      perfil: perfilUnico,
+      itens: [cfg],
+      desenharCelula: (contexto, item) =>
+        item ? desenharConteudoEtiqueta(contexto, item) : undefined,
+    });
+    folha = folhas[0];
+  } catch (e) {
+    console.error("[etiquetas] falha ao renderizar para impressão web", e);
+    toast.error("Não foi possível gerar a etiqueta para impressão.");
+    return;
+  }
+  if (!folha) return;
+
+  const blobUrl = URL.createObjectURL(new Blob([folha.png as BlobPart], { type: "image/png" }));
+  const wMm = perfilAtivo.larguraEtiquetaMm;
+  const hMm = perfilAtivo.alturaEtiquetaMm;
 
   const itens = Array.from({ length: cfg.copias })
-    .map(
-      () =>
-        `<div class="etq"><img src="${blobUrl}" alt="etiqueta" /></div>`,
-    )
+    .map(() => `<div class="etq"><img src="${blobUrl}" alt="etiqueta" /></div>`)
     .join("");
 
   const html = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Etiqueta</title>
 <style>
-  @page { size: ${fmt.w}mm ${fmt.h}mm; margin: 0; }
+  @page { size: ${wMm}mm ${hMm}mm; margin: 0; }
   *{box-sizing:border-box}
   html,body{margin:0;padding:0;background:#fff;color:#000}
-  .etq{width:${fmt.w}mm;height:${fmt.h}mm;display:flex;align-items:center;justify-content:center;page-break-after:always;}
+  .etq{width:${wMm}mm;height:${hMm}mm;display:flex;align-items:center;justify-content:center;page-break-after:always;}
   .etq img{width:100%;height:100%;object-fit:contain;}
 </style></head><body>${itens}</body></html>`;
 

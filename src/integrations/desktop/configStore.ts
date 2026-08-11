@@ -30,6 +30,7 @@ import {
   type TerminalConexaoConfig,
 } from "./types";
 import { isDesktop } from "@/integrations/data/mode";
+import { garantirPerfis } from "@/lib/etiqueta-perfis";
 
 const STORAGE_KEY = "gp.desktop.config.v1";
 const TAURI_STORE_FILE = "gp-desktop-config.json";
@@ -89,6 +90,17 @@ function normalizar(parsed: Partial<DesktopConfig> | null | undefined): DesktopC
   if (!base.machineId) {
     base.machineId = criarDesktopConfigInicial().machineId;
   }
+
+  // Garante que exista ao menos um perfil de bobina, migrando a partir do
+  // formato legado (labelFormat/labelCustomFormats) na primeira leitura.
+  // Idempotente — não mexe mais na lista uma vez que perfis já existem.
+  const perfis = garantirPerfis(
+    { labelProfiles: base.labelProfiles, labelProfileId: base.labelProfileId ?? null },
+    { labelFormat: base.labelFormat, labelCustomFormats: base.labelCustomFormats },
+  );
+  base.labelProfiles = perfis.labelProfiles;
+  base.labelProfileId = perfis.labelProfileId;
+
   if (base.role === "server") {
     const port = normalizePort(base.serverPort ?? base.terminal?.porta);
     const networkHost = base.networkHost ?? "";

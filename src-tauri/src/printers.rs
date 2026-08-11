@@ -38,6 +38,15 @@ pub struct ReceiptPrintResult {
     pub message: String,
 }
 
+/// DPI relatado pelo driver da impressora (via GDI `GetDeviceCaps`). Usado
+/// pelo modo "Automático" do perfil de bobina — genérico para qualquer
+/// driver Windows, sem hardcode de fabricante/modelo.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct PrinterDpi {
+    pub x: i32,
+    pub y: i32,
+}
+
 /// Heurística baseada em nome para identificar térmicas. Não é 100% mas
 /// cobre os modelos mais comuns no varejo brasileiro.
 pub fn detect_thermal(name: &str) -> bool {
@@ -559,6 +568,107 @@ pub fn print_image_png(
 }
 
 // ---------------------------------------------------------------------------
+// PRINT — FOLHA DE ETIQUETAS (múltiplas páginas = múltiplas linhas da bobina)
+// ---------------------------------------------------------------------------
+//
+// Generalização de `print_image_png`: em vez de repetir a MESMA imagem N
+// vezes, imprime uma sequência de imagens DISTINTAS (uma por linha da
+// bobina, já composta pelo motor de layout do frontend com todas as
+// colunas lado a lado) como páginas sucessivas de UM único job de
+// impressão. O avanço físico entre linhas continua sendo o próprio rolo
+// contínuo — aqui só decidimos o que desenhar em cada página.
+
+#[cfg(target_os = "windows")]
+pub fn print_image_pngs(
+    printer_name: &str,
+    doc_name: &str,
+    pngs: &[&[u8]],
+    copies: u32,
+) -> Result<String, String> {
+    eprintln!(
+        "[printers] print_image_pngs printer={} paginas={} copies={}",
+        printer_name,
+        pngs.len(),
+        copies
+    );
+    let mut paginas: Vec<(Vec<u8>, i32, i32)> = Vec::with_capacity(pngs.len());
+    for (idx, png_bytes) in pngs.iter().enumerate() {
+        let img = image::load_from_memory(png_bytes)
+            .map_err(|e| format!("Falha ao decodificar PNG da etiqueta (página {}): {e}", idx + 1))?;
+        let rgba = img.to_rgba8();
+        let (w, h) = rgba.dimensions();
+        let mut bgra = Vec::with_capacity((w * h * 4) as usize);
+        for px in rgba.pixels() {
+            bgra.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
+        }
+        paginas.push((bgra, w as i32, h as i32));
+    }
+    win_raw::gdi_print_bitmaps(printer_name, doc_name, &paginas, copies.max(1))?;
+    Ok(format!(
+        "Etiquetas enviadas para '{}' ({} página(s) x {} cópia(s))",
+        printer_name,
+        paginas.len(),
+        copies.max(1)
+    ))
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn print_image_pngs(
+    printer_name: &str,
+    _doc_name: &str,
+    pngs: &[&[u8]],
+    copies: u32,
+) -> Result<String, String> {
+    // CUPS não tem conceito nativo de "páginas heterogêneas em um job" via
+    // `lp` simples: imprime cada linha como um arquivo próprio, respeitando
+    // a ordem e repetindo a sequência inteira `copies` vezes.
+    eprintln!(
+        "[printers] print_image_pngs (cups) printer={} paginas={} copies={}",
+        printer_name,
+        pngs.len(),
+        copies
+    );
+    for _ in 0..copies.max(1) {
+        for (idx, png_bytes) in pngs.iter().enumerate() {
+            let mut path = std::env::temp_dir();
+            path.push(format!(
+                "gestao-pro-etiqueta-{}-{}.png",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or(0),
+                idx
+            ));
+            std::fs::write(&path, png_bytes).map_err(|e| format!("temp png: {e}"))?;
+            let out = Command::new("lp")
+                .args(["-d", printer_name, path.to_string_lossy().as_ref()])
+                .output()
+                .map_err(|e| format!("lp indisponível: {e}"))?;
+            if !out.status.success() {
+                return Err(format!(
+                    "Falha lp: {}",
+                    String::from_utf8_lossy(&out.stderr)
+                ));
+            }
+        }
+    }
+    Ok(format!("Etiquetas enviadas para '{}'", printer_name))
+}
+
+/// Consulta o DPI relatado pelo driver (WinAPI `GetDeviceCaps`). Fallback
+/// conservador em plataformas sem GDI (203 dpi — resolução térmica mais
+/// comum) para o modo "Automático" do perfil de bobina continuar funcional.
+#[cfg(target_os = "windows")]
+pub fn query_printer_dpi(printer_name: &str) -> Result<PrinterDpi, String> {
+    win_raw::query_printer_dpi(printer_name)
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn query_printer_dpi(_printer_name: &str) -> Result<PrinterDpi, String> {
+    Ok(PrinterDpi { x: 203, y: 203 })
+}
+
+// ---------------------------------------------------------------------------
 // ESC/POS — construtor de cupom de texto
 // ---------------------------------------------------------------------------
 //
@@ -703,7 +813,7 @@ pub fn write_temp_pdf(bytes: &[u8]) -> Result<String, String> {
 
 #[cfg(target_os = "windows")]
 mod win_raw {
-    use super::{detect_thermal, escpos_support, layout_receipt_lines, PrinterInfo};
+    use super::{detect_thermal, escpos_support, layout_receipt_lines, PrinterDpi, PrinterInfo};
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
     use std::{ptr, slice};
@@ -716,8 +826,8 @@ mod win_raw {
         GetTextMetricsW, SelectObject, SetBkMode, StartDocW, StartPage, StretchDIBits, TextOutW,
         BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET,
         DEFAULT_QUALITY, DIB_RGB_COLORS, DOCINFOW, FF_MODERN, FIXED_PITCH, FW_NORMAL, HORZRES,
-        LOGPIXELSX, OUT_DEFAULT_PRECIS, PHYSICALHEIGHT, PHYSICALOFFSETX, PHYSICALOFFSETY,
-        PHYSICALWIDTH, SRCCOPY, TEXTMETRICW, TRANSPARENT, VERTRES,
+        LOGPIXELSX, LOGPIXELSY, OUT_DEFAULT_PRECIS, PHYSICALHEIGHT, PHYSICALOFFSETX,
+        PHYSICALOFFSETY, PHYSICALWIDTH, SRCCOPY, TEXTMETRICW, TRANSPARENT, VERTRES,
     };
     use winapi::um::winnt::HANDLE;
     use winapi::um::winspool::{
@@ -1170,6 +1280,168 @@ mod win_raw {
                     let e = std::io::Error::last_os_error();
                     err = Some(format!("EndPage cópia {n} falhou: {e}"));
                     break;
+                }
+            }
+
+            EndDoc(hdc);
+            DeleteDC(hdc);
+
+            if let Some(e) = err {
+                return Err(e);
+            }
+        }
+        Ok(())
+    }
+
+    /// Consulta o DPI horizontal/vertical relatado pelo driver para esta
+    /// impressora, sem imprimir nada (`CreateDC` + `GetDeviceCaps` +
+    /// `DeleteDC`). Mesma técnica já usada em `gdi_print_receipt_text` — só
+    /// que aqui é só leitura, reaproveitada pelo modo "Automático" do perfil
+    /// de bobina.
+    pub fn query_printer_dpi(printer: &str) -> Result<PrinterDpi, String> {
+        unsafe {
+            let driver = to_wide("WINSPOOL");
+            let printer_w = to_wide(printer);
+            let hdc = CreateDCW(
+                driver.as_ptr(),
+                printer_w.as_ptr(),
+                ptr::null(),
+                ptr::null(),
+            );
+            if hdc.is_null() {
+                return Err(format!(
+                    "CreateDC('{}') falhou: {}",
+                    printer,
+                    std::io::Error::last_os_error()
+                ));
+            }
+            let dpi_x = GetDeviceCaps(hdc, LOGPIXELSX).max(1);
+            let dpi_y = GetDeviceCaps(hdc, LOGPIXELSY).max(1);
+            DeleteDC(hdc);
+            Ok(PrinterDpi { x: dpi_x, y: dpi_y })
+        }
+    }
+
+    /// Imprime uma SEQUÊNCIA de bitmaps BGRA distintos como páginas
+    /// sucessivas de UM job de impressão (`StartDoc`/`EndDoc` únicos),
+    /// repetindo a sequência inteira `copies` vezes. Generalização de
+    /// `gdi_print_bitmap`: em vez de repetir sempre a mesma imagem, cada
+    /// página pode ter conteúdo diferente — é o que permite uma "linha" da
+    /// bobina com N colunas (produtos diferentes lado a lado) por página.
+    pub fn gdi_print_bitmaps(
+        printer: &str,
+        doc_name: &str,
+        pages: &[(Vec<u8>, i32, i32)],
+        copies: u32,
+    ) -> Result<(), String> {
+        if pages.is_empty() {
+            return Err("nenhuma página de etiqueta para imprimir".into());
+        }
+        for (bgra, width, height) in pages {
+            if *width <= 0 || *height <= 0 {
+                return Err("bitmap inválido (dimensão zero)".into());
+            }
+            if bgra.len() != (*width as usize) * (*height as usize) * 4 {
+                return Err(format!(
+                    "bitmap inconsistente: {} bytes para {}x{}",
+                    bgra.len(),
+                    width,
+                    height
+                ));
+            }
+        }
+        unsafe {
+            let driver = to_wide("WINSPOOL");
+            let printer_w = to_wide(printer);
+            let hdc: HDC = CreateDCW(
+                driver.as_ptr(),
+                printer_w.as_ptr(),
+                ptr::null(),
+                ptr::null(),
+            );
+            if hdc.is_null() {
+                let e = std::io::Error::last_os_error();
+                return Err(format!("CreateDC('{printer}') falhou: {e}"));
+            }
+
+            let page_w = GetDeviceCaps(hdc, HORZRES);
+            let page_h = GetDeviceCaps(hdc, VERTRES);
+
+            let doc_name_w = to_wide(doc_name);
+            let mut di: DOCINFOW = std::mem::zeroed();
+            di.cbSize = std::mem::size_of::<DOCINFOW>() as i32;
+            di.lpszDocName = doc_name_w.as_ptr();
+
+            if StartDocW(hdc, &di) <= 0 {
+                let e = std::io::Error::last_os_error();
+                DeleteDC(hdc);
+                return Err(format!("StartDoc falhou: {e}"));
+            }
+
+            eprintln!(
+                "[printers] GDI etiquetas printer='{}' paginas={} copies={} page={}x{}",
+                printer,
+                pages.len(),
+                copies,
+                page_w,
+                page_h
+            );
+
+            let mut err: Option<String> = None;
+            'copias: for copia in 0..copies.max(1) {
+                for (indice, (bgra, width, height)) in pages.iter().enumerate() {
+                    let scale = f64::min(page_w as f64 / *width as f64, page_h as f64 / *height as f64);
+                    let draw_w = ((*width as f64) * scale).round() as i32;
+                    let draw_h = ((*height as f64) * scale).round() as i32;
+                    let draw_x = ((page_w - draw_w) / 2).max(0);
+                    let draw_y = ((page_h - draw_h) / 2).max(0);
+
+                    if StartPage(hdc) <= 0 {
+                        let e = std::io::Error::last_os_error();
+                        err = Some(format!(
+                            "StartPage (cópia {copia}, página {indice}) falhou: {e}"
+                        ));
+                        break 'copias;
+                    }
+
+                    let mut bmi: BITMAPINFO = std::mem::zeroed();
+                    bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+                    bmi.bmiHeader.biWidth = *width;
+                    bmi.bmiHeader.biHeight = -*height;
+                    bmi.bmiHeader.biPlanes = 1;
+                    bmi.bmiHeader.biBitCount = 32;
+                    bmi.bmiHeader.biCompression = BI_RGB;
+
+                    let r = StretchDIBits(
+                        hdc,
+                        draw_x,
+                        draw_y,
+                        draw_w,
+                        draw_h,
+                        0,
+                        0,
+                        *width,
+                        *height,
+                        bgra.as_ptr() as *const _,
+                        &bmi,
+                        DIB_RGB_COLORS,
+                        SRCCOPY,
+                    );
+                    if r == 0 {
+                        let e = std::io::Error::last_os_error();
+                        EndPage(hdc);
+                        err = Some(format!(
+                            "StretchDIBits (cópia {copia}, página {indice}) falhou: {e}"
+                        ));
+                        break 'copias;
+                    }
+                    if EndPage(hdc) <= 0 {
+                        let e = std::io::Error::last_os_error();
+                        err = Some(format!(
+                            "EndPage (cópia {copia}, página {indice}) falhou: {e}"
+                        ));
+                        break 'copias;
+                    }
                 }
             }
 

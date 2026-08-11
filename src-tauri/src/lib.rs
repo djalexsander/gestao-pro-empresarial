@@ -511,6 +511,33 @@ fn print_label_image(
     )
 }
 
+/// Imprime uma FOLHA de etiquetas: cada item de `pages` é uma linha da
+/// bobina (já composta pelo motor de layout do frontend com todas as
+/// colunas lado a lado), enviada como página própria de UM único job —
+/// pipeline central para qualquer perfil de bobina (1, 2, 3+ colunas).
+#[tauri::command]
+fn print_label_sheet(
+    pages: Vec<Vec<u8>>,
+    printer_name: String,
+    copies: Option<u32>,
+) -> Result<String, String> {
+    let refs: Vec<&[u8]> = pages.iter().map(|p| p.as_slice()).collect();
+    printers::print_image_pngs(
+        &printer_name,
+        "Gestao Pro Etiquetas",
+        &refs,
+        copies.unwrap_or(1),
+    )
+}
+
+/// Consulta o DPI relatado pelo driver desta impressora — usado pelo modo
+/// "Automático" do perfil de bobina. Genérico: qualquer driver Windows,
+/// sem hardcode de fabricante/modelo.
+#[tauri::command]
+fn get_printer_dpi(printer_name: String) -> Result<printers::PrinterDpi, String> {
+    printers::query_printer_dpi(&printer_name)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -552,6 +579,8 @@ pub fn run() {
             print_receipt_text,
             print_receipt,
             print_label_image,
+            print_label_sheet,
+            get_printer_dpi,
         ])
         .setup(|_app| {
             // Aplica restauração pendente ANTES de abrir o banco. Se houver

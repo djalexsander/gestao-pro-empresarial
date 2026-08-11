@@ -16,6 +16,8 @@
  * Sem precisar mexer em nenhum componente de UI.
  */
 
+import type { PerfilBobina } from "@/lib/etiqueta-layout";
+
 export type DesktopRole = "unset" | "server" | "terminal";
 
 /** Configuração de conexão usada quando o papel é `terminal`. */
@@ -84,6 +86,17 @@ export interface DesktopConfig {
   labelFormat?: string | null;
   /** Formatos de etiqueta criados neste terminal (ex.: "50x50"). */
   labelCustomFormats?: string[];
+  /**
+   * Perfis de bobina/etiqueta cadastrados NESTA máquina (largura, altura,
+   * colunas, gaps, margens, orientação, DPI, calibração). Populado
+   * automaticamente a partir de `labelFormat`/`labelCustomFormats` na
+   * primeira leitura quando ainda não existir (ver `garantirPerfis` em
+   * `@/lib/etiqueta-perfis`) — `labelFormat`/`labelCustomFormats` continuam
+   * gravados por retrocompat, mas deixam de ser a fonte da verdade.
+   */
+  labelProfiles?: PerfilBobina[];
+  /** Perfil de bobina selecionado para a impressora de etiquetas deste terminal. */
+  labelProfileId?: string | null;
   /**
    * Token de pareamento gerado/exibido quando a máquina é `server`.
    * O backend local exige este token (header `X-Gestao-Token`) em todas
