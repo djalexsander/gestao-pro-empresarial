@@ -23,6 +23,8 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  buscarSkusComPrefixo,
+  skuJaCadastrado,
   useCreateProduto,
   useCreateVariacao,
   useDeleteVariacao,
@@ -33,6 +35,7 @@ import {
 } from "@/hooks/useProdutos";
 import { CodeInput, QrPreview, BarcodePreview } from "@/components/scanner";
 import { gerarEan13, validarEan13 } from "@/lib/barcode";
+import { montarSku, normalizarBaseSku, proximoSufixoNumerico } from "@/lib/sku";
 import { EtiquetaImpressaoDialog } from "@/components/produtos/EtiquetaImpressaoDialog";
 import { CategoriaCombobox } from "@/components/produtos/CategoriaCombobox";
 import {
@@ -98,11 +101,15 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
 
   const [form, setForm] = useState(EMPTY);
   const [etiquetaOpen, setEtiquetaOpen] = useState(false);
+  const [gerandoSku, setGerandoSku] = useState(false);
+  const [skuDuplicado, setSkuDuplicado] = useState(false);
+  const [verificandoSku, setVerificandoSku] = useState(false);
 
   useEffect(() => {
     if (open && produto) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const p = produto as any;
+      setSkuDuplicado(false);
       setForm({
         sku: produto.sku,
         codigo_barras: produto.codigo_barras ?? "",
@@ -128,6 +135,7 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
       });
     }
     if (open && !produtoId) {
+      setSkuDuplicado(false);
       const base = { ...EMPTY };
       if (prefilledCodigo) {
         base.tipo_identificacao_principal = prefilledCodigo.tipo;
@@ -149,7 +157,69 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
   const semCodigo =
     !form.codigo_barras.trim() && !form.qr_code.trim() && !form.codigo_interno.trim();
 
+  // Verifica duplicidade de SKU (mesma empresa) com debounce, tanto para o
+  // valor gerado quanto para o digitado manualmente. A checagem do banco no
+  // INSERT/UPDATE continua sendo a autoridade final contra corrida entre
+  // duas estações — isto aqui é só para o usuário não descobrir o conflito
+  // só depois de tentar salvar.
+  useEffect(() => {
+    if (!open) return;
+    const valor = form.sku.trim();
+    if (!valor) {
+      setSkuDuplicado(false);
+      setVerificandoSku(false);
+      return;
+    }
+    let cancelado = false;
+    setVerificandoSku(true);
+    const timer = setTimeout(async () => {
+      try {
+        const duplicado = await skuJaCadastrado(
+          valor,
+          isEdit ? (produtoId ?? undefined) : undefined,
+        );
+        if (!cancelado) setSkuDuplicado(duplicado);
+      } catch {
+        // Falha na checagem prévia não deve travar o cadastro: o índice
+        // único do banco continua protegendo contra duplicidade real.
+        if (!cancelado) setSkuDuplicado(false);
+      } finally {
+        if (!cancelado) setVerificandoSku(false);
+      }
+    }, 500);
+    return () => {
+      cancelado = true;
+      clearTimeout(timer);
+    };
+  }, [form.sku, open, isEdit, produtoId]);
+
+  async function handleGerarSku() {
+    setGerandoSku(true);
+    try {
+      const base = normalizarBaseSku(form.nome);
+      const existentes = await buscarSkusComPrefixo(`${base}-`);
+      const seq = proximoSufixoNumerico(base, existentes);
+      const novo = montarSku(base, seq);
+      setForm((f) => ({ ...f, sku: novo }));
+      if (!form.nome.trim()) {
+        toast.success("SKU gerado. Preencha o nome do produto para um código mais descritivo.");
+      } else {
+        toast.success("SKU gerado a partir do nome do produto.");
+      }
+    } catch {
+      toast.error("Não foi possível gerar o SKU agora. Tente novamente.");
+    } finally {
+      setGerandoSku(false);
+    }
+  }
+
   async function handleSubmit() {
+    if (skuDuplicado) {
+      toast.error(
+        "Este SKU já está sendo utilizado por outro produto. Gere um novo SKU ou informe outro código.",
+      );
+      return;
+    }
     const parsed = produtoSchema.safeParse({
       ...form,
       categoria_id: form.categoria_id || null,
@@ -278,9 +348,31 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="sku">SKU *</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="sku">SKU *</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5"
+                    disabled={gerandoSku}
+                    onClick={handleGerarSku}
+                  >
+                    <Sparkles className="h-3.5 w-3.5" /> {gerandoSku ? "Gerando..." : "Gerar SKU"}
+                  </Button>
+                </div>
                 <Input id="sku" value={form.sku} className="font-mono"
+                  aria-invalid={skuDuplicado}
                   onChange={(e) => setForm({ ...form, sku: e.target.value })} />
+                {skuDuplicado && (
+                  <p className="text-xs text-destructive">
+                    Este SKU já está sendo utilizado por outro produto. Gere um novo SKU ou
+                    informe outro código.
+                  </p>
+                )}
+                {!skuDuplicado && verificandoSku && (
+                  <p className="text-xs text-muted-foreground">Verificando disponibilidade...</p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="cint">Código interno</Label>
@@ -504,7 +596,7 @@ export function ProdutoDialog({ open, onOpenChange, produtoId, prefilledCodigo }
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button onClick={handleSubmit} disabled={busy}>
+          <Button onClick={handleSubmit} disabled={busy || skuDuplicado}>
             {busy ? "Salvando..." : isEdit ? "Salvar alterações" : "Cadastrar produto"}
           </Button>
         </DialogFooter>

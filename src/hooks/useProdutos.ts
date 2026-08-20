@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { dataClient } from "@/integrations/data";
 import type { Produto, ProdutoComCategoria, TipoIdentificacao } from "@/integrations/data";
+import { prettifyProdutoError } from "@/lib/produto-erros";
 
 // Re-exports para preservar a API pública anterior deste módulo.
 export type { Produto, TipoIdentificacao };
@@ -148,19 +149,6 @@ export type ProdutoInput = {
   casas_decimais_quantidade?: number;
 };
 
-function prettifyProdutoError(msg: string): string {
-  const m = msg.toLowerCase();
-  if (m.includes("produtos_owner_codigo_barras_unique"))
-    return "Este código de barras já está cadastrado em outro produto.";
-  if (m.includes("produtos_owner_qr_code_unique"))
-    return "Este QR Code já está cadastrado em outro produto.";
-  if (m.includes("produtos_owner_sku_unique"))
-    return "Este SKU já está cadastrado em outro produto.";
-  if (m.includes("produtos_owner_codigo_interno_unique"))
-    return "Este código interno já está cadastrado em outro produto.";
-  return msg;
-}
-
 async function fetchProdutoRow(id: string) {
   const { data, error } = await supabase.from("produtos").select("*").eq("id", id).single();
   if (error) throw error;
@@ -168,9 +156,58 @@ async function fetchProdutoRow(id: string) {
 }
 
 function mapProdutoErr(e: unknown): Error {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const msg: string = (e as any)?.message ?? String(e);
-  return new Error(prettifyProdutoError(msg));
+  return new Error(prettifyProdutoError(e));
+}
+
+async function ownerIdAtual(): Promise<string | null> {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.user?.id ?? null;
+}
+
+/**
+ * Lista os SKUs do owner atual que começam com o prefixo informado.
+ * Usada pelo gerador de SKU para calcular o próximo sufixo livre — mesmo
+ * escopo (owner_id) do índice único do banco, então o resultado é sempre
+ * coerente com o que a constraint vai aceitar.
+ */
+export async function buscarSkusComPrefixo(prefixo: string): Promise<string[]> {
+  const valor = prefixo.trim();
+  if (!valor) return [];
+  const ownerId = await ownerIdAtual();
+  if (!ownerId) return [];
+  const { data, error } = await supabase
+    .from("produtos")
+    .select("sku")
+    .eq("owner_id", ownerId)
+    .ilike("sku", `${valor}%`);
+  if (error) throw error;
+  return (data ?? []).map((r) => r.sku);
+}
+
+/**
+ * Verifica se o SKU já está em uso por OUTRO produto da mesma empresa
+ * (mesmo owner_id). Em edição, `ignorarProdutoId` exclui o próprio produto
+ * da checagem — editar um produto mantendo o SKU atual não deve acusar
+ * duplicidade. É só uma checagem prévia para UX: a autoridade final contra
+ * corrida entre duas estações continua sendo o índice único do banco.
+ */
+export async function skuJaCadastrado(sku: string, ignorarProdutoId?: string): Promise<boolean> {
+  const valor = sku.trim();
+  if (!valor) return false;
+  const ownerId = await ownerIdAtual();
+  if (!ownerId) return false;
+  let query = supabase
+    .from("produtos")
+    .select("id")
+    .eq("owner_id", ownerId)
+    .eq("sku", valor)
+    .limit(1);
+  if (ignorarProdutoId) {
+    query = query.neq("id", ignorarProdutoId);
+  }
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data?.length ?? 0) > 0;
 }
 
 export function useCreateProduto() {
@@ -248,18 +285,22 @@ export function useCreateVariacao() {
       preco_venda?: number | null;
     }) => {
       const client_uuid = crypto.randomUUID();
-      const r = await dataClient.produtos.criarVariacao({
-        ...input,
-        client_uuid,
-      });
-      // Mantém contrato (retorno usado por dialogs): re-busca a linha.
-      const { data, error } = await supabase
-        .from("produto_variacoes")
-        .select("*")
-        .eq("id", r.variacao_id)
-        .single();
-      if (error) throw error;
-      return data;
+      try {
+        const r = await dataClient.produtos.criarVariacao({
+          ...input,
+          client_uuid,
+        });
+        // Mantém contrato (retorno usado por dialogs): re-busca a linha.
+        const { data, error } = await supabase
+          .from("produto_variacoes")
+          .select("*")
+          .eq("id", r.variacao_id)
+          .single();
+        if (error) throw error;
+        return data;
+      } catch (e) {
+        throw mapProdutoErr(e);
+      }
     },
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["produto", vars.produto_id] });
