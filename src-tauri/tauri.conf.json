@@ -13,7 +13,7 @@
     "app":  {
                 "windows":  [
                                 {
-                                    "title":  "GestÃ£o Pro",
+                                    "title":  "Gestão Pro",
                                     "width":  1440,
                                     "height":  900,
                                     "minWidth":  1024,
@@ -39,8 +39,8 @@
                                 "icons/icon.ico"
                             ],
                    "category":  "Business",
-                   "shortDescription":  "Sistema de gestÃ£o empresarial",
-                   "longDescription":  "GestÃ£o Pro â€” sistema completo de gestÃ£o: estoque, vendas, compras, financeiro e relatÃ³rios.",
+                   "shortDescription":  "Sistema de gestão empresarial",
+                   "longDescription":  "Gestão Pro — sistema completo de gestão: estoque, vendas, compras, financeiro e relatórios.",
                    "createUpdaterArtifacts":  true,
                    "windows":  {
                                    "wix":  {
