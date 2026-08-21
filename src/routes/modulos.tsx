@@ -43,6 +43,7 @@ import {
   type PlanoDisponivel,
 } from "@/hooks/useSaasCliente";
 import { useMinhaAssinatura } from "@/hooks/useSaasAdmin";
+import { useIsSuperAdmin } from "@/hooks/useAdmin";
 import { getEffectivePlanStatus, type EffectivePlanStatus } from "@/lib/planStatus";
 
 export const Route = createFileRoute("/modulos")({
@@ -296,6 +297,8 @@ function PlanoAtualCard({
   assinatura: ReturnType<typeof useMinhaAssinatura>["data"];
   effectiveStatus: EffectivePlanStatus;
 }) {
+  const { data: isSuperAdmin = false } = useIsSuperAdmin();
+
   // ===== TRIAL =====
   if (effectiveStatus === "trial") {
     const dias = assinatura?.dias_restantes ?? 0;
@@ -507,7 +510,7 @@ function PlanoAtualCard({
           </>
         )}
 
-        {assinatura?.readonly && (
+        {assinatura?.readonly && !isSuperAdmin && (
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
             Sua assinatura está em modo somente leitura. Regularize o pagamento
             para liberar o sistema novamente.

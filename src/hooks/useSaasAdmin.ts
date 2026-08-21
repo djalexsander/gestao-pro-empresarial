@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { isDesktop } from "@/integrations/data/mode";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 /* =========================================================
  * Tipos
@@ -650,8 +651,10 @@ export type MinhaAssinatura = {
 };
 
 export function useMinhaAssinatura() {
+  const { user } = useAuth();
   return useQuery({
-    queryKey: ["minha-assinatura"],
+    queryKey: ["minha-assinatura", user?.id],
+    enabled: !!user?.id,
     staleTime: 60_000,
     queryFn: async () => {
       const { data, error } = await (supabase.rpc as any)("minha_assinatura_status");
@@ -676,8 +679,10 @@ export type MeuModulo = {
 };
 
 export function useMeusModulos() {
+  const { user } = useAuth();
   return useQuery({
-    queryKey: ["meus-modulos"],
+    queryKey: ["meus-modulos", user?.id],
+    enabled: !!user?.id,
     staleTime: 60_000,
     queryFn: async (): Promise<MeuModulo[]> => {
       const { data, error } = await (supabase.rpc as any)("meus_modulos");

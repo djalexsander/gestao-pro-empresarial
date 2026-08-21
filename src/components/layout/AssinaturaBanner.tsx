@@ -1,6 +1,7 @@
 import { AlertTriangle, Clock } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useMinhaAssinatura } from "@/hooks/useSaasAdmin";
+import { useIsSuperAdmin } from "@/hooks/useAdmin";
 import { getEffectivePlanStatus } from "@/lib/planStatus";
 
 /**
@@ -12,11 +13,12 @@ import { getEffectivePlanStatus } from "@/lib/planStatus";
  */
 export function AssinaturaBanner() {
   const { data } = useMinhaAssinatura();
+  const { data: isSuperAdmin = false } = useIsSuperAdmin();
   if (!data || data.sem_empresa) return null;
 
   const status = getEffectivePlanStatus(data);
 
-  if (status === "expired" || status === "canceled") {
+  if ((status === "expired" || status === "canceled") && !isSuperAdmin) {
     return (
       <div className="flex flex-wrap items-center gap-2 border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-sm text-destructive">
         <AlertTriangle className="h-4 w-4 shrink-0" />

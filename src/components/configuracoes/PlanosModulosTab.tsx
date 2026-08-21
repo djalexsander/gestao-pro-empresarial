@@ -39,6 +39,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useEmpresaAtual } from "@/hooks/useEmpresa";
+import { useIsSuperAdmin } from "@/hooks/useAdmin";
 import {
   useMeusModulos,
   useMinhaAssinatura,
@@ -150,6 +151,7 @@ function useMeusPagamentos(empresaId?: string | null) {
  * =======================================================*/
 export function PlanosModulosTab() {
   const { empresaAtual } = useEmpresaAtual();
+  const { data: isSuperAdmin = false } = useIsSuperAdmin();
   const { data: assinatura, isLoading: loadingAss } = useMinhaAssinatura();
   const { data: meusModulos = [], isLoading: loadingMods } = useMeusModulos();
   const { data: planos = [], isLoading: loadingPlanos } = usePlanosDisponiveis();
@@ -224,7 +226,7 @@ export function PlanosModulosTab() {
     <>
     <div className="space-y-6">
       {/* Banner de status crítico */}
-      {assinatura?.readonly && (
+      {assinatura?.readonly && !isSuperAdmin && (
         <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
           <div>
