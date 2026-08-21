@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import JsBarcode from "jsbarcode";
 import QRCode from "qrcode";
 import { Loader2, Printer } from "lucide-react";
@@ -94,7 +94,14 @@ export function EtiquetaImpressaoDialog({
     getActiveBobinaProfile()?.id ?? null,
   );
   const [pickerOpen, setPickerOpen] = useState(false);
-  const previewRef = useRef<HTMLCanvasElement | null>(null);
+  // Callback ref (não useRef): o <canvas> vive dentro de um Dialog Radix, cujo
+  // Presence monta o conteúdo real um ciclo de render DEPOIS do `open` virar
+  // true (troca de estado "unmounted" → "mounted" via useLayoutEffect). Um
+  // useRef lido dentro do efeito de preview via `open` como dependência
+  // chegaria cedo demais (ref ainda nulo) e nunca seria re-executado, pois
+  // nenhuma dependência muda no ciclo seguinte. Guardar o node em estado
+  // garante que o efeito rode de novo assim que o canvas realmente existir.
+  const [previewCanvas, setPreviewCanvas] = useState<HTMLCanvasElement | null>(null);
   const [previewErro, setPreviewErro] = useState<string | null>(null);
 
   useEffect(() => {
@@ -121,7 +128,7 @@ export function EtiquetaImpressaoDialog({
       setPreviewErro("Nenhum perfil de bobina configurado.");
       return;
     }
-    const canvas = previewRef.current;
+    const canvas = previewCanvas;
     if (!canvas) return;
 
     let cancelado = false;
@@ -161,7 +168,7 @@ export function EtiquetaImpressaoDialog({
     return () => {
       cancelado = true;
     };
-  }, [open, produto, incluirQr, mostrarNome, mostrarPreco, perfilAtivo]);
+  }, [open, produto, incluirQr, mostrarNome, mostrarPreco, perfilAtivo, previewCanvas]);
 
   async function handlePrint() {
     if (!produto?.codigo) return;
@@ -245,7 +252,11 @@ export function EtiquetaImpressaoDialog({
                     {previewErro}
                   </div>
                 ) : (
-                  <canvas ref={previewRef} className="max-w-full" style={{ display: "block" }} />
+                  <canvas
+                    ref={setPreviewCanvas}
+                    className="max-w-full"
+                    style={{ display: "block" }}
+                  />
                 )}
               </div>
 
