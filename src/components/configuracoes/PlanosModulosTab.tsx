@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   ExternalLink,
   Plus,
+  QrCode,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,6 +41,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useEmpresaAtual } from "@/hooks/useEmpresa";
 import { useIsSuperAdmin } from "@/hooks/useAdmin";
+import { useCobrancaPendente } from "@/hooks/useCobrancaPendente";
 import {
   useMeusModulos,
   useMinhaAssinatura,
@@ -166,6 +168,18 @@ export function PlanosModulosTab() {
     null,
   );
 
+  // Cobrança já em aberto (qualquer origem). Reaproveitamos aqui somente a
+  // que é da mensalidade consolidada — mesmo padrão de descrição que a RPC
+  // solicitar_mensalidade() usa para decidir se reaproveita ou cria título.
+  const { data: cobrancaPendente } = useCobrancaPendente(!!empresaAtual?.id);
+  const mensalidadePendente =
+    cobrancaPendente?.descricao?.startsWith("Mensalidade")
+      ? cobrancaPendente
+      : null;
+  const pixPronto = Boolean(
+    mensalidadePendente?.pix_qrcode || mensalidadePendente?.pix_copia_cola,
+  );
+
   async function handlePagarMensalidade() {
     const res = await pagarMensalidade.mutateAsync();
     if (res.cobranca) {
@@ -174,6 +188,19 @@ export function PlanosModulosTab() {
         pagamento_id: res.pagamentoId,
       });
     }
+  }
+
+  function verCobrancaPendente() {
+    if (!mensalidadePendente) return;
+    setCobrancaAberta({
+      pagamento_id: mensalidadePendente.pagamento_id,
+      asaas_payment_id: mensalidadePendente.asaas_payment_id ?? "",
+      invoice_url: mensalidadePendente.invoice_url,
+      pix_qrcode: mensalidadePendente.pix_qrcode,
+      pix_copia_cola: mensalidadePendente.pix_copia_cola,
+      due_date: mensalidadePendente.data_vencimento,
+      valor: mensalidadePendente.valor,
+    });
   }
 
 
@@ -351,21 +378,42 @@ export function PlanosModulosTab() {
               <span>Total</span>
               <span>{fmtBRL(composicao.total)}</span>
             </div>
+            {mensalidadePendente && (
+              <div className="mt-3 space-y-1.5 rounded-md border border-amber-400/30 bg-amber-400/5 p-3 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-foreground">
+                    Mensalidade pendente
+                  </span>
+                  <span className="text-muted-foreground">
+                    venc. {fmtDate(mensalidadePendente.data_vencimento)}
+                  </span>
+                </div>
+                <p className="text-muted-foreground">
+                  Já existe uma cobrança em aberto para este ciclo — não é
+                  possível gerar outra enquanto ela não for paga ou
+                  cancelada.
+                </p>
+              </div>
+            )}
             <Button
               className="mt-3 w-full"
-              onClick={handlePagarMensalidade}
+              variant={pixPronto ? "outline" : "default"}
+              onClick={pixPronto ? verCobrancaPendente : handlePagarMensalidade}
               disabled={pagarMensalidade.isPending || composicao.total <= 0}
             >
-              {pagarMensalidade.isPending ? (
+              {pagarMensalidade.isPending && !pixPronto ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : pixPronto ? (
+                <QrCode className="mr-2 h-4 w-4" />
               ) : (
                 <Wallet className="mr-2 h-4 w-4" />
               )}
-              Pagar mensalidade
+              {pixPronto ? "Ver QR Code / Pix" : "Pagar mensalidade"}
             </Button>
             <p className="text-center text-[11px] text-muted-foreground">
-              Gera Pix com QR Code e copia-e-cola. Confirmação automática via
-              Asaas.
+              {pixPronto
+                ? "Retoma a mesma cobrança Pix já gerada."
+                : "Gera Pix com QR Code e copia-e-cola. Confirmação automática via Asaas."}
             </p>
           </CardContent>
         </Card>
