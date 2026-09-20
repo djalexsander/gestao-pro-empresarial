@@ -437,5 +437,41 @@ describe("asaas-criar-cobranca — contrato da resposta", () => {
       expect(corpo.due_date).toBeNull();
       expect(corpo.qr_expiracao).toBe(VALIDADE_QR);
     });
+
+    it("fechar e reabrir: a 2ª e a 3ª chamadas devolvem a MESMA cobrança e não fazem POST /payments", async () => {
+      const posts = () => chamadasAsaas.filter((c) => c.metodo === "POST");
+
+      const primeira = await cobrancaNova();
+      expect(primeira.corpo.reutilizada).toBe(false);
+      expect(posts()).toHaveLength(1);
+
+      const segunda = await chamar(); // modal fechado / app reaberto: o cliente clica de novo
+      const terceira = await chamar();
+
+      for (const reuso of [segunda, terceira]) {
+        expect(reuso.status).toBe(200);
+        expect(reuso.corpo).toMatchObject({
+          asaas_payment_id: ID_ASAAS,
+          invoiceUrl: FATURA,
+          qr_code: PNG_B64,
+          pix_copia_cola: PAYLOAD,
+          vencimento: VENCIMENTO_COBRANCA,
+          reutilizada: true,
+        });
+      }
+      expect(posts()).toHaveLength(1); // nenhuma cobrança nova no Asaas
+    });
+
+    it.each(["pendente", "atrasado"])(
+      "pagamento %s com cobrança já criada é reutilizado, sem POST /payments",
+      async (status) => {
+        const { status: http, corpo } = await cobrancaReutilizada({ status });
+
+        expect(http).toBe(200);
+        expect(corpo.reutilizada).toBe(true);
+        expect(chamadasAsaas).toEqual([]);
+        expect(banco.escritas).toEqual([]);
+      },
+    );
   });
 });

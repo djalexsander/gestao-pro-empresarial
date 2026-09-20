@@ -9,6 +9,14 @@
  * Regra: só `pendente`/`atrasado` ficam/viram `atrasado`; cancelado, pago e qualquer outro
  * estado nunca regridem.
  *
+ * Também cobre PAYMENT_DELETED (cobrança excluída no Asaas). O GET /payments/{id} de uma cobrança
+ * excluída segue devolvendo o status de antes (PENDING/OVERDUE); decidir só pelo status deixava a
+ * mensalidade `pendente` com QR morto e a competência ocupada (o índice de mensalidade aberta
+ * impedia gerar outra). Regra: o evento cancela localmente só `pendente`/`atrasado` (nunca `pago`),
+ * sem tocar em assinatura/módulos; a linha fica no histórico e a competência volta a ficar livre.
+ * O mesmo fluxo contra o banco real (solicitar_mensalidade() incluída) está em
+ * supabase/tests/asaas_webhook_payment_deleted_test.sql.
+ *
  * Como funciona: o teste importa o handler REAL (index.ts). Só as bordas são trocadas:
  *   - `Deno.env` / `Deno.serve`  -> stubs (o handler é capturado em `Deno.serve`);
  *   - `createClient` (esm.sh)    -> cliente em memória que modela as tabelas usadas e os
@@ -20,7 +28,16 @@
  * Se a versão do supabase-js importada em index.ts mudar, atualize a URL no `vi.mock` abaixo.
  * Rode com `npm test`.
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type MockInstance,
+} from "vitest";
 
 type Linha = Record<string, unknown>;
 type Filtro = { op: "eq" | "neq" | "in"; col: string; val: unknown };
@@ -37,6 +54,8 @@ class BancoFalso {
   config: Linha = { asaas_enabled: true, asaas_ambiente: "sandbox" };
   escritas: { tabela: string; patch: Linha; afetadas: number }[] = [];
   rpcs: { nome: string; args: Linha }[] = [];
+  /** Injeta uma falha de banco (ex.: queda transitória) nos UPDATEs da tabela informada. */
+  falhaEmUpdate: { tabela: string; code: string; message: string } | null = null;
 
   pagamento(id: string): Linha {
     const linha = this.pagamentos.find((p) => p.id === id);
@@ -163,6 +182,9 @@ class Consulta implements PromiseLike<Resposta> {
     const alvo = linhas.filter((l) => this.filtros.every((f) => casa(l, f)));
 
     if (this.acao === "update") {
+      if (banco.falhaEmUpdate?.tabela === tabela) {
+        return erro(banco.falhaEmUpdate.code, banco.falhaEmUpdate.message);
+      }
       // Atômico como um UPDATE: valida os índices no estado resultante e só então grava.
       const novas = new Map(alvo.map((l) => [l, { ...l, ...this.corpo }]));
       if (tabela === "pagamentos") {
@@ -601,5 +623,357 @@ describe("asaas-webhook: os outros ramos não reabrem cobrança cancelada", () =
     expect(banco.rpcs[0].nome).toBe("confirmar_pagamento_asaas");
     expect(banco.rpcs[0].args).toMatchObject({ _pagamento_id: "pg-c" });
     expect(banco.escritasEm("pagamentos")).toBe(0);
+  });
+});
+
+describe("asaas-webhook: PAYMENT_DELETED (cobrança excluída no Asaas)", () => {
+  let logAviso: MockInstance;
+  beforeAll(() => {
+    logAviso = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  beforeEach(() => logAviso.mockClear());
+  afterAll(() => logAviso.mockRestore());
+
+  const mensalidade = {
+    referencia_tipo: "outro",
+    descricao: "Mensalidade Plano A",
+    competencia: "2025-02-10",
+  };
+
+  /** Cobrança excluída: o GET /payments/{id} devolve o status de ANTES (PENDING/OVERDUE) + deleted. */
+  function semearExcluida(
+    semente: Semente,
+    statusNoAsaas: string,
+    extra: Linha = { deleted: true },
+  ): Linha {
+    const linha = semear(semente, statusNoAsaas);
+    Object.assign(asaas.get(semente.asaas_payment_id) as Linha, extra);
+    return linha;
+  }
+
+  function excluir(
+    paymentId: string,
+    opcoes: { id?: string | null; status?: string } = {},
+  ): Request {
+    return evento(paymentId, { tipo: "PAYMENT_DELETED", status: "PENDING", ...opcoes });
+  }
+
+  const escritasEmPagamentos = () => banco.escritas.filter((e) => e.tabela === "pagamentos");
+  const cancelaUmaLinha = { tabela: "pagamentos", patch: { status: "cancelado" }, afetadas: 1 };
+
+  it("1) pendente + PAYMENT_DELETED -> cancelado; a linha fica no histórico e só o status muda", async () => {
+    semearExcluida(
+      {
+        id: "pg-1",
+        asaas_payment_id: "pay_1",
+        status: "pendente",
+        asaas_pix_qrcode: "QR-BASE64",
+        asaas_pix_copia_cola: "00020101021226",
+        data_vencimento: "2025-02-13",
+        ...mensalidade,
+      },
+      "PENDING",
+    );
+
+    const r = await enviar(excluir("pay_1"));
+
+    expect(r.status).toBe(200);
+    expect(r.corpo).toMatchObject({
+      received: true,
+      processed: true,
+      result: { status: "cancelado", changed: true },
+    });
+    expect(logErro).not.toHaveBeenCalled();
+    // não exclui a linha: o registro cancelado permanece (asaas_payment_id, QR e competência intactos)
+    expect(banco.pagamentos).toHaveLength(1);
+    expect(banco.pagamento("pg-1")).toMatchObject({
+      status: "cancelado",
+      asaas_payment_id: "pay_1",
+      asaas_pix_qrcode: "QR-BASE64",
+      asaas_pix_copia_cola: "00020101021226",
+      data_vencimento: "2025-02-13",
+      competencia: "2025-02-10",
+      valor: 150,
+      versao: 1,
+    });
+    // única escrita em pagamentos: só o status, em uma linha. Sem RPC (assinatura/módulos) e sem
+    // nenhuma outra tabela (o modelo lança em tabela não modelada, o que viraria HTTP 500).
+    expect(escritasEmPagamentos()).toEqual([cancelaUmaLinha]);
+    expect(banco.rpcs).toHaveLength(0);
+    expect(new Set(banco.escritas.map((e) => e.tabela))).toEqual(
+      new Set(["pagamentos", "asaas_webhook_eventos"]),
+    );
+    expect(banco.eventos).toHaveLength(1);
+    expect(banco.eventos[0]).toMatchObject({ evento: "PAYMENT_DELETED", status: "PENDING" });
+    expect(banco.eventos[0].processado_em).not.toBeNull();
+  });
+
+  it("2) atrasado + PAYMENT_DELETED (o Asaas ainda mostra OVERDUE) -> cancelado, não fica atrasado", async () => {
+    semearExcluida(
+      { id: "pg-1", asaas_payment_id: "pay_1", status: "atrasado", ...mensalidade },
+      "OVERDUE",
+    );
+
+    const r = await enviar(excluir("pay_1", { status: "OVERDUE" }));
+
+    expect(r.status).toBe(200);
+    expect(r.corpo).toMatchObject({ result: { status: "cancelado", changed: true } });
+    expect(banco.pagamento("pg-1")).toMatchObject({ status: "cancelado", versao: 1 });
+    expect(escritasEmPagamentos()).toEqual([cancelaUmaLinha]);
+    expect(logErro).not.toHaveBeenCalled();
+  });
+
+  describe("3) pago + PAYMENT_DELETED -> continua pago", () => {
+    it("3a) o Asaas ainda mostra a cobrança aberta (ex.: baixa manual do Master): não regride", async () => {
+      semearExcluida(
+        {
+          id: "pg-1",
+          asaas_payment_id: "pay_1",
+          status: "pago",
+          data_pagamento: "2025-02-05",
+          ...mensalidade,
+        },
+        "PENDING",
+      );
+
+      const r = await enviar(excluir("pay_1"));
+
+      expect(r.status).toBe(200);
+      expect(r.corpo).toMatchObject({ result: { status: "pago", changed: false } });
+      expect(banco.pagamento("pg-1")).toMatchObject({
+        status: "pago",
+        data_pagamento: "2025-02-05",
+        versao: 0,
+      });
+      // o UPDATE existe, mas o filtro (só pendente/atrasado) não casa com nenhuma linha
+      expect(escritasEmPagamentos()).toEqual([{ ...cancelaUmaLinha, afetadas: 0 }]);
+      expect(banco.rpcs).toHaveLength(0);
+      expect(logErro).not.toHaveBeenCalled();
+    });
+
+    it("3b) o Asaas informa RECEIVED (dinheiro recebido): segue a confirmação e nunca cancela", async () => {
+      semearExcluida(
+        { id: "pg-1", asaas_payment_id: "pay_1", status: "pago", ...mensalidade },
+        "RECEIVED",
+      );
+
+      const r = await enviar(excluir("pay_1", { status: "RECEIVED" }));
+
+      expect(r.status).toBe(200);
+      expect(banco.pagamento("pg-1")).toMatchObject({ status: "pago", versao: 0 });
+      expect(banco.escritasEm("pagamentos")).toBe(0);
+      expect(banco.rpcs.map((c) => c.nome)).toEqual(["confirmar_pagamento_asaas"]);
+    });
+  });
+
+  it("4) cancelado + PAYMENT_DELETED -> continua cancelado e a linha nem é reescrita", async () => {
+    semearExcluida(
+      { id: "pg-1", asaas_payment_id: "pay_1", status: "cancelado", ...mensalidade },
+      "PENDING",
+    );
+
+    const r = await enviar(excluir("pay_1"));
+
+    expect(r.status).toBe(200);
+    expect(r.corpo).toMatchObject({ result: { status: "cancelado", changed: false } });
+    expect(banco.pagamento("pg-1")).toMatchObject({ status: "cancelado", versao: 0 });
+    expect(logErro).not.toHaveBeenCalled();
+  });
+
+  describe("5) idempotência do evento", () => {
+    it("5a) mesmo evento reenviado: responde duplicate e não escreve de novo", async () => {
+      semearExcluida(
+        { id: "pg-1", asaas_payment_id: "pay_1", status: "pendente", ...mensalidade },
+        "PENDING",
+      );
+      const primeira = await enviar(excluir("pay_1", { id: "evt_del" }));
+      expect(primeira.corpo).toMatchObject({ processed: true });
+      const escritasAntes = banco.escritas.length;
+
+      const segunda = await enviar(excluir("pay_1", { id: "evt_del" }));
+
+      expect(segunda.status).toBe(200);
+      expect(segunda.corpo).toEqual({ received: true, duplicate: true });
+      expect(banco.escritas).toHaveLength(escritasAntes);
+      expect(banco.pagamento("pg-1")).toMatchObject({ status: "cancelado", versao: 1 });
+      expect(banco.eventos).toHaveLength(1);
+    });
+
+    it("5b) a mesma exclusão com OUTRO id de evento: sem erro, sem reescrever e sem reabrir", async () => {
+      semearExcluida(
+        { id: "pg-1", asaas_payment_id: "pay_1", status: "pendente", ...mensalidade },
+        "PENDING",
+      );
+      await enviar(excluir("pay_1", { id: "evt_a" }));
+      expect(banco.pagamento("pg-1")).toMatchObject({ status: "cancelado", versao: 1 });
+
+      const r = await enviar(excluir("pay_1", { id: "evt_b" }));
+
+      expect(r.status).toBe(200);
+      expect(r.corpo).toMatchObject({ processed: true, result: { changed: false } });
+      expect(banco.pagamento("pg-1")).toMatchObject({ status: "cancelado", versao: 1 });
+      expect(escritasEmPagamentos()).toEqual([
+        cancelaUmaLinha,
+        { ...cancelaUmaLinha, afetadas: 0 },
+      ]);
+      expect(logErro).not.toHaveBeenCalled();
+    });
+
+    it("5c) evento não concluído (Asaas indisponível) é reprocessado na reentrega e cancela uma única vez", async () => {
+      semearExcluida(
+        { id: "pg-1", asaas_payment_id: "pay_1", status: "pendente", ...mensalidade },
+        "PENDING",
+      );
+      asaasIndisponivel = true;
+
+      const falha = await enviar(excluir("pay_1", { id: "evt_retry" }));
+      expect(falha.status).toBe(500);
+      expect(banco.pagamento("pg-1").status).toBe("pendente");
+      expect(banco.eventos[0].processado_em).toBeNull();
+
+      asaasIndisponivel = false;
+      const retry = await enviar(excluir("pay_1", { id: "evt_retry" }));
+      expect(retry.status).toBe(200);
+      expect(banco.pagamento("pg-1")).toMatchObject({ status: "cancelado", versao: 1 });
+      expect(banco.eventos).toHaveLength(1);
+      expect(banco.eventos[0].processado_em).not.toBeNull();
+
+      const depois = await enviar(excluir("pay_1", { id: "evt_retry" }));
+      expect(depois.corpo).toEqual({ received: true, duplicate: true });
+    });
+  });
+
+  it("6) o Asaas informa deleted=false (evento antigo de cobrança já restaurada): não cancela", async () => {
+    semearExcluida(
+      { id: "pg-1", asaas_payment_id: "pay_1", status: "pendente", ...mensalidade },
+      "PENDING",
+      { deleted: false },
+    );
+
+    const r = await enviar(excluir("pay_1"));
+
+    expect(r.status).toBe(200);
+    expect(r.corpo).toMatchObject({
+      processed: true,
+      result: { status: "PENDING", changed: false, reason: "exclusao_nao_confirmada" },
+    });
+    expect(banco.pagamento("pg-1")).toMatchObject({ status: "pendente", versao: 0 });
+    expect(banco.escritasEm("pagamentos")).toBe(0);
+    expect(logAviso).toHaveBeenCalledTimes(1);
+    // o evento é concluído (não fica em loop de reentrega)
+    expect(banco.eventos[0].processado_em).not.toBeNull();
+  });
+
+  it("7) resposta do Asaas sem o campo deleted: vale o evento e a cobrança em aberto é cancelada", async () => {
+    semear(
+      { id: "pg-1", asaas_payment_id: "pay_1", status: "pendente", ...mensalidade },
+      "PENDING",
+    );
+
+    const r = await enviar(excluir("pay_1"));
+
+    expect(r.status).toBe(200);
+    expect(banco.pagamento("pg-1")).toMatchObject({ status: "cancelado", versao: 1 });
+    expect(logAviso).not.toHaveBeenCalled();
+  });
+
+  it("8) outros eventos não cancelam: a cobrança pendente normal segue intacta", async () => {
+    semear(
+      { id: "pg-1", asaas_payment_id: "pay_1", status: "pendente", ...mensalidade },
+      "PENDING",
+    );
+
+    for (const tipo of ["PAYMENT_CREATED", "PAYMENT_UPDATED"]) {
+      const r = await enviar(evento("pay_1", { tipo, status: "PENDING" }));
+      expect(r.status).toBe(200);
+      expect(r.corpo).toMatchObject({ result: { status: "PENDING", changed: false } });
+    }
+
+    expect(banco.pagamento("pg-1")).toMatchObject({ status: "pendente", versao: 0 });
+    expect(banco.escritasEm("pagamentos")).toBe(0);
+  });
+
+  describe("9) cobrança cancelada + nova cobrança da MESMA competência", () => {
+    it("9a) PAYMENT_DELETED reenviado da ANTIGA não toca na nova pendente (sem 23505)", async () => {
+      semearExcluida(
+        { id: "pg-antiga", asaas_payment_id: "pay_antiga", status: "cancelado", ...mensalidade },
+        "PENDING",
+      );
+      const nova = semear(
+        { id: "pg-nova", asaas_payment_id: "pay_nova", status: "pendente", ...mensalidade },
+        "PENDING",
+      );
+
+      const r = await enviar(excluir("pay_antiga", { id: "evt_reentrega" }));
+
+      expect(r.status).toBe(200);
+      expect(logErro).not.toHaveBeenCalled();
+      expect(banco.pagamento("pg-antiga")).toMatchObject({ status: "cancelado", versao: 0 });
+      expect(nova).toMatchObject({ status: "pendente", versao: 0 });
+    });
+
+    it("9b) PAYMENT_DELETED da NOVA cancela só ela; a antiga (histórico) não muda", async () => {
+      const antiga = semearExcluida(
+        { id: "pg-antiga", asaas_payment_id: "pay_antiga", status: "cancelado", ...mensalidade },
+        "PENDING",
+      );
+      semearExcluida(
+        { id: "pg-nova", asaas_payment_id: "pay_nova", status: "pendente", ...mensalidade },
+        "PENDING",
+      );
+
+      const r = await enviar(excluir("pay_nova"));
+
+      expect(r.status).toBe(200);
+      expect(banco.pagamento("pg-nova")).toMatchObject({ status: "cancelado", versao: 1 });
+      expect(antiga).toMatchObject({ status: "cancelado", versao: 0 });
+    });
+  });
+
+  it("10) após o cancelamento a competência fica livre para uma nova mensalidade (modelo dos índices)", async () => {
+    semearExcluida(
+      { id: "pg-1", asaas_payment_id: "pay_1", status: "pendente", ...mensalidade },
+      "PENDING",
+    );
+    // a mensalidade que o cliente geraria de novo (solicitar_mensalidade): mesma empresa e competência
+    const nova: Linha = {
+      id: "pg-2",
+      empresa_id: "empresa-1",
+      status: "pendente",
+      asaas_payment_id: null,
+      competencia_duplicada_de: null,
+      ...mensalidade,
+    };
+    // controle: enquanto a excluída segue "pendente" ela ocupa a competência e barra a nova
+    expect(indiceViolado([...banco.pagamentos, nova], nova)).toBe(
+      "uq_pagamentos_empresa_competencia",
+    );
+
+    await enviar(excluir("pay_1"));
+
+    expect(banco.pagamento("pg-1").status).toBe("cancelado");
+    expect(indiceViolado([...banco.pagamentos, nova], nova)).toBeNull();
+  });
+
+  it("11) erro do banco ao cancelar: HTTP 500 e o evento segue reprocessável (a exclusão não se perde)", async () => {
+    semearExcluida(
+      { id: "pg-1", asaas_payment_id: "pay_1", status: "pendente", ...mensalidade },
+      "PENDING",
+    );
+    banco.falhaEmUpdate = { tabela: "pagamentos", code: "57P03", message: "banco indisponível" };
+
+    const falha = await enviar(excluir("pay_1", { id: "evt_db" }));
+
+    expect(falha.status).toBe(500);
+    expect(banco.pagamento("pg-1")).toMatchObject({ status: "pendente", versao: 0 });
+    // processado_em nulo: o Asaas reenvia o evento e o cancelamento acontece na próxima entrega
+    expect(banco.eventos[0].processado_em).toBeNull();
+
+    banco.falhaEmUpdate = null;
+    const retry = await enviar(excluir("pay_1", { id: "evt_db" }));
+
+    expect(retry.status).toBe(200);
+    expect(banco.pagamento("pg-1")).toMatchObject({ status: "cancelado", versao: 1 });
+    expect(banco.eventos[0].processado_em).not.toBeNull();
   });
 });

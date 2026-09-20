@@ -11,6 +11,7 @@ type AsaasPayment = {
   paymentDate?: string | null;
   confirmedDate?: string | null;
   clientPaymentDate?: string | null;
+  deleted?: boolean | null;
 };
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
@@ -37,6 +38,9 @@ const CANCELED_STATUSES = new Set([
   "DUNNING_REQUESTED",
   "DUNNING_RECEIVED",
 ]);
+
+// Evento de cobrança EXCLUÍDA no Asaas (o status na API não muda: segue PENDING/OVERDUE).
+const DELETED_EVENT = "PAYMENT_DELETED";
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -292,6 +296,37 @@ Deno.serve(async (request: Request): Promise<Response> => {
       });
       if (error) throw error;
       result = data;
+    } else if (eventType === DELETED_EVENT) {
+      // Cobrança EXCLUÍDA no Asaas: o GET /payments/{id} segue devolvendo o status de antes
+      // (PENDING/OVERDUE), então o status consultado não decide nada aqui — vale o evento.
+      // Só cobrança em aberto é cancelada (a competência fica livre para uma nova mensalidade;
+      // a linha permanece no histórico). Pago/cancelado não mudam e nada além de
+      // pagamentos.status é tocado (assinatura, módulos e demais dados da empresa ficam
+      // intactos). Se o Asaas informar explicitamente que a cobrança NÃO está excluída (evento
+      // antigo de uma cobrança já restaurada), não cancela.
+      if (verifiedPayment.deleted === false) {
+        console.warn("[asaas-webhook] PAYMENT_DELETED ignorado: o Asaas informa deleted=false", {
+          paymentId,
+        });
+        result = {
+          status: verifiedStatus || "UNKNOWN",
+          changed: false,
+          reason: "exclusao_nao_confirmada",
+        };
+      } else {
+        const abertos = ["pendente", "atrasado"];
+        const estavaAberto = abertos.includes(pagamento.status);
+        const { error } = await supabase
+          .from("pagamentos")
+          .update({ status: "cancelado" })
+          .eq("id", pagamento.id)
+          .in("status", abertos);
+        if (error) throw error;
+        result = {
+          status: estavaAberto ? "cancelado" : pagamento.status,
+          changed: estavaAberto,
+        };
+      }
     } else if (OVERDUE_STATUSES.has(verifiedStatus)) {
       // Só cobrança em aberto fica/vira "atrasado"; cancelado/pago não regridem (reabrir um
       // cancelado pode violar os índices únicos de competência: 23505 -> HTTP 500 -> reentrega).
