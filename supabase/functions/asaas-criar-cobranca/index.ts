@@ -221,7 +221,13 @@ Deno.serve(async (request: Request): Promise<Response> => {
     invoiceUrl,
     pix_copia_cola: pix.payload ?? null,
     qr_code: pix.encodedImage ?? null,
-    vencimento: pix.expirationDate ?? dueDate,
+    // Vencimento da cobrança (YYYY-MM-DD). O expirationDate do Asaas é a validade do QR Code.
+    vencimento: dueDate,
+    // Aliases legados: os apps desktop já instalados (v1.2.x) ainda leem estes nomes.
+    invoice_url: invoiceUrl,
+    pix_qrcode: pix.encodedImage ?? null,
+    due_date: dueDate,
+    qr_expiracao: pix.expirationDate ?? null,
     reutilizada: reused,
   });
 

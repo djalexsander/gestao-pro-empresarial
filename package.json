@@ -12,7 +12,7 @@
     "dev": "vite dev",
     "build": "vite build",
     "build:dev": "vite build --mode development",
-    "test": "vitest run src/lib/tauriUpdater.test.ts src/lib/whatsappCobranca.test.ts src/lib/integracoesRemovidas.test.ts src/integrations/desktop/printers.test.ts src/lib/etiqueta-layout.test.ts src/lib/etiqueta-perfis.test.ts src/lib/sku.test.ts src/lib/produto-erros.test.ts src/components/produtos/EtiquetaImpressaoDialog.test.tsx",
+    "test": "vitest run src/lib/tauriUpdater.test.ts src/lib/whatsappCobranca.test.ts src/lib/integracoesRemovidas.test.ts src/integrations/desktop/printers.test.ts src/lib/etiqueta-layout.test.ts src/lib/etiqueta-perfis.test.ts src/lib/sku.test.ts src/lib/produto-erros.test.ts src/components/produtos/EtiquetaImpressaoDialog.test.tsx supabase/functions/asaas-webhook/index.test.ts supabase/functions/asaas-criar-cobranca/index.test.ts",
     "dev:desktop": "vite dev --config vite.config.desktop.ts",
     "prepare:tauri-dist": "node scripts/prepare-tauri-dist.mjs",
     "validate:public-env": "node scripts/validate-public-env.mjs",

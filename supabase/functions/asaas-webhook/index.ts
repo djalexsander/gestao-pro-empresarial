@@ -293,11 +293,13 @@ Deno.serve(async (request: Request): Promise<Response> => {
       if (error) throw error;
       result = data;
     } else if (OVERDUE_STATUSES.has(verifiedStatus)) {
+      // Só cobrança em aberto fica/vira "atrasado"; cancelado/pago não regridem (reabrir um
+      // cancelado pode violar os índices únicos de competência: 23505 -> HTTP 500 -> reentrega).
       const { error } = await supabase
         .from("pagamentos")
         .update({ status: "atrasado" })
         .eq("id", pagamento.id)
-        .neq("status", "pago");
+        .in("status", ["pendente", "atrasado"]);
       if (error) throw error;
       result = { status: "atrasado" };
     } else if (CANCELED_STATUSES.has(verifiedStatus)) {
