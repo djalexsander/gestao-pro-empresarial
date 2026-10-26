@@ -338,10 +338,12 @@ describe("URL e abertura do WhatsApp", () => {
 });
 
 describe("integração central e permissões do WhatsApp", () => {
+  // Normaliza CRLF para LF: o checkout no Windows (autocrlf) pode converter os
+  // finais de linha, e as asserções abaixo comparam trechos com quebra LF.
   const componente = readFileSync(
     "src/components/financeiro/LancamentoDetalheDialog.tsx",
     "utf8",
-  );
+  ).replace(/\r\n/g, "\n");
   const configuracaoTauri = JSON.parse(
     readFileSync("src-tauri/tauri.conf.json", "utf8"),
   ) as { plugins: { shell: { open: string } } };
