@@ -44,7 +44,7 @@ export const Route = createRootRoute({
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { title: "Gestão Pro — Sistema de Gestão Empresarial" },
       {
         name: "description",
@@ -60,6 +60,7 @@ export const Route = createRootRoute({
       { name: "twitter:card", content: "summary" },
       { name: "theme-color", content: "#6d28d9" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
       { name: "apple-mobile-web-app-title", content: "Gestão Pro" },
       { name: "application-name", content: "Gestão Pro" },
       { name: "twitter:title", content: "Gestão Pro — Sistema de Gestão Empresarial" },
@@ -129,7 +130,12 @@ function RootComponent() {
                         <CaixaExitGuardProvider>
                           <AppLayout />
                           <UpdateBanner />
-                          <Toaster richColors position="top-right" />
+                          <Toaster
+                            richColors
+                            position="top-right"
+                            offset={{ top: "max(32px, env(safe-area-inset-top))", right: 32, bottom: 32, left: 32 }}
+                            mobileOffset={{ top: "calc(env(safe-area-inset-top) + 16px)", right: 16, bottom: 16, left: 16 }}
+                          />
                         </CaixaExitGuardProvider>
                       </CartProvider>
                     </DesktopRoleProvider>

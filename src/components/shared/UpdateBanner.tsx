@@ -19,7 +19,7 @@ export function UpdateBanner() {
       role="status"
       aria-live="polite"
       className={cn(
-        "fixed z-[100] left-3 right-3 bottom-3 sm:left-auto sm:right-4 sm:bottom-4 sm:w-[380px]",
+        "fixed z-[100] left-[calc(0.75rem+env(safe-area-inset-left))] right-[calc(0.75rem+env(safe-area-inset-right))] bottom-[calc(0.75rem+env(safe-area-inset-bottom))] sm:left-auto sm:right-[calc(1rem+env(safe-area-inset-right))] sm:bottom-[calc(1rem+env(safe-area-inset-bottom))] sm:w-[380px]",
         "animate-in fade-in slide-in-from-bottom-4 duration-300",
       )}
     >
