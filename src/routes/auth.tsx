@@ -23,7 +23,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable";
+import { iniciarLoginGoogle, loginGoogleDisponivel } from "@/lib/google-oauth";
+import { isDesktop } from "@/integrations/data/mode";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { cn } from "@/lib/utils";
 
@@ -224,16 +225,13 @@ function SignInForm({ redirect }: { redirect: string }) {
   async function onGoogle() {
     setGoogleBusy(true);
     try {
-      const result = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: window.location.origin,
-      });
-      if (result.error) {
+      // Fluxo de redirecionamento do Supabase Auth: em caso de sucesso o
+      // navegador sai desta página e volta autenticado na origem atual.
+      const { error } = await iniciarLoginGoogle(supabase.auth, window.location.origin);
+      if (error) {
         toast.error("Não foi possível entrar com Google.");
         setGoogleBusy(false);
-        return;
       }
-      if (result.redirected) return;
-      navigate({ to: redirect });
     } catch {
       toast.error(INTERNET_REQUIRED_MESSAGE);
       setGoogleBusy(false);
@@ -280,8 +278,12 @@ function SignInForm({ redirect }: { redirect: string }) {
         <p className="mt-1 text-sm text-white/55">Entre para acessar seu painel</p>
       </div>
 
-      <GoogleButton onClick={onGoogle} busy={googleBusy} />
-      <Divider />
+      {loginGoogleDisponivel(isDesktop()) && (
+        <>
+          <GoogleButton onClick={onGoogle} busy={googleBusy} />
+          <Divider />
+        </>
+      )}
 
       <form onSubmit={onSubmit} className="space-y-4" autoComplete="off">
         <AuthInput

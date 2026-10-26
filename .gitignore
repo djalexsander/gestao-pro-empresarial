@@ -34,3 +34,5 @@ dist-ssr
 # Tauri desktop build output
 dist-desktop/
 .env
+# Web SPA build output (Vercel)
+dist-web/

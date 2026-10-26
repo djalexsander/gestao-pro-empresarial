@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { checkDesktopUpdate, downloadInstallAndRelaunch, formatUpdaterError } from "@/lib/tauriUpdater";
+import { extractAssetSignature } from "@/lib/asset-signature";
 
 /**
  * Detecta nova versão do app.
@@ -21,38 +22,6 @@ function isTauriRuntime(): boolean {
   return Boolean(w.__TAURI_INTERNALS__) || Boolean(w.__TAURI__) || Boolean(w.isTauri);
 }
 
-function extractAssetSignature(html: string): string | null {
-  try {
-    const scriptRegex =
-      /<script\b[^>]*\btype=["']module["'][^>]*\bsrc=["']([^"']+)["'][^>]*>|<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*\btype=["']module["'][^>]*>/gi;
-    const linkRegex =
-      /<link\b[^>]*\brel=["']stylesheet["'][^>]*\bhref=["']([^"']+)["'][^>]*>|<link\b[^>]*\bhref=["']([^"']+)["'][^>]*\brel=["']stylesheet["'][^>]*>/gi;
-
-    const urls = new Set<string>();
-    let m: RegExpExecArray | null;
-    while ((m = scriptRegex.exec(html))) urls.add(m[1] ?? m[2]);
-    while ((m = linkRegex.exec(html))) urls.add(m[1] ?? m[2]);
-
-    const filtered = [...urls].filter((u) => {
-      if (!u) return false;
-      if (/^https?:\/\//i.test(u)) {
-        try {
-          const parsed = new URL(u, window.location.origin);
-          return parsed.origin === window.location.origin;
-        } catch {
-          return false;
-        }
-      }
-      return true;
-    });
-
-    if (filtered.length === 0) return null;
-    return filtered.sort().join("|");
-  } catch {
-    return null;
-  }
-}
-
 async function fetchAssetSignature(): Promise<string | null> {
   try {
     const res = await fetch(`/?_v=${Date.now()}`, {
@@ -63,7 +32,7 @@ async function fetchAssetSignature(): Promise<string | null> {
     });
     if (!res.ok) return null;
     const text = await res.text();
-    return extractAssetSignature(text);
+    return extractAssetSignature(text, window.location.origin);
   } catch {
     return null;
   }
