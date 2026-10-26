@@ -353,7 +353,7 @@ export function FiadosClientesPanel({ receber, loading }: Props) {
         open={!!clienteAberto}
         onOpenChange={(o) => !o && setClienteAberto(null)}
       >
-        <DialogContent className="flex max-h-[90vh] max-w-3xl flex-col overflow-hidden">
+        <DialogContent className="flex max-h-[90vh] max-w-3xl flex-col overflow-hidden supports-[height:100dvh]:max-h-[90dvh]">
           <DialogHeader className="shrink-0">
             <DialogTitle>{clienteAbertoLive?.nome ?? clienteAberto?.nome}</DialogTitle>
             <DialogDescription>
@@ -364,27 +364,114 @@ export function FiadosClientesPanel({ receber, loading }: Props) {
           </DialogHeader>
 
           {clienteAbertoLive && (
-            <div className="shrink-0 grid grid-cols-3 gap-3 rounded-md border bg-muted/30 p-3 text-sm">
-              <div>
+            <div className="shrink-0 grid grid-cols-1 gap-2 rounded-md border bg-muted/30 p-3 text-sm sm:grid-cols-3 sm:gap-3">
+              <div className="flex items-baseline justify-between gap-3 sm:block">
                 <p className="text-xs text-muted-foreground">Total em aberto</p>
                 <p className="font-mono font-semibold tabular-nums text-warning">
                   {formatBRL(clienteAbertoLive.totalAberto)}
                 </p>
               </div>
-              <div>
+              <div className="flex items-baseline justify-between gap-3 sm:block">
                 <p className="text-xs text-muted-foreground">Total já pago</p>
                 <p className="font-mono tabular-nums">
                   {formatBRL(clienteAbertoLive.totalPago)}
                 </p>
               </div>
-              <div>
+              <div className="flex items-baseline justify-between gap-3 sm:block">
                 <p className="text-xs text-muted-foreground">Títulos pendentes</p>
                 <p className="font-mono tabular-nums">{clienteAbertoLive.qtdTitulos}</p>
               </div>
             </div>
           )}
 
-          <div className="min-h-0 flex-1 overflow-auto rounded-md border">
+          {/* Títulos — cards no celular (< md); tabela a partir de md */}
+          <div className="min-h-0 flex-1 space-y-2 overflow-auto md:hidden">
+            {clienteAbertoLive?.titulos.map((l) => {
+              const saldo = Number(l.valor) - Number(l.valor_pago ?? 0);
+              const st = statusLabel(l);
+              return (
+                <div key={l.id} className="rounded-lg border border-border/70 bg-card p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 font-mono text-sm">
+                      <div className="break-words font-semibold">
+                        {l.venda_numero ?? l.numero_documento ?? "—"}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Parcela {Number(l.parcela_numero) || 1}/{Number(l.parcela_total) || 1}
+                      </div>
+                    </div>
+                    <StatusBadge status={st} />
+                  </div>
+
+                  <div className="mt-3 flex items-end justify-between gap-3">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Saldo</p>
+                      <p className="font-mono text-lg font-semibold tabular-nums">
+                        {formatBRL(saldo)}
+                      </p>
+                    </div>
+                    <div className="text-right text-xs">
+                      <p className="text-muted-foreground">
+                        Valor{" "}
+                        <span className="font-mono tabular-nums text-foreground">
+                          {formatBRL(Number(l.valor))}
+                        </span>
+                      </p>
+                      <p className="text-muted-foreground">
+                        Pago{" "}
+                        <span className="font-mono tabular-nums text-foreground">
+                          {formatBRL(Number(l.valor_pago ?? 0))}
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <dl className="mt-3 grid grid-cols-2 gap-x-3 border-t border-border/60 pt-3 text-xs">
+                    <div>
+                      <dt className="text-muted-foreground">Data da venda</dt>
+                      <dd className="font-medium">{formatDateBR(l.venda_data ?? l.data_emissao)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted-foreground">Vencimento</dt>
+                      <dd className="font-medium">{formatDateBR(l.data_vencimento)}</dd>
+                    </div>
+                  </dl>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <Button
+                      variant="outline"
+                      className="h-11"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPagamentoModoTotal(false);
+                        setPagamentoLanc(l);
+                      }}
+                      disabled={saldo <= 0.005}
+                    >
+                      Receber
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="h-11 border border-border/60"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDetalheLanc(l);
+                      }}
+                    >
+                      Detalhes
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+            {clienteAbertoLive && clienteAbertoLive.titulos.length === 0 && (
+              <div className="rounded-md border px-4 py-6 text-center text-sm text-muted-foreground">
+                Sem títulos em aberto.
+              </div>
+            )}
+          </div>
+
+          <div className="hidden min-h-0 flex-1 overflow-auto rounded-md border md:block">
             <Table>
               <TableHeader>
                 <TableRow>
