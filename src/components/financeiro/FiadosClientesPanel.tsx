@@ -143,6 +143,24 @@ export function FiadosClientesPanel({ receber, loading }: Props) {
     return "Em aberto";
   };
 
+  // Mesmo handler para a linha da tabela (>= md) e para o card (< md).
+  const abrirCliente = (g: ClienteAgrupado) => setClienteAberto(g);
+
+  const mensagemVazia = busca
+    ? "Nenhum cliente encontrado para a busca."
+    : "Nenhum cliente com fiado em aberto.";
+
+  const renderStatusBadge = (g: ClienteAgrupado) => {
+    const st = statusGrupo(g);
+    return (
+      <Badge
+        variant={st === "Vencido" ? "destructive" : st === "Parcial" ? "secondary" : "outline"}
+      >
+        {st}
+      </Badge>
+    );
+  };
+
   return (
     <div className="space-y-4">
       {/* Resumo */}
@@ -193,8 +211,79 @@ export function FiadosClientesPanel({ receber, loading }: Props) {
         />
       </div>
 
-      {/* Lista */}
-      <Card>
+      {/* Lista — cards no celular (< md); tabela a partir de md */}
+      <div className="space-y-2 md:hidden">
+        {loading && (
+          <Card>
+            <CardContent className="px-4 py-8 text-center text-sm text-muted-foreground">
+              Carregando...
+            </CardContent>
+          </Card>
+        )}
+        {!loading && filtrados.length === 0 && (
+          <Card>
+            <CardContent className="px-4 py-8 text-center text-sm text-muted-foreground">
+              {mensagemVazia}
+            </CardContent>
+          </Card>
+        )}
+        {filtrados.map((g) => (
+          <button
+            key={g.cliente_id}
+            type="button"
+            onClick={() => abrirCliente(g)}
+            className="block w-full rounded-lg border border-border/70 bg-card p-4 text-left shadow-sm transition-colors active:bg-muted/60"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <p className="min-w-0 break-words text-base font-semibold leading-snug">{g.nome}</p>
+              <div className="flex shrink-0 items-center gap-1">
+                {renderStatusBadge(g)}
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              </div>
+            </div>
+
+            <div className="mt-3 flex items-end justify-between gap-3">
+              <div>
+                <p className="text-xs text-muted-foreground">Em aberto</p>
+                <p className="font-mono text-xl font-semibold tabular-nums text-warning">
+                  {formatBRL(g.totalAberto)}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-muted-foreground">Pago</p>
+                <p className="font-mono text-sm tabular-nums text-muted-foreground">
+                  {formatBRL(g.totalPago)}
+                </p>
+              </div>
+            </div>
+
+            <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 border-t border-border/60 pt-3 text-xs">
+              <div>
+                <dt className="text-muted-foreground">Títulos</dt>
+                <dd className="font-medium">{g.qtdTitulos}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Última compra</dt>
+                <dd className="font-medium">{formatDateBR(g.ultimaCompra)}</dd>
+              </div>
+              {g.telefone && (
+                <div>
+                  <dt className="text-muted-foreground">Telefone</dt>
+                  <dd className="font-medium">{g.telefone}</dd>
+                </div>
+              )}
+              {g.documento && (
+                <div>
+                  <dt className="text-muted-foreground">CPF/CNPJ</dt>
+                  <dd className="break-all font-medium">{g.documento}</dd>
+                </div>
+              )}
+            </dl>
+          </button>
+        ))}
+      </div>
+
+      <Card className="hidden md:block">
         <CardContent className="p-0">
           <Table>
             <TableHeader>
@@ -221,19 +310,16 @@ export function FiadosClientesPanel({ receber, loading }: Props) {
               {!loading && filtrados.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
-                    {busca
-                      ? "Nenhum cliente encontrado para a busca."
-                      : "Nenhum cliente com fiado em aberto."}
+                    {mensagemVazia}
                   </TableCell>
                 </TableRow>
               )}
               {filtrados.map((g) => {
-                const st = statusGrupo(g);
                 return (
                   <TableRow
                     key={g.cliente_id}
                     className="cursor-pointer hover:bg-muted/40"
-                    onClick={() => setClienteAberto(g)}
+                    onClick={() => abrirCliente(g)}
                   >
                     <TableCell className="font-medium">{g.nome}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
@@ -250,19 +336,7 @@ export function FiadosClientesPanel({ receber, loading }: Props) {
                     </TableCell>
                     <TableCell className="text-center">{g.qtdTitulos}</TableCell>
                     <TableCell className="text-sm">{formatDateBR(g.ultimaCompra)}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={
-                          st === "Vencido"
-                            ? "destructive"
-                            : st === "Parcial"
-                              ? "secondary"
-                              : "outline"
-                        }
-                      >
-                        {st}
-                      </Badge>
-                    </TableCell>
+                    <TableCell>{renderStatusBadge(g)}</TableCell>
                     <TableCell>
                       <ChevronRight className="h-4 w-4 text-muted-foreground" />
                     </TableCell>
