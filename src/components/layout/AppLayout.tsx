@@ -139,7 +139,7 @@ function AppShell() {
       <div className="sticky top-0 z-40 shrink-0">
         <AssinaturaBanner />
         <div className="flex items-center bg-sidebar">
-          <div className="flex-1">
+          <div className="flex-1 max-lg:min-w-0">
             <AppMenubar activeModule={activeModule} onModuleSelect={setOverrideModule} />
           </div>
           {modoAtual && (
