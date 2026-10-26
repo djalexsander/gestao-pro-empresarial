@@ -36,7 +36,13 @@ import {
 import { PrinterPickerDialog } from "@/components/desktop/PrinterPickerDialog";
 import { subscribeDesktopConfig } from "@/integrations/desktop/configStore";
 import { formatarResumoPerfil, type PerfilBobina } from "@/lib/etiqueta-layout";
-import { quebrarTexto, renderizarFolhas, type CelulaRenderContext } from "@/lib/etiqueta-render";
+import {
+  calcularGeometriaCodigoBarras,
+  desenharCodigoBarras,
+  quebrarTexto,
+  renderizarFolhas,
+  type CelulaRenderContext,
+} from "@/lib/etiqueta-render";
 
 interface EtiquetaImpressaoDialogProps {
   open: boolean;
@@ -421,33 +427,50 @@ async function desenharConteudoProduto(
   const showNome = mostrarNome && !!produto.nome;
   const showPreco = mostrarPreco && produto.preco != null;
 
-  const nomeFontPx = showNome ? Math.max(mm(2.2), Math.min(mm(3.6), innerH * 0.13)) : 0;
-  const precoFontPx = showPreco ? Math.max(mm(3.6), Math.min(mm(7.5), innerH * 0.28)) : 0;
+  // Nome: resolve a quebra ANTES de reservar a faixa. PREFERE 1 linha,
+  // reduzindo a fonte (quebrarTexto); só vai para 2 linhas quando 1 linha
+  // ficaria pequena demais (< ~2,2 mm) — assim o código de barras não perde
+  // altura à toa. A faixa do nome é dimensionada pelo resultado real: o que
+  // sobrar de altura fica para o código.
+  const NOME_LINE_H = 1.15;
+  let nomeLinhas: string[] = [];
+  let nomeFontPx = 0;
+  if (showNome) {
+    const tetoNomeFont = Math.max(mm(2.0), Math.min(mm(3.4), innerH * 0.12));
+    const fontCss = `bold ${Math.round(tetoNomeFont)}px Arial, sans-serif`;
+    let quebra = quebrarTexto(ctx, produto.nome, innerW, fontCss, 1);
+    if (quebra.fontPx < mm(2.2)) {
+      const duas = quebrarTexto(ctx, produto.nome, innerW, fontCss, 2);
+      if (duas.lines.length === 2 && duas.fontPx > quebra.fontPx) quebra = duas;
+    }
+    nomeLinhas = quebra.lines;
+    nomeFontPx = quebra.fontPx;
+  }
 
-  const nomeAreaH = showNome ? nomeFontPx * 1.2 : 0;
-  const precoAreaH = showPreco ? precoFontPx * 1.25 : 0;
+  // Preço: leve redução do teto (7,5 -> 6,6 mm) e da folga (1,25 -> 1,18)
+  // para devolver ~1,5 mm de altura ao código de barras. O valor continua
+  // sendo o maior texto da etiqueta.
+  const precoFontPx = showPreco ? Math.max(mm(3.6), Math.min(mm(6.6), innerH * 0.24)) : 0;
+
+  const nomeAreaH = showNome
+    ? Math.min(nomeLinhas.length * nomeFontPx * NOME_LINE_H, innerH * 0.33)
+    : 0;
+  const precoAreaH = showPreco ? precoFontPx * 1.18 : 0;
 
   const gapNomeBarcode = showNome ? mm(0.3) : 0;
-  const gapBarcodePreco = showPreco ? mm(0.8) : 0;
+  const gapBarcodePreco = showPreco ? mm(0.6) : 0;
 
   const barcodeAreaY = originY + padY + nomeAreaH + gapNomeBarcode;
   const barcodeAreaH = innerH - nomeAreaH - precoAreaH - gapNomeBarcode - gapBarcodePreco;
 
   if (showNome) {
-    const quebra = quebrarTexto(
-      ctx,
-      produto.nome,
-      innerW,
-      `bold ${Math.round(nomeFontPx)}px Arial, sans-serif`,
-      1,
-    );
-    ctx.font = `bold ${quebra.fontPx}px Arial, sans-serif`;
+    ctx.font = `bold ${nomeFontPx}px Arial, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
-    const totalH = quebra.lines.length * quebra.fontPx * 1.05;
+    const totalH = nomeLinhas.length * nomeFontPx * NOME_LINE_H;
     const startY = originY + padY + Math.max(0, (nomeAreaH - totalH) / 2);
-    quebra.lines.forEach((ln, i) => {
-      ctx.fillText(ln, originX + W / 2, startY + i * quebra.fontPx * 1.05, innerW);
+    nomeLinhas.forEach((ln, i) => {
+      ctx.fillText(ln, originX + W / 2, startY + i * nomeFontPx * NOME_LINE_H, innerW);
     });
   }
 
@@ -468,43 +491,34 @@ async function desenharConteudoProduto(
     }
   }
 
-  const barcodeFrac = celula.larguraMm <= 30 ? 0.72 : 0.8;
-  const bcAreaW = qrCanvas ? innerW - qrSize - mm(1.5) : innerW * barcodeFrac;
+  // Área horizontal do código: TODA a largura útil quando não há QR — a zona
+  // de silêncio é reservada DENTRO dela (nas margens do JsBarcode), não
+  // descontando uma fração fixa "no olho".
+  const bcAreaW = qrCanvas ? innerW - qrSize - mm(1.5) : innerW;
   const barcodeFmt = validarEan13(produto.codigo) ? "EAN13" : "CODE128";
-  const bcCanvas = document.createElement("canvas");
-  const targetModules = barcodeFmt === "EAN13" ? 113 : 140;
-  const barWidth = Math.max(1, Math.floor(bcAreaW / targetModules));
-  const bcHeightPx = Math.max(mm(4), Math.min(barcodeAreaH * 0.5, mm(14)));
-  const bcFontSize = Math.max(
-    9,
-    Math.min(Math.round(mm(2.0)), Math.round(precoFontPx * 0.45) || 999),
-  );
 
-  try {
-    JsBarcode(bcCanvas, produto.codigo, {
-      format: barcodeFmt,
-      width: barWidth,
-      height: Math.round(bcHeightPx),
-      displayValue: true,
-      margin: 0,
-      fontSize: bcFontSize,
-      textMargin: Math.max(1, Math.round(mm(0.4))),
-      background: "#ffffff",
-      lineColor: "#000000",
+  const bcTextMarginDots = Math.round(mm(0.4));
+  if (barcodeAreaH > 0 && bcAreaW > 0) {
+    const geo = calcularGeometriaCodigoBarras({
+      larguraDisponivelDots: bcAreaW,
+      alturaDisponivelDots: barcodeAreaH,
+      dpi,
+      formato: barcodeFmt,
+      qtdCaracteres: produto.codigo.length,
+      textMarginDots: bcTextMarginDots,
     });
-  } catch {
-    // Mantém o canvas em branco para não quebrar layout.
-  }
-
-  if (bcCanvas.width > 0 && bcCanvas.height > 0 && barcodeAreaH > 0) {
-    const scale = Math.min(bcAreaW / bcCanvas.width, barcodeAreaH / bcCanvas.height);
-    const dw = Math.floor(bcCanvas.width * scale);
-    const dh = Math.floor(bcCanvas.height * scale);
     const areaX = qrCanvas ? originX + padX : originX + padX + (innerW - bcAreaW) / 2;
-    const dx = Math.round(areaX + (bcAreaW - dw) / 2);
-    const dy = Math.round(barcodeAreaY + (barcodeAreaH - dh) / 2);
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(bcCanvas, dx, dy, dw, dh);
+    desenharCodigoBarras({
+      ctx,
+      codigo: produto.codigo,
+      formato: barcodeFmt,
+      geometria: geo,
+      areaXDots: areaX,
+      areaYDots: barcodeAreaY,
+      areaLarguraDots: bcAreaW,
+      areaAlturaDots: barcodeAreaH,
+      textMarginDots: bcTextMarginDots,
+    });
   }
 
   if (qrCanvas) {

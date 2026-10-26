@@ -11,6 +11,8 @@
  * centralizada aqui.
  */
 
+import JsBarcode from "jsbarcode";
+
 import {
   calcularGrade,
   mmParaDots,
@@ -202,38 +204,218 @@ export function quebrarTexto(
   maxLinhas: number,
 ): { lines: string[]; fontPx: number } {
   const match = /(\d+(?:\.\d+)?)px/.exec(fontCss);
-  let fontPx = match ? Number(match[1]) : 16;
   const baseFamily = fontCss.replace(/\d+(?:\.\d+)?px/, "FX");
+  const aplicarFonte = (px: number) => {
+    ctx.font = baseFamily.replace("FX", `${Math.round(px)}px`);
+  };
 
-  for (let tentativa = 0; tentativa < 6; tentativa++) {
-    ctx.font = baseFamily.replace("FX", `${Math.round(fontPx)}px`);
+  // Tenta caber o texto INTEIRO em <= maxLinhas, reduzindo a fonte a cada
+  // tentativa. Só cai para reticências quando nem na menor fonte testada o
+  // texto coube sem descartar palavras — nunca "some" com o fim do nome.
+  let fontPx = match ? Number(match[1]) : 16;
+  for (let tentativa = 0; tentativa < 8; tentativa++) {
+    aplicarFonte(fontPx);
     const palavras = texto.split(/\s+/).filter(Boolean);
     const linhas: string[] = [];
     let atual = "";
     for (const p of palavras) {
       const probe = atual ? `${atual} ${p}` : p;
-      if (ctx.measureText(probe).width <= maxWidth) {
+      // `!atual` garante que uma palavra sozinha maior que maxWidth ainda
+      // entre numa linha (será detectada como "não coube" logo abaixo).
+      if (!atual || ctx.measureText(probe).width <= maxWidth) {
         atual = probe;
       } else {
-        if (atual) linhas.push(atual);
+        linhas.push(atual);
         atual = p;
-        if (linhas.length >= maxLinhas) break;
       }
     }
-    if (atual && linhas.length < maxLinhas) linhas.push(atual);
+    if (atual) linhas.push(atual);
 
-    const couberam =
+    const coube =
       linhas.length > 0 &&
       linhas.length <= maxLinhas &&
       linhas.every((l) => ctx.measureText(l).width <= maxWidth);
-    if (couberam) return { lines: linhas, fontPx: Math.round(fontPx) };
+    if (coube) return { lines: linhas, fontPx: Math.round(fontPx) };
     fontPx *= 0.9;
   }
 
-  ctx.font = baseFamily.replace("FX", `${Math.round(fontPx)}px`);
+  // Último recurso: 1 linha truncada com reticências, na menor fonte testada.
+  aplicarFonte(fontPx);
   let s = texto;
   while (s.length > 1 && ctx.measureText(`${s}…`).width > maxWidth) {
     s = s.slice(0, -1);
   }
   return { lines: [s + "…"], fontPx: Math.round(fontPx) };
+}
+
+/* ========================================================================== */
+/* Código de barras — geometria + desenho compartilhados                       */
+/* -------------------------------------------------------------------------- */
+/* O código é gerado pelo JsBarcode JÁ no tamanho final (módulos inteiros +    */
+/* zona de silêncio real) e desenhado 1:1 no canvas da etiqueta. Nunca é um    */
+/* raster pequeno esticado depois — isso preservava proporção ruim e barras    */
+/* borradas na térmica.                                                        */
+/* ========================================================================== */
+
+export type FormatoCodigoBarras = "EAN13" | "CODE128";
+
+/**
+ * Geometria de um código de barras dentro de uma área da etiqueta, tudo em
+ * dots (px na resolução de impressão). Os campos alimentam diretamente as
+ * opções do JsBarcode (`width`, `height`, `marginLeft/Right`, `fontSize`).
+ */
+export interface GeometriaCodigoBarras {
+  /** Largura de 1 módulo (barra fina), em dots. Inteiro, >= 2. */
+  moduloDots: number;
+  /** Zona de silêncio à esquerda, em dots. */
+  margemEsquerdaDots: number;
+  /** Zona de silêncio à direita, em dots. */
+  margemDireitaDots: number;
+  /** Altura das barras, em dots. */
+  alturaBarrasDots: number;
+  /** Corpo da fonte do número sob as barras, em dots. */
+  fonteNumeroDots: number;
+  /** Largura total prevista do canvas gerado (barras + zonas de silêncio). */
+  larguraTotalDots: number;
+  /** Altura total prevista do canvas gerado (barras + número). */
+  alturaTotalDots: number;
+}
+
+// EAN-13 no JsBarcode (não-flat): 12 módulos da área do 1º dígito + 95 do
+// símbolo guardado. Zona de silêncio: a área do 1º dígito já cobre boa parte
+// da esquerda (spec: 11 módulos); reforçamos 2. À direita a spec pede >= 7 —
+// hoje era 0. Usamos 9 para folga de leitura.
+const EAN13_MODULOS_SIMBOLO = 107;
+const EAN13_QZ_ESQUERDA_MODULOS = 2;
+const EAN13_QZ_DIREITA_MODULOS = 9;
+// CODE128: largura varia com o dado (~11 módulos/char + start+checksum+stop+
+// margem). Estimativa conservadora; zona de silêncio de 10 módulos por lado.
+const CODE128_MODULOS_FIXOS = 35;
+const CODE128_MODULOS_POR_CHAR = 11;
+const CODE128_QZ_MODULOS = 10;
+
+/**
+ * Calcula a maior geometria de código de barras que cabe em `larguraDisponivelDots`
+ * SEM reescala raster: escolhe o maior `moduloDots` inteiro tal que
+ * `(símbolo + zona de silêncio) * moduloDots <= larguraDisponivelDots`, com
+ * piso de 2 dots/módulo (mínimo confiável para leitura em ~203 dpi).
+ *
+ * A altura das barras ocupa quase toda a área vertical disponível (menos o
+ * espaço do número), com teto de 22 mm e piso de 6 mm. A fonte do número
+ * respeita o limite do JsBarcode para EAN (`width * 10`).
+ */
+export function calcularGeometriaCodigoBarras(opts: {
+  larguraDisponivelDots: number;
+  alturaDisponivelDots: number;
+  dpi: number;
+  formato: FormatoCodigoBarras;
+  /** Nº de caracteres do dado — usado só para estimar a largura do CODE128. */
+  qtdCaracteres: number;
+  /** `textMargin` que será passado ao JsBarcode (default ~0.4 mm). */
+  textMarginDots?: number;
+}): GeometriaCodigoBarras {
+  const { larguraDisponivelDots, alturaDisponivelDots, dpi, formato } = opts;
+  const mm = (v: number) => (v / 25.4) * dpi;
+  const textMarginDots = Math.max(1, Math.round(opts.textMarginDots ?? mm(0.4)));
+
+  const ean = formato === "EAN13";
+  const modulosSimbolo = ean
+    ? EAN13_MODULOS_SIMBOLO
+    : CODE128_MODULOS_FIXOS + Math.max(1, Math.round(opts.qtdCaracteres)) * CODE128_MODULOS_POR_CHAR;
+  const qzEsqModulos = ean ? EAN13_QZ_ESQUERDA_MODULOS : CODE128_QZ_MODULOS;
+  const qzDirModulos = ean ? EAN13_QZ_DIREITA_MODULOS : CODE128_QZ_MODULOS;
+  const modulosTotais = modulosSimbolo + qzEsqModulos + qzDirModulos;
+
+  const moduloDots = Math.max(
+    2,
+    Math.floor(Math.max(1, larguraDisponivelDots) / modulosTotais),
+  );
+
+  const margemEsquerdaDots = qzEsqModulos * moduloDots;
+  const margemDireitaDots = qzDirModulos * moduloDots;
+  const larguraTotalDots = modulosSimbolo * moduloDots + margemEsquerdaDots + margemDireitaDots;
+
+  // JsBarcode limita a fonte do EAN a `width * 10` — respeitamos para não
+  // "brigar" com a lib e acabar com o canvas maior que o previsto.
+  const fonteNumeroDots = Math.min(
+    moduloDots * 10,
+    Math.max(mm(2), Math.min(mm(3), alturaDisponivelDots * 0.18)),
+  );
+  // Espaço vertical fora das barras (número + folga do guard bar do EAN).
+  // Medido do JsBarcode: overhead_v ~= fontSize*1.5 + textMargin*2 + ~8 (EAN).
+  // Usamos 1.7 + folga para GARANTIR que o canvas gerado caiba na área sem
+  // reescala — downscale de barras prontas gera módulos irregulares.
+  const espacoNumeroDots = ean
+    ? fonteNumeroDots * 1.7 + textMarginDots * 2 + mm(0.9)
+    : fonteNumeroDots * 1.3 + textMarginDots + mm(0.6);
+
+  const alturaBarrasDots = Math.max(
+    mm(6),
+    Math.min(Math.max(1, alturaDisponivelDots) - espacoNumeroDots, mm(22)),
+  );
+
+  return {
+    moduloDots,
+    margemEsquerdaDots,
+    margemDireitaDots,
+    alturaBarrasDots,
+    fonteNumeroDots,
+    larguraTotalDots,
+    alturaTotalDots: alturaBarrasDots + espacoNumeroDots,
+  };
+}
+
+/**
+ * Gera o código com o JsBarcode NA geometria calculada e o desenha centralizado
+ * na área alvo. Desenha 1:1; só reduz (nunca amplia) se a medição real da fonte
+ * fizer o canvas passar do alvo. Retorna as dimensões efetivamente desenhadas.
+ */
+export function desenharCodigoBarras(opts: {
+  ctx: CanvasRenderingContext2D;
+  codigo: string;
+  formato: FormatoCodigoBarras;
+  geometria: GeometriaCodigoBarras;
+  /** Retângulo alvo (dots) onde o código é centralizado. */
+  areaXDots: number;
+  areaYDots: number;
+  areaLarguraDots: number;
+  areaAlturaDots: number;
+  textMarginDots?: number;
+}): { larguraDesenhadaDots: number; alturaDesenhadaDots: number } {
+  const { ctx, codigo, formato, geometria: g } = opts;
+  const vazio = { larguraDesenhadaDots: 0, alturaDesenhadaDots: 0 };
+
+  const bc = document.createElement("canvas");
+  try {
+    JsBarcode(bc, codigo, {
+      format: formato,
+      width: g.moduloDots,
+      height: Math.max(1, Math.round(g.alturaBarrasDots)),
+      displayValue: true,
+      marginTop: 0,
+      marginBottom: 0,
+      marginLeft: Math.round(g.margemEsquerdaDots),
+      marginRight: Math.round(g.margemDireitaDots),
+      fontSize: Math.max(8, Math.round(g.fonteNumeroDots)),
+      textMargin: Math.max(1, Math.round(opts.textMarginDots ?? 2)),
+      background: "#ffffff",
+      lineColor: "#000000",
+    });
+  } catch {
+    return vazio;
+  }
+  if (bc.width === 0 || bc.height === 0) return vazio;
+
+  const escala = Math.min(
+    1,
+    opts.areaLarguraDots / bc.width,
+    opts.areaAlturaDots / bc.height,
+  );
+  const dw = Math.max(1, Math.round(bc.width * escala));
+  const dh = Math.max(1, Math.round(bc.height * escala));
+  const dx = Math.round(opts.areaXDots + (opts.areaLarguraDots - dw) / 2);
+  const dy = Math.round(opts.areaYDots + (opts.areaAlturaDots - dh) / 2);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(bc, dx, dy, dw, dh);
+  return { larguraDesenhadaDots: dw, alturaDesenhadaDots: dh };
 }
