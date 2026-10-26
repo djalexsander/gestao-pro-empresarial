@@ -25,7 +25,7 @@ export function MobileNavSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="left" className="w-[300px] bg-sidebar p-0 text-sidebar-foreground">
+      <SheetContent side="left" className="w-[300px] bg-sidebar p-0 pt-safe text-sidebar-foreground">
         <div className="flex h-12 items-center border-b border-sidebar-border px-4">
           <p className="text-sm font-semibold">Navegação</p>
         </div>

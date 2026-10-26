@@ -134,9 +134,9 @@ function AppShell() {
   }, [navigate, clearModo]);
 
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden bg-background">
+    <div className="flex h-app w-full flex-col overflow-hidden bg-background">
       {/* Topo fixo: banner + menubar + toolbar */}
-      <div className="sticky top-0 z-40 shrink-0">
+      <div className="sticky top-0 z-40 shrink-0 bg-sidebar pt-safe px-safe">
         <AssinaturaBanner />
         <div className="flex items-center bg-sidebar">
           <div className="flex-1 max-lg:min-w-0">
@@ -176,9 +176,9 @@ function AppShell() {
       </div>
 
       {/* Área inferior: sidebar fixa + conteúdo rolável */}
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 px-safe">
         <ContextSidebar activeModule={activeModule} />
-        <main className="min-w-0 flex-1 overflow-y-auto bg-background px-4 py-6 sm:px-6 lg:px-8">
+        <main className="min-w-0 flex-1 overflow-y-auto bg-background px-4 py-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:px-6 lg:px-8">
           <Outlet />
         </main>
       </div>
