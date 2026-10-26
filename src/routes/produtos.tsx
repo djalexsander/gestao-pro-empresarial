@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useCategorias, useDeleteProduto, useProdutos } from "@/hooks/useProdutos";
 import { useEstoqueSaldos } from "@/hooks/useEstoque";
+import { produtoCorrespondeBusca } from "@/lib/produto-busca";
 import { ProdutoDialog } from "@/components/produtos/ProdutoDialog";
 import { EntradaPorCodigoDialog } from "@/components/scanner";
 import { EtiquetaImpressaoDialog } from "@/components/produtos/EtiquetaImpressaoDialog";
@@ -82,9 +83,10 @@ export function ProductsPage() {
   const [gruposAbertos, setGruposAbertos] = useState<Record<string, boolean>>({});
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
     return produtos.filter((p) => {
-      if (q && !p.nome.toLowerCase().includes(q) && !p.sku.toLowerCase().includes(q)) return false;
+      // Busca livre: nome, SKU, código interno e código de barras/EAN —
+      // mesmo conjunto de campos da busca manual do PDV (ver produto-busca.ts).
+      if (!produtoCorrespondeBusca(p, search)) return false;
       if (categoriaFilter !== "all" && p.categoria_id !== categoriaFilter) return false;
       if (statusFilter !== "all" && p.status !== statusFilter) return false;
       return true;

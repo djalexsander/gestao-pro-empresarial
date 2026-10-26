@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/table";
 import { useProdutos } from "@/hooks/useProdutos";
 import { useEstoqueSaldos, useMovimentacoes } from "@/hooks/useEstoque";
+import { produtoCorrespondeBusca } from "@/lib/produto-busca";
 import { MovimentacaoDialog } from "@/components/estoque/MovimentacaoDialog";
 import { EntradaPorCodigoDialog } from "@/components/scanner";
 
@@ -73,11 +74,10 @@ export function StockPage() {
   }, [produtos, saldos]);
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((i) =>
-      i.nome.toLowerCase().includes(q) || i.sku.toLowerCase().includes(q)
-    );
+    if (!search.trim()) return items;
+    // Busca livre: nome, SKU, código interno e código de barras/EAN —
+    // mesmo conjunto de campos da busca manual do PDV (ver produto-busca.ts).
+    return items.filter((i) => produtoCorrespondeBusca(i, search));
   }, [items, search]);
 
   // Filtro + agrupamento por dia das movimentações

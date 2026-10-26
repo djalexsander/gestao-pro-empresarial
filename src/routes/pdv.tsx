@@ -101,6 +101,7 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatBRL } from "@/lib/mock-data";
+import { produtoCorrespondeBusca } from "@/lib/produto-busca";
 
 export const Route = createFileRoute("/pdv")({
   head: () => ({
@@ -971,18 +972,12 @@ function PDVPage() {
   }
 
   // ============ Busca manual ============
+  // Mesmo predicado (nome, SKU, código interno, código de barras) usado pelas
+  // telas Operacional -> Produtos / Estoque — ver src/lib/produto-busca.ts.
   const filteredProdutos = useMemo(() => {
-    const q = manualQuery.trim().toLowerCase();
-    if (!q) return produtos.slice(0, 25);
+    if (!manualQuery.trim()) return produtos.slice(0, 25);
     return produtos
-      .filter((p) => {
-        return (
-          p.nome.toLowerCase().includes(q) ||
-          p.sku.toLowerCase().includes(q) ||
-          (p.codigo_barras ?? "").toLowerCase().includes(q) ||
-          (p.codigo_interno ?? "").toLowerCase().includes(q)
-        );
-      })
+      .filter((p) => produtoCorrespondeBusca(p, manualQuery))
       .slice(0, 50);
   }, [produtos, manualQuery]);
 
