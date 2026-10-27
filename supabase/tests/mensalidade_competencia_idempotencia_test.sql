@@ -757,18 +757,17 @@ SELECT is((SELECT data_expiracao FROM public.empresa_modulos WHERE empresa_id = 
   DATE '2025-03-01', 'H5: o pagamento duplicado nao renova modulo algum');
 SELECT is(pg_temp.st(4), 'exp=2025-03-10 ancora=10', 'H5: nem a assinatura');
 
--- H6: pagamento inexistente e bug pre-existente do modulo avulso: respostas inalteradas.
+-- H6: pagamento inexistente e modulo avulso sem itens.
 SELECT is(
   public.confirmar_pagamento_asaas('d6400000-0000-4000-8000-0000000000ff'::uuid, DATE '2025-01-31', 'PIX'),
   jsonb_build_object('ok', false, 'erro', 'pagamento_nao_encontrado'),
   'H6: pagamento inexistente: resposta inalterada');
 INSERT INTO public.pagamentos (id, empresa_id, referencia_tipo, modulo_id, descricao, valor, status)
 VALUES ('d6400000-0000-4000-8000-000000000006', pg_temp.emp(40), 'modulo', 'd6900000-0000-4000-8000-000000000001', 'Contratacao solicitada: modulo', 30, 'pendente');
-SELECT throws_ok(
+SELECT lives_ok(
   $$ SELECT public.confirmar_pagamento_asaas('d6400000-0000-4000-8000-000000000006'::uuid, DATE '2025-01-31', 'PIX') $$,
-  '55000', 'record "_plano" is not assigned yet',
-  'H6: LEGADO PRESERVADO (bug pre-existente do modulo avulso sem itens): continua falhando como antes; modulos fora de escopo');
-SELECT is((SELECT status::text FROM public.pagamentos WHERE id = 'd6400000-0000-4000-8000-000000000006'), 'pendente', 'H6: e a falha reverte tudo');
+  'H6: modulo avulso sem itens confirma (20261027130000 corrigiu o record _plano nao atribuido)');
+SELECT is((SELECT status::text FROM public.pagamentos WHERE id = 'd6400000-0000-4000-8000-000000000006'), 'pago', 'H6: e o pagamento fica pago');
 
 SELECT * FROM finish();
 ROLLBACK;

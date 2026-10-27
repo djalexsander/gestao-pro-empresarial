@@ -778,22 +778,32 @@ SELECT is(
   'modulo sem plano valido: fallback CURRENT_DATE + 30 dias PRESERVADO (fora do escopo desta etapa)'
 );
 
--- H6: BUG PRE-EXISTENTE, PRESERVADO DE PROPOSITO. Modulo avulso (referencia_tipo
--- = modulo, SEM itens, como solicitar_contratacao_modulo cria) nunca atribui
--- _plano e o RPC falha em `IF _plano.id IS NOT NULL`. Corrigir mudaria o
--- comportamento de modulos (fora do escopo); este teste apenas impede que a
--- mudanca aconteca sem querer. Se o bug for corrigido, ajuste este teste.
+-- H6: modulo avulso (referencia_tipo = modulo, SEM itens, como solicitar_contratacao_modulo cria).
+-- Antes de 20261027130000 o RPC falhava com 55000 (record "_plano" is not assigned yet) e o modulo
+-- pago nunca ativava. Agora confirma, ativa SO o modulo e nao toca na assinatura.
+CREATE TEMP TABLE _h6_ass ON COMMIT DROP AS
+SELECT to_jsonb(a) AS j FROM public.empresa_assinaturas a WHERE a.empresa_id = pg_temp.emp(69);
 INSERT INTO public.pagamentos (id, empresa_id, referencia_tipo, modulo_id, descricao, valor, status)
 VALUES ('d5400000-0000-4000-8000-000000000006', pg_temp.emp(69), 'modulo', 'd5900000-0000-4000-8000-000000000001', 'Contratacao solicitada: modulo', 30, 'pendente');
-SELECT throws_ok(
+SELECT lives_ok(
   $$ SELECT public.confirmar_pagamento_asaas('d5400000-0000-4000-8000-000000000006'::uuid, DATE '2025-01-31', 'PIX') $$,
-  '55000', 'record "_plano" is not assigned yet',
-  'LEGADO PRESERVADO (bug pre-existente): modulo avulso sem itens continua falhando ao confirmar, exatamente como antes'
+  'H6: modulo avulso sem itens confirma sem erro'
 );
 SELECT is(
   (SELECT status::text FROM public.pagamentos WHERE id = 'd5400000-0000-4000-8000-000000000006'),
-  'pendente',
-  'e a falha reverte tudo: o pagamento continua pendente'
+  'pago',
+  'H6: o pagamento do modulo avulso fica pago'
+);
+SELECT is(
+  (SELECT status::text FROM public.empresa_modulos
+    WHERE empresa_id = pg_temp.emp(69) AND modulo_id = 'd5900000-0000-4000-8000-000000000001'),
+  'ativo',
+  'H6: o modulo pago e ativado'
+);
+SELECT is(
+  (SELECT to_jsonb(a) FROM public.empresa_assinaturas a WHERE a.empresa_id = pg_temp.emp(69)),
+  (SELECT j FROM _h6_ass),
+  'H6: a assinatura nao e alterada pelo pagamento de modulo avulso'
 );
 
 -- H7: valor efetivamente pago (item de 100) prevalece sobre o preco de catalogo do plano B (200).

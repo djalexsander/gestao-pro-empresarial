@@ -686,6 +686,8 @@ function ModuloMiniCard({
 
   const liberado = estado?.liberado ?? false;
   const origem = estado?.origem;
+  // Módulo contratado com a vigência vencida: renova pela mensalidade, não por cobrança avulsa.
+  const vencidoNaMensalidade = !liberado && modulo.status === "ativo";
 
   let badge: { label: string; tone: string } = {
     label: "Disponível",
@@ -705,6 +707,11 @@ function ModuloMiniCard({
     badge = {
       label: "Incluso",
       tone: "border-primary/40 text-primary",
+    };
+  } else if (vencidoNaMensalidade) {
+    badge = {
+      label: "Vencido",
+      tone: "border-amber-400/40 text-amber-700 dark:text-amber-300",
     };
   } else if (modulo.status === "pendente") {
     badge = {
@@ -748,6 +755,10 @@ function ModuloMiniCard({
                 ? "Sempre liberado"
                 : "Contratado"}
           </div>
+        ) : vencidoNaMensalidade ? (
+          <p className="text-xs text-muted-foreground">
+            Já faz parte da sua mensalidade. Para renovar, pague a mensalidade.
+          </p>
         ) : modulo.status === "pendente" ? (
           <p className="text-xs text-muted-foreground">
             Aguardando confirmação do pagamento.
